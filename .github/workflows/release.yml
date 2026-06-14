@@ -44,6 +44,9 @@ jobs:
       - name: Run packaged self-test
         run: .\dist\CacheVault.exe --selftest
 
+      - name: Verify packaged exe metadata
+        run: python tools/verify_exe_metadata.py --exe dist/CacheVault.exe
+
       - name: Package release artifacts
         run: pwsh packaging/package_release.ps1 -Tag $env:RELEASE_TAG
 

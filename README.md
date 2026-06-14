@@ -82,7 +82,9 @@ pwsh packaging\build_exe.ps1     # -> dist\CacheVault.exe (one-file, windowed)
 ```
 
 The build bundles CustomTkinter's theme assets. Verify the build headlessly
-with `dist\CacheVault.exe --selftest`.
+with `dist\CacheVault.exe --selftest`. The packaged exe also stamps Windows
+file/product metadata from the source version; verify it with
+`python tools\verify_exe_metadata.py --exe dist\CacheVault.exe`.
 
 ## First run
 
@@ -199,7 +201,7 @@ auto-paste behaviour are configurable in Settings; the hotkey re-registers
 live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
 dedicated message-loop thread (requires pywin32).
 
-## Honest scope & limitations (MVP v0.1.0)
+## Honest scope & limitations (MVP v0.1.2)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,

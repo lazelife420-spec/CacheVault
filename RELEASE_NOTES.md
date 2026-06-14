@@ -1,24 +1,11 @@
-# Cache Vault v0.1.1
+# Cache Vault v0.1.2
 
-Cache Vault v0.1.1 proves the automated release lane.
+Cache Vault v0.1.2 hardens the Windows packaging trust surface without
+changing product scope.
 
-This release keeps the shipped MVP intact and verifies that the tag-driven
-GitHub Actions path can test, package, checksum, verify, and publish the
-Windows artifact automatically.
-
-Proof:
-- Commit: 489612124cc5369fd2fb07e5ec32d1ea3d9ae121
-- Release workflow run: 27513716686 success
-- Unit tests passed
-- Headless self-test passed
-- Asset verification passed
-- Packaged exe build passed
-- Packaged exe self-test passed
-- Zip packaging passed
-- SHA256SUMS.txt generated
-- Release artifact verification passed
-- GitHub Release created automatically
-
-Artifacts:
-- `CacheVault-v0.1.1-windows.zip`
-- `SHA256SUMS.txt`
+Planned highlights:
+- Windows file version and product metadata in the packaged exe
+- Version consistency across source, packaging metadata, README, and release notes
+- Exe metadata verification in local packaging checks and the release workflow
+- Clean-machine smoke checklist for extract, launch, tray, hotkey, startup, data path, and cleanup
+- Code-signing plan documented with no false SmartScreen trust claims

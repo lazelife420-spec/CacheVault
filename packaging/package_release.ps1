@@ -1,5 +1,5 @@
 # Package a built Cache Vault executable into release artifacts.
-#   pwsh packaging\package_release.ps1 -Tag v0.1.1
+#   pwsh packaging\package_release.ps1 -Tag v0.1.2
 #
 # Output:
 #   dist\release\<tag>\CacheVault-<tag>-windows.zip
