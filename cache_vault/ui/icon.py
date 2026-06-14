@@ -11,7 +11,7 @@ import os
 import sys
 
 try:  # pragma: no cover - optional dependency
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFont
     _HAS_PIL = True
 except Exception:  # noqa: BLE001
     _HAS_PIL = False
@@ -24,14 +24,29 @@ _ACCENT = (45, 212, 191, 255)        # teal-400
 _HUB = (153, 246, 228, 255)          # teal-200
 _DARK = (12, 18, 24, 255)
 _INNER_RING = (52, 211, 153, 130)    # emerald @ ~0.45 alpha
+_GOLD = (245, 173, 40, 255)          # cash-edition coin
+_GOLD_EDGE = (180, 83, 9, 255)
+_COIN_TEXT = (124, 45, 18, 255)
+
+
+def _load_font(size: int):
+    for name in ("georgiab.ttf", "arialbd.ttf", "seguisb.ttf"):
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:  # noqa: BLE001
+            continue
+    return ImageFont.load_default()
 
 
 def _lerp(a: int, b: int, t: float) -> int:
     return int(a + (b - a) * t)
 
 
-def render_icon(size: int = 256):
-    """Return an ``RGBA`` :class:`PIL.Image` of the icon at ``size`` px."""
+def render_icon(size: int = 256, cash: bool = False):
+    """Return an ``RGBA`` :class:`PIL.Image` of the icon at ``size`` px.
+
+    ``cash=True`` renders the cash edition: a gold ``$`` coin at the hub.
+    """
     if not _HAS_PIL:
         raise RuntimeError("Pillow is required to render the icon")
     ss = size * 4  # supersample
@@ -89,9 +104,23 @@ def render_icon(size: int = 256):
     ]:
         line(x1, y1, x2, y2, _HUB, s(4))
 
-    # Hub.
-    disc(128, 128, 17, _HUB)
-    disc(128, 128, 7, _DARK)
+    # Hub — teal dial, or gold $ coin for the cash edition.
+    if cash:
+        cr = s(31)
+        d.ellipse([cx - cr, cy - cr, cx + cr, cy + cr], fill=_GOLD,
+                  outline=_GOLD_EDGE, width=max(1, int(s(2))))
+        ir = s(25)
+        d.ellipse([cx - ir, cy - ir, cx + ir, cy + ir],
+                  outline=(255, 251, 235, 120), width=max(1, int(s(1.5))))
+        font = _load_font(int(s(46)))
+        glyph = "$"
+        bb = d.textbbox((0, 0), glyph, font=font)
+        gw, gh = bb[2] - bb[0], bb[3] - bb[1]
+        d.text((cx - gw / 2 - bb[0], cy - gh / 2 - bb[1]), glyph,
+               font=font, fill=_COIN_TEXT)
+    else:
+        disc(128, 128, 17, _HUB)
+        disc(128, 128, 7, _DARK)
 
     return img.resize((size, size), Image.LANCZOS)
 
