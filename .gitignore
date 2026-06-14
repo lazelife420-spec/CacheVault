@@ -10,3 +10,6 @@ venv/
 build/
 dist/
 *.egg-info/
+
+# Generated review artifact (regenerate with tools/verify_assets.py)
+assets/cache-vault-contact-sheet.png

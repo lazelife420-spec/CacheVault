@@ -18,9 +18,9 @@ except Exception:  # noqa: BLE001
 
 
 def _make_icon_image():
-    """The shared Cache Vault mark, rendered for the tray."""
-    from .icon import render_icon
-    return render_icon(64)
+    """The primary (teal) Cache Vault mark for the tray."""
+    from .icon import tray_image
+    return tray_image(64)
 
 
 class TrayController:

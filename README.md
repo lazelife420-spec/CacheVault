@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon.png" width="112" alt="Cache Vault icon">
+  <img src="assets/cache-vault-lockup.png" width="520" alt="Cache Vault — keep the cache worth keeping">
 </p>
 
 # Cache Vault™
@@ -16,20 +16,25 @@ the same trust standard.
 
 ## Brand assets
 
-The logo is a vault dial whose wheel-handle spokes also read as a clipboard
-clip, in an emerald→cyan ramp on a dark tile.
+The primary mark is a clean teal vault dial — a rim, four symmetric handle
+spokes, and a simple hub — on a dark rounded tile. It reads at 16–256 px. The
+gold-coin "cash edition" is an alternate marketing variant only and is **never**
+used for the app, tray, exe, or README header.
 
 | File | Use |
 |------|-----|
-| `assets/logo.svg` | full lockup (icon + wordmark + tagline), dark-mode aware |
-| `assets/icon.svg` | square app icon, self-contained |
-| `assets/icon.png` | 256px raster (README, docs) |
-| `assets/icon.ico` | multi-size Windows icon (window + tray + exe) |
+| `assets/cache-vault-icon.svg` | primary icon, source of truth |
+| `assets/cache-vault-icon-{16,24,32,48,128,256}.png` | raster sizes |
+| `assets/cache-vault-icon.ico` | multi-size Windows icon (window + tray + exe) |
+| `assets/cache-vault-lockup.svg` / `.png` | icon + wordmark + tagline banner |
+| `assets/variants/cache-vault-cash-edition.svg` / `.png` | alternate variant only |
 
-The PNG/ICO are generated from one renderer — regenerate after edits with:
+SVG is the source of truth. Regenerate the rasters and verify them with:
 
 ```powershell
-python tools\make_icon.py
+pip install svglib reportlab pillow
+python tools\build_assets.py     # SVG -> PNGs + multi-size ICO
+python tools\verify_assets.py    # checks files, ICO sizes, no-gold gate; contact sheet
 ```
 
 ## Trust doctrine

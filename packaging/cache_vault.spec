@@ -25,8 +25,11 @@ for pkg in ("customtkinter",):
 
 hiddenimports += ["pystray._win32", "PIL", "PIL.Image", "PIL.ImageDraw"]
 
-_icon = os.path.join(ROOT, "assets", "icon.ico")
-datas += [(_icon, "assets")]
+_icon = os.path.join(ROOT, "assets", "cache-vault-icon.ico")
+datas += [
+    (_icon, "assets"),
+    (os.path.join(ROOT, "assets", "cache-vault-icon-256.png"), "assets"),
+]
 
 a = Analysis(
     [os.path.join(ROOT, "app.py")],

@@ -1,0 +1,20 @@
+<svg width="540" height="180" viewBox="0 0 540 180" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Cache Vault lockup</title>
+<desc>Cache Vault horizontal lockup: the teal vault-door icon on the left, the Cache Vault wordmark, a teal accent bar, and the tagline on the right, on a dark banner.</desc>
+<rect x="0" y="0" width="540" height="180" rx="26" fill="#141d28"/>
+<g transform="translate(102,96) scale(0.69) translate(-128,-128)">
+<rect x="96" y="18" width="64" height="26" rx="10" fill="#2dd4bf"/>
+<circle cx="128" cy="128" r="66" fill="#0c121a"/>
+<g stroke="#2dd4bf" stroke-width="15" stroke-linecap="round">
+<line x1="97" y1="97" x2="62" y2="62"/>
+<line x1="159" y1="97" x2="194" y2="62"/>
+<line x1="97" y1="159" x2="62" y2="194"/>
+<line x1="159" y1="159" x2="194" y2="194"/>
+</g>
+<circle cx="128" cy="128" r="66" fill="none" stroke="#2dd4bf" stroke-width="15"/>
+<circle cx="128" cy="128" r="28" fill="#5eead4"/>
+</g>
+<text x="192" y="84" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="#f1f5f9">Cache Vault<tspan font-size="16" dy="-15" fill="#94a3b8">™</tspan></text>
+<rect x="194" y="98" width="38" height="4" rx="2" fill="#2dd4bf"/>
+<text x="192" y="128" font-family="Helvetica, Arial, sans-serif" font-size="17" fill="#cbd5e1">Keep the cache worth keeping.</text>
+</svg>

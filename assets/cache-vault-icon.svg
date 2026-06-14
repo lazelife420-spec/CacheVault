@@ -1,0 +1,15 @@
+<svg width="256" height="256" viewBox="0 0 256 256" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Cache Vault icon</title>
+<desc>A dark rounded-square icon: a clipboard clip on top of a teal circular vault door with four symmetric handle spokes and a solid center hub.</desc>
+<rect x="0" y="0" width="256" height="256" rx="56" fill="#141d28"/>
+<rect x="96" y="18" width="64" height="26" rx="10" fill="#2dd4bf"/>
+<circle cx="128" cy="128" r="66" fill="#0c121a"/>
+<g stroke="#2dd4bf" stroke-width="15" stroke-linecap="round">
+<line x1="97" y1="97" x2="62" y2="62"/>
+<line x1="159" y1="97" x2="194" y2="62"/>
+<line x1="97" y1="159" x2="62" y2="194"/>
+<line x1="159" y1="159" x2="194" y2="194"/>
+</g>
+<circle cx="128" cy="128" r="66" fill="none" stroke="#2dd4bf" stroke-width="15"/>
+<circle cx="128" cy="128" r="28" fill="#5eead4"/>
+</svg>
