@@ -18,13 +18,9 @@ except Exception:  # noqa: BLE001
 
 
 def _make_icon_image():
-    """A simple vault-ish glyph drawn at runtime (no asset files needed)."""
-    img = Image.new("RGB", (64, 64), (24, 26, 32))
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle([10, 10, 54, 54], radius=8, outline=(120, 200, 160), width=3)
-    d.ellipse([26, 26, 38, 38], outline=(120, 200, 160), width=3)
-    d.line([32, 32, 32, 48], fill=(120, 200, 160), width=3)
-    return img
+    """The shared Cache Vault mark, rendered for the tray."""
+    from .icon import render_icon
+    return render_icon(64)
 
 
 class TrayController:

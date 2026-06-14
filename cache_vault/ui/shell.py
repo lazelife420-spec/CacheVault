@@ -11,6 +11,8 @@ Layout::
 
 from __future__ import annotations
 
+import os
+
 import customtkinter as ctk
 
 from ..core import models, search
@@ -35,6 +37,7 @@ class CacheVaultApp(ctk.CTk):
         self.title("Cache Vault")
         self.geometry("1040x640")
         self.minsize(820, 480)
+        self._apply_window_icon()
 
         self._search_var = ctk.StringVar()
         self._search_job = None
@@ -111,6 +114,15 @@ class CacheVaultApp(ctk.CTk):
         self._preview = PreviewPanel(self, actions=self._build_actions(),
                                      corner_radius=0)
         self._preview.grid(row=1, column=2, sticky="nsew")
+
+    def _apply_window_icon(self) -> None:
+        from .icon import icon_ico_path
+        try:
+            path = icon_ico_path()
+            if os.path.exists(path):
+                self.iconbitmap(default=path)
+        except Exception:  # noqa: BLE001 - icon is cosmetic
+            pass
 
     def _build_actions(self) -> dict:
         return {

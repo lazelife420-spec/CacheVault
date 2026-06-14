@@ -25,6 +25,9 @@ for pkg in ("customtkinter",):
 
 hiddenimports += ["pystray._win32", "PIL", "PIL.Image", "PIL.ImageDraw"]
 
+_icon = os.path.join(ROOT, "assets", "icon.ico")
+datas += [(_icon, "assets")]
+
 a = Analysis(
     [os.path.join(ROOT, "app.py")],
     pathex=[ROOT],
@@ -52,4 +55,5 @@ exe = EXE(
     console=False,       # windowed app, no console
     disable_windowed_traceback=False,
     target_arch=None,
+    icon=_icon,
 )

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.png" width="112" alt="Cache Vault icon">
+</p>
+
 # Cache Vault™
 
 > Keep the cache worth keeping.
@@ -9,6 +13,24 @@ chaos becomes searchable value.
 
 It is part of the same product family as Cleanroom and Lights Out, and follows
 the same trust standard.
+
+## Brand assets
+
+The logo is a vault dial whose wheel-handle spokes also read as a clipboard
+clip, in an emerald→cyan ramp on a dark tile.
+
+| File | Use |
+|------|-----|
+| `assets/logo.svg` | full lockup (icon + wordmark + tagline), dark-mode aware |
+| `assets/icon.svg` | square app icon, self-contained |
+| `assets/icon.png` | 256px raster (README, docs) |
+| `assets/icon.ico` | multi-size Windows icon (window + tray + exe) |
+
+The PNG/ICO are generated from one renderer — regenerate after edits with:
+
+```powershell
+python tools\make_icon.py
+```
 
 ## Trust doctrine
 
