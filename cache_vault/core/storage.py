@@ -1,0 +1,356 @@
+"""SQLite repository for clips and the event log.
+
+The MVP stores clip ``content`` as plain text in a local database under
+``%LOCALAPPDATA%\\CacheVault``. The schema keeps a dedicated ``content``
+column so a future release can transparently wrap it in encryption without a
+migration headache. Sensitive clips store a *masked* preview, never the secret
+itself, so the list view cannot leak.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from datetime import timedelta
+from pathlib import Path
+
+from . import models
+from .models import Clip
+
+
+# --- Filter names (shared with the UI sidebar) -----------------------------
+FILTER_ALL = "all"
+FILTER_PINNED = "pinned"
+FILTER_LINKS = "links"
+FILTER_FILES = "files"
+FILTER_CODE = "code"
+FILTER_COMMANDS = "commands"
+FILTER_EMAILS = "emails"
+FILTER_PHONES = "phones"
+FILTER_SENSITIVE = "sensitive"
+FILTER_DUPLICATES = "duplicates"
+FILTER_TODAY = "today"
+FILTER_WEEK = "week"
+FILTER_EXPIRED = "expired"
+
+_CLASS_BY_FILTER = {
+    FILTER_LINKS: models.CLASS_LINK,
+    FILTER_FILES: models.CLASS_PATH,
+    FILTER_CODE: models.CLASS_CODE,
+    FILTER_COMMANDS: models.CLASS_COMMAND,
+    FILTER_EMAILS: models.CLASS_EMAIL,
+    FILTER_PHONES: models.CLASS_PHONE,
+}
+
+
+def default_db_path() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return Path(base) / "CacheVault" / "cache_vault.db"
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS clips (
+    id            TEXT PRIMARY KEY,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    content_hash  TEXT,
+    content_type  TEXT,
+    content       TEXT,
+    preview       TEXT,
+    source_app    TEXT,
+    source_window TEXT,
+    classification TEXT,
+    tags          TEXT,
+    is_pinned     INTEGER DEFAULT 0,
+    is_kept       INTEGER DEFAULT 0,
+    is_sensitive  INTEGER DEFAULT 0,
+    expires_at    TEXT,
+    deleted_at    TEXT,
+    duplicate_of  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_clips_created ON clips(created_at);
+CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(content_hash);
+
+CREATE TABLE IF NOT EXISTS events (
+    id          TEXT PRIMARY KEY,
+    created_at  TEXT NOT NULL,
+    event_type  TEXT NOT NULL,
+    clip_id     TEXT,
+    details     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_events_clip ON events(clip_id);
+"""
+
+
+class VaultStorage:
+    """Owns the SQLite connection and all clip persistence."""
+
+    def __init__(self, db_path: str | os.PathLike | None = None):
+        if db_path is None:
+            db_path = default_db_path()
+        self.db_path = Path(db_path)
+        # ``:memory:`` is honoured for tests.
+        if str(self.db_path) != ":memory:":
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL;")
+        self.conn.executescript(_SCHEMA)
+        self.conn.commit()
+
+    def close(self) -> None:
+        self.conn.close()
+
+    # --- row <-> Clip ------------------------------------------------------
+    @staticmethod
+    def _row_to_clip(row: sqlite3.Row) -> Clip:
+        return Clip(
+            id=row["id"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            content_hash=row["content_hash"] or "",
+            content_type=row["content_type"] or models.CONTENT_TEXT,
+            content=row["content"] or "",
+            preview=row["preview"] or "",
+            source_app=row["source_app"],
+            source_window=row["source_window"],
+            classification=row["classification"] or models.CLASS_PLAIN,
+            tags=json.loads(row["tags"]) if row["tags"] else [],
+            is_pinned=bool(row["is_pinned"]),
+            is_kept=bool(row["is_kept"]),
+            is_sensitive=bool(row["is_sensitive"]),
+            expires_at=row["expires_at"],
+            deleted_at=row["deleted_at"],
+            duplicate_of=row["duplicate_of"],
+        )
+
+    # --- writes ------------------------------------------------------------
+    def add_clip(self, clip: Clip) -> Clip:
+        """Insert a clip. Collapses a *consecutive* identical capture by
+        linking it to the previous one via ``duplicate_of`` rather than
+        spamming the list with a fresh row."""
+        prev = self.latest_clip()
+        if prev is not None and prev.content_hash == clip.content_hash:
+            clip.duplicate_of = prev.id
+        self.conn.execute(
+            """INSERT INTO clips (
+                id, created_at, updated_at, content_hash, content_type,
+                content, preview, source_app, source_window, classification,
+                tags, is_pinned, is_kept, is_sensitive, expires_at,
+                deleted_at, duplicate_of
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                clip.id, clip.created_at, clip.updated_at, clip.content_hash,
+                clip.content_type, clip.content, clip.preview, clip.source_app,
+                clip.source_window, clip.classification, json.dumps(clip.tags),
+                int(clip.is_pinned), int(clip.is_kept), int(clip.is_sensitive),
+                clip.expires_at, clip.deleted_at, clip.duplicate_of,
+            ),
+        )
+        self.conn.commit()
+        return clip
+
+    def get_clip(self, clip_id: str) -> Clip | None:
+        row = self.conn.execute(
+            "SELECT * FROM clips WHERE id = ?", (clip_id,)
+        ).fetchone()
+        return self._row_to_clip(row) if row else None
+
+    def latest_clip(self) -> Clip | None:
+        row = self.conn.execute(
+            "SELECT * FROM clips WHERE deleted_at IS NULL "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1"
+        ).fetchone()
+        return self._row_to_clip(row) if row else None
+
+    def _touch(self, clip_id: str) -> None:
+        self.conn.execute(
+            "UPDATE clips SET updated_at = ? WHERE id = ?",
+            (models.now_iso(), clip_id),
+        )
+
+    def set_pinned(self, clip_id: str, pinned: bool) -> None:
+        self.conn.execute(
+            "UPDATE clips SET is_pinned = ? WHERE id = ?",
+            (int(pinned), clip_id),
+        )
+        self._touch(clip_id)
+        self.conn.commit()
+
+    def set_kept(self, clip_id: str, kept: bool) -> None:
+        self.conn.execute(
+            "UPDATE clips SET is_kept = ? WHERE id = ?", (int(kept), clip_id)
+        )
+        self._touch(clip_id)
+        self.conn.commit()
+
+    def set_expiry(self, clip_id: str, expires_at: str | None) -> None:
+        self.conn.execute(
+            "UPDATE clips SET expires_at = ? WHERE id = ?", (expires_at, clip_id)
+        )
+        self._touch(clip_id)
+        self.conn.commit()
+
+    def soft_delete(self, clip_id: str) -> None:
+        self.conn.execute(
+            "UPDATE clips SET deleted_at = ? WHERE id = ?",
+            (models.now_iso(), clip_id),
+        )
+        self.conn.commit()
+
+    def hard_delete(self, clip_id: str) -> None:
+        self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
+        self.conn.commit()
+
+    def scrub_and_expire(self, clip_id: str) -> None:
+        """Remove a clip's secret content and mark it expired.
+
+        Used for sensitive auto-expiry: the row survives for the Expired view
+        and the event log, but the secret is gone.
+        """
+        now = models.now_iso()
+        self.conn.execute(
+            "UPDATE clips SET content = '', preview = '(expired)', "
+            "deleted_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, clip_id),
+        )
+        self.conn.commit()
+
+    def expire_due(self, now_iso: str | None = None) -> list[str]:
+        """Scrub every clip whose ``expires_at`` has passed. Returns ids."""
+        now_iso = now_iso or models.now_iso()
+        rows = self.conn.execute(
+            "SELECT id FROM clips WHERE expires_at IS NOT NULL "
+            "AND expires_at <= ? AND deleted_at IS NULL",
+            (now_iso,),
+        ).fetchall()
+        ids = [r["id"] for r in rows]
+        for cid in ids:
+            self.scrub_and_expire(cid)
+        return ids
+
+    def clear_sensitive(self) -> list[str]:
+        """Immediately scrub/expire all live sensitive clips. Returns ids."""
+        rows = self.conn.execute(
+            "SELECT id FROM clips WHERE is_sensitive = 1 AND deleted_at IS NULL"
+        ).fetchall()
+        ids = [r["id"] for r in rows]
+        for cid in ids:
+            self.scrub_and_expire(cid)
+        return ids
+
+    # --- reads / queries ---------------------------------------------------
+    def list_clips(self, query=None) -> list[Clip]:
+        """Return clips matching a :class:`~cache_vault.core.search.SearchQuery`.
+
+        ``query`` may be ``None`` (everything live), a ``SearchQuery``, or a
+        filter-name string for convenience.
+        """
+        from .search import SearchQuery  # local import avoids a cycle
+
+        if query is None:
+            query = SearchQuery()
+        elif isinstance(query, str):
+            query = SearchQuery(filter_name=query)
+
+        where: list[str] = []
+        params: list = []
+
+        if query.filter_name == FILTER_EXPIRED:
+            where.append("deleted_at IS NOT NULL AND expires_at IS NOT NULL")
+        else:
+            where.append("deleted_at IS NULL")
+
+        fn = query.filter_name
+        if fn == FILTER_PINNED:
+            where.append("is_pinned = 1")
+        elif fn == FILTER_SENSITIVE:
+            where.append("is_sensitive = 1")
+        elif fn == FILTER_DUPLICATES:
+            where.append("duplicate_of IS NOT NULL")
+        elif fn in _CLASS_BY_FILTER:
+            where.append("classification = ?")
+            params.append(_CLASS_BY_FILTER[fn])
+        elif fn == FILTER_TODAY:
+            where.append("created_at >= ?")
+            params.append(_start_of_today_iso())
+        elif fn == FILTER_WEEK:
+            where.append("created_at >= ?")
+            params.append(_start_of_week_iso())
+
+        # Structured search tokens (type:, source:, sensitive:, pinned:).
+        if query.type_filter:
+            where.append("classification = ?")
+            params.append(query.type_filter)
+        if query.source:
+            where.append("LOWER(source_app) LIKE ?")
+            params.append(f"%{query.source.lower()}%")
+        if query.sensitive is not None:
+            where.append("is_sensitive = ?")
+            params.append(int(query.sensitive))
+        if query.pinned is not None:
+            where.append("is_pinned = ?")
+            params.append(int(query.pinned))
+
+        # Free-text search across content + preview + source.
+        if query.text:
+            where.append(
+                "(LOWER(content) LIKE ? OR LOWER(preview) LIKE ? "
+                "OR LOWER(source_window) LIKE ?)"
+            )
+            like = f"%{query.text.lower()}%"
+            params.extend([like, like, like])
+
+        sql = "SELECT * FROM clips WHERE " + " AND ".join(where)
+        sql += " ORDER BY is_pinned DESC, created_at DESC, rowid DESC"
+        rows = self.conn.execute(sql, params).fetchall()
+        return [self._row_to_clip(r) for r in rows]
+
+    def counts(self) -> dict[str, int]:
+        """Count of live clips per sidebar filter (for the badges)."""
+        out: dict[str, int] = {}
+        c = self.conn
+        out[FILTER_ALL] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL"
+        ).fetchone()[0]
+        out[FILTER_PINNED] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND is_pinned = 1"
+        ).fetchone()[0]
+        for fname, cls in _CLASS_BY_FILTER.items():
+            out[fname] = c.execute(
+                "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
+                "AND classification = ?",
+                (cls,),
+            ).fetchone()[0]
+        out[FILTER_SENSITIVE] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND is_sensitive = 1"
+        ).fetchone()[0]
+        out[FILTER_DUPLICATES] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
+            "AND duplicate_of IS NOT NULL"
+        ).fetchone()[0]
+        out[FILTER_TODAY] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at >= ?",
+            (_start_of_today_iso(),),
+        ).fetchone()[0]
+        out[FILTER_WEEK] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at >= ?",
+            (_start_of_week_iso(),),
+        ).fetchone()[0]
+        out[FILTER_EXPIRED] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL "
+            "AND expires_at IS NOT NULL"
+        ).fetchone()[0]
+        return out
+
+
+def _start_of_today_iso() -> str:
+    now = models.utcnow()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _start_of_week_iso() -> str:
+    now = models.utcnow()
+    monday = now - timedelta(days=now.weekday())
+    return monday.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()

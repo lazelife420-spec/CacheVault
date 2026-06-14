@@ -1,0 +1,76 @@
+"""Shared dialogs — settings and the event-log viewer."""
+
+from __future__ import annotations
+
+from typing import Callable
+
+import customtkinter as ctk
+
+from ..core.settings import Settings
+
+
+class SettingsDialog(ctk.CTkToplevel):
+    def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None]):
+        super().__init__(master)
+        self.title("Cache Vault — Settings")
+        self.geometry("420x420")
+        self._settings = settings
+        self._on_save = on_save
+
+        ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
+                     ).pack(anchor="w", padx=16, pady=(14, 8))
+
+        self._pause = ctk.CTkSwitch(self, text="Pause capture")
+        self._pause.pack(anchor="w", padx=16, pady=6)
+        self._pause.select() if settings.capture_paused else self._pause.deselect()
+
+        self._sens = ctk.CTkSwitch(self, text="Auto-expire sensitive clips")
+        self._sens.pack(anchor="w", padx=16, pady=6)
+        self._sens.select() if settings.sensitive_expiry_enabled else self._sens.deselect()
+
+        ctk.CTkLabel(self, text="Sensitive expiry (minutes):").pack(
+            anchor="w", padx=16, pady=(10, 0))
+        self._minutes = ctk.CTkEntry(self)
+        self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
+        self._minutes.pack(anchor="w", padx=16, pady=4, fill="x")
+
+        ctk.CTkLabel(self, text="Excluded apps (one per line):").pack(
+            anchor="w", padx=16, pady=(10, 0))
+        self._excluded = ctk.CTkTextbox(self, height=90)
+        self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
+        self._excluded.pack(fill="x", padx=16, pady=4)
+
+        ctk.CTkButton(self, text="Save", command=self._save).pack(
+            anchor="e", padx=16, pady=12)
+
+    def _save(self) -> None:
+        self._settings.capture_paused = bool(self._pause.get())
+        self._settings.sensitive_expiry_enabled = bool(self._sens.get())
+        try:
+            self._settings.sensitive_expiry_minutes = max(1, int(self._minutes.get()))
+        except ValueError:
+            pass
+        self._settings.excluded_apps = [
+            line.strip() for line in self._excluded.get("1.0", "end").splitlines()
+            if line.strip()
+        ]
+        self._on_save(self._settings)
+        self.destroy()
+
+
+class EventLogDialog(ctk.CTkToplevel):
+    def __init__(self, master, events: list[dict]):
+        super().__init__(master)
+        self.title("Cache Vault — Event Log")
+        self.geometry("520x460")
+        ctk.CTkLabel(self, text="Event Log (local proof history)",
+                     font=ctk.CTkFont(size=15, weight="bold")
+                     ).pack(anchor="w", padx=16, pady=(14, 6))
+        box = ctk.CTkTextbox(self, wrap="none")
+        box.pack(fill="both", expand=True, padx=12, pady=8)
+        if not events:
+            box.insert("1.0", "No events yet.")
+        for e in events:
+            ts = e["created_at"].replace("T", " ")[:19]
+            box.insert("end", f"{ts}  {e['event_type']:<20} {e['clip_id'] or ''}\n")
+        box.configure(state="disabled")
