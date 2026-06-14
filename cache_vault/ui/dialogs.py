@@ -34,9 +34,20 @@ class SettingsDialog(ctk.CTkToplevel):
         self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
         self._minutes.pack(anchor="w", padx=16, pady=4, fill="x")
 
+        hk_row = ctk.CTkFrame(self, fg_color="transparent")
+        hk_row.pack(fill="x", padx=16, pady=(10, 0))
+        ctk.CTkLabel(hk_row, text="Quick-paste hotkey:").pack(side="left")
+        self._hotkey = ctk.CTkEntry(hk_row, width=140)
+        self._hotkey.insert(0, settings.quick_paste_hotkey)
+        self._hotkey.pack(side="right")
+
+        self._auto_paste = ctk.CTkSwitch(self, text="Auto-paste after choosing")
+        self._auto_paste.pack(anchor="w", padx=16, pady=6)
+        self._auto_paste.select() if settings.auto_paste else self._auto_paste.deselect()
+
         ctk.CTkLabel(self, text="Excluded apps (one per line):").pack(
             anchor="w", padx=16, pady=(10, 0))
-        self._excluded = ctk.CTkTextbox(self, height=90)
+        self._excluded = ctk.CTkTextbox(self, height=80)
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
         self._excluded.pack(fill="x", padx=16, pady=4)
 
@@ -50,6 +61,10 @@ class SettingsDialog(ctk.CTkToplevel):
             self._settings.sensitive_expiry_minutes = max(1, int(self._minutes.get()))
         except ValueError:
             pass
+        hotkey = self._hotkey.get().strip()
+        if hotkey:
+            self._settings.quick_paste_hotkey = hotkey
+        self._settings.auto_paste = bool(self._auto_paste.get())
         self._settings.excluded_apps = [
             line.strip() for line in self._excluded.get("1.0", "end").splitlines()
             if line.strip()

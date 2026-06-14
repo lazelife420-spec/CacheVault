@@ -63,9 +63,11 @@ cache_vault/
     search.py           # search-box syntax parser
     settings.py         # local JSON settings
     clipboard.py        # Windows clipboard monitor (event-based or polling)
+    hotkey.py           # global RegisterHotKey listener + paste helper
     vault.py            # orchestration the UI/tray talk to
   ui/                   # CustomTkinter desktop shell + tray
     shell.py filters.py clip_list.py preview.py dialogs.py tray.py
+    quick_paste.py      # global-hotkey quick-paste picker
 app.py                  # entry point (+ --selftest)
 tests/                  # pytest suite for the core
 ```
@@ -106,11 +108,25 @@ One tray icon. Menu: **Open Cache Vault · Pause Capture · Resume Capture ·
 Clear Sensitive Clips · Quit**. Closing the window hides to the tray; **Quit**
 stops the monitor, removes the icon, and terminates cleanly.
 
+### Quick paste (global hotkey)
+
+Press **`Ctrl+Shift+V`** anywhere (Win+V is reserved by Windows) to pop up a
+quick picker of your most recent clips, no matter which app is focused:
+
+- `↑` / `↓` move the selection, `1`–`9` jump straight to a row
+- `Enter` pastes the highlighted clip, `Esc` cancels
+
+Choosing a clip copies it and — if **Auto-paste** is on (default) — restores
+focus to the app you were in and sends `Ctrl+V` for you. The hotkey and
+auto-paste behaviour are configurable in Settings; the hotkey re-registers
+live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
+dedicated message-loop thread (requires pywin32).
+
 ## Honest scope & limitations (MVP v1.0)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
-local event log.
+global quick-paste hotkey (`Ctrl+Shift+V`) with auto-paste, local event log.
 
 **Not implemented (by design, for this MVP):** cloud sync, accounts, browser
 extension, mobile app, OCR, AI classification, remote backup, image/file

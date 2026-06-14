@@ -15,11 +15,13 @@ import customtkinter as ctk
 
 from ..core import models, search
 from ..core.clipboard import ClipboardMonitor
+from ..core.hotkey import HotkeyListener, focus_and_paste, foreground_window
 from ..core.vault import Vault
 from .clip_list import ClipList
 from .dialogs import EventLogDialog, SettingsDialog
 from .filters import FilterNav
 from .preview import PreviewPanel
+from .quick_paste import QuickPaste
 from .tray import TrayController
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
@@ -56,6 +58,14 @@ class CacheVaultApp(ctk.CTk):
             on_quit=lambda: self.after(0, self._quit),
         )
         self._tray.start()
+
+        # Global quick-paste hotkey (default Ctrl+Shift+V).
+        self._paste_target = None
+        self._hotkey = HotkeyListener(
+            self.vault.settings.quick_paste_hotkey,
+            on_activate=lambda: self.after(0, self._open_quick_paste),
+        )
+        self._hotkey.start()
 
         # Closing the window hides to tray (if available) rather than quitting.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -119,7 +129,10 @@ class CacheVaultApp(ctk.CTk):
         self._list.render(clips)
         self._filters.update_counts(self.vault.counts())
         mode = "paused" if self._monitor.paused else f"capturing ({self._monitor.mode})"
-        self._status.configure(text=f"{len(clips)} shown · {mode}")
+        from ..core.hotkey import normalize_hotkey
+        hk = normalize_hotkey(self.vault.settings.quick_paste_hotkey)
+        paste = f" · paste: {hk}" if getattr(self, "_hotkey", None) and self._hotkey.available else ""
+        self._status.configure(text=f"{len(clips)} shown · {mode}{paste}")
 
     # --- event handlers ----------------------------------------------------
     def _on_clip_captured(self, text: str, source: dict) -> None:
@@ -201,10 +214,40 @@ class CacheVaultApp(ctk.CTk):
     def _apply_settings(self, settings) -> None:
         settings.save()
         self._monitor.pause() if settings.capture_paused else self._monitor.resume()
+        self._rebind_hotkey(settings.quick_paste_hotkey)
         self.refresh()
+
+    def _rebind_hotkey(self, spec: str) -> None:
+        """Re-register the global hotkey if the user changed it."""
+        if self._hotkey and self._hotkey._spec == spec:
+            return
+        if self._hotkey:
+            self._hotkey.stop()
+        self._hotkey = HotkeyListener(
+            spec, on_activate=lambda: self.after(0, self._open_quick_paste))
+        self._hotkey.start()
 
     def _open_events(self) -> None:
         EventLogDialog(self, self.vault.events.recent())
+
+    # --- quick paste (global hotkey) ---------------------------------------
+    def _open_quick_paste(self) -> None:
+        # Remember the app the user was in so we can paste back into it.
+        self._paste_target = foreground_window()
+        self.vault.run_expiry_sweep()  # don't offer secrets that should be gone
+        clips = self.vault.list_clips()[: self.vault.settings.quick_paste_count]
+        QuickPaste(self, clips, on_choose=self._do_paste)
+
+    def _do_paste(self, clip) -> None:
+        content = self.vault.copied_again(clip.id)  # logs copied_again
+        if content is None:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(content)
+        self._monitor.note_local_copy(content)
+        if self.vault.settings.auto_paste:
+            target = self._paste_target
+            self.after(60, lambda: focus_and_paste(target))
 
     # --- maintenance / lifecycle -------------------------------------------
     def _expiry_tick(self) -> None:
@@ -228,6 +271,7 @@ class CacheVaultApp(ctk.CTk):
     def _quit(self) -> None:
         try:
             self._monitor.stop()
+            self._hotkey.stop()
             self._tray.stop()
             self.vault.close()
         finally:

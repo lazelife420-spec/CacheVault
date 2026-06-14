@@ -25,6 +25,11 @@ class Settings:
     excluded_apps: list[str] = field(default_factory=list)
     poll_interval_ms: int = 800             # used only by the polling fallback
 
+    # Quick-paste picker (global hotkey).
+    quick_paste_hotkey: str = "ctrl+shift+v"  # Win+V is reserved by Windows
+    quick_paste_count: int = 12               # how many recent clips to show
+    auto_paste: bool = True                   # send Ctrl+V after choosing
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":
