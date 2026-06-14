@@ -74,9 +74,16 @@ def _shannon_entropy(s: str) -> float:
 
 
 def _high_entropy_secret(text: str) -> bool:
-    """A long, single-token, high-entropy string with no spaces."""
+    """A long, single-token, high-entropy string.
+
+    Deliberately conservative — this is the last-resort fallback, so we skip
+    anything that carries path/URL structure (backslashes, slashes, colons)
+    to avoid masking file paths, links, and the like as "secrets".
+    """
     token = text.strip()
-    if " " in token or "\n" in token or len(token) < 20:
+    if len(token) < 20:
+        return False
+    if any(ch in token for ch in (" ", "\n", "\t", "\r", "\\", "/", ":")):
         return False
     has_upper = any(c.isupper() for c in token)
     has_lower = any(c.islower() for c in token)

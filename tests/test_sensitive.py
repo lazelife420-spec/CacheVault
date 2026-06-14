@@ -50,6 +50,13 @@ def test_plain_text_not_sensitive():
     assert not sensitive.detect("https://example.com/page").is_sensitive
 
 
+def test_paths_and_urls_not_flagged_high_entropy():
+    # Regression: high-entropy fallback must not mask file paths / URLs.
+    assert not sensitive.detect(r"C:\Users\KickA\Desktop\notes.txt").is_sensitive
+    assert not sensitive.detect(r"D:\Projects\CacheVault\cache_vault\core\storage.py").is_sensitive
+    assert not sensitive.detect("https://github.com/anthropics/claude-code/blob/main").is_sensitive
+
+
 def test_masked_preview_hides_secret():
     secret = "sk-abc123DEF456ghi789"
     masked = sensitive.masked_preview(secret)
