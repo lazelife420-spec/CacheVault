@@ -6,6 +6,7 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from ..core import startup
 from ..core.settings import Settings
 
 
@@ -45,6 +46,11 @@ class SettingsDialog(ctk.CTkToplevel):
         self._auto_paste.pack(anchor="w", padx=16, pady=6)
         self._auto_paste.select() if settings.auto_paste else self._auto_paste.deselect()
 
+        self._startup = ctk.CTkSwitch(self, text="Start Cache Vault with Windows")
+        self._startup.pack(anchor="w", padx=16, pady=6)
+        # Reflect the *actual* registry state, not just the saved flag.
+        self._startup.select() if startup.is_enabled() else self._startup.deselect()
+
         ctk.CTkLabel(self, text="Excluded apps (one per line):").pack(
             anchor="w", padx=16, pady=(10, 0))
         self._excluded = ctk.CTkTextbox(self, height=80)
@@ -65,6 +71,7 @@ class SettingsDialog(ctk.CTkToplevel):
         if hotkey:
             self._settings.quick_paste_hotkey = hotkey
         self._settings.auto_paste = bool(self._auto_paste.get())
+        self._settings.start_with_windows = bool(self._startup.get())
         self._settings.excluded_apps = [
             line.strip() for line in self._excluded.get("1.0", "end").splitlines()
             if line.strip()

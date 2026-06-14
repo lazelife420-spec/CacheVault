@@ -81,8 +81,11 @@ class QuickPaste(ctk.CTkToplevel):
                      text_color=("#b04632" if clip.is_sensitive else "gray45")
                      ).pack(side="left")
         ctk.CTkLabel(row, text=clip.preview or "(empty)", anchor="w",
-                     justify="left", wraplength=400).pack(
+                     justify="left", wraplength=376).pack(
             side="left", fill="x", expand=True, padx=4, pady=6)
+        if clip.is_pinned:
+            ctk.CTkLabel(row, text="📌", width=20,
+                         font=ctk.CTkFont(size=11)).pack(side="right", padx=(0, 8))
         for w in (row, *row.winfo_children()):
             w.bind("<Button-1>", lambda _e, k=i: self._choose(k))
             w.bind("<Enter>", lambda _e, k=i: self._set_index(k))

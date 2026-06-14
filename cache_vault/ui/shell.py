@@ -22,6 +22,7 @@ from .dialogs import EventLogDialog, SettingsDialog
 from .filters import FilterNav
 from .preview import PreviewPanel
 from .quick_paste import QuickPaste
+from .toast import Toast
 from .tray import TrayController
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
@@ -215,6 +216,8 @@ class CacheVaultApp(ctk.CTk):
         settings.save()
         self._monitor.pause() if settings.capture_paused else self._monitor.resume()
         self._rebind_hotkey(settings.quick_paste_hotkey)
+        from ..core import startup
+        startup.sync(settings.start_with_windows)
         self.refresh()
 
     def _rebind_hotkey(self, spec: str) -> None:
@@ -248,6 +251,13 @@ class CacheVaultApp(ctk.CTk):
         if self.vault.settings.auto_paste:
             target = self._paste_target
             self.after(60, lambda: focus_and_paste(target))
+        # Confirm without revealing secrets.
+        if clip.is_sensitive:
+            Toast(self, "Pasted sensitive clip 🔒")
+        else:
+            snippet = clip.preview if len(clip.preview) <= 60 else clip.preview[:59] + "…"
+            verb = "Pasted" if self.vault.settings.auto_paste else "Copied"
+            Toast(self, f"{verb} ✓   {snippet}")
 
     # --- maintenance / lifecycle -------------------------------------------
     def _expiry_tick(self) -> None:

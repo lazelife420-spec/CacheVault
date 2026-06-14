@@ -34,6 +34,22 @@ Headless sanity check (no window — used by CI):
 python app.py --selftest
 ```
 
+### Build a standalone .exe
+
+```powershell
+pwsh packaging\build_exe.ps1     # -> dist\CacheVault.exe (one-file, windowed)
+```
+
+The build bundles CustomTkinter's theme assets. Verify the build headlessly
+with `dist\CacheVault.exe --selftest`.
+
+### Start with Windows
+
+Settings → **Start Cache Vault with Windows** adds a per-user
+`HKCU\…\CurrentVersion\Run` entry (no admin rights, fully reversible). For a
+dev checkout it launches `pythonw app.py`; for a packaged build it launches the
+exe directly.
+
 ## Tests
 
 The core logic has **no GUI dependency** and is fully unit-tested:
@@ -64,10 +80,13 @@ cache_vault/
     settings.py         # local JSON settings
     clipboard.py        # Windows clipboard monitor (event-based or polling)
     hotkey.py           # global RegisterHotKey listener + paste helper
+    startup.py          # optional "start with Windows" (HKCU Run key)
     vault.py            # orchestration the UI/tray talk to
   ui/                   # CustomTkinter desktop shell + tray
     shell.py filters.py clip_list.py preview.py dialogs.py tray.py
     quick_paste.py      # global-hotkey quick-paste picker
+    toast.py            # self-dismissing paste confirmation
+packaging/              # PyInstaller spec + build script
 app.py                  # entry point (+ --selftest)
 tests/                  # pytest suite for the core
 ```

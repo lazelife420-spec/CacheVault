@@ -30,6 +30,8 @@ class Settings:
     quick_paste_count: int = 12               # how many recent clips to show
     auto_paste: bool = True                   # send Ctrl+V after choosing
 
+    start_with_windows: bool = False          # synced to the HKCU Run key
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":
