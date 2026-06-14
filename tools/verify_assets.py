@@ -20,6 +20,8 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
 ICON_SIZES = [16, 24, 32, 48, 128, 256]
+RESAMPLING_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS",
+                             Image.LANCZOS)
 
 REQUIRED = [
     "cache-vault-icon.svg",
@@ -53,7 +55,10 @@ def _is_gold(px) -> bool:
 
 def count_gold(img: Image.Image) -> int:
     img = img.convert("RGBA")
-    return sum(1 for px in img.getdata() if _is_gold(px))
+    px = img.load()
+    assert px is not None
+    return sum(1 for y in range(img.height) for x in range(img.width)
+               if _is_gold(px[x, y]))
 
 
 def check_files() -> list[str]:
@@ -92,6 +97,8 @@ def build_contact_sheet() -> Path:
         for s in ICON_SIZES:
             icon = Image.open(ASSETS / f"cache-vault-icon-{s}.png").convert("RGBA")
             y = top + pad + (256 - s) // 2
+            if icon.size != (s, s):
+                icon = icon.resize((s, s), RESAMPLING_LANCZOS)
             sheet.alpha_composite(icon, (x, y))
             label = f"{s}px"
             tb = draw.textbbox((0, 0), label, font=font)

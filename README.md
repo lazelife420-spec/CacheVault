@@ -14,6 +14,20 @@ chaos becomes searchable value.
 It is part of the same product family as Cleanroom and Lights Out, and follows
 the same trust standard.
 
+## Download / verify release
+
+Download the packaged Windows build from the [latest GitHub
+Release](https://github.com/Z3r0DayZion-install/CacheVault/releases/latest).
+
+After downloading the release zip, compute its SHA256 hash in PowerShell:
+
+```powershell
+Get-FileHash .\CacheVault-*.zip -Algorithm SHA256
+```
+
+Compare the reported hash against `SHA256SUMS.txt` from the same release. If
+the values match, the archive matches the published release artifact.
+
 ## Brand assets
 
 The primary mark is a clean teal vault dial — a rim, four symmetric handle
@@ -69,6 +83,23 @@ pwsh packaging\build_exe.ps1     # -> dist\CacheVault.exe (one-file, windowed)
 
 The build bundles CustomTkinter's theme assets. Verify the build headlessly
 with `dist\CacheVault.exe --selftest`.
+
+## First run
+
+Cache Vault runs as a tray app. The teal tray icon shows the app is running.
+Closing the window hides it to the tray; use the tray menu's **Quit** action
+to stop capture, remove the tray icon, and exit cleanly.
+
+Local app data stays under `%LOCALAPPDATA%\CacheVault\`:
+
+| What       | Path                                      |
+|------------|-------------------------------------------|
+| Database   | `%LOCALAPPDATA%\CacheVault\cache_vault.db` |
+| Settings   | `%LOCALAPPDATA%\CacheVault\settings.json`  |
+
+The global quick-paste hotkey defaults to `Ctrl+Shift+V`. Settings can also
+enable **Start Cache Vault with Windows** through the per-user
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` key.
 
 ### Start with Windows
 
