@@ -14,7 +14,9 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None]):
         super().__init__(master)
         self.title("Cache Vault — Settings")
-        self.geometry("420x420")
+        self.geometry("420x460")
+        self.resizable(False, True)
+        self.minsize(420, 420)
         self._settings = settings
         self._on_save = on_save
 

@@ -18,6 +18,15 @@ tagging a public release.
 - Open the tray menu and choose **Quit**.
 - Expected: the tray icon disappears and the process exits cleanly.
 
+## Settings dialog
+
+- Open Settings from the main window toolbar (gear icon).
+- Confirm the dialog opens at a height that shows all controls including the **Save** button without clipping.
+- Resize the dialog taller: confirm it grows vertically.
+- Verify all controls are reachable: Pause capture, Auto-expire, expiry minutes, hotkey entry, Auto-paste, Start with Windows, Excluded apps, Save.
+- Click **Save** — confirm settings persist (reopen dialog to verify).
+- Close with the window title-bar X — confirm it cancels without saving.
+
 ## Hotkey behavior
 
 - Relaunch the app.
