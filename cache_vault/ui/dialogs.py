@@ -14,53 +14,63 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None]):
         super().__init__(master)
         self.title("Cache Vault — Settings")
-        self.geometry("420x460")
+        self.geometry("440x560")
         self.resizable(False, True)
-        self.minsize(420, 420)
+        self.minsize(440, 360)
         self._settings = settings
         self._on_save = on_save
 
+        # --- title (fixed at top) ---
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 8))
 
-        self._pause = ctk.CTkSwitch(self, text="Pause capture")
-        self._pause.pack(anchor="w", padx=16, pady=6)
+        # --- scrollable content ---
+        body = ctk.CTkScrollableFrame(self)
+        body.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+
+        self._pause = ctk.CTkSwitch(body, text="Pause capture")
+        self._pause.pack(anchor="w", padx=8, pady=6)
         self._pause.select() if settings.capture_paused else self._pause.deselect()
 
-        self._sens = ctk.CTkSwitch(self, text="Auto-expire sensitive clips")
-        self._sens.pack(anchor="w", padx=16, pady=6)
+        self._sens = ctk.CTkSwitch(body, text="Auto-expire sensitive clips")
+        self._sens.pack(anchor="w", padx=8, pady=6)
         self._sens.select() if settings.sensitive_expiry_enabled else self._sens.deselect()
 
-        ctk.CTkLabel(self, text="Sensitive expiry (minutes):").pack(
-            anchor="w", padx=16, pady=(10, 0))
-        self._minutes = ctk.CTkEntry(self)
+        ctk.CTkLabel(body, text="Sensitive expiry (minutes):").pack(
+            anchor="w", padx=8, pady=(10, 0))
+        self._minutes = ctk.CTkEntry(body)
         self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
-        self._minutes.pack(anchor="w", padx=16, pady=4, fill="x")
+        self._minutes.pack(anchor="w", padx=8, pady=4, fill="x")
 
-        hk_row = ctk.CTkFrame(self, fg_color="transparent")
-        hk_row.pack(fill="x", padx=16, pady=(10, 0))
+        hk_row = ctk.CTkFrame(body, fg_color="transparent")
+        hk_row.pack(fill="x", padx=8, pady=(10, 0))
         ctk.CTkLabel(hk_row, text="Quick-paste hotkey:").pack(side="left")
         self._hotkey = ctk.CTkEntry(hk_row, width=140)
         self._hotkey.insert(0, settings.quick_paste_hotkey)
         self._hotkey.pack(side="right")
 
-        self._auto_paste = ctk.CTkSwitch(self, text="Auto-paste after choosing")
-        self._auto_paste.pack(anchor="w", padx=16, pady=6)
+        self._auto_paste = ctk.CTkSwitch(body, text="Auto-paste after choosing")
+        self._auto_paste.pack(anchor="w", padx=8, pady=6)
         self._auto_paste.select() if settings.auto_paste else self._auto_paste.deselect()
 
-        self._startup = ctk.CTkSwitch(self, text="Start Cache Vault with Windows")
-        self._startup.pack(anchor="w", padx=16, pady=6)
-        # Reflect the *actual* registry state, not just the saved flag.
+        self._startup = ctk.CTkSwitch(body, text="Start Cache Vault with Windows")
+        self._startup.pack(anchor="w", padx=8, pady=6)
         self._startup.select() if startup.is_enabled() else self._startup.deselect()
 
-        ctk.CTkLabel(self, text="Excluded apps (one per line):").pack(
-            anchor="w", padx=16, pady=(10, 0))
-        self._excluded = ctk.CTkTextbox(self, height=80)
+        ctk.CTkLabel(body, text="Excluded apps (one per line):").pack(
+            anchor="w", padx=8, pady=(10, 0))
+        self._excluded = ctk.CTkTextbox(body, height=80)
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
-        self._excluded.pack(fill="x", padx=16, pady=4)
+        self._excluded.pack(fill="x", padx=8, pady=4)
 
-        ctk.CTkButton(self, text="Save", command=self._save).pack(
-            anchor="e", padx=16, pady=12)
+        # --- fixed footer (never scrolls) ---
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=16, pady=(0, 12))
+
+        ctk.CTkButton(footer, text="Save", command=self._save
+                      ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(footer, text="Cancel", command=self.destroy
+                      ).pack(side="right")
 
     def _save(self) -> None:
         self._settings.capture_paused = bool(self._pause.get())
