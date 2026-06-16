@@ -93,11 +93,19 @@ class ClipListFormatterTest {
     fun connectedStateRequiresStatusWithoutError() {
         assertEquals(
             ConnectionState.CONNECTED,
-            resolveConnectionState(status = dummyStatus(), error = null, loading = false),
+            resolveConnectionState(status = dummyStatus(), error = null, loading = false, hasLoadedVault = true),
         )
         assertEquals(
             ConnectionState.OFFLINE,
-            resolveConnectionState(status = null, error = "Cannot reach PC", loading = false),
+            resolveConnectionState(status = null, error = "Cannot reach PC", loading = false, hasLoadedVault = true),
+        )
+    }
+
+    @Test
+    fun initialLoadShowsChecking() {
+        assertEquals(
+            ConnectionState.CHECKING,
+            resolveConnectionState(status = null, error = null, loading = true, hasLoadedVault = false),
         )
     }
 
@@ -105,7 +113,7 @@ class ClipListFormatterTest {
     fun revokedStateDetectedFromError() {
         assertEquals(
             ConnectionState.REVOKED,
-            resolveConnectionState(status = null, error = "Device revoked.", loading = false),
+            resolveConnectionState(status = null, error = "Device revoked.", loading = false, hasLoadedVault = true),
         )
     }
 

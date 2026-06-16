@@ -13,6 +13,7 @@ import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +36,7 @@ fun ScreenshotsScreen(
 ) {
     val shots = VaultSections.screenshotClips(state.allClips)
     val pullState = rememberPullRefreshState(state.loading, onRefresh)
+    val loading = state.loading && !state.hasLoadedVault
 
     androidx.compose.foundation.layout.Box(
         modifier = Modifier
@@ -47,37 +49,57 @@ fun ScreenshotsScreen(
                 .padding(horizontal = 14.dp),
         ) {
             Text(
-                "Screenshots",
+                stringResource(R.string.images_tab),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
-            Text(
-                "${shots.size} image${if (shots.size == 1) "" else "s"} saved from your PC",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            if (shots.isEmpty() && !state.loading) {
+            if (loading) {
                 Text(
-                    stringResource(R.string.screenshots_empty),
+                    stringResource(R.string.loading_clips),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp),
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(shots, key = { it.id }) { clip ->
-                        ScreenshotGridCard(
-                            clip = clip,
-                            onClick = { onOpenClip(clip.id) },
-                            thumbnailBytes = state.thumbnailBytes[clip.id],
-                        )
+                Text(
+                    stringResource(R.string.images_count, shots.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            when {
+                loading -> {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = ProofTeal)
+                    }
+                }
+                shots.isEmpty() -> {
+                    Text(
+                        stringResource(R.string.images_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 24.dp),
+                    )
+                }
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(shots, key = { it.id }) { clip ->
+                            ScreenshotGridCard(
+                                clip = clip,
+                                onClick = { onOpenClip(clip.id) },
+                                thumbnailBytes = state.thumbnailBytes[clip.id],
+                            )
+                        }
                     }
                 }
             }

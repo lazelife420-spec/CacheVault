@@ -11,7 +11,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class MainTab(val label: String, val icon: ImageVector) {
     VAULT("Vault", Icons.Default.Home),
     BROWSE("Browse", Icons.Default.List),
-    SCREENSHOTS("Screenshots", Icons.Default.Image),
+    IMAGES("Images", Icons.Default.Image),
     PROOF("Proof", Icons.Default.Verified),
     SETTINGS("Settings", Icons.Default.Settings),
 }

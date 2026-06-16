@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.data.VaultSectionKind
+import com.prooffoundry.cachevaultmobile.ui.ConnectionState
 import com.prooffoundry.cachevaultmobile.ui.theme.ProofTeal
 import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
 
@@ -53,7 +54,7 @@ fun VaultSectionCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                count.toString(),
+                if (count < 0) "…" else count.toString(),
                 style = MaterialTheme.typography.titleMedium,
                 color = StampGold,
                 fontWeight = FontWeight.Bold,
@@ -70,7 +71,7 @@ fun VaultSectionCard(
 
 @Composable
 fun VaultStatusCard(
-    connected: Boolean,
+    connection: ConnectionState,
     hostLabel: String,
     modifier: Modifier = Modifier,
 ) {
@@ -96,20 +97,33 @@ fun VaultStatusCard(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusPill("Local Wi-Fi", ProofTeal)
-                StatusPill(
-                    if (connected) "Connected" else "Not connected",
-                    if (connected) ProofTeal else MaterialTheme.colorScheme.error,
-                )
-                if (connected) {
-                    StatusPill("Proof recorded", StampGold.copy(alpha = 0.9f))
+                when (connection) {
+                    ConnectionState.CONNECTED -> {
+                        StatusPill("Connected", ProofTeal)
+                        StatusPill("Proof recorded", StampGold.copy(alpha = 0.9f))
+                    }
+                    ConnectionState.CHECKING -> StatusPill("Loading…", MaterialTheme.colorScheme.onSurfaceVariant)
+                    ConnectionState.REPAIR_NEEDED -> StatusPill("Re-pair needed", StampGold)
+                    ConnectionState.REVOKED -> StatusPill("Device revoked", MaterialTheme.colorScheme.error)
+                    ConnectionState.MOBILE_ACCESS_OFF -> StatusPill("Mobile Access off", MaterialTheme.colorScheme.error)
+                    ConnectionState.OFFLINE -> StatusPill("Not connected", MaterialTheme.colorScheme.error)
                 }
             }
-            if (connected && hostLabel.isNotBlank()) {
-                Text(
-                    hostLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            when {
+                connection == ConnectionState.CONNECTED && hostLabel.isNotBlank() -> {
+                    Text(
+                        hostLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                connection == ConnectionState.CHECKING -> {
+                    Text(
+                        "Loading saved clips from your PC…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

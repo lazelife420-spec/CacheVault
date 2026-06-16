@@ -37,7 +37,12 @@ fun ProofScreen(
     onCopyDiagnostics: () -> String,
 ) {
     val context = LocalContext.current
-    val connection = resolveConnectionState(state.status, state.error, state.loading)
+    val connection = resolveConnectionState(
+        state.status,
+        state.error,
+        state.loading,
+        state.hasLoadedVault,
+    )
     val statusOk = connection == ConnectionState.CONNECTED
 
     Column(
@@ -86,7 +91,7 @@ fun ProofScreen(
                     state.deviceId.ifBlank { "—" },
                 )
                 ProofLine("PC host", state.hostLabel.ifBlank { "—" })
-                if (state.lastError != null && !statusOk) {
+                if (state.lastError != null && !statusOk && connection != ConnectionState.CHECKING) {
                     Text(
                         state.lastError,
                         style = MaterialTheme.typography.labelSmall,

@@ -9,28 +9,44 @@ enum class ConnectionState(val label: String) {
     REVOKED("Device revoked"),
     OFFLINE("Not connected"),
     MOBILE_ACCESS_OFF("Mobile Access off"),
-    CHECKING("Checking PC…"),
+    CHECKING("Loading…"),
 }
 
 fun resolveConnectionState(
     status: BridgeStatus?,
     error: String?,
     loading: Boolean,
+    hasLoadedVault: Boolean = true,
 ): ConnectionState {
-    if (loading && status == null && error.isNullOrBlank()) return ConnectionState.CHECKING
-    if (error?.contains("revoked", ignoreCase = true) == true) return ConnectionState.REVOKED
-    if (error?.contains("Mobile Access is off", ignoreCase = true) == true) {
+    val connError = connectionOnlyError(error)
+    if (loading || (!hasLoadedVault && status == null && connError.isNullOrBlank())) {
+        return ConnectionState.CHECKING
+    }
+    if (connError?.contains("revoked", ignoreCase = true) == true) return ConnectionState.REVOKED
+    if (connError?.contains("Mobile Access is off", ignoreCase = true) == true) {
         return ConnectionState.MOBILE_ACCESS_OFF
     }
-    if (status != null && error.isNullOrBlank()) return ConnectionState.CONNECTED
-    if (error?.contains("token", ignoreCase = true) == true ||
-        error?.contains("Pairing", ignoreCase = true) == true ||
-        error?.contains("Re-pair", ignoreCase = true) == true
+    if (status != null && connError.isNullOrBlank()) return ConnectionState.CONNECTED
+    if (connError?.contains("token", ignoreCase = true) == true ||
+        connError?.contains("Pairing", ignoreCase = true) == true ||
+        connError?.contains("Re-pair", ignoreCase = true) == true
     ) {
         return ConnectionState.REPAIR_NEEDED
     }
-    if (!error.isNullOrBlank()) return ConnectionState.OFFLINE
+    if (!connError.isNullOrBlank()) return ConnectionState.OFFLINE
+    if (!hasLoadedVault) return ConnectionState.CHECKING
     return ConnectionState.CHECKING
+}
+
+/** Ignore clip-detail errors when resolving vault connection state. */
+fun connectionOnlyError(error: String?): String? {
+    if (error.isNullOrBlank()) return null
+    if (error.contains("not found", ignoreCase = true) &&
+        error.contains("clip", ignoreCase = true)
+    ) {
+        return null
+    }
+    return error
 }
 
 fun connectionSubtitle(state: ConnectionState, hostLabel: String): String = when (state) {
@@ -39,5 +55,5 @@ fun connectionSubtitle(state: ConnectionState, hostLabel: String): String = when
     ConnectionState.REVOKED -> "Device revoked — pair again on PC"
     ConnectionState.OFFLINE -> "Not connected"
     ConnectionState.MOBILE_ACCESS_OFF -> "Mobile Access off on PC"
-    ConnectionState.CHECKING -> "Checking PC…"
+    ConnectionState.CHECKING -> "Loading…"
 }

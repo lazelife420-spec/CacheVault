@@ -59,7 +59,9 @@ data class AppUiState(
     val browseFilter: BrowseFilter = BrowseFilter.ALL,
     val mainTab: MainTab = MainTab.VAULT,
     val loading: Boolean = false,
+    val hasLoadedVault: Boolean = false,
     val error: String? = null,
+    val detailError: String? = null,
     val lastError: String? = null,
     val selectedClip: com.prooffoundry.cachevaultmobile.data.ClipSummary? = null,
     val imageAsset: ImageAssetState = ImageAssetState(),
@@ -71,13 +73,24 @@ data class AppUiState(
 class AppViewModel(
     private val repository: BridgeRepository,
 ) : ViewModel() {
-    var uiState by mutableStateOf(AppUiState(paired = repository.isPaired()))
+    var uiState by mutableStateOf(
+        AppUiState(
+            paired = repository.isPaired(),
+            loading = repository.isPaired(),
+        ),
+    )
         private set
 
     init {
         if (repository.isPaired()) {
             refreshAll()
         }
+    }
+
+    /** Refresh vault when app returns to foreground after initial load. */
+    fun refreshOnResume() {
+        if (!repository.isPaired() || uiState.loading || !uiState.hasLoadedVault) return
+        refreshAll()
     }
 
     fun discoverPcOnLaunch() {
@@ -199,8 +212,14 @@ class AppViewModel(
     fun setMainTab(tab: MainTab) {
         uiState = uiState.copy(mainTab = tab)
         when (tab) {
+            MainTab.VAULT -> if (repository.isPaired() && !uiState.hasLoadedVault && !uiState.loading) {
+                refreshAll()
+            }
             MainTab.BROWSE -> applyBrowseList()
-            MainTab.SCREENSHOTS -> prefetchThumbnails(VaultSections.screenshotClips(uiState.allClips))
+            MainTab.IMAGES -> {
+                prefetchThumbnails(VaultSections.screenshotClips(uiState.allClips))
+                if (repository.isPaired() && !uiState.hasLoadedVault) refreshAll()
+            }
             else -> Unit
         }
     }
@@ -225,7 +244,7 @@ class AppViewModel(
             VaultSectionKind.RECENT -> openBrowse(BrowseFilter.ALL)
             VaultSectionKind.SENSITIVE -> openBrowse(BrowseFilter.SENSITIVE)
             VaultSectionKind.REMOVED -> openBrowse(BrowseFilter.REMOVED)
-            VaultSectionKind.SCREENSHOTS -> setMainTab(MainTab.SCREENSHOTS)
+            VaultSectionKind.SCREENSHOTS -> setMainTab(MainTab.IMAGES)
             VaultSectionKind.PROOF -> setMainTab(MainTab.PROOF)
         }
     }
@@ -292,14 +311,14 @@ class AppViewModel(
 
     private fun refreshVaultData() {
         applyBrowseList()
-        if (uiState.mainTab == MainTab.SCREENSHOTS) {
+        if (uiState.mainTab == MainTab.IMAGES) {
             prefetchThumbnails(VaultSections.screenshotClips(uiState.allClips))
         }
     }
 
     fun connectionDoctor(): ConnectionDoctorInfo {
         val pairing = repository.loadPairing()
-        val state = resolveConnectionState(uiState.status, uiState.error, uiState.loading)
+        val state = resolveConnectionState(uiState.status, uiState.error, uiState.loading, uiState.hasLoadedVault)
         val fix = when (state) {
             ConnectionState.REVOKED ->
                 "Generate a fresh pairing code on your PC, then tap Disconnect / Re-pair on this phone."
@@ -365,6 +384,7 @@ class AppViewModel(
                     sectionCounts = VaultSections.computeCounts(payload.allClips, payload.removedClips),
                     vaultSummary = payload.summary,
                     loading = false,
+                    hasLoadedVault = true,
                     error = null,
                     lastError = null,
                 )
@@ -373,6 +393,7 @@ class AppViewModel(
                 val msg = err.toUserMessage()
                 uiState = uiState.copy(
                     loading = false,
+                    hasLoadedVault = true,
                     error = msg,
                     lastError = msg,
                     status = null,
@@ -404,7 +425,7 @@ class AppViewModel(
 
     fun openClip(clipId: String) {
         viewModelScope.launch {
-            uiState = uiState.copy(loading = true, error = null)
+            uiState = uiState.copy(loading = true, detailError = null)
             runCatching {
                 withContext(Dispatchers.IO) { repository.client().clipDetail(clipId).clip }
             }.onSuccess { clip ->
@@ -417,13 +438,13 @@ class AppViewModel(
                     loadImageAsset(clip.id)
                 }
             }.onFailure { err ->
-                uiState = uiState.copy(loading = false, error = err.toUserMessage())
+                uiState = uiState.copy(loading = false, detailError = err.toUserMessage())
             }
         }
     }
 
     fun closeClipDetail() {
-        uiState = uiState.copy(selectedClip = null, imageAsset = ImageAssetState())
+        uiState = uiState.copy(selectedClip = null, imageAsset = ImageAssetState(), detailError = null)
     }
 
     fun loadImageAsset(clipId: String) {

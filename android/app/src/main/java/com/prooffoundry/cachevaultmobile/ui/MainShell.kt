@@ -9,11 +9,17 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.prooffoundry.cachevaultmobile.data.BrowseFilter
 import com.prooffoundry.cachevaultmobile.ui.screens.BrowseScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ConnectionDoctorScreen
@@ -30,6 +36,17 @@ fun MainShell(
 ) {
     val state = vm.uiState
     var settingsSubRoute by rememberSaveable { mutableStateOf<String?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.refreshOnResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         bottomBar = {
@@ -42,7 +59,15 @@ fun MainShell(
                             vm.setMainTab(tab)
                         },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                        label = {
+                            Text(
+                                tab.label,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        alwaysShowLabel = true,
                     )
                 }
             }
@@ -65,7 +90,7 @@ fun MainShell(
                     onRefresh = vm::refreshBrowseClips,
                     onOpenClip = onOpenClip,
                 )
-                MainTab.SCREENSHOTS -> ScreenshotsScreen(
+                MainTab.IMAGES -> ScreenshotsScreen(
                     state = state,
                     onRefresh = vm::refreshAll,
                     onOpenClip = onOpenClip,
@@ -90,6 +115,8 @@ fun MainShell(
                             status = state.status,
                             error = state.error,
                             lastError = state.lastError,
+                            hasLoadedVault = state.hasLoadedVault,
+                            loading = state.loading,
                             onDisconnect = onDisconnect,
                             onConnectionDoctor = { settingsSubRoute = "doctor" },
                             onBack = null,

@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,10 +51,16 @@ fun VaultHomeScreen(
     onBrowseAll: () -> Unit,
     onSection: (VaultSectionKind) -> Unit,
 ) {
-    val connection = resolveConnectionState(state.status, state.error, state.loading)
+    val connection = resolveConnectionState(
+        state.status,
+        state.error,
+        state.loading,
+        state.hasLoadedVault,
+    )
     val pullState = rememberPullRefreshState(state.loading, onRefresh)
     val recent = VaultSections.recentPreview(state.allClips)
     val counts = state.sectionCounts
+    val countsPending = !state.hasLoadedVault && state.loading
 
     androidx.compose.foundation.layout.Box(
         modifier = Modifier
@@ -72,6 +79,7 @@ fun VaultHomeScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = when (connection) {
                         ConnectionState.CONNECTED -> ProofTeal
+                        ConnectionState.CHECKING -> MaterialTheme.colorScheme.onSurfaceVariant
                         ConnectionState.REPAIR_NEEDED -> StampGold
                         else -> MaterialTheme.colorScheme.error
                     },
@@ -105,10 +113,7 @@ fun VaultHomeScreen(
                 )
             }
             item {
-                VaultStatusCard(
-                    connected = connection == ConnectionState.CONNECTED,
-                    hostLabel = state.hostLabel,
-                )
+                VaultStatusCard(connection = connection, hostLabel = state.hostLabel)
             }
             item {
                 Text(
@@ -118,9 +123,23 @@ fun VaultHomeScreen(
                 )
             }
             item {
-                SectionGrid(counts, onSection)
+                SectionGrid(counts, countsPending, onSection)
             }
-            if (counts.sensitive > 0 || counts.recentlyRemoved > 0) {
+            if (countsPending) {
+                item {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(20.dp),
+                            strokeWidth = 2.dp,
+                            color = ProofTeal,
+                        )
+                    }
+                }
+            }
+            if (state.hasLoadedVault && (counts.sensitive > 0 || counts.recentlyRemoved > 0)) {
                 item {
                     Text("Needs Review", style = MaterialTheme.typography.labelLarge)
                 }
@@ -128,26 +147,28 @@ fun VaultHomeScreen(
                     NeedsReviewRow(counts, onSection)
                 }
             }
-            item {
-                RowHeader("Recent Activity", onBrowseAll)
-            }
-            if (recent.isEmpty() && !state.loading) {
+            if (state.hasLoadedVault) {
                 item {
-                    Text(
-                        stringResource(R.string.clips_empty),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                    RowHeader("Recent Activity", onBrowseAll)
+                }
+                if (recent.isEmpty() && !state.loading) {
+                    item {
+                        Text(
+                            stringResource(R.string.clips_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+                items(recent, key = { it.id }) { clip ->
+                    ClipCard(
+                        clip = clip,
+                        onClick = { onOpenClip(clip.id) },
+                        showThumbnail = false,
+                        thumbnailBytes = state.thumbnailBytes[clip.id],
                     )
                 }
-            }
-            items(recent, key = { it.id }) { clip ->
-                ClipCard(
-                    clip = clip,
-                    onClick = { onOpenClip(clip.id) },
-                    showThumbnail = false,
-                    thumbnailBytes = state.thumbnailBytes[clip.id],
-                )
             }
         }
         PullRefreshIndicator(
@@ -162,6 +183,7 @@ fun VaultHomeScreen(
 @Composable
 private fun SectionGrid(
     counts: com.prooffoundry.cachevaultmobile.data.VaultSectionCounts,
+    countsPending: Boolean,
     onSection: (VaultSectionKind) -> Unit,
 ) {
     val primary = listOf(
@@ -183,8 +205,12 @@ private fun SectionGrid(
                 row.forEach { kind ->
                     VaultSectionCard(
                         kind = kind,
-                        count = if (kind == VaultSectionKind.PROOF) 0 else counts.countFor(kind),
-                        onClick = { onSection(kind) },
+                        count = when {
+                            countsPending -> -1
+                            kind == VaultSectionKind.PROOF -> 0
+                            else -> counts.countFor(kind)
+                        },
+                        onClick = { if (!countsPending) onSection(kind) },
                         modifier = Modifier.weight(1f),
                     )
                 }

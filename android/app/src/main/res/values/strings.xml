@@ -23,6 +23,9 @@
     <string name="proof_honest_body">Receipts are recorded on your PC.\nOpen Stamped Receipts on desktop to review the full ledger.</string>
     <string name="proof_actions_hint">Refresh checks connection proof only. Full receipt history stays on your PC.</string>
     <string name="screenshots_tab">Screenshots</string>
+    <string name="images_tab">Images</string>
+    <string name="images_count">%1$d image(s) saved from your PC</string>
+    <string name="images_empty">No images yet.\n\nUse Win+Shift+S on your PC.</string>
     <string name="screenshots_empty">No screenshots yet.\n\nUse Win+Shift+S on your PC.\nCache Vault will save copied screenshots here.</string>
     <string name="search_empty">No matching clips.\nTry a different word or switch tabs.</string>
     <string name="clips_empty">Copy something on your PC and Cache Vault will save it here.</string>

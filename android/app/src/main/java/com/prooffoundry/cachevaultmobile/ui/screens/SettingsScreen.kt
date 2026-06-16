@@ -41,12 +41,14 @@ fun SettingsScreen(
     status: BridgeStatus?,
     error: String?,
     lastError: String?,
+    hasLoadedVault: Boolean = true,
+    loading: Boolean = false,
     onDisconnect: () -> Unit,
     onConnectionDoctor: () -> Unit,
     onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val connection = resolveConnectionState(status, error, loading = false)
+    val connection = resolveConnectionState(status, error, loading, hasLoadedVault)
 
     Scaffold(
         topBar = {
