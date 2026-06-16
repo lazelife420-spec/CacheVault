@@ -146,6 +146,7 @@ fun CacheVaultMobileRoot(
             if (clip != null) {
                 ClipDetailScreen(
                     clip = clip,
+                    imageAsset = vm.uiState.imageAsset,
                     onBack = {
                         vm.closeClipDetail()
                         nav.popBackStack()

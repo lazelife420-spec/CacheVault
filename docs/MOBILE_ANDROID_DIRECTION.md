@@ -212,12 +212,12 @@ is **unchanged** by this document.
 
 ## Implementation status
 
-**Not a finished mobile MVP.** Foundation branch — unmerged until real-device smoke.
+**Not a finished mobile MVP.** Path B branch — unmerged until **real-device smoke** passes.
 
 | Lane | Status |
 |------|--------|
 | Text / link / code clips | **Near MVP** — browse, masked lists, detail, copy, share, receipts |
-| Screenshots / images | **Scaffolded only** — UI tab + `/asset` route + receipts; **not functional** (desktop does not store screenshot binaries yet) |
+| Screenshots / images | **Implemented on `feature/cache-vault-screenshot-assets`** — desktop PNG capture + asset storage + `/asset` bytes + Android view/share/save; **not proven** until smoke |
 | Easy Connect | **Implemented** (Manual Setup fallback always available) |
 | QR pairing | **Placeholder** |
 | Desktop mobile bridge | **Implemented** (read-only, OFF by default) |
@@ -227,7 +227,7 @@ is **unchanged** by this document.
 ### Do not claim
 
 ```text
-"Save screenshots on PC → view them on phone" is NOT done yet.
+Public mobile MVP is NOT done until real-device smoke proves text/link/code AND screenshot open/share/save with receipts.
 ```
 
 ### Truth gate (MVP done)
@@ -239,13 +239,13 @@ copy/share/save them where appropriate,
 and the PC keeps the receipt.
 ```
 
-**Current gap:** screenshot binaries on desktop.
+**Current gap:** real-device smoke (not run on Path B yet).
 
 ### Merge paths
 
 | Path | When | Merge label |
 |------|------|-------------|
-| **A** | Smoke text/link/code loop on real phone now | Mobile MVP foundation — text/link/code proven; screenshots deferred |
-| **B** | Before public release (recommended) | `feature/cache-vault-screenshot-assets` first, then full smoke |
+| **A** | Smoke text/link/code loop on real phone only | Mobile MVP foundation — text/link/code proven; screenshots deferred |
+| **B** | Before public release (recommended) | `feature/cache-vault-screenshot-assets` + full smoke, then merge |
 
 When implementation began: desktop bridge + read-only API, then Android pair + browse + copy/share.

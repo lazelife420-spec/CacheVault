@@ -13,6 +13,7 @@ from .. import models, search
 from ..settings import Settings
 from ..storage import FILTER_ALL, FILTER_FAVORITES, FILTER_RECENTLY_REMOVED, FILTER_SEARCH_ALL
 from . import api as api_mod
+from .api import BinaryResponse
 from .models import (
     DEFAULT_BIND_HOST,
     DEFAULT_MOBILE_PORT,
@@ -76,6 +77,13 @@ class MobileBridge:
             def do_GET(self) -> None:
                 code, body = bridge.handle(
                     "GET", self.path, dict(self.headers))
+                if isinstance(body, BinaryResponse):
+                    self.send_response(code)
+                    self.send_header("Content-Type", body.content_type)
+                    self.send_header("Content-Length", str(len(body.data)))
+                    self.end_headers()
+                    self.wfile.write(body.data)
+                    return
                 payload = json.dumps(body).encode("utf-8")
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
@@ -111,12 +119,21 @@ class MobileBridge:
                 self.end_headers()
                 self.wfile.write(payload)
 
-        self._server = ThreadingHTTPServer((host, port), Handler)
+        try:
+            self._server = ThreadingHTTPServer((host, port), Handler)
+        except OSError:
+            self._server = None
+            return
         self._thread = threading.Thread(
             target=self._server.serve_forever, name="mobile-bridge", daemon=True)
         self._thread.start()
         import socket as _socket
-        self.discovery.start(port, pc_name=_socket.gethostname())
+        host_name = _socket.gethostname()
+        threading.Thread(
+            target=lambda: self.discovery.start(port, pc_name=host_name),
+            name="mobile-discovery",
+            daemon=True,
+        ).start()
 
     # --- pairing (desktop-side) ------------------------------------------------
     def pair_device(self, device_id: str, device_name: str,
@@ -164,7 +181,7 @@ class MobileBridge:
         return out
 
     # --- request handling ------------------------------------------------------
-    def handle(self, method: str, path: str, headers: dict) -> tuple[int, dict]:
+    def handle(self, method: str, path: str, headers: dict) -> tuple[int, dict | BinaryResponse]:
         """Process one HTTP request. Used by the server and unit tests."""
         path_only, query = api_mod.parse_query(unquote(path))
         family = api_mod.route_family(path_only)
@@ -212,21 +229,37 @@ class MobileBridge:
         else:
             status, body = self._dispatch_get(
                 family, path_only, query, device)
-        clip_id = body.get("clip_id")
-        if clip_id is None and isinstance(body.get("clip"), dict):
-            clip_id = body["clip"].get("id")
-        if clip_id is None and "clips" in body and len(body["clips"]) == 1:
-            clip_id = body["clips"][0].get("id")
+        clip_id = self._clip_id_from_response(body, path_only)
         rec = MobileAccessReceipt.make(
             action=action, route=path_only,
             result="ok" if status < 400 else "error",
             device_id=device.device_id, device_name=device.device_name,
             clip_id=clip_id,
-            reason=None if status < 400 else body.get("error"),
+            reason=None if status < 400 else (
+                body.get("error") if isinstance(body, dict) else "error"
+            ),
         )
         self.receipts.record(rec)
         self._touch_device(device)
         return status, body
+
+    @staticmethod
+    def _clip_id_from_response(body: dict | BinaryResponse,
+                               path: str) -> str | None:
+        if isinstance(body, BinaryResponse):
+            return body.clip_id
+        if not isinstance(body, dict):
+            return None
+        clip_id = body.get("clip_id")
+        if clip_id is None and isinstance(body.get("clip"), dict):
+            clip_id = body["clip"].get("id")
+        if clip_id is None and "clips" in body and len(body["clips"]) == 1:
+            clip_id = body["clips"][0].get("id")
+        if clip_id is None:
+            m = re.match(r"^/mobile/v1/clips/([a-f0-9]+)(?:/asset)?$", path)
+            if m:
+                clip_id = m.group(1)
+        return clip_id
 
     def _ok_receipt(self, route: str, action: str, device: PairedDevice):
         return MobileAccessReceipt.make(
@@ -267,8 +300,10 @@ class MobileBridge:
         settings.save()
 
     def _dispatch_get(self, family: str, path: str, query: dict,
-                      device: PairedDevice) -> tuple[int, dict]:
+                      device: PairedDevice) -> tuple[int, dict | BinaryResponse]:
         from ... import __version__
+
+        storage = self.vault.storage
 
         if family == "/mobile/v1/status":
             return 200, {
@@ -283,47 +318,75 @@ class MobileBridge:
 
         if family == "/mobile/v1/clips":
             clips = self.vault.list_clips(FILTER_ALL)
-            return 200, {"clips": [api_mod.clip_to_api(c) for c in clips], "count": len(clips)}
+            return 200, {
+                "clips": [api_mod.clip_to_api(c, storage=storage) for c in clips],
+                "count": len(clips),
+            }
 
         if family == "/mobile/v1/clips/{id}":
             m = _CLIP_ID_RE.match(path)
             clip_id = m.group(1) if m else ""
-            clip = self.vault.storage.get_clip(clip_id)
+            clip = storage.get_clip(clip_id)
             if clip is None:
                 return 404, {"error": "not_found", "clip_id": clip_id}
-            return 200, {"clip": api_mod.clip_to_api(clip, full_content=True)}
+            return 200, {
+                "clip": api_mod.clip_to_api(clip, full_content=True, storage=storage),
+            }
 
         if family == "/mobile/v1/clips/{id}/asset":
             m = re.match(r"^/mobile/v1/clips/([a-f0-9]+)/asset$", path)
             clip_id = m.group(1) if m else ""
-            clip = self.vault.storage.get_clip(clip_id)
+            clip = storage.get_clip(clip_id)
             if clip is None:
                 return 404, {"error": "not_found", "clip_id": clip_id}
-            if not api_mod.clip_has_asset(clip):
+            if clip.content_type != models.CONTENT_IMAGE:
                 return 404, {
                     "error": "asset_not_available",
                     "clip_id": clip_id,
-                    "message": "No retrievable image asset for this clip yet.",
+                    "message": "This clip has no image asset.",
                 }
-            return 404, {"error": "asset_not_available", "clip_id": clip_id}
+            if not api_mod.clip_has_asset(clip, storage):
+                return 404, {
+                    "error": "asset_not_available",
+                    "clip_id": clip_id,
+                    "message": "No retrievable image asset for this clip.",
+                }
+            loaded = storage.load_clip_asset_bytes(clip_id)
+            if loaded is None:
+                return 404, {
+                    "error": "asset_not_available",
+                    "clip_id": clip_id,
+                    "message": "Image file missing on PC.",
+                }
+            data, mime = loaded
+            return 200, BinaryResponse(data=data, content_type=mime, clip_id=clip_id)
 
         if family == "/mobile/v1/search":
             q = (query.get("q") or [""])[0]
             sq = search.parse(q, FILTER_SEARCH_ALL)
             clips = self.vault.list_clips(sq)
-            return 200, {"clips": [api_mod.clip_to_api(c) for c in clips],
-                         "count": len(clips), "q": q}
+            return 200, {
+                "clips": [api_mod.clip_to_api(c, storage=storage) for c in clips],
+                "count": len(clips),
+                "q": q,
+            }
 
         if family == "/mobile/v1/collections":
             return 200, {"collections": self.vault.list_collections()}
 
         if family == "/mobile/v1/favorites":
             clips = self.vault.list_clips(FILTER_FAVORITES)
-            return 200, {"clips": [api_mod.clip_to_api(c) for c in clips], "count": len(clips)}
+            return 200, {
+                "clips": [api_mod.clip_to_api(c, storage=storage) for c in clips],
+                "count": len(clips),
+            }
 
         if family == "/mobile/v1/recently-removed":
             clips = self.vault.list_clips(FILTER_RECENTLY_REMOVED)
-            return 200, {"clips": [api_mod.clip_to_api(c) for c in clips], "count": len(clips)}
+            return 200, {
+                "clips": [api_mod.clip_to_api(c, storage=storage) for c in clips],
+                "count": len(clips),
+            }
 
         return 404, {"error": "not_found"}
 

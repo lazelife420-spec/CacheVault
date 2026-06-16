@@ -10,6 +10,7 @@ import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
 import com.prooffoundry.cachevaultmobile.data.ClipFeed
 import com.prooffoundry.cachevaultmobile.data.ClipSummary
+import com.prooffoundry.cachevaultmobile.data.ImageAssetState
 import com.prooffoundry.cachevaultmobile.data.PairingConfig
 import com.prooffoundry.cachevaultmobile.data.PairingStore
 import com.prooffoundry.cachevaultmobile.data.UserMessages
@@ -29,6 +30,7 @@ data class AppUiState(
     val loading: Boolean = false,
     val error: String? = null,
     val selectedClip: ClipSummary? = null,
+    val imageAsset: ImageAssetState = ImageAssetState(),
 )
 
 class AppViewModel(
@@ -138,7 +140,30 @@ class AppViewModel(
     }
 
     fun closeClipDetail() {
-        uiState = uiState.copy(selectedClip = null)
+        uiState = uiState.copy(selectedClip = null, imageAsset = ImageAssetState())
+    }
+
+    fun loadImageAsset(clipId: String) {
+        viewModelScope.launch {
+            uiState = uiState.copy(
+                imageAsset = ImageAssetState(loading = true),
+                error = null,
+            )
+            runCatching {
+                withContext(Dispatchers.IO) { repository.client().fetchImageAsset(clipId) }
+            }.onSuccess { result ->
+                uiState = uiState.copy(
+                    imageAsset = ImageAssetState(
+                        bytes = result.bytes,
+                        contentType = result.contentType,
+                    ),
+                )
+            }.onFailure { err ->
+                uiState = uiState.copy(
+                    imageAsset = ImageAssetState(error = err.toUserMessage()),
+                )
+            }
+        }
     }
 
     fun logCopy(clipId: String) {
@@ -166,11 +191,7 @@ class AppViewModel(
     }
 
     fun logAssetOpen(clipId: String) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                repository.client().requestAsset(clipId)
-            }
-        }
+        loadImageAsset(clipId)
     }
 
     private fun refreshClips() {

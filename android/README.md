@@ -9,13 +9,13 @@ Paired read-only client for the desktop Cache Vault mobile bridge. No cloud sync
 | Lane | Status |
 |------|--------|
 | Text / link / code | Near MVP — real-device smoke can prove this loop |
-| Screenshots / images | **Scaffolded, not functional** — desktop does not store screenshot binaries yet |
+| Screenshots / images | **Implemented on `feature/cache-vault-screenshot-assets`** — View loads `/asset` on tap; Share/Save are explicit; **not proven** until smoke |
 
-Do **not** claim “save screenshots on PC → view on phone” is done. The Screenshots tab and asset route exist for receipt-safe scaffolding only.
+Do **not** claim public mobile MVP is done until **real-device smoke** proves screenshot open/share/save with receipts (plus text/link/code).
 
-**MVP done** only when text, links, code, **and screenshots** work end-to-end with receipts. Screenshot binaries are the current gap.
+**MVP done** only when text, links, code, **and screenshots** work end-to-end with receipts on a real phone.
 
-Branch: `feature/cache-vault-mobile-easy-connect-assets` — **keep unmerged** until smoke (Path A) or screenshot assets (Path B) per [MOBILE_ANDROID_DIRECTION.md](../docs/MOBILE_ANDROID_DIRECTION.md).
+Branch: `feature/cache-vault-screenshot-assets` (from `feature/cache-vault-mobile-easy-connect-assets`) — **keep unmerged** until smoke PASS per [MOBILE_ANDROID_DIRECTION.md](../docs/MOBILE_ANDROID_DIRECTION.md).
 
 ## Onboarding (Easy Connect)
 

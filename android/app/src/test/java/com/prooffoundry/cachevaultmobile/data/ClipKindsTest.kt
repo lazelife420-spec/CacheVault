@@ -38,4 +38,15 @@ class ClipKindsTest {
         )
         assertFalse(ClipKinds.isImageReference(clip))
     }
+
+    @Test
+    fun imageContentTypeDetected() {
+        val clip = ClipSummary(
+            id = "4", preview = "Screenshot (100×50)", content = "[Screenshot PNG 100×50]",
+            classification = "image", contentType = "image", sourceApp = "SnippingTool.exe",
+            createdAt = null, isFavorite = false, isSensitive = false,
+            collection = null, deletedAt = null, hasAsset = true,
+        )
+        assertTrue(ClipKinds.isImageReference(clip))
+    }
 }

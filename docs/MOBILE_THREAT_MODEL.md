@@ -67,7 +67,7 @@ Desktop paired-device record: `device_id`, `device_name`, `created_at`, `last_se
 ## Screenshot / image rules
 
 - List/search: metadata / path / thumbnail only
-- Full asset: selected clip detail only, paired non-revoked device
+- Full asset: selected clip detail only, paired non-revoked device; `GET /mobile/v1/clips/{id}/asset` returns bytes (desktop stores PNG under `%LOCALAPPDATA%/CacheVault/assets/`)
 - Save / share: explicit user tap
 - No bulk image download or silent image library cache
 - Receipts for asset view / share / save — no image contents in receipts

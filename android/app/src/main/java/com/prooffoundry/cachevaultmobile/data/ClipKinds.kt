@@ -12,6 +12,7 @@ object ClipKinds {
 
     fun isImageReference(clip: ClipSummary): Boolean {
         if (clip.hasAsset) return true
+        if (clip.contentType.equals("image", ignoreCase = true)) return true
         if (!isPath(clip)) return false
         val ref = (clip.content.ifBlank { clip.preview }).lowercase()
         return imageExt.any { ref.trim().endsWith(it) }

@@ -23,6 +23,7 @@ CLASS_COMMAND = "command"
 CLASS_EMAIL = "email"
 CLASS_PHONE = "phone"
 CLASS_PLAIN = "plain"
+CLASS_IMAGE = "image"
 
 CLASSIFICATIONS = (
     CLASS_LINK,
@@ -32,10 +33,12 @@ CLASSIFICATIONS = (
     CLASS_EMAIL,
     CLASS_PHONE,
     CLASS_PLAIN,
+    CLASS_IMAGE,
 )
 
 # --- Content types ---------------------------------------------------------
-CONTENT_TEXT = "text"  # only text is supported in the MVP
+CONTENT_TEXT = "text"
+CONTENT_IMAGE = "image"
 
 # --- Event types -----------------------------------------------------------
 EVENT_CAPTURED = "captured"
@@ -53,8 +56,26 @@ EVENT_DELETED = "deleted"
 EVENT_COPIED_AGAIN = "copied_again"
 EVENT_REVEALED_SENSITIVE = "revealed_sensitive"
 EVENT_CLEARED_SENSITIVE = "cleared_sensitive"
+EVENT_ASSET_PERSISTED = "asset_persisted"
+EVENT_DUPLICATE_REVIEW = "duplicate_review"
+EVENT_USAGE_MERGED = "usage_merged"
 
 PREVIEW_MAX_CHARS = 200
+
+# Sort keys for list/grid views
+SORT_NEWEST_ADDED = "newest_added"
+SORT_OLDEST_ADDED = "oldest_added"
+SORT_RECENTLY_USED = "recently_used"
+SORT_OLDEST_USED = "oldest_used"
+SORT_MOST_USED = "most_used"
+SORT_LEAST_USED = "least_used"
+SORT_LARGEST = "largest"
+SORT_SMALLEST = "smallest"
+SORT_SOURCE = "source_app"
+SORT_TYPE = "type"
+SORT_COLLECTION = "collection"
+SORT_FAVORITES_FIRST = "favorites_first"
+SORT_DUPLICATES_FIRST = "duplicates_first"
 
 
 def utcnow() -> datetime:
@@ -73,6 +94,11 @@ def new_id() -> str:
 def content_hash(content: str) -> str:
     """Stable hash used for duplicate detection."""
     return hashlib.sha256(content.encode("utf-8", "replace")).hexdigest()
+
+
+def bytes_hash(data: bytes) -> str:
+    """SHA-256 for binary assets (screenshots/images)."""
+    return hashlib.sha256(data).hexdigest()
 
 
 def make_preview(content: str, max_chars: int = PREVIEW_MAX_CHARS) -> str:
@@ -114,6 +140,23 @@ class Clip:
     deleted_at: str | None = None
     duplicate_of: str | None = None
     collection: str | None = None
+    title: str | None = None
+    source_url: str | None = None
+    normalized_hash: str | None = None
+    size_bytes: int = 0
+    last_used_at: str | None = None
+    use_count: int = 0
+    copied_count: int = 0
+
+    @property
+    def first_saved_at(self) -> str:
+        """Alias for created_at (Date Added / First Saved)."""
+        return self.created_at
+
+    @property
+    def date_used(self) -> str | None:
+        """Last Used timestamp; falls back to updated_at for legacy rows."""
+        return self.last_used_at or self.updated_at
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
 from .. import models, search
@@ -11,8 +12,18 @@ from ..storage import (
     FILTER_FAVORITES,
     FILTER_RECENTLY_REMOVED,
     FILTER_SEARCH_ALL,
+    VaultStorage,
 )
 from .models import MobileAccessReceipt
+
+
+@dataclass(frozen=True)
+class BinaryResponse:
+    """Binary HTTP body for image asset delivery (never logged or receipted)."""
+
+    data: bytes
+    content_type: str
+    clip_id: str | None = None
 
 # Read-only GET routes (MVP). No delete/edit/permanent-remove routes exist.
 READ_ONLY_ROUTES = frozenset({
@@ -64,16 +75,17 @@ def is_forbidden_route(path: str) -> bool:
     return any(part in low for part in FORBIDDEN_ROUTE_PARTS)
 
 
-def clip_has_asset(clip: models.Clip) -> bool:
-    """True when the vault stores a retrievable binary asset for this clip.
+def clip_has_asset(clip: models.Clip, storage: VaultStorage | None = None) -> bool:
+    """True when the vault stores a retrievable binary asset for this clip."""
+    if storage is None:
+        return False
+    if clip.content_type != models.CONTENT_IMAGE:
+        return False
+    return storage.has_clip_asset(clip.id)
 
-    Desktop Cache Vault currently stores text clips only. Image asset delivery
-    will enable when desktop screenshot/image capture ships.
-    """
-    return False
 
-
-def clip_to_api(clip: models.Clip, *, full_content: bool = False) -> dict:
+def clip_to_api(clip: models.Clip, *, full_content: bool = False,
+                storage: VaultStorage | None = None) -> dict:
     """Serialize a clip for mobile clients.
 
     List/search endpoints omit sensitive full content (preview only).
@@ -97,7 +109,7 @@ def clip_to_api(clip: models.Clip, *, full_content: bool = False) -> dict:
         "is_sensitive": bool(clip.is_sensitive),
         "collection": clip.collection,
         "deleted_at": clip.deleted_at,
-        "has_asset": clip_has_asset(clip),
+        "has_asset": clip_has_asset(clip, storage),
     }
 
 

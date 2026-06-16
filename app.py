@@ -11,6 +11,11 @@ import sys
 
 def _selftest() -> int:
     """Exercise the core pipeline without a display — used by CI smoke checks."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    from cache_vault.core.mobile.bridge import MobileBridge
     from cache_vault.core.settings import Settings
     from cache_vault.core.storage import VaultStorage
     from cache_vault.core.vault import Vault
@@ -21,15 +26,29 @@ def _selftest() -> int:
     secret = vault.capture("sk-abc123DEF456ghi789JKL0", source_app="test")
     assert secret is not None and secret.is_sensitive
     assert len(vault.list_clips()) == 3
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), "red").save(buf, format="PNG")
+    png = buf.getvalue()
+    img = vault.capture_image(png, width=4, height=4, source_app="test")
+    assert img is not None
+    assert vault.storage.has_clip_asset(img.id)
+
+    bridge = MobileBridge(vault)
+    assert bridge.allowed_routes()  # mobile stack importable in frozen builds
+
     vault.clear_sensitive()
     vault.close()
-    print("selftest OK — core capture/classify/sensitive pipeline works")
+    print("selftest OK — core capture/classify/sensitive/image/mobile pipeline works")
     return 0
 
 
 def main() -> int:
     if "--selftest" in sys.argv:
         return _selftest()
+
+    from cache_vault.core.single_instance import claim_or_exit
+    claim_or_exit()
 
     try:
         import customtkinter as ctk

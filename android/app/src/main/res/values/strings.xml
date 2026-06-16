@@ -19,7 +19,7 @@
     <string name="pairing_hint">On your PC: Settings → Mobile Access → Pair Android Device</string>
     <string name="search_hint">Search saved clips…</string>
     <string name="screenshots_tab">Screenshots</string>
-    <string name="screenshots_empty">Screenshot viewing from your PC is not available yet. This tab will list images when the desktop vault stores them.</string>
-    <string name="image_asset_placeholder">Screenshot/image preview from PC is not available yet for this clip.</string>
+    <string name="screenshots_empty">No screenshots on your PC yet. Copy a screenshot on your PC while Cache Vault is running, then refresh.</string>
+    <string name="image_asset_placeholder">Tap View to load this screenshot from your PC.</string>
     <string name="no_cloud">No cloud sync. No hidden accounts. Your PC stays the source of truth.</string>
 </resources>

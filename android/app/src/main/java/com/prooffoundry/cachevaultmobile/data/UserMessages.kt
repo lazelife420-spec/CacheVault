@@ -24,6 +24,9 @@ object UserMessages {
 
     const val NOT_FOUND = "That clip was not found on your PC."
 
+    const val IMAGE_NOT_AVAILABLE =
+        "This screenshot is not available on your PC.\nIt may not have been saved as an image asset."
+
     fun forBridgeError(error: BridgeError): String = when (error) {
         is BridgeError.Disabled -> MOBILE_ACCESS_OFF
         is BridgeError.Unauthorized -> when {
@@ -33,6 +36,7 @@ object UserMessages {
         is BridgeError.UnsupportedApi -> UNSUPPORTED_API
         is BridgeError.Network -> "$PC_UNREACHABLE\n\n$FIREWALL_HINT"
         is BridgeError.NotFound -> NOT_FOUND
+        is BridgeError.AssetNotAvailable -> error.message ?: IMAGE_NOT_AVAILABLE
         is BridgeError -> error.message ?: PC_UNREACHABLE
     }
 }

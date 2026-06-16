@@ -93,4 +93,31 @@ class BridgeClientTest {
         assertEquals("sk-live-full-token", clip.content)
         assertTrue(clip.isSensitive)
     }
+
+    @Test
+    fun fetchImageAssetReturnsBytes() {
+        val pngHeader = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        )
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "image/png")
+                .setBody(okio.Buffer().write(pngHeader)),
+        )
+        val result = client.fetchImageAsset("img-1")
+        assertEquals("image/png", result.contentType)
+        assertTrue(result.bytes.contentEquals(pngHeader))
+        val request = server.takeRequest()
+        assertEquals("/mobile/v1/clips/img-1/asset", request.path)
+    }
+
+    @Test(expected = BridgeError.AssetNotAvailable::class)
+    fun fetchImageAssetNotAvailable() {
+        server.enqueue(
+            MockResponse().setResponseCode(404).setBody(
+                """{"error":"asset_not_available","message":"No image"}""",
+            ),
+        )
+        client.fetchImageAsset("txt-1")
+    }
 }

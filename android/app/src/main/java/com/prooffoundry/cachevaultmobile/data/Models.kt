@@ -64,8 +64,22 @@ sealed class BridgeError(message: String) : Exception(message) {
     class Disabled : BridgeError("Mobile Access is disabled on the PC.")
     class Unauthorized(reason: String) : BridgeError(reason)
     class NotFound : BridgeError("Not found.")
+    class AssetNotAvailable(message: String = "Image not available on your PC.") :
+        BridgeError(message)
     class Network(cause: Throwable) : BridgeError(cause.message ?: "Network error")
     class Unknown(code: Int, body: String) : BridgeError("HTTP $code: $body")
     class UnsupportedApi(version: String) :
         BridgeError("Unsupported mobile API version: $version")
 }
+
+data class ImageAssetResult(
+    val bytes: ByteArray,
+    val contentType: String,
+)
+
+data class ImageAssetState(
+    val loading: Boolean = false,
+    val bytes: ByteArray? = null,
+    val contentType: String = "image/png",
+    val error: String? = null,
+)

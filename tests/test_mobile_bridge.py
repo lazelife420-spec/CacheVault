@@ -220,6 +220,14 @@ def test_bridge_starts_when_enabled(vault, mobile_bridge):
         bridge.stop()
 
 
+def test_bridge_survives_port_conflict(vault, mobile_bridge):
+    _enable(vault)
+    mobile_bridge.sync(vault.settings)
+    other = MobileBridge(vault, receipt_log=mobile_bridge.receipts)
+    other.sync(vault.settings)  # must not raise when port already bound
+    assert mobile_bridge.is_running is True
+
+
 def test_bridge_stops_discovery_when_disabled(vault, mobile_bridge):
     discovery = MagicMock()
     bridge = MobileBridge(vault, receipt_log=mobile_bridge.receipts, discovery=discovery)

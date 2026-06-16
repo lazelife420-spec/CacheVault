@@ -1,4 +1,4 @@
-"""Center clip list."""
+"""Center clip list — compact cards."""
 
 from __future__ import annotations
 
@@ -7,19 +7,9 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
+from ..core import clip_metadata
 from ..core.models import Clip
 from . import theme
-
-
-_CLASS_BADGE = {
-    "link": "LINK",
-    "path": "PATH",
-    "code": "CODE",
-    "command": "CMD",
-    "email": "MAIL",
-    "phone": "TEL",
-    "plain": "TEXT",
-}
 
 
 class ClipList(ctk.CTkScrollableFrame):
@@ -54,37 +44,55 @@ class ClipList(ctk.CTkScrollableFrame):
             self, corner_radius=8,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
         )
-        row.pack(fill="x", padx=4, pady=3)
+        row.pack(fill="x", padx=4, pady=2)
 
-        badge_text = _CLASS_BADGE.get(clip.classification, "TEXT")
+        badge = clip_metadata.format_label(clip.classification, clip.content_type).upper()
         if clip.is_sensitive:
-            badge_text = "🔒 SENSITIVE"
+            badge = "SENSITIVE"
+        elif clip.duplicate_of:
+            badge = f"{badge} · DUPLICATE"
+
         top = ctk.CTkFrame(row, fg_color="transparent")
-        top.pack(fill="x", padx=10, pady=(8, 0))
-        ctk.CTkLabel(top, text=badge_text, font=ctk.CTkFont(size=10, weight="bold"),
-                     text_color=(brand.WARNING_RED if clip.is_sensitive
-                                 else brand.MUTED_FG)
-                     ).pack(side="left")
+        top.pack(fill="x", padx=10, pady=(6, 0))
+        ctk.CTkLabel(
+            top, text=badge, font=ctk.CTkFont(size=9, weight="bold"),
+            text_color=brand.WARNING_RED if clip.is_sensitive else brand.MUTED_FG,
+        ).pack(side="left")
+        trail = ctk.CTkFrame(top, fg_color="transparent")
+        trail.pack(side="right")
         if clip.is_pinned:
-            ctk.CTkLabel(top, text="★", font=ctk.CTkFont(size=13),
-                         text_color=theme.proof_badge_fg()).pack(side="right")
+            ctk.CTkLabel(trail, text="★", font=ctk.CTkFont(size=12),
+                         text_color=theme.proof_badge_fg()).pack(side="left", padx=2)
+        if clip.collection:
+            ctk.CTkLabel(trail, text=clip.collection[:16], font=ctk.CTkFont(size=9),
+                         text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
+        if clip.content_hash:
+            ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=10),
+                         text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
 
-        preview = ctk.CTkLabel(row, text=clip.preview or "(empty)", anchor="w",
-                               justify="left", wraplength=420)
-        preview.pack(fill="x", padx=10, pady=(2, 2))
+        title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
+        ctk.CTkLabel(row, text=title, anchor="w",
+                     font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x", padx=10)
 
-        meta = clip.source_app or "unknown source"
-        ctk.CTkLabel(row, text=f"{meta} · {_short_time(clip.created_at)}",
-                     anchor="w", text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 8))
+        preview_lines = (clip.preview or "(empty)").splitlines()[:3]
+        preview = "\n".join(preview_lines)
+        ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
+                     font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
 
-        for widget in (row, top, preview):
+        src = clip.source_app or "Unknown source"
+        added = _short_time(clip.created_at)
+        used = _short_time(clip.date_used or clip.updated_at)
+        ctk.CTkLabel(
+            row, text=f"{src} · Added {added} · Last used {used}",
+            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=9),
+        ).pack(fill="x", padx=10, pady=(0, 8))
+
+        for widget in (row, top, trail):
             widget.bind("<Button-1>", lambda _e, c=clip: self._select(c))
             widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c))
         return row
 
     def _context(self, event, clip: Clip) -> None:
-        # Select the row, then hand off to the shell to post the menu.
         self._select(clip)
         if self._on_context is not None:
             self._on_context(clip, event.x_root, event.y_root)
@@ -95,5 +103,4 @@ class ClipList(ctk.CTkScrollableFrame):
 
 
 def _short_time(iso: str) -> str:
-    # Keep date+time, drop microseconds/zone noise for the row.
-    return iso.replace("T", " ")[:16]
+    return (iso or "").replace("T", " ")[:16]

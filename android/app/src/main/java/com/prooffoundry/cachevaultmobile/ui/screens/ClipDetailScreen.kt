@@ -1,19 +1,23 @@
 package com.prooffoundry.cachevaultmobile.ui.screens
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,7 +27,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -32,11 +39,14 @@ import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.ClipKinds
 import com.prooffoundry.cachevaultmobile.data.ClipSummary
+import com.prooffoundry.cachevaultmobile.data.ImageAssetState
+import com.prooffoundry.cachevaultmobile.data.ImageFileHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClipDetailScreen(
     clip: ClipSummary,
+    imageAsset: ImageAssetState,
     onBack: () -> Unit,
     onCopy: () -> Unit,
     onShare: () -> Unit,
@@ -50,6 +60,9 @@ fun ClipDetailScreen(
     val isPath = ClipKinds.isPath(clip)
     val isImage = ClipKinds.isImageReference(clip)
     val linkUrl = ClipKinds.linkUrl(clip)
+    val bitmap = remember(imageAsset.bytes) {
+        imageAsset.bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
+    }
 
     Scaffold(
         topBar = {
@@ -84,14 +97,44 @@ fun ClipDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (isImage && !clip.hasAsset) {
-                Text(
-                    stringResource(R.string.image_asset_placeholder),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (isImage) {
+                when {
+                    imageAsset.loading -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    bitmap != null -> {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = clip.preview,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 480.dp),
+                        )
+                    }
+                    imageAsset.error != null -> {
+                        Text(
+                            imageAsset.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    !clip.hasAsset -> {
+                        Text(
+                            stringResource(R.string.image_asset_placeholder),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
-            Text(text, style = MaterialTheme.typography.bodyLarge)
+            if (!isImage || bitmap == null) {
+                Text(text, style = MaterialTheme.typography.bodyLarge)
+            }
             clip.sourceApp?.let { Text("Source: $it", style = MaterialTheme.typography.labelSmall) }
             clip.createdAt?.let { Text("Saved: $it", style = MaterialTheme.typography.labelSmall) }
 
@@ -122,36 +165,64 @@ fun ClipDetailScreen(
                     }
                 }
                 isImage -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(onClick = {
-                            onViewAsset()
-                            Toast.makeText(
-                                context,
-                                if (clip.hasAsset) "Loading image from PC…"
-                                else "Image preview when desktop stores screenshot assets.",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }) {
-                            Text("View")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(
+                            onClick = onViewAsset,
+                            enabled = clip.hasAsset && !imageAsset.loading,
+                        ) {
+                            Text(if (bitmap == null) "View" else "Reload")
                         }
-                        Button(onClick = {
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, text)
-                            }
-                            context.startActivity(Intent.createChooser(intent, "Share"))
-                            onShare()
-                        }) {
+                        Button(
+                            onClick = {
+                                val bytes = imageAsset.bytes
+                                if (bytes != null) {
+                                    ImageFileHelper.shareImage(
+                                        context, bytes, imageAsset.contentType, clip.id,
+                                    )
+                                    onShare()
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Open the image from your PC first.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            enabled = imageAsset.bytes != null,
+                        ) {
                             Text("Share")
                         }
-                        OutlinedButton(onClick = {
-                            onSave()
-                            Toast.makeText(
-                                context,
-                                "Save to Phone will download when PC image assets are available.",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }) {
+                        OutlinedButton(
+                            onClick = {
+                                val bytes = imageAsset.bytes
+                                if (bytes != null) {
+                                    val ok = ImageFileHelper.saveToPictures(
+                                        context,
+                                        bytes,
+                                        imageAsset.contentType,
+                                        "cachevault_${clip.id}.png",
+                                    )
+                                    onSave()
+                                    Toast.makeText(
+                                        context,
+                                        if (ok) "Saved to Pictures/CacheVault"
+                                        else "Could not save image",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Open the image from your PC first.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            enabled = imageAsset.bytes != null,
+                        ) {
                             Text("Save to Phone")
                         }
                     }

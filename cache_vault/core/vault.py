@@ -7,6 +7,13 @@ together so the UI stays thin and the capture pipeline lives in one place.
 from __future__ import annotations
 
 from . import classify, models, sensitive
+from . import clip_metadata
+from .duplicates import (
+    DuplicateGroup,
+    apply_duplicate_review,
+    find_exact_duplicate_groups,
+    find_possible_duplicate_groups,
+)
 from .events import EventLog
 from .models import Clip
 from .settings import Settings
@@ -60,6 +67,13 @@ class Vault:
         else:
             clip.preview = models.make_preview(content)
 
+        clip.title = clip_metadata.clip_title(content, clip.preview)
+        clip.source_url = clip_metadata.extract_source_url(content, clip.classification)
+        clip.normalized_hash = clip_metadata.normalized_hash(content)
+        clip.size_bytes = clip_metadata.size_bytes_for(content)
+        clip.use_count = 1
+        clip.last_used_at = clip.created_at
+
         self.storage.add_clip(clip)
         self.events.record(
             models.EVENT_CAPTURED, clip.id,
@@ -69,6 +83,81 @@ class Vault:
                 "reason": sens.reason or None,
                 "source_app": source_app,
             },
+        )
+        if self.settings.history_max_clips > 0:
+            pruned = self.storage.prune_history(self.settings.history_max_clips)
+            for cid in pruned:
+                self.events.record(models.EVENT_DELETED, cid,
+                                   {"action": "history_prune"})
+        return clip
+
+    def capture_image(self, png_bytes: bytes, *, width: int, height: int,
+                      source_app: str | None = None,
+                      source_window: str | None = None,
+                      original_name: str | None = None) -> Clip | None:
+        """Persist a screenshot/image from the clipboard as a vault clip + asset."""
+        from . import image_assets
+
+        if self.settings.capture_paused:
+            return None
+        if not png_bytes:
+            return None
+        if self.settings.is_app_excluded(source_app):
+            return None
+
+        chash = models.bytes_hash(png_bytes)
+        prev = self.storage.latest_clip()
+        if prev is not None and prev.content_hash == chash:
+            return None
+
+        preview = image_assets.image_preview_label(width, height)
+        content = image_assets.image_content_label(width, height)
+        clip = Clip(
+            content_hash=chash,
+            content_type=models.CONTENT_IMAGE,
+            content=content,
+            preview=preview,
+            source_app=source_app,
+            source_window=source_window,
+            classification=models.CLASS_IMAGE,
+            tags=["image", "screenshot"],
+            title=original_name or "Screenshot",
+            size_bytes=len(png_bytes),
+            use_count=1,
+        )
+        clip.last_used_at = clip.created_at
+        self.storage.add_clip(clip)
+
+        record = image_assets.ClipAssetRecord(
+            asset_id=models.new_id(),
+            clip_id=clip.id,
+            mime_type="image/png",
+            file_ext="png",
+            size_bytes=len(png_bytes),
+            sha256=chash,
+            created_at=models.now_iso(),
+            original_name=original_name,
+            storage_name=image_assets.make_storage_name(clip.id, "png"),
+            width=width or None,
+            height=height or None,
+        )
+        self.storage.save_clip_asset(record, png_bytes)
+
+        self.events.record(
+            models.EVENT_CAPTURED, clip.id,
+            {
+                "classification": clip.classification,
+                "content_type": clip.content_type,
+                "asset_sha256": chash,
+                "size_bytes": len(png_bytes),
+                "width": width,
+                "height": height,
+                "source_app": source_app,
+            },
+        )
+        self.events.record(
+            models.EVENT_ASSET_PERSISTED, clip.id,
+            {"mime_type": "image/png", "size_bytes": len(png_bytes)},
         )
         if self.settings.history_max_clips > 0:
             pruned = self.storage.prune_history(self.settings.history_max_clips)
@@ -176,6 +265,40 @@ class Vault:
 
     def counts(self):
         return self.storage.counts()
+
+    def dashboard_summary(self) -> dict:
+        counts = self.storage.counts()
+        recent = self.events.recent(1)
+        last_action = recent[0]["event_type"] if recent else "—"
+        return {
+            "all": counts.get("all", 0),
+            "favorites": counts.get("favorites", 0),
+            "screenshots": counts.get("screenshots", 0),
+            "duplicates": self.storage.count_duplicate_groups(),
+            "recently_removed": counts.get("recently_removed", 0),
+            "receipts": len(self.events.recent(500)),
+            "sensitive": counts.get("sensitive", 0),
+            "expired": counts.get("expired", 0),
+            "last_receipt_action": last_action,
+            "mobile_enabled": bool(self.settings.mobile_access_enabled),
+            "mobile_port": self.settings.mobile_access_port,
+            "paired_count": len(self.settings.paired_devices),
+        }
+
+    def duplicate_groups(self, *, include_possible: bool = True) -> list[DuplicateGroup]:
+        groups = find_exact_duplicate_groups(self.storage)
+        if include_possible:
+            groups = groups + find_possible_duplicate_groups(self.storage)
+        return groups
+
+    def review_duplicates(self, group: DuplicateGroup, action: str,
+                          *, merge_history: bool = False) -> str:
+        return apply_duplicate_review(
+            self.storage, self.events, group, action, merge_history=merge_history
+        )
+
+    def clip_usage_events(self, clip_id: str) -> list[dict]:
+        return self.storage.events_for_clip(clip_id)
 
     def close(self) -> None:
         self.storage.close()

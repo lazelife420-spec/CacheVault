@@ -58,8 +58,41 @@ class BridgeClient(
         post("/mobile/v1/clips/$clipId/save")
     }
 
-    fun requestAsset(clipId: String) {
-        runCatching { get("/mobile/v1/clips/$clipId/asset", OkJson::class.java) }
+    fun fetchImageAsset(clipId: String): ImageAssetResult {
+        val request = baseRequest("/mobile/v1/clips/$clipId/asset").get().build()
+        try {
+            http.newCall(request).execute().use { response ->
+                val bodyBytes = response.body?.bytes() ?: byteArrayOf()
+                when (response.code) {
+                    200 -> {
+                        val ct = response.header("Content-Type") ?: "image/png"
+                        return ImageAssetResult(bodyBytes, ct)
+                    }
+                    401 -> throw BridgeError.Unauthorized(parseMessage(String(bodyBytes)))
+                    503 -> throw BridgeError.Disabled()
+                    404 -> throw parseAssetNotAvailable(String(bodyBytes))
+                    else -> throw BridgeError.Unknown(response.code, String(bodyBytes))
+                }
+            }
+        } catch (e: BridgeError) {
+            throw e
+        } catch (e: Exception) {
+            throw BridgeError.Network(e)
+        }
+    }
+
+    private fun parseAssetNotAvailable(body: String): BridgeError {
+        val err = runCatching {
+            moshi.adapter(AssetErrorJson::class.java).fromJson(body)?.error
+        }.getOrNull()
+        return if (err == "asset_not_available") {
+            BridgeError.AssetNotAvailable(
+                moshi.adapter(AssetErrorJson::class.java).fromJson(body)?.message
+                    ?: UserMessages.IMAGE_NOT_AVAILABLE,
+            )
+        } else {
+            BridgeError.NotFound()
+        }
     }
 
     private fun <T> get(path: String, type: Class<T>): T {
@@ -179,5 +212,9 @@ class BridgeClient(
     }
 
     private data class ErrorJson(val message: String? = null)
+    private data class AssetErrorJson(
+        val error: String? = null,
+        val message: String? = null,
+    )
     private data class OkJson(val ok: Boolean? = null)
 }

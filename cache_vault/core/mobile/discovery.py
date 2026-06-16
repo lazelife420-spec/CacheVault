@@ -82,12 +82,8 @@ class MobileDiscovery:
 
 def guess_lan_ip() -> str | None:
     """Best-effort LAN IPv4 for pairing instructions (not logged)."""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except OSError:
-        return None
+    from .lan_ip import best_lan_ipv4
+    return best_lan_ipv4()
 
 
 def _lan_addresses() -> list[bytes]:

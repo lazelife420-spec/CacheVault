@@ -31,13 +31,25 @@ if ROOT not in sys.path:
 from cache_vault.build_meta import windows_version_strings, windows_version_tuple
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("customtkinter",):
+for pkg in ("customtkinter", "zeroconf"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
     hiddenimports += h
 
-hiddenimports += ["pystray._win32", "PIL", "PIL.Image", "PIL.ImageDraw"]
+hiddenimports += [
+    "pystray._win32",
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageDraw",
+    "cache_vault.core.image_assets",
+    "cache_vault.core.mobile.bridge",
+    "cache_vault.core.mobile.api",
+    "cache_vault.core.mobile.discovery",
+    "cache_vault.core.mobile.receipts",
+    "cache_vault.core.mobile.models",
+    "cache_vault.ui.mobile_dialogs",
+]
 
 _icon = os.path.join(ROOT, "assets", "cache-vault-icon.ico")
 _version_tuple = windows_version_tuple()

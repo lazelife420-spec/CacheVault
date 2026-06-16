@@ -96,10 +96,11 @@ Future query params: `limit`, `offset`/`cursor`, `sort`, `filter`
 |---|---|
 | Auth required | Yes |
 | Mutation | **no** |
-| MVP allowed | **yes** (returns `404 asset_not_available` until desktop stores screenshot binaries) |
+| MVP allowed | **yes** |
 | Receipt action | `get_asset` |
 | Scope | **one clip id only** — no bulk |
-| **Honest status** | Route + receipts ready; **binary delivery not functional** until `feature/cache-vault-screenshot-assets` |
+| Response | `200` with `Content-Type: image/png` (or stored mime) and raw bytes; `404 asset_not_available` for non-image or missing file |
+| **Honest status** | Implemented on `feature/cache-vault-screenshot-assets`; treat as **functional only after** desktop pytest + Android build + **real-device smoke** pass |
 
 ---
 

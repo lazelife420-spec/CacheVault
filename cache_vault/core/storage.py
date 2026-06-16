@@ -21,6 +21,7 @@ from .models import Clip
 
 # --- Filter names (shared with the UI sidebar) -----------------------------
 FILTER_ALL = "all"
+FILTER_HOME = "home"
 FILTER_PINNED = "pinned"
 FILTER_LINKS = "links"
 FILTER_FILES = "files"
@@ -32,6 +33,7 @@ FILTER_SENSITIVE = "sensitive"
 FILTER_DUPLICATES = "duplicates"
 FILTER_TODAY = "today"
 FILTER_WEEK = "week"
+FILTER_OLDER = "older"
 FILTER_EXPIRED = "expired"
 # Favorites are stored in the existing ``is_pinned`` column (saved clips that
 # float to the top and survive pruning). FILTER_PINNED stays as a back-compat
@@ -40,6 +42,7 @@ FILTER_FAVORITES = "favorites"
 FILTER_RECENTLY_REMOVED = "recently_removed"
 # Search box with text: live clips + Recently Removed (not Expired).
 FILTER_SEARCH_ALL = "search_all"
+FILTER_SCREENSHOTS = "screenshots"
 # Sidebar collection entries use this prefix, e.g. "col:Work".
 COLLECTION_PREFIX = "col:"
 
@@ -50,6 +53,7 @@ _CLASS_BY_FILTER = {
     FILTER_COMMANDS: models.CLASS_COMMAND,
     FILTER_EMAILS: models.CLASS_EMAIL,
     FILTER_PHONES: models.CLASS_PHONE,
+    FILTER_SCREENSHOTS: models.CLASS_IMAGE,
 }
 
 
@@ -90,6 +94,21 @@ CREATE TABLE IF NOT EXISTS events (
     details     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_clip ON events(clip_id);
+
+CREATE TABLE IF NOT EXISTS clip_assets (
+    asset_id      TEXT PRIMARY KEY,
+    clip_id       TEXT NOT NULL UNIQUE,
+    mime_type     TEXT NOT NULL,
+    file_ext      TEXT NOT NULL,
+    size_bytes    INTEGER NOT NULL,
+    sha256        TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    original_name TEXT,
+    storage_name  TEXT NOT NULL,
+    width         INTEGER,
+    height        INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_clip_assets_clip ON clip_assets(clip_id);
 """
 
 
@@ -126,6 +145,13 @@ class VaultStorage:
         "deleted_at": "TEXT",
         "duplicate_of": "TEXT",
         "collection": "TEXT",
+        "title": "TEXT",
+        "source_url": "TEXT",
+        "normalized_hash": "TEXT",
+        "size_bytes": "INTEGER DEFAULT 0",
+        "last_used_at": "TEXT",
+        "use_count": "INTEGER DEFAULT 0",
+        "copied_count": "INTEGER DEFAULT 0",
     }
 
     def _migrate(self) -> None:
@@ -141,6 +167,15 @@ class VaultStorage:
         for col, decl in self._EXPECTED_CLIP_COLUMNS.items():
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE clips ADD COLUMN {col} {decl}")
+        # Backfill legacy rows with safe defaults.
+        self.conn.execute(
+            "UPDATE clips SET last_used_at = updated_at "
+            "WHERE last_used_at IS NULL OR last_used_at = ''"
+        )
+        self.conn.execute(
+            "UPDATE clips SET use_count = 1 "
+            "WHERE (use_count IS NULL OR use_count = 0) AND deleted_at IS NULL"
+        )
 
     def close(self) -> None:
         self.conn.close()
@@ -167,6 +202,13 @@ class VaultStorage:
             deleted_at=row["deleted_at"],
             duplicate_of=row["duplicate_of"],
             collection=row["collection"] if "collection" in row.keys() else None,
+            title=row["title"] if "title" in row.keys() else None,
+            source_url=row["source_url"] if "source_url" in row.keys() else None,
+            normalized_hash=row["normalized_hash"] if "normalized_hash" in row.keys() else None,
+            size_bytes=int(row["size_bytes"] or 0) if "size_bytes" in row.keys() else 0,
+            last_used_at=row["last_used_at"] if "last_used_at" in row.keys() else None,
+            use_count=int(row["use_count"] or 0) if "use_count" in row.keys() else 0,
+            copied_count=int(row["copied_count"] or 0) if "copied_count" in row.keys() else 0,
         )
 
     # --- writes ------------------------------------------------------------
@@ -182,14 +224,18 @@ class VaultStorage:
                 id, created_at, updated_at, content_hash, content_type,
                 content, preview, source_app, source_window, classification,
                 tags, is_pinned, is_kept, is_sensitive, expires_at,
-                deleted_at, duplicate_of, collection
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                deleted_at, duplicate_of, collection, title, source_url,
+                normalized_hash, size_bytes, last_used_at, use_count, copied_count
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 clip.id, clip.created_at, clip.updated_at, clip.content_hash,
                 clip.content_type, clip.content, clip.preview, clip.source_app,
                 clip.source_window, clip.classification, json.dumps(clip.tags),
                 int(clip.is_pinned), int(clip.is_kept), int(clip.is_sensitive),
                 clip.expires_at, clip.deleted_at, clip.duplicate_of, clip.collection,
+                clip.title, clip.source_url, clip.normalized_hash, clip.size_bytes,
+                clip.last_used_at or clip.created_at,
+                max(clip.use_count, 1), clip.copied_count,
             ),
         )
         self.conn.commit()
@@ -215,8 +261,15 @@ class VaultStorage:
         )
 
     def touch_clip(self, clip_id: str) -> None:
-        """Record that a clip was used (updates date_used / updated_at)."""
-        self._touch(clip_id)
+        """Record that a clip was used (updates last_used_at and use_count)."""
+        now = models.now_iso()
+        self.conn.execute(
+            "UPDATE clips SET updated_at = ?, last_used_at = ?, "
+            "use_count = COALESCE(use_count, 0) + 1, "
+            "copied_count = COALESCE(copied_count, 0) + 1 "
+            "WHERE id = ?",
+            (now, now, clip_id),
+        )
         self.conn.commit()
 
     def set_pinned(self, clip_id: str, pinned: bool) -> None:
@@ -265,8 +318,67 @@ class VaultStorage:
         self.conn.commit()
 
     def hard_delete(self, clip_id: str) -> None:
+        from . import image_assets
+        row = self.get_asset_record(clip_id)
+        if row is not None:
+            image_assets.delete_asset_file(row.storage_name)
+            self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (clip_id,))
         self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
         self.conn.commit()
+
+    # --- image assets --------------------------------------------------------
+    def has_clip_asset(self, clip_id: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM clip_assets WHERE clip_id = ?", (clip_id,)
+        ).fetchone()
+        return row is not None
+
+    def get_asset_record(self, clip_id: str):
+        from .image_assets import ClipAssetRecord
+        row = self.conn.execute(
+            "SELECT * FROM clip_assets WHERE clip_id = ?", (clip_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return ClipAssetRecord(
+            asset_id=row["asset_id"],
+            clip_id=row["clip_id"],
+            mime_type=row["mime_type"],
+            file_ext=row["file_ext"],
+            size_bytes=row["size_bytes"],
+            sha256=row["sha256"],
+            created_at=row["created_at"],
+            original_name=row["original_name"],
+            storage_name=row["storage_name"],
+            width=row["width"],
+            height=row["height"],
+        )
+
+    def save_clip_asset(self, record, data: bytes) -> None:
+        from . import image_assets
+        image_assets.write_asset_file(record.storage_name, data)
+        self.conn.execute(
+            """INSERT INTO clip_assets (
+                asset_id, clip_id, mime_type, file_ext, size_bytes, sha256,
+                created_at, original_name, storage_name, width, height
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                record.asset_id, record.clip_id, record.mime_type, record.file_ext,
+                record.size_bytes, record.sha256, record.created_at,
+                record.original_name, record.storage_name, record.width, record.height,
+            ),
+        )
+        self.conn.commit()
+
+    def load_clip_asset_bytes(self, clip_id: str) -> tuple[bytes, str] | None:
+        from . import image_assets
+        rec = self.get_asset_record(clip_id)
+        if rec is None:
+            return None
+        data = image_assets.read_asset_file(rec.storage_name)
+        if data is None:
+            return None
+        return data, rec.mime_type
 
     def list_collections(self) -> list[dict]:
         """Distinct collection names (live clips) with their counts."""
@@ -380,7 +492,10 @@ class VaultStorage:
         elif fn == FILTER_SENSITIVE:
             where.append("is_sensitive = 1")
         elif fn == FILTER_DUPLICATES:
-            where.append("duplicate_of IS NOT NULL")
+            where.append(
+                "content_hash IN (SELECT content_hash FROM clips "
+                "WHERE deleted_at IS NULL GROUP BY content_hash HAVING COUNT(*) > 1)"
+            )
         elif fn in _CLASS_BY_FILTER:
             where.append("classification = ?")
             params.append(_CLASS_BY_FILTER[fn])
@@ -389,6 +504,9 @@ class VaultStorage:
             params.append(_start_of_today_iso())
         elif fn == FILTER_WEEK:
             where.append("created_at >= ?")
+            params.append(_start_of_week_iso())
+        elif fn == FILTER_OLDER:
+            where.append("created_at < ?")
             params.append(_start_of_week_iso())
         elif fn.startswith(COLLECTION_PREFIX):
             where.append("collection = ?")
@@ -399,28 +517,116 @@ class VaultStorage:
             where.append("classification = ?")
             params.append(query.type_filter)
         if query.source:
-            where.append("LOWER(source_app) LIKE ?")
+            where.append("LOWER(COALESCE(source_app,'')) LIKE ?")
             params.append(f"%{query.source.lower()}%")
+        if query.window:
+            where.append("LOWER(COALESCE(source_window,'')) LIKE ?")
+            params.append(f"%{query.window.lower()}%")
+        if query.source_url:
+            where.append("LOWER(COALESCE(source_url,'')) LIKE ?")
+            params.append(f"%{query.source_url.lower()}%")
+        if query.domain:
+            where.append(
+                "(LOWER(COALESCE(source_url,'')) LIKE ? "
+                "OR LOWER(COALESCE(source_url,'')) LIKE ?)"
+            )
+            d = query.domain.lower().lstrip("www.")
+            params.extend([f"%://{d}%", f"%://www.{d}%"])
+        if query.collection:
+            where.append("LOWER(COALESCE(collection,'')) LIKE ?")
+            params.append(f"%{query.collection.lower()}%")
         if query.sensitive is not None:
             where.append("is_sensitive = ?")
             params.append(int(query.sensitive))
         if query.pinned is not None:
             where.append("is_pinned = ?")
             params.append(int(query.pinned))
+        if query.duplicate_only:
+            where.append(
+                "content_hash IN (SELECT content_hash FROM clips "
+                "WHERE deleted_at IS NULL GROUP BY content_hash HAVING COUNT(*) > 1)"
+            )
 
-        # Free-text search across content + preview + source.
+        # Date Added / First Saved
+        from .search import preset_bounds, sort_sql  # noqa: PLC0415
+
+        added_start = query.date_added_start
+        added_end = query.date_added_end
+        if query.date_added_preset:
+            ps, pe = preset_bounds(query.date_added_preset)
+            added_start = added_start or ps
+            added_end = added_end or pe
+        if added_start:
+            where.append("created_at >= ?")
+            params.append(added_start)
+        if added_end:
+            where.append("created_at < ?")
+            params.append(added_end)
+
+        # Date Used / Last Used
+        used_start = query.date_used_start
+        used_end = query.date_used_end
+        if query.date_used_preset:
+            ps, pe = preset_bounds(query.date_used_preset)
+            used_start = used_start or ps
+            used_end = used_end or pe
+        if used_start:
+            where.append("COALESCE(last_used_at, updated_at) >= ?")
+            params.append(used_start)
+        if used_end:
+            where.append("COALESCE(last_used_at, updated_at) < ?")
+            params.append(used_end)
+
+        # Free-text search across content + preview + metadata.
         if query.text:
             where.append(
                 "(LOWER(content) LIKE ? OR LOWER(preview) LIKE ? "
-                "OR LOWER(source_window) LIKE ?)"
+                "OR LOWER(COALESCE(source_window,'')) LIKE ? "
+                "OR LOWER(COALESCE(title,'')) LIKE ? "
+                "OR LOWER(COALESCE(source_url,'')) LIKE ? "
+                "OR LOWER(COALESCE(collection,'')) LIKE ? "
+                "OR LOWER(COALESCE(source_app,'')) LIKE ? "
+                "OR LOWER(classification) LIKE ? "
+                "OR content_hash LIKE ?)"
             )
             like = f"%{query.text.lower()}%"
-            params.extend([like, like, like])
+            short = f"{query.text.lower()}%"
+            params.extend([like, like, like, like, like, like, like, like, short])
 
         sql = "SELECT * FROM clips WHERE " + " AND ".join(where)
-        sql += " ORDER BY is_pinned DESC, created_at DESC, rowid DESC"
+        sql += " ORDER BY " + sort_sql(query.sort)
         rows = self.conn.execute(sql, params).fetchall()
         return [self._row_to_clip(r) for r in rows]
+
+    def count_images(self) -> int:
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
+            "AND (classification = ? OR content_type = ?)",
+            (models.CLASS_IMAGE, models.CONTENT_IMAGE),
+        ).fetchone()[0]
+
+    def asset_storage_ready(self) -> bool:
+        try:
+            count = self.conn.execute("SELECT COUNT(*) FROM clip_assets").fetchone()[0]
+            return int(count) > 0
+        except sqlite3.OperationalError:
+            return False
+
+    def count_duplicate_groups(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM ("
+            "SELECT content_hash FROM clips WHERE deleted_at IS NULL "
+            "GROUP BY content_hash HAVING COUNT(*) > 1)"
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def events_for_clip(self, clip_id: str, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM events WHERE clip_id = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (clip_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def counts(self) -> dict[str, int]:
         """Count of live clips per sidebar filter (for the badges)."""
@@ -442,10 +648,7 @@ class VaultStorage:
         out[FILTER_SENSITIVE] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND is_sensitive = 1"
         ).fetchone()[0]
-        out[FILTER_DUPLICATES] = c.execute(
-            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
-            "AND duplicate_of IS NOT NULL"
-        ).fetchone()[0]
+        out[FILTER_DUPLICATES] = self.count_duplicate_groups()
         out[FILTER_TODAY] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at >= ?",
             (_start_of_today_iso(),),
@@ -454,6 +657,11 @@ class VaultStorage:
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at >= ?",
             (_start_of_week_iso(),),
         ).fetchone()[0]
+        out[FILTER_OLDER] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at < ?",
+            (_start_of_week_iso(),),
+        ).fetchone()[0]
+        out[FILTER_SCREENSHOTS] = self.count_images()
         out[FILTER_EXPIRED] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL "
             "AND expires_at IS NOT NULL"

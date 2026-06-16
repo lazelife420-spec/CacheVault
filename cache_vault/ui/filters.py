@@ -1,4 +1,4 @@
-"""Left-hand filter navigation."""
+"""Left-hand filter navigation with grouped headings."""
 
 from __future__ import annotations
 
@@ -11,25 +11,33 @@ from ..core import storage as S
 from . import theme
 
 
-# (filter constant, label) in display order. A None entry renders a separator.
-FILTER_ITEMS = [
-    (S.FILTER_ALL, "All Clips"),
-    (S.FILTER_FAVORITES, "Favorites"),
-    (None, None),
-    (S.FILTER_LINKS, "Links"),
-    (S.FILTER_FILES, "Files / Paths"),
-    (S.FILTER_CODE, "Code"),
-    (S.FILTER_COMMANDS, "Commands"),
-    (S.FILTER_EMAILS, "Emails"),
-    (S.FILTER_PHONES, "Phone numbers"),
-    (None, None),
-    (S.FILTER_SENSITIVE, "Sensitive"),
-    (S.FILTER_DUPLICATES, "Duplicates"),
-    (None, None),
-    (S.FILTER_TODAY, "Today"),
-    (S.FILTER_WEEK, "This Week"),
-    (S.FILTER_EXPIRED, "Expired"),
-    (S.FILTER_RECENTLY_REMOVED, "Recently Removed"),
+# (group heading or None, list of (filter constant, label))
+FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
+    (None, [(S.FILTER_HOME, "Home")]),
+    ("Saved Clips", [
+        (S.FILTER_ALL, "All Clips"),
+        (S.FILTER_FAVORITES, "Favorites"),
+        (S.FILTER_SCREENSHOTS, "Screenshots / Images"),
+    ]),
+    ("Types", [
+        (S.FILTER_LINKS, "Links"),
+        (S.FILTER_FILES, "Files / Paths"),
+        (S.FILTER_CODE, "Code"),
+        (S.FILTER_COMMANDS, "Commands"),
+        (S.FILTER_EMAILS, "Emails"),
+        (S.FILTER_PHONES, "Phone Numbers"),
+    ]),
+    ("Review", [
+        (S.FILTER_SENSITIVE, "Sensitive"),
+        (S.FILTER_DUPLICATES, "Duplicates"),
+        (S.FILTER_RECENTLY_REMOVED, "Recently Removed"),
+        (S.FILTER_EXPIRED, "Expired"),
+    ]),
+    ("Time", [
+        (S.FILTER_TODAY, "Today"),
+        (S.FILTER_WEEK, "This Week"),
+        (S.FILTER_OLDER, "Older"),
+    ]),
 ]
 
 
@@ -37,9 +45,9 @@ class FilterNav(ctk.CTkScrollableFrame):
     def __init__(self, master, on_select: Callable[[str], None], **kw):
         super().__init__(master, **kw)
         self._on_select = on_select
-        self._active = S.FILTER_ALL
+        self._active = S.FILTER_HOME
         self._buttons: dict[str, ctk.CTkButton] = {}
-        self._labels: dict[str, str] = {}     # fixed filters only
+        self._labels: dict[str, str] = {}
         self._collection_buttons: dict[str, ctk.CTkButton] = {}
 
         title = ctk.CTkLabel(self, text=brand.PRODUCT_NAME, anchor="w",
@@ -55,14 +63,18 @@ class FilterNav(ctk.CTkScrollableFrame):
                                justify="left")
         tagline.pack(fill="x", padx=8, pady=(0, 10))
 
-        for key, label in FILTER_ITEMS:
-            if key is None:
+        for heading, items in FILTER_GROUPS:
+            if heading:
+                ctk.CTkLabel(self, text=heading, anchor="w",
+                             text_color=brand.MUTED_FG,
+                             font=ctk.CTkFont(size=11, weight="bold")
+                             ).pack(fill="x", padx=10, pady=(6, 2))
+            else:
                 self._separator()
-                continue
-            self._labels[key] = label
-            self._buttons[key] = self._nav_button(self, key, label)
+            for key, label in items:
+                self._labels[key] = label
+                self._buttons[key] = self._nav_button(self, key, label)
 
-        # Collections section (populated dynamically from the database).
         self._separator()
         ctk.CTkLabel(self, text=brand.TERM_COLLECTIONS, anchor="w",
                      text_color=brand.MUTED_FG,
@@ -77,7 +89,6 @@ class FilterNav(ctk.CTkScrollableFrame):
 
         self._highlight()
 
-    # --- helpers -----------------------------------------------------------
     def _separator(self) -> None:
         ctk.CTkFrame(self, height=1, fg_color=("#C8D0D4", "#263038")).pack(
             fill="x", padx=10, pady=6)
@@ -101,6 +112,10 @@ class FilterNav(ctk.CTkScrollableFrame):
     def active(self) -> str:
         return self._active
 
+    def set_active(self, key: str) -> None:
+        self._active = key
+        self._highlight()
+
     def _highlight(self) -> None:
         for key, btn in {**self._buttons, **self._collection_buttons}.items():
             if key == self._active:
@@ -112,11 +127,13 @@ class FilterNav(ctk.CTkScrollableFrame):
 
     def update_counts(self, counts: dict[str, int]) -> None:
         for key, label in self._labels.items():
+            if key == S.FILTER_HOME:
+                self._buttons[key].configure(text=label)
+                continue
             n = counts.get(key, 0)
             self._buttons[key].configure(text=f"{label}   ({n})" if n else label)
 
     def update_collections(self, collections: list[dict]) -> None:
-        """Rebuild the dynamic collection buttons (name + count)."""
         for btn in self._collection_buttons.values():
             btn.destroy()
         self._collection_buttons.clear()
