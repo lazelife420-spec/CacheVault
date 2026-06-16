@@ -24,6 +24,7 @@ import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
 import com.prooffoundry.cachevaultmobile.connect.WifiSettingsHelper
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.PairingStore
+import com.prooffoundry.cachevaultmobile.ui.screens.ConnectionDoctorScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ClipDetailScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.DiscoverPcScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.EasyConnectScreen
@@ -44,6 +45,7 @@ object Routes {
     const val QrScan = "qr_scan"
     const val Home = "home"
     const val Settings = "settings"
+    const val ConnectionDoctor = "connection_doctor"
     const val Detail = "detail"
 }
 
@@ -174,13 +176,24 @@ fun CacheVaultMobileRoot(
         composable(Routes.Settings) {
             SettingsScreen(
                 host = vm.uiState.hostLabel,
+                port = vm.uiState.port,
+                deviceId = vm.uiState.deviceId,
                 status = vm.uiState.status,
+                error = vm.uiState.error,
+                lastError = vm.uiState.lastError,
                 onDisconnect = {
                     vm.disconnect()
                     nav.navigate(Routes.Welcome) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
+                onConnectionDoctor = { nav.navigate(Routes.ConnectionDoctor) },
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(Routes.ConnectionDoctor) {
+            ConnectionDoctorScreen(
+                info = vm.connectionDoctor(),
                 onBack = { nav.popBackStack() },
             )
         }

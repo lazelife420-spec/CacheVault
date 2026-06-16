@@ -88,7 +88,7 @@ enum class ClipFeed {
     ALL,
     FAVORITES,
     SCREENSHOTS,
-    RECENTLY_REMOVED,
+    RECENT,
     COLLECTION,
 }
 

@@ -1,5 +1,6 @@
 package com.prooffoundry.cachevaultmobile.ui.theme
 
+import com.prooffoundry.cachevaultmobile.ui.theme.CompactTypography
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -27,6 +28,7 @@ private val DarkColors = darkColorScheme(
 fun CacheVaultMobileTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColors,
+        typography = CompactTypography,
         content = content,
     )
 }

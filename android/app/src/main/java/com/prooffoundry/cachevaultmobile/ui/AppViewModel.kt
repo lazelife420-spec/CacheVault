@@ -9,6 +9,7 @@ import com.prooffoundry.cachevaultmobile.connect.ConnectionPlanner
 import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
 import com.prooffoundry.cachevaultmobile.connect.PcFoundOffer
 import com.prooffoundry.cachevaultmobile.connect.PcOfferMode
+import com.prooffoundry.cachevaultmobile.data.ClipKinds
 import com.prooffoundry.cachevaultmobile.data.BridgeError
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
@@ -22,19 +23,40 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+data class VaultSummary(
+    val totalClips: Int,
+    val screenshotCount: Int,
+    val favoriteCount: Int,
+)
+
+data class ConnectionDoctorInfo(
+    val host: String,
+    val port: Int,
+    val deviceId: String,
+    val lastError: String?,
+    val connectionState: ConnectionState,
+    val statusOk: Boolean,
+    val suggestedFix: String,
+)
+
 data class AppUiState(
     val paired: Boolean = false,
     val status: BridgeStatus? = null,
     val hostLabel: String = "",
+    val deviceId: String = "",
+    val port: Int = PairingStore.DEFAULT_PORT,
     val clips: List<ClipSummary> = emptyList(),
+    val vaultSummary: VaultSummary? = null,
     val collections: List<com.prooffoundry.cachevaultmobile.data.CollectionEntry> = emptyList(),
     val selectedCollection: String? = null,
     val searchQuery: String = "",
     val activeFeed: ClipFeed = ClipFeed.ALL,
     val loading: Boolean = false,
     val error: String? = null,
+    val lastError: String? = null,
     val selectedClip: ClipSummary? = null,
     val imageAsset: ImageAssetState = ImageAssetState(),
+    val thumbnailBytes: Map<String, ByteArray> = emptyMap(),
     val pcFoundOffer: PcFoundOffer? = null,
     val showNoPcFound: Boolean = false,
 )
@@ -154,6 +176,32 @@ class AppViewModel(
         uiState = AppUiState(paired = false)
     }
 
+    fun connectionDoctor(): ConnectionDoctorInfo {
+        val pairing = repository.loadPairing()
+        val state = resolveConnectionState(uiState.status, uiState.error, uiState.loading)
+        val fix = when (state) {
+            ConnectionState.REVOKED ->
+                "Generate a fresh pairing code on your PC, then tap Disconnect / Re-pair on this phone."
+            ConnectionState.REPAIR_NEEDED ->
+                "Your phone reached the PC, but the token was rejected. Copy Token on the PC and re-pair."
+            ConnectionState.MOBILE_ACCESS_OFF ->
+                "Turn on Mobile Access in Cache Vault on your PC."
+            ConnectionState.OFFLINE ->
+                "Use the same Wi-Fi, confirm the PC IP, and allow Cache Vault through Windows Firewall."
+            ConnectionState.CONNECTED -> "Connection looks good. If a clip fails, refresh the vault list."
+            ConnectionState.CHECKING -> "Wait for the status check to finish, then try Refresh."
+        }
+        return ConnectionDoctorInfo(
+            host = pairing?.host.orEmpty().ifBlank { uiState.hostLabel },
+            port = pairing?.port ?: uiState.port,
+            deviceId = pairing?.deviceId.orEmpty().ifBlank { uiState.deviceId },
+            lastError = uiState.lastError ?: uiState.error,
+            connectionState = state,
+            statusOk = uiState.status != null && uiState.error.isNullOrBlank(),
+            suggestedFix = fix,
+        )
+    }
+
     fun refreshAll() {
         viewModelScope.launch {
             uiState = uiState.copy(loading = true, error = null)
@@ -162,19 +210,46 @@ class AppViewModel(
                     val client = repository.client()
                     val status = client.status()
                     val collections = client.listCollections().collections
-                    Triple(status, collections, repository.loadPairing()?.host.orEmpty())
+                    val pairing = repository.loadPairing()
+                    val all = client.listClips()
+                    val summary = VaultSummary(
+                        totalClips = all.count,
+                        screenshotCount = all.clips.count {
+                            ClipKinds.isImageReference(it) && it.hasAsset
+                        },
+                        favoriteCount = all.clips.count { it.isFavorite },
+                    )
+                    Triple(status, collections, Triple(
+                        pairing?.host.orEmpty(),
+                        pairing?.deviceId.orEmpty(),
+                        pairing?.port ?: PairingStore.DEFAULT_PORT,
+                    ) to summary)
                 }
-            }.onSuccess { (status, collections, host) ->
+            }.onSuccess { (status, collections, hostMeta) ->
+                val (hostTriple, summary) = hostMeta
+                val (host, deviceId, port) = hostTriple
                 uiState = uiState.copy(
                     paired = true,
                     status = status,
                     collections = collections,
                     hostLabel = host,
+                    deviceId = deviceId.ifBlank { status.deviceId },
+                    port = port,
+                    vaultSummary = summary,
                     loading = false,
+                    error = null,
+                    lastError = null,
                 )
                 refreshClips()
             }.onFailure { err ->
-                uiState = uiState.copy(loading = false, error = err.toUserMessage())
+                val msg = err.toUserMessage()
+                uiState = uiState.copy(
+                    loading = false,
+                    error = msg,
+                    lastError = msg,
+                    status = null,
+                    clips = emptyList(),
+                )
                 if (ConnectionPlanner.isRepairNeeded(err)) {
                     val host = repository.loadPairing()?.host.orEmpty()
                     if (host.isNotBlank()) {
@@ -204,7 +279,8 @@ class AppViewModel(
                 }.onSuccess { clips ->
                     uiState = uiState.copy(clips = clips, loading = false)
                 }.onFailure { err ->
-                    uiState = uiState.copy(loading = false, error = err.toUserMessage())
+                    val msg = err.toUserMessage()
+                    uiState = uiState.copy(loading = false, error = msg, lastError = msg)
                 }
             }
         }
@@ -221,7 +297,14 @@ class AppViewModel(
             runCatching {
                 withContext(Dispatchers.IO) { repository.client().clipDetail(clipId).clip }
             }.onSuccess { clip ->
-                uiState = uiState.copy(selectedClip = clip, loading = false)
+                uiState = uiState.copy(
+                    selectedClip = clip,
+                    loading = false,
+                    imageAsset = ImageAssetState(),
+                )
+                if (ClipKinds.isImageReference(clip) && clip.hasAsset) {
+                    loadImageAsset(clip.id)
+                }
             }.onFailure { err ->
                 uiState = uiState.copy(loading = false, error = err.toUserMessage())
             }
@@ -283,6 +366,35 @@ class AppViewModel(
         loadImageAsset(clipId)
     }
 
+    private fun prefetchThumbnails(clips: List<ClipSummary>) {
+        val imageClips = clips.filter { ClipKinds.isImageReference(it) && it.hasAsset }.take(12)
+        if (imageClips.isEmpty()) return
+        viewModelScope.launch {
+            val loaded = mutableMapOf<String, ByteArray>()
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val client = repository.client()
+                    for (clip in imageClips) {
+                        if (uiState.thumbnailBytes.containsKey(clip.id)) {
+                            uiState.thumbnailBytes[clip.id]?.let { loaded[clip.id] = it }
+                            continue
+                        }
+                        runCatching {
+                            client.fetchImageAsset(clip.id).bytes
+                        }.onSuccess { bytes ->
+                            loaded[clip.id] = bytes
+                        }
+                    }
+                }
+            }
+            if (loaded.isNotEmpty()) {
+                uiState = uiState.copy(
+                    thumbnailBytes = uiState.thumbnailBytes + loaded,
+                )
+            }
+        }
+    }
+
     private fun refreshClips() {
         viewModelScope.launch {
             uiState = uiState.copy(loading = true, error = null)
@@ -295,7 +407,7 @@ class AppViewModel(
                         ClipFeed.SCREENSHOTS -> client.listClips().clips.filter {
                             com.prooffoundry.cachevaultmobile.data.ClipKinds.isImageReference(it)
                         }
-                        ClipFeed.RECENTLY_REMOVED -> client.listRecentlyRemoved().clips
+                        ClipFeed.RECENT -> client.listClips().clips.take(50)
                         ClipFeed.COLLECTION -> {
                             val name = uiState.selectedCollection
                             client.listClips().clips.filter { it.collection == name }
@@ -304,8 +416,10 @@ class AppViewModel(
                 }
             }.onSuccess { clips ->
                 uiState = uiState.copy(clips = clips, loading = false)
+                prefetchThumbnails(clips)
             }.onFailure { err ->
-                uiState = uiState.copy(loading = false, error = err.toUserMessage())
+                val msg = err.toUserMessage()
+                uiState = uiState.copy(loading = false, error = msg, lastError = msg)
             }
         }
     }

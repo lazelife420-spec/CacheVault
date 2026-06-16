@@ -94,7 +94,7 @@ def clip_to_api(clip: models.Clip, *, full_content: bool = False,
     if full_content:
         content = clip.content or ""
     else:
-        content = "" if clip.is_sensitive else (clip.content or "")
+        content = ""
     return {
         "id": clip.id,
         "preview": clip.preview,

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -35,12 +37,16 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.ClipKinds
 import com.prooffoundry.cachevaultmobile.data.ClipSummary
 import com.prooffoundry.cachevaultmobile.data.ImageAssetState
 import com.prooffoundry.cachevaultmobile.data.ImageFileHelper
+import com.prooffoundry.cachevaultmobile.ui.ClipListFormatter
+import com.prooffoundry.cachevaultmobile.ui.theme.ProofTeal
+import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +65,10 @@ fun ClipDetailScreen(
     val isLink = ClipKinds.isLink(clip)
     val isPath = ClipKinds.isPath(clip)
     val isImage = ClipKinds.isImageReference(clip)
+    val isCode = clip.classification.equals("code", ignoreCase = true) ||
+        clip.classification.equals("command", ignoreCase = true)
     val linkUrl = ClipKinds.linkUrl(clip)
+    val badge = ClipListFormatter.typeBadge(clip)
     val bitmap = remember(imageAsset.bytes) {
         imageAsset.bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
     }
@@ -67,7 +76,7 @@ fun ClipDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Clip detail") },
+                title = { Text(ClipListFormatter.cardTitle(clip)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -84,6 +93,14 @@ fun ClipDetailScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Surface(shape = RoundedCornerShape(6.dp), color = ProofTeal.copy(alpha = 0.15f)) {
+                Text(
+                    badge,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ProofTeal,
+                )
+            }
             if (clip.isSensitive) {
                 Text("Sensitive clip — handle carefully.", color = MaterialTheme.colorScheme.secondary)
             }
@@ -113,7 +130,7 @@ fun ClipDetailScreen(
                             contentDescription = clip.preview,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 480.dp),
+                                .heightIn(max = 420.dp),
                         )
                     }
                     imageAsset.error != null -> {
@@ -133,25 +150,34 @@ fun ClipDetailScreen(
                 }
             }
             if (!isImage || bitmap == null) {
-                Text(text, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = if (isCode) FontFamily.Monospace else FontFamily.Default,
+                    ),
+                )
             }
-            clip.sourceApp?.let { Text("Source: $it", style = MaterialTheme.typography.labelSmall) }
-            clip.createdAt?.let { Text("Saved: $it", style = MaterialTheme.typography.labelSmall) }
+            clip.sourceApp?.let {
+                Text("Source: $it", style = MaterialTheme.typography.labelSmall)
+            }
+            clip.createdAt?.let {
+                Text(
+                    "Saved: ${ClipListFormatter.formatWhen(it)}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            Text("Proof: recorded", style = MaterialTheme.typography.labelSmall, color = StampGold)
 
             when {
                 isLink && linkUrl != null -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl)))
-                        }) {
-                            Text("Open Link")
-                        }
+                        }) { Text("Open Link") }
                         Button(onClick = {
                             clipboard.setText(AnnotatedString(linkUrl))
                             onCopy()
-                        }) {
-                            Text("Copy")
-                        }
+                        }) { Text("Copy") }
                         Button(onClick = {
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
@@ -159,16 +185,13 @@ fun ClipDetailScreen(
                             }
                             context.startActivity(Intent.createChooser(intent, "Share link"))
                             onShare()
-                        }) {
-                            Text("Share")
-                        }
+                        }) { Text("Share") }
                     }
                 }
                 isImage -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         OutlinedButton(
                             onClick = onViewAsset,
@@ -187,15 +210,13 @@ fun ClipDetailScreen(
                                 } else {
                                     Toast.makeText(
                                         context,
-                                        "Open the image from your PC first.",
+                                        "Load the image from your PC first.",
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }
                             },
                             enabled = imageAsset.bytes != null,
-                        ) {
-                            Text("Share")
-                        }
+                        ) { Text("Share") }
                         OutlinedButton(
                             onClick = {
                                 val bytes = imageAsset.bytes
@@ -216,15 +237,13 @@ fun ClipDetailScreen(
                                 } else {
                                     Toast.makeText(
                                         context,
-                                        "Open the image from your PC first.",
+                                        "Load the image from your PC first.",
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }
                             },
                             enabled = imageAsset.bytes != null,
-                        ) {
-                            Text("Save to Phone")
-                        }
+                        ) { Text("Save to Phone") }
                     }
                 }
                 else -> {
@@ -232,9 +251,7 @@ fun ClipDetailScreen(
                         Button(onClick = {
                             clipboard.setText(AnnotatedString(text))
                             onCopy()
-                        }) {
-                            Text("Copy")
-                        }
+                        }) { Text("Copy") }
                         Button(onClick = {
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
@@ -242,9 +259,7 @@ fun ClipDetailScreen(
                             }
                             context.startActivity(Intent.createChooser(intent, "Share clip"))
                             onShare()
-                        }) {
-                            Text("Share")
-                        }
+                        }) { Text("Share") }
                     }
                 }
             }
