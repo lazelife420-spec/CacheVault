@@ -117,6 +117,100 @@ class SettingsDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class MoveToCollectionDialog(ctk.CTkToplevel):
+    def __init__(self, master, current: str | None, existing: list[str],
+                 on_save: Callable[[str | None], None]):
+        super().__init__(master)
+        self.title("Move to Collection")
+        self.geometry("360x300")
+        self._on_save = on_save
+
+        ctk.CTkLabel(self, text="Move clip to collection",
+                     font=ctk.CTkFont(size=15, weight="bold")
+                     ).pack(anchor="w", padx=16, pady=(14, 6))
+
+        self._entry = ctk.CTkEntry(self, placeholder_text="Collection name")
+        if current:
+            self._entry.insert(0, current)
+        self._entry.pack(fill="x", padx=16, pady=4)
+
+        if existing:
+            ctk.CTkLabel(self, text="Existing:", anchor="w",
+                         text_color=("gray45", "gray60"),
+                         font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16, pady=(8, 0))
+            chips = ctk.CTkScrollableFrame(self, height=110, fg_color="transparent")
+            chips.pack(fill="both", expand=True, padx=12, pady=4)
+            for name in existing:
+                ctk.CTkButton(chips, text=name, anchor="w", height=26,
+                              fg_color=("gray85", "gray25"),
+                              text_color=("gray10", "gray90"),
+                              command=lambda n=name: self._fill(n)
+                              ).pack(fill="x", padx=4, pady=2)
+
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=16, pady=(4, 12))
+        ctk.CTkButton(footer, text="Save", command=self._save
+                      ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(footer, text="Remove from collection",
+                      fg_color=("gray60", "gray35"), command=self._clear
+                      ).pack(side="right")
+
+        _bring_to_front(self, master, modal=True)
+
+    def _fill(self, name: str) -> None:
+        self._entry.delete(0, "end")
+        self._entry.insert(0, name)
+
+    def _save(self) -> None:
+        name = self._entry.get().strip() or None
+        self._on_save(name)
+        self.destroy()
+
+    def _clear(self) -> None:
+        self._on_save(None)
+        self.destroy()
+
+
+class ExportViewDialog(ctk.CTkToplevel):
+    """Choose how to export the currently shown clips (folder vs zip)."""
+
+    def __init__(self, master, count: int,
+                 on_export: Callable[[str, bool], None]):
+        super().__init__(master)
+        self.title("Export / Save As")
+        self.geometry("380x240")
+        self._on_export = on_export
+
+        ctk.CTkLabel(self, text=f"Export {count} clip(s)",
+                     font=ctk.CTkFont(size=15, weight="bold")
+                     ).pack(anchor="w", padx=16, pady=(14, 6))
+
+        self._kind = ctk.StringVar(value="folder")
+        ctk.CTkRadioButton(self, text="Organized folder", variable=self._kind,
+                           value="folder").pack(anchor="w", padx=16, pady=4)
+        ctk.CTkRadioButton(self, text="Zip archive", variable=self._kind,
+                           value="zip").pack(anchor="w", padx=16, pady=4)
+
+        self._include = ctk.CTkSwitch(
+            self, text="Include file copies (path clips only)")
+        self._include.pack(anchor="w", padx=16, pady=(10, 4))
+        ctk.CTkLabel(
+            self, text="Off by default: path clips export a reference only.\n"
+                       "Originals are never moved or deleted.",
+            anchor="w", justify="left", text_color=("gray45", "gray60"),
+            font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16)
+
+        ctk.CTkButton(self, text="Continue…", command=self._go
+                      ).pack(anchor="e", padx=16, pady=12)
+        _bring_to_front(self, master, modal=True)
+
+    def _go(self) -> None:
+        kind = self._kind.get()
+        include = bool(self._include.get())
+        self.destroy()
+        self._on_export(kind, include)
+
+
 class EventLogDialog(ctk.CTkToplevel):
     def __init__(self, master, events: list[dict]):
         super().__init__(master)

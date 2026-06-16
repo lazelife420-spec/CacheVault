@@ -14,8 +14,15 @@ def _keys(items):
 def test_text_clip_has_no_file_actions():
     items = clip_menu_items(_clip("just some text", classification=models.CLASS_PLAIN))
     keys = _keys(items)
-    assert keys == ["copy_again", "toggle_favorite", "remove"]
+    assert keys == ["copy_again", "toggle_favorite", "move_collection",
+                    "export", "remove"]
     assert "open" not in keys and "reveal" not in keys
+
+
+def test_removed_clip_menu_offers_restore():
+    items = clip_menu_items(_clip("gone", deleted_at="2026-01-01T00:00:00+00:00"))
+    keys = _keys(items)
+    assert keys == ["copy_again", "restore", "permanently_remove"]
 
 
 def test_favorite_label_toggles():

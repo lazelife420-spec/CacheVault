@@ -20,7 +20,9 @@ from ..core.clipboard import ClipboardMonitor
 from ..core.hotkey import HotkeyListener, focus_and_paste, foreground_window
 from ..core.vault import Vault
 from .clip_list import ClipList
-from .dialogs import EventLogDialog, SettingsDialog
+from .dialogs import (
+    EventLogDialog, ExportViewDialog, MoveToCollectionDialog, SettingsDialog,
+)
 from .filters import FilterNav
 from .preview import PreviewPanel
 from .quick_paste import QuickPaste
@@ -99,10 +101,12 @@ class CacheVaultApp(ctk.CTk):
         self._status = ctk.CTkLabel(top, text="", text_color=("gray45", "gray60"),
                                     font=ctk.CTkFont(size=11))
         self._status.grid(row=0, column=1, padx=6)
-        ctk.CTkButton(top, text="Events", width=70, command=self._open_events
+        ctk.CTkButton(top, text="Export", width=70, command=self._export_view
                       ).grid(row=0, column=2, padx=4)
+        ctk.CTkButton(top, text="Events", width=70, command=self._open_events
+                      ).grid(row=0, column=3, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings
-                      ).grid(row=0, column=3, padx=(4, 12))
+                      ).grid(row=0, column=4, padx=(4, 12))
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
@@ -144,6 +148,7 @@ class CacheVaultApp(ctk.CTk):
         clips = self.vault.list_clips(query)
         self._list.render(clips)
         self._filters.update_counts(self.vault.counts())
+        self._filters.update_collections(self.vault.list_collections())
         mode = "paused" if self._monitor.paused else f"capturing ({self._monitor.mode})"
         from ..core.hotkey import normalize_hotkey
         hk = normalize_hotkey(self.vault.settings.quick_paste_hotkey)
@@ -238,9 +243,13 @@ class CacheVaultApp(ctk.CTk):
         dispatch = {
             "copy_again": lambda: self._copy_again(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
+            "move_collection": lambda: self._move_to_collection(clip.id),
+            "export": lambda: self._export_clip(clip.id),
             "open": lambda: self._open_clip_path(clip.id),
             "reveal": lambda: self._reveal_clip_path(clip.id),
             "remove": lambda: self._remove_from_history(clip.id),
+            "restore": lambda: self._restore(clip.id),
+            "permanently_remove": lambda: self._permanently_remove(clip.id),
         }
         for item in clip_menu_items(clip):
             if item.separator_before:
@@ -266,6 +275,103 @@ class CacheVaultApp(ctk.CTk):
         clip = self.vault.storage.get_clip(clip_id)
         if clip:
             pathutil.reveal_in_explorer(clip.content)
+
+    def _move_to_collection(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        existing = [c["name"] for c in self.vault.list_collections()]
+
+        def save(name):
+            self.vault.set_collection(clip_id, name)
+            self.refresh()
+            self._preview.show(self.vault.storage.get_clip(clip_id))
+
+        MoveToCollectionDialog(self, clip.collection, existing, on_save=save)
+
+    def _restore(self, clip_id: str) -> None:
+        self.vault.restore(clip_id)
+        self.refresh()
+        self._preview.show(None)
+
+    def _permanently_remove(self, clip_id: str) -> None:
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Permanently Remove",
+            "Permanently remove this clip from Cache Vault? This cannot be "
+            "undone. It does not delete any files from your computer.",
+            parent=self,
+        )
+        if not ok:
+            return
+        self.vault.permanently_remove(clip_id)
+        self.refresh()
+        self._preview.show(None)
+
+    # --- export ------------------------------------------------------------
+    def _export_clip(self, clip_id: str) -> None:
+        """Export / Save As for a single clip (txt / md / html / json)."""
+        from tkinter import filedialog
+
+        from ..core import export, models
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Export / Save As",
+            defaultextension=".txt",
+            initialfile=f"{(clip.preview or 'clip')[:40].strip()}.txt",
+            filetypes=[("Plain text", "*.txt"), ("Markdown", "*.md"),
+                       ("HTML", "*.html"), ("JSON (with metadata)", "*.json")],
+        )
+        if not path:
+            return
+        export.export_single(clip, path)
+        self.vault.events.record(models.EVENT_EXPORTED, clip_id, {"target": "single"})
+
+    def _export_view(self) -> None:
+        """Export the clips currently shown (active filter / collection)."""
+        clips = self._current_clips()
+        if not clips:
+            return
+        name = self._collection_name_for(self._filters.active)
+        ExportViewDialog(self, len(clips),
+                         on_export=lambda kind, incl: self._do_export_view(
+                             clips, name, kind, incl))
+
+    def _do_export_view(self, clips, collection_name, kind, include_files) -> None:
+        from tkinter import filedialog
+
+        from ..core import export, models
+        if kind == "zip":
+            dest = filedialog.asksaveasfilename(
+                parent=self, title="Export as zip", defaultextension=".zip",
+                initialfile=f"{(collection_name or 'cache-vault-export')}.zip",
+                filetypes=[("Zip archive", "*.zip")])
+            if not dest:
+                return
+            export.export_zip(clips, dest, include_files=include_files,
+                              collection_name=collection_name)
+        else:
+            dest = filedialog.askdirectory(parent=self, title="Export to folder")
+            if not dest:
+                return
+            export.export_collection(clips, dest, include_files=include_files,
+                                     collection_name=collection_name)
+        self.vault.events.record(models.EVENT_EXPORTED, None,
+                                 {"target": kind, "count": len(clips),
+                                  "include_files": include_files})
+
+    def _current_clips(self):
+        return self.vault.list_clips(
+            search.parse(self._search_var.get(), self._filters.active))
+
+    @staticmethod
+    def _collection_name_for(active: str):
+        from ..core.storage import COLLECTION_PREFIX
+        if active.startswith(COLLECTION_PREFIX):
+            return active[len(COLLECTION_PREFIX):]
+        return None
 
     # --- capture state -----------------------------------------------------
     def _set_paused(self, paused: bool) -> None:

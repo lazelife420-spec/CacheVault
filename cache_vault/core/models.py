@@ -43,6 +43,10 @@ EVENT_PINNED = "pinned"
 EVENT_UNPINNED = "unpinned"
 EVENT_FAVORITED = "favorited"
 EVENT_UNFAVORITED = "unfavorited"
+EVENT_MOVED_COLLECTION = "moved_to_collection"
+EVENT_RESTORED = "restored"
+EVENT_PERMANENTLY_REMOVED = "permanently_removed"
+EVENT_EXPORTED = "exported"
 EVENT_KEPT = "kept"
 EVENT_EXPIRED = "expired"
 EVENT_DELETED = "deleted"
@@ -109,6 +113,7 @@ class Clip:
     expires_at: str | None = None
     deleted_at: str | None = None
     duplicate_of: str | None = None
+    collection: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)

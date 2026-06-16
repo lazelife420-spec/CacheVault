@@ -110,6 +110,20 @@ Settings → **Start Cache Vault with Windows** adds a per-user
 dev checkout it launches `pythonw app.py`; for a packaged build it launches the
 exe directly.
 
+### Organize & export
+
+Right-click any clip for **Copy Again**, **Add/Remove Favorites**, **Move to
+Collection…**, **Export / Save As…**, **Open** / **Reveal in Explorer** (local
+path clips only), and **Remove from History**. Sidebar sections: All Clips,
+Favorites, Collections (virtual app folders — one DB, not separate vaults), and
+Recently Removed (Restore or Permanently Remove).
+
+Export a single clip as `.txt` / `.md` / `.html` / `.json`, or a whole view /
+collection as an organized folder or zip (`index.html`, `manifest.json`,
+`clips/`). Path clips export a **reference + metadata only** by default; real
+files are copied into `files/` only if you tick *Include file copies*, and
+originals are never moved or deleted.
+
 ## Tests
 
 The core logic has **no GUI dependency** and is fully unit-tested:

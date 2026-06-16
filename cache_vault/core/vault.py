@@ -94,13 +94,32 @@ class Vault:
         return bool(clip and clip.is_pinned)
 
     def remove_from_history(self, clip_id: str) -> None:
-        """Remove a clip from Cache Vault history (soft delete).
+        """Remove a clip from Cache Vault history (soft delete → Recently Removed).
 
         This only hides the clip from history; it never deletes any real file
-        or folder from disk.
+        or folder from disk. The clip can be restored from Recently Removed.
         """
         self.storage.soft_delete(clip_id)
         self.events.record(models.EVENT_DELETED, clip_id, {"action": "remove_from_history"})
+
+    def restore(self, clip_id: str) -> None:
+        """Restore a clip from Recently Removed back into history."""
+        self.storage.restore(clip_id)
+        self.events.record(models.EVENT_RESTORED, clip_id)
+
+    def permanently_remove(self, clip_id: str) -> None:
+        """Hard-delete a clip's Cache Vault entry. Never touches real files."""
+        self.events.record(models.EVENT_PERMANENTLY_REMOVED, clip_id)
+        self.storage.hard_delete(clip_id)
+
+    def set_collection(self, clip_id: str, collection: str | None) -> None:
+        """Move a clip into a named collection (or None to remove it)."""
+        self.storage.set_collection(clip_id, collection)
+        self.events.record(models.EVENT_MOVED_COLLECTION, clip_id,
+                           {"collection": (collection or "").strip() or None})
+
+    def list_collections(self) -> list[dict]:
+        return self.storage.list_collections()
 
     def mark_keep(self, clip_id: str) -> None:
         self.storage.set_kept(clip_id, True)

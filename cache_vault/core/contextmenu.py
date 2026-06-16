@@ -23,17 +23,26 @@ class MenuItem:
 def clip_menu_items(clip: Clip) -> list[MenuItem]:
     """Build the context-menu items for ``clip``.
 
-    File actions (Open / Reveal in Explorer) appear only for clips that are
-    clearly local Windows paths; for text/link/other clips they are omitted
-    entirely. Open is disabled when the target is gone; Reveal is allowed while
-    the parent folder still exists.
+    A clip in Recently Removed (``deleted_at`` set) gets Restore / Permanently
+    Remove. Otherwise the normal menu is shown. File actions (Open / Reveal)
+    appear only for clearly-local Windows path clips; Open is disabled when the
+    target is gone, Reveal stays available while the parent folder exists.
     """
+    if clip.deleted_at is not None:
+        return [
+            MenuItem("copy_again", "Copy Again"),
+            MenuItem("restore", "Restore", separator_before=True),
+            MenuItem("permanently_remove", "Permanently Remove"),
+        ]
+
     items = [
         MenuItem("copy_again", "Copy Again"),
         MenuItem(
             "toggle_favorite",
             "Remove from Favorites" if clip.is_pinned else "Add to Favorites",
         ),
+        MenuItem("move_collection", "Move to Collection…"),
+        MenuItem("export", "Export / Save As…"),
     ]
 
     if pathutil.is_local_path(clip.content):

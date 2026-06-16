@@ -37,6 +37,9 @@ FILTER_EXPIRED = "expired"
 # float to the top and survive pruning). FILTER_PINNED stays as a back-compat
 # alias for the same underlying flag.
 FILTER_FAVORITES = "favorites"
+FILTER_RECENTLY_REMOVED = "recently_removed"
+# Sidebar collection entries use this prefix, e.g. "col:Work".
+COLLECTION_PREFIX = "col:"
 
 _CLASS_BY_FILTER = {
     FILTER_LINKS: models.CLASS_LINK,
@@ -71,7 +74,8 @@ CREATE TABLE IF NOT EXISTS clips (
     is_sensitive  INTEGER DEFAULT 0,
     expires_at    TEXT,
     deleted_at    TEXT,
-    duplicate_of  TEXT
+    duplicate_of  TEXT,
+    collection    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_clips_created ON clips(created_at);
 CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(content_hash);
@@ -119,6 +123,7 @@ class VaultStorage:
         "expires_at": "TEXT",
         "deleted_at": "TEXT",
         "duplicate_of": "TEXT",
+        "collection": "TEXT",
     }
 
     def _migrate(self) -> None:
@@ -159,6 +164,7 @@ class VaultStorage:
             expires_at=row["expires_at"],
             deleted_at=row["deleted_at"],
             duplicate_of=row["duplicate_of"],
+            collection=row["collection"] if "collection" in row.keys() else None,
         )
 
     # --- writes ------------------------------------------------------------
@@ -174,14 +180,14 @@ class VaultStorage:
                 id, created_at, updated_at, content_hash, content_type,
                 content, preview, source_app, source_window, classification,
                 tags, is_pinned, is_kept, is_sensitive, expires_at,
-                deleted_at, duplicate_of
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                deleted_at, duplicate_of, collection
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 clip.id, clip.created_at, clip.updated_at, clip.content_hash,
                 clip.content_type, clip.content, clip.preview, clip.source_app,
                 clip.source_window, clip.classification, json.dumps(clip.tags),
                 int(clip.is_pinned), int(clip.is_kept), int(clip.is_sensitive),
-                clip.expires_at, clip.deleted_at, clip.duplicate_of,
+                clip.expires_at, clip.deleted_at, clip.duplicate_of, clip.collection,
             ),
         )
         self.conn.commit()
@@ -228,6 +234,14 @@ class VaultStorage:
         self._touch(clip_id)
         self.conn.commit()
 
+    def set_collection(self, clip_id: str, collection: str | None) -> None:
+        name = (collection or "").strip() or None
+        self.conn.execute(
+            "UPDATE clips SET collection = ? WHERE id = ?", (name, clip_id)
+        )
+        self._touch(clip_id)
+        self.conn.commit()
+
     def soft_delete(self, clip_id: str) -> None:
         self.conn.execute(
             "UPDATE clips SET deleted_at = ? WHERE id = ?",
@@ -235,9 +249,26 @@ class VaultStorage:
         )
         self.conn.commit()
 
+    def restore(self, clip_id: str) -> None:
+        """Bring a soft-deleted clip back into history."""
+        self.conn.execute(
+            "UPDATE clips SET deleted_at = NULL WHERE id = ?", (clip_id,)
+        )
+        self._touch(clip_id)
+        self.conn.commit()
+
     def hard_delete(self, clip_id: str) -> None:
         self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
         self.conn.commit()
+
+    def list_collections(self) -> list[dict]:
+        """Distinct collection names (live clips) with their counts."""
+        rows = self.conn.execute(
+            "SELECT collection AS name, COUNT(*) AS n FROM clips "
+            "WHERE deleted_at IS NULL AND collection IS NOT NULL "
+            "AND collection <> '' GROUP BY collection ORDER BY collection COLLATE NOCASE"
+        ).fetchall()
+        return [{"name": r["name"], "count": r["n"]} for r in rows]
 
     def scrub_and_expire(self, clip_id: str) -> None:
         """Remove a clip's secret content and mark it expired.
@@ -293,12 +324,15 @@ class VaultStorage:
         where: list[str] = []
         params: list = []
 
-        if query.filter_name == FILTER_EXPIRED:
+        fn = query.filter_name
+        if fn == FILTER_EXPIRED:
             where.append("deleted_at IS NOT NULL AND expires_at IS NOT NULL")
+        elif fn == FILTER_RECENTLY_REMOVED:
+            # User-removed clips (restorable, content intact) — not auto-expired.
+            where.append("deleted_at IS NOT NULL AND expires_at IS NULL")
         else:
             where.append("deleted_at IS NULL")
 
-        fn = query.filter_name
         if fn in (FILTER_PINNED, FILTER_FAVORITES):
             where.append("is_pinned = 1")
         elif fn == FILTER_SENSITIVE:
@@ -314,6 +348,9 @@ class VaultStorage:
         elif fn == FILTER_WEEK:
             where.append("created_at >= ?")
             params.append(_start_of_week_iso())
+        elif fn.startswith(COLLECTION_PREFIX):
+            where.append("collection = ?")
+            params.append(fn[len(COLLECTION_PREFIX):])
 
         # Structured search tokens (type:, source:, sensitive:, pinned:).
         if query.type_filter:
@@ -378,6 +415,10 @@ class VaultStorage:
         out[FILTER_EXPIRED] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL "
             "AND expires_at IS NOT NULL"
+        ).fetchone()[0]
+        out[FILTER_RECENTLY_REMOVED] = c.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL "
+            "AND expires_at IS NULL"
         ).fetchone()[0]
         return out
 

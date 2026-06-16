@@ -11,7 +11,7 @@ from ..core import storage as S
 
 # (filter constant, label) in display order. A None entry renders a separator.
 FILTER_ITEMS = [
-    (S.FILTER_ALL, "All"),
+    (S.FILTER_ALL, "All Clips"),
     (S.FILTER_FAVORITES, "Favorites"),
     (None, None),
     (S.FILTER_LINKS, "Links"),
@@ -27,6 +27,7 @@ FILTER_ITEMS = [
     (S.FILTER_TODAY, "Today"),
     (S.FILTER_WEEK, "This Week"),
     (S.FILTER_EXPIRED, "Expired"),
+    (S.FILTER_RECENTLY_REMOVED, "Recently Removed"),
 ]
 
 
@@ -36,7 +37,8 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._on_select = on_select
         self._active = S.FILTER_ALL
         self._buttons: dict[str, ctk.CTkButton] = {}
-        self._labels: dict[str, str] = {}
+        self._labels: dict[str, str] = {}     # fixed filters only
+        self._collection_buttons: dict[str, ctk.CTkButton] = {}
 
         title = ctk.CTkLabel(self, text="Cache Vault", anchor="w",
                              font=ctk.CTkFont(size=18, weight="bold"))
@@ -48,19 +50,40 @@ class FilterNav(ctk.CTkScrollableFrame):
 
         for key, label in FILTER_ITEMS:
             if key is None:
-                ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
-                    fill="x", padx=10, pady=6)
+                self._separator()
                 continue
             self._labels[key] = label
-            btn = ctk.CTkButton(
-                self, text=label, anchor="w", corner_radius=6,
-                fg_color="transparent", text_color=("gray10", "gray90"),
-                hover_color=("gray85", "gray25"),
-                command=lambda k=key: self._select(k),
-            )
-            btn.pack(fill="x", padx=6, pady=1)
-            self._buttons[key] = btn
+            self._buttons[key] = self._nav_button(self, key, label)
+
+        # Collections section (populated dynamically from the database).
+        self._separator()
+        ctk.CTkLabel(self, text="Collections", anchor="w",
+                     text_color=("gray40", "gray60"),
+                     font=ctk.CTkFont(size=11, weight="bold")
+                     ).pack(fill="x", padx=10, pady=(2, 2))
+        self._collections_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._collections_frame.pack(fill="x")
+        self._collections_empty = ctk.CTkLabel(
+            self._collections_frame, text="  (none yet)", anchor="w",
+            text_color=("gray55", "gray50"), font=ctk.CTkFont(size=11))
+        self._collections_empty.pack(fill="x", padx=10)
+
         self._highlight()
+
+    # --- helpers -----------------------------------------------------------
+    def _separator(self) -> None:
+        ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
+            fill="x", padx=10, pady=6)
+
+    def _nav_button(self, parent, key: str, label: str) -> ctk.CTkButton:
+        btn = ctk.CTkButton(
+            parent, text=label, anchor="w", corner_radius=6,
+            fg_color="transparent", text_color=("gray10", "gray90"),
+            hover_color=("gray85", "gray25"),
+            command=lambda k=key: self._select(k),
+        )
+        btn.pack(fill="x", padx=6, pady=1)
+        return btn
 
     def _select(self, key: str) -> None:
         self._active = key
@@ -72,14 +95,28 @@ class FilterNav(ctk.CTkScrollableFrame):
         return self._active
 
     def _highlight(self) -> None:
-        for key, btn in self._buttons.items():
-            if key == self._active:
-                btn.configure(fg_color=("gray75", "gray30"))
-            else:
-                btn.configure(fg_color="transparent")
+        for key, btn in {**self._buttons, **self._collection_buttons}.items():
+            btn.configure(fg_color=("gray75", "gray30") if key == self._active
+                          else "transparent")
 
     def update_counts(self, counts: dict[str, int]) -> None:
-        for key, btn in self._buttons.items():
+        for key, label in self._labels.items():
             n = counts.get(key, 0)
-            label = self._labels[key]
-            btn.configure(text=f"{label}   ({n})" if n else label)
+            self._buttons[key].configure(text=f"{label}   ({n})" if n else label)
+
+    def update_collections(self, collections: list[dict]) -> None:
+        """Rebuild the dynamic collection buttons (name + count)."""
+        for btn in self._collection_buttons.values():
+            btn.destroy()
+        self._collection_buttons.clear()
+        if not collections:
+            self._collections_empty.pack(fill="x", padx=10)
+        else:
+            self._collections_empty.pack_forget()
+            for col in collections:
+                key = S.COLLECTION_PREFIX + col["name"]
+                btn = self._nav_button(
+                    self._collections_frame, key,
+                    f"  {col['name']}   ({col['count']})")
+                self._collection_buttons[key] = btn
+        self._highlight()
