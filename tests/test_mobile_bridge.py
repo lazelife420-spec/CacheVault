@@ -254,6 +254,22 @@ def test_bridge_stops_discovery_when_disabled(vault, mobile_bridge):
     assert discovery.stop.call_count >= 2
 
 
+def test_bridge_sync_skips_when_already_matched(vault, mobile_bridge):
+    _enable(vault)
+    discovery = MagicMock()
+    bridge = MobileBridge(vault, receipt_log=mobile_bridge.receipts, discovery=discovery)
+    bridge.sync(vault.settings)
+    try:
+        assert bridge.is_running is True
+        discovery.reset_mock()
+        assert bridge.needs_sync(vault.settings) is False
+        bridge.sync(vault.settings)
+        discovery.stop.assert_not_called()
+        discovery.start.assert_not_called()
+    finally:
+        bridge.stop()
+
+
 def test_token_stored_as_hash_not_plaintext(vault, mobile_bridge):
     device, token = _pair(mobile_bridge, vault)
     stored = vault.settings.paired_devices[0]

@@ -82,7 +82,7 @@ class MobileDiscovery:
 
 def guess_lan_ip() -> str | None:
     """Best-effort LAN IPv4 for pairing instructions (not logged)."""
-    from .lan_ip import best_lan_ipv4
+    from ..lan_ip import best_lan_ipv4
     return best_lan_ipv4()
 
 

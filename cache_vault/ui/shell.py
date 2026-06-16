@@ -15,6 +15,7 @@ import os
 import queue
 import subprocess
 import sys
+import threading
 import traceback
 from pathlib import Path
 
@@ -1024,8 +1025,22 @@ class CacheVaultApp(ctk.CTk):
         self._rebind_hotkey(settings.quick_paste_hotkey)
         from ..core import startup
         startup.sync(settings.start_with_windows)
-        self._mobile_bridge.sync(settings)
         self.refresh()
+        if not self._mobile_bridge.needs_sync(settings):
+            return
+
+        def _sync_bridge() -> None:
+            try:
+                self._mobile_bridge.sync(settings)
+            except Exception as exc:  # noqa: BLE001
+                write_crash("mobile bridge sync", exc)
+            finally:
+                if self._alive():
+                    self.after(0, self.refresh)
+
+        threading.Thread(
+            target=_sync_bridge, name="mobile-bridge-sync", daemon=True,
+        ).start()
 
     def _rebind_hotkey(self, spec: str) -> None:
         """Re-register the global hotkey if the user changed it."""

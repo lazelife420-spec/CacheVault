@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from datetime import timedelta
 from pathlib import Path
 
@@ -122,7 +123,8 @@ class VaultStorage:
         # ``:memory:`` is honoured for tests.
         if str(self.db_path) != ":memory:":
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.db_path))
+        self._lock = threading.Lock()
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.executescript(_SCHEMA)

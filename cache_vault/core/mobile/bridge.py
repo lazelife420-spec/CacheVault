@@ -42,30 +42,61 @@ class MobileBridge:
         self.discovery = discovery or MobileDiscovery()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._listen_host: str | None = None
+        self._listen_port: int | None = None
 
     @property
     def is_running(self) -> bool:
         return self._server is not None
 
+    def _endpoint(self, settings: Settings) -> tuple[str, int]:
+        host = (settings.mobile_access_bind_host or DEFAULT_BIND_HOST).strip()
+        port = int(settings.mobile_access_port or DEFAULT_MOBILE_PORT)
+        return host, port
+
+    def needs_sync(self, settings: Settings | None = None) -> bool:
+        """True when listener state must change to match settings."""
+        settings = settings or self.vault.settings
+        host, port = self._endpoint(settings)
+        want = bool(settings.mobile_access_enabled)
+        if want != self.is_running:
+            return True
+        if want and (self._listen_host != host or self._listen_port != port):
+            return True
+        return False
+
     def sync(self, settings: Settings | None = None) -> None:
         """Start or stop the listener to match ``settings``."""
         settings = settings or self.vault.settings
+        if not self.needs_sync(settings):
+            return
+        host, port = self._endpoint(settings)
         self.stop()
         if settings.mobile_access_enabled:
-            host = (settings.mobile_access_bind_host or DEFAULT_BIND_HOST).strip()
-            port = int(settings.mobile_access_port or DEFAULT_MOBILE_PORT)
             self._start(host, port)
 
     def stop(self) -> None:
-        self.discovery.stop()
+        try:
+            self.discovery.stop()
+        except Exception:  # noqa: BLE001
+            pass
         srv = self._server
         self._server = None
+        self._listen_host = None
+        self._listen_port = None
         if srv is not None:
-            srv.shutdown()
-            srv.server_close()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
+            try:
+                srv.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                srv.server_close()
+            except Exception:  # noqa: BLE001
+                pass
+        thread = self._thread
+        self._thread = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=0.25)
 
     def _start(self, host: str, port: int) -> None:
         bridge = self
@@ -128,6 +159,8 @@ class MobileBridge:
         except OSError:
             self._server = None
             return
+        self._listen_host = host
+        self._listen_port = port
         self._thread = threading.Thread(
             target=self._server.serve_forever, name="mobile-bridge", daemon=True)
         self._thread.start()
@@ -241,12 +274,13 @@ class MobileBridge:
             self.receipts.record(rec)
             return 404, {"error": "not_found"}
 
-        if method == "POST":
-            status, body = self._dispatch_receipt_post(
-                family, path_only, device)
-        else:
-            status, body = self._dispatch_get(
-                family, path_only, query, device)
+        with self.vault.storage._lock:
+            if method == "POST":
+                status, body = self._dispatch_receipt_post(
+                    family, path_only, device)
+            else:
+                status, body = self._dispatch_get(
+                    family, path_only, query, device)
         clip_id = self._clip_id_from_response(body, path_only)
         rec = MobileAccessReceipt.make(
             action=action, route=path_only,
