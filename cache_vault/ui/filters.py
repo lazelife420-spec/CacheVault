@@ -12,7 +12,7 @@ from ..core import storage as S
 # (filter constant, label) in display order. A None entry renders a separator.
 FILTER_ITEMS = [
     (S.FILTER_ALL, "All"),
-    (S.FILTER_PINNED, "Pinned"),
+    (S.FILTER_FAVORITES, "Favorites"),
     (None, None),
     (S.FILTER_LINKS, "Links"),
     (S.FILTER_FILES, "Files / Paths"),

@@ -21,9 +21,11 @@ _CLASS_BADGE = {
 
 
 class ClipList(ctk.CTkScrollableFrame):
-    def __init__(self, master, on_select: Callable[[Clip], None], **kw):
+    def __init__(self, master, on_select: Callable[[Clip], None],
+                 on_context: Callable[[Clip, int, int], None] | None = None, **kw):
         super().__init__(master, **kw)
         self._on_select = on_select
+        self._on_context = on_context
         self._rows: list[ctk.CTkFrame] = []
         self._selected_id: str | None = None
         self._empty = ctk.CTkLabel(
@@ -61,7 +63,8 @@ class ClipList(ctk.CTkScrollableFrame):
                      text_color=("#b04632" if clip.is_sensitive else "gray45")
                      ).pack(side="left")
         if clip.is_pinned:
-            ctk.CTkLabel(top, text="📌", font=ctk.CTkFont(size=11)).pack(side="right")
+            ctk.CTkLabel(top, text="★", font=ctk.CTkFont(size=13),
+                         text_color="#f5b301").pack(side="right")
 
         preview = ctk.CTkLabel(row, text=clip.preview or "(empty)", anchor="w",
                                justify="left", wraplength=420)
@@ -74,7 +77,14 @@ class ClipList(ctk.CTkScrollableFrame):
 
         for widget in (row, top, preview):
             widget.bind("<Button-1>", lambda _e, c=clip: self._select(c))
+            widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c))
         return row
+
+    def _context(self, event, clip: Clip) -> None:
+        # Select the row, then hand off to the shell to post the menu.
+        self._select(clip)
+        if self._on_context is not None:
+            self._on_context(clip, event.x_root, event.y_root)
 
     def _select(self, clip: Clip) -> None:
         self._selected_id = clip.id

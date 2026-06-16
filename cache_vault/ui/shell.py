@@ -110,6 +110,7 @@ class CacheVaultApp(ctk.CTk):
         self._filters.grid(row=1, column=0, sticky="nsew")
 
         self._list = ClipList(self, on_select=self._on_clip_select,
+                              on_context=self._open_clip_menu,
                               corner_radius=0, fg_color=("gray96", "gray16"))
         self._list.grid(row=1, column=1, sticky="nsew", padx=1)
 
@@ -130,11 +131,11 @@ class CacheVaultApp(ctk.CTk):
         return {
             "copy_again": self._copy_again,
             "reveal": self.vault.reveal_sensitive,
-            "toggle_pin": self._toggle_pin,
+            "toggle_favorite": self._toggle_favorite,
             "mark_keep": self._mark_keep,
             "copy_metadata": self._copy_metadata,
             "expire_now": self._expire_now,
-            "delete": self._delete,
+            "remove_from_history": self._remove_from_history,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -189,11 +190,11 @@ class CacheVaultApp(ctk.CTk):
         self.clipboard_append(meta)
         self._monitor.note_local_copy(meta)
 
-    def _toggle_pin(self, clip_id: str) -> None:
+    def _toggle_favorite(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
         if clip:
-            self.vault.set_pinned(clip_id, not clip.is_pinned)
-            self.refresh()
+            self.vault.set_favorite(clip_id, not clip.is_pinned)
+            self.refresh()  # moves the row between Favorites / normal sections
             self._preview.show(self.vault.storage.get_clip(clip_id))
 
     def _mark_keep(self, clip_id: str) -> None:
@@ -205,10 +206,66 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
         self._preview.show(None)
 
-    def _delete(self, clip_id: str) -> None:
-        self.vault.delete(clip_id)
+    def _remove_from_history(self, clip_id: str) -> None:
+        """Remove a clip from history. Confirms first if it's a favorite.
+
+        Never deletes any real file/folder — only the Cache Vault entry.
+        """
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        if clip.is_pinned:  # favorite — confirm before losing it
+            from tkinter import messagebox
+            ok = messagebox.askyesno(
+                "Remove from History",
+                "This removes the clip from Cache Vault history. It does not "
+                "delete files from your computer.\n\nRemove this favorite?",
+                parent=self,
+            )
+            if not ok:
+                return
+        self.vault.remove_from_history(clip_id)
         self.refresh()
         self._preview.show(None)
+
+    # --- clip-row context menu ---------------------------------------------
+    def _open_clip_menu(self, clip, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        from ..core.contextmenu import clip_menu_items
+
+        menu = tk.Menu(self, tearoff=0)
+        dispatch = {
+            "copy_again": lambda: self._copy_again(clip.id),
+            "toggle_favorite": lambda: self._toggle_favorite(clip.id),
+            "open": lambda: self._open_clip_path(clip.id),
+            "reveal": lambda: self._reveal_clip_path(clip.id),
+            "remove": lambda: self._remove_from_history(clip.id),
+        }
+        for item in clip_menu_items(clip):
+            if item.separator_before:
+                menu.add_separator()
+            menu.add_command(
+                label=item.label,
+                state=("normal" if item.enabled else "disabled"),
+                command=dispatch[item.key],
+            )
+        try:
+            menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
+        finally:
+            menu.grab_release()
+
+    def _open_clip_path(self, clip_id: str) -> None:
+        from ..core import pathutil
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip:
+            pathutil.open_path(clip.content)
+
+    def _reveal_clip_path(self, clip_id: str) -> None:
+        from ..core import pathutil
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip:
+            pathutil.reveal_in_explorer(clip.content)
 
     # --- capture state -----------------------------------------------------
     def _set_paused(self, paused: bool) -> None:

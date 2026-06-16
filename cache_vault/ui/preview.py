@@ -97,12 +97,13 @@ class PreviewPanel(ctk.CTkFrame):
             add("Open Link", "open_link")
         if clip.classification == models.CLASS_PATH:
             add("Open File Location", "open_path")
-        add("Pin" if not clip.is_pinned else "Unpin", "toggle_pin")
+        add("Remove from Favorites" if clip.is_pinned else "Add to Favorites",
+            "toggle_favorite")
         add("Mark Keep", "mark_keep")
         add("Copy Metadata", "copy_metadata")
         add("Expire Now", "expire_now")
-        add("Delete", "delete", fg_color=("gray60", "gray35"),
-            hover_color=("#b04632", "#7a2f24"))
+        add("Remove from History", "remove_from_history",
+            fg_color=("gray60", "gray35"), hover_color=("#b04632", "#7a2f24"))
 
     # --- action plumbing ---------------------------------------------------
     def _fire(self, key: str, clip: Clip) -> None:

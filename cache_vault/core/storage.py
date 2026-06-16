@@ -33,6 +33,10 @@ FILTER_DUPLICATES = "duplicates"
 FILTER_TODAY = "today"
 FILTER_WEEK = "week"
 FILTER_EXPIRED = "expired"
+# Favorites are stored in the existing ``is_pinned`` column (saved clips that
+# float to the top and survive pruning). FILTER_PINNED stays as a back-compat
+# alias for the same underlying flag.
+FILTER_FAVORITES = "favorites"
 
 _CLASS_BY_FILTER = {
     FILTER_LINKS: models.CLASS_LINK,
@@ -97,7 +101,39 @@ class VaultStorage:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.executescript(_SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    # Columns we expect on the clips table, with safe defaults. Used to bring
+    # an older database forward without wiping or recreating it.
+    _EXPECTED_CLIP_COLUMNS = {
+        "content_type": "TEXT",
+        "preview": "TEXT",
+        "source_app": "TEXT",
+        "source_window": "TEXT",
+        "classification": "TEXT",
+        "tags": "TEXT",
+        "is_pinned": "INTEGER DEFAULT 0",
+        "is_kept": "INTEGER DEFAULT 0",
+        "is_sensitive": "INTEGER DEFAULT 0",
+        "expires_at": "TEXT",
+        "deleted_at": "TEXT",
+        "duplicate_of": "TEXT",
+    }
+
+    def _migrate(self) -> None:
+        """Add any missing columns to an existing clips table in place.
+
+        Existing user history is never dropped or reset — we only ADD columns
+        with safe defaults so older databases keep loading.
+        """
+        existing = {row["name"] for row in
+                    self.conn.execute("PRAGMA table_info(clips)").fetchall()}
+        if not existing:
+            return  # table was just created by the schema script
+        for col, decl in self._EXPECTED_CLIP_COLUMNS.items():
+            if col not in existing:
+                self.conn.execute(f"ALTER TABLE clips ADD COLUMN {col} {decl}")
 
     def close(self) -> None:
         self.conn.close()
@@ -263,7 +299,7 @@ class VaultStorage:
             where.append("deleted_at IS NULL")
 
         fn = query.filter_name
-        if fn == FILTER_PINNED:
+        if fn in (FILTER_PINNED, FILTER_FAVORITES):
             where.append("is_pinned = 1")
         elif fn == FILTER_SENSITIVE:
             where.append("is_sensitive = 1")
@@ -317,6 +353,7 @@ class VaultStorage:
         out[FILTER_PINNED] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND is_pinned = 1"
         ).fetchone()[0]
+        out[FILTER_FAVORITES] = out[FILTER_PINNED]
         for fname, cls in _CLASS_BY_FILTER.items():
             out[fname] = c.execute(
                 "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "

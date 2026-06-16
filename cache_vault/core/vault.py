@@ -79,6 +79,29 @@ class Vault:
             models.EVENT_PINNED if pinned else models.EVENT_UNPINNED, clip_id
         )
 
+    def set_favorite(self, clip_id: str, favorite: bool) -> None:
+        """Add/remove a clip from Favorites (stored in the is_pinned flag).
+
+        Favorites are saved clips: they float to the top and survive pruning.
+        """
+        self.storage.set_pinned(clip_id, favorite)
+        self.events.record(
+            models.EVENT_FAVORITED if favorite else models.EVENT_UNFAVORITED, clip_id
+        )
+
+    def is_favorite(self, clip_id: str) -> bool:
+        clip = self.storage.get_clip(clip_id)
+        return bool(clip and clip.is_pinned)
+
+    def remove_from_history(self, clip_id: str) -> None:
+        """Remove a clip from Cache Vault history (soft delete).
+
+        This only hides the clip from history; it never deletes any real file
+        or folder from disk.
+        """
+        self.storage.soft_delete(clip_id)
+        self.events.record(models.EVENT_DELETED, clip_id, {"action": "remove_from_history"})
+
     def mark_keep(self, clip_id: str) -> None:
         self.storage.set_kept(clip_id, True)
         self.events.record(models.EVENT_KEPT, clip_id)
