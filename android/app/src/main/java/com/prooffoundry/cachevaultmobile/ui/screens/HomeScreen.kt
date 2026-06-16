@@ -25,7 +25,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.ClipFeed
 import com.prooffoundry.cachevaultmobile.ui.AppUiState
 
@@ -72,7 +74,7 @@ fun HomeScreen(
                 value = state.searchQuery,
                 onValueChange = onSearch,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Search clips") },
+                label = { Text(stringResource(R.string.search_hint)) },
                 singleLine = true,
             )
             Row(
@@ -86,6 +88,10 @@ fun HomeScreen(
                 }
                 FeedChip("Favorites", state.activeFeed == ClipFeed.FAVORITES) {
                     onFeed(ClipFeed.FAVORITES, null)
+                }
+                FeedChip(stringResource(R.string.screenshots_tab),
+                    state.activeFeed == ClipFeed.SCREENSHOTS) {
+                    onFeed(ClipFeed.SCREENSHOTS, null)
                 }
                 FeedChip("Removed", state.activeFeed == ClipFeed.RECENTLY_REMOVED) {
                     onFeed(ClipFeed.RECENTLY_REMOVED, null)
@@ -121,6 +127,16 @@ fun HomeScreen(
                 }
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (state.clips.isEmpty() && !state.loading && state.activeFeed == ClipFeed.SCREENSHOTS) {
+                    item {
+                        Text(
+                            stringResource(R.string.screenshots_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 16.dp),
+                        )
+                    }
+                }
                 items(state.clips, key = { it.id }) { clip ->
                     Column(
                         modifier = Modifier

@@ -29,6 +29,7 @@ data class ClipSummary(
     val isSensitive: Boolean,
     val collection: String?,
     val deletedAt: String?,
+    val hasAsset: Boolean = false,
 )
 
 data class ClipListResponse(
@@ -53,6 +54,7 @@ data class CollectionsResponse(
 enum class ClipFeed {
     ALL,
     FAVORITES,
+    SCREENSHOTS,
     RECENTLY_REMOVED,
     COLLECTION,
 }

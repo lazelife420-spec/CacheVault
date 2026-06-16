@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import models
+from ..core.mobile.discovery import guess_lan_ip
 from ..core.mobile.models import DEFAULT_MOBILE_PORT
 from . import theme
 
@@ -36,6 +37,17 @@ class PairAndroidDialog(ctk.CTkToplevel):
             self,
             text="Manual setup is available for this MVP. QR pairing is coming next.",
             anchor="w", justify="left", text_color=brand.STAMP_GOLD,
+            wraplength=440, font=ctk.CTkFont(size=10),
+        ).pack(anchor="w", padx=16, pady=(0, 8))
+
+        lan = guess_lan_ip()
+        lan_hint = lan if lan else "Use ipconfig → Wi-Fi IPv4"
+        ctk.CTkLabel(
+            self,
+            text=f"PC LAN IP (for phone): {lan_hint}\n"
+                 f"Port: {DEFAULT_MOBILE_PORT}  ·  Same Wi-Fi required\n"
+                 f"Do not use localhost or 127.0.0.1 from the phone.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
             wraplength=440, font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=16, pady=(0, 8))
 
@@ -68,10 +80,12 @@ class PairAndroidDialog(ctk.CTkToplevel):
         device_id = models.new_id()
         device_id, token = self._on_pair(device_id, name)
         payload = (
+            f"PC LAN IP: {lan_hint}\n"
+            f"Port: {DEFAULT_MOBILE_PORT}\n"
             f"Device ID: {device_id}\n"
             f"Token (show once): {token}\n\n"
-            f"Future QR payload will include host, port ({DEFAULT_MOBILE_PORT} default), "
-            f"device id, and token.\n\n"
+            f"On your phone: Connect to My PC → Manual Setup or Find PC.\n"
+            f"Use the LAN IP above — not localhost.\n\n"
             f"{brand.MOBILE_PROMISE}"
         )
         self._out.configure(state="normal")

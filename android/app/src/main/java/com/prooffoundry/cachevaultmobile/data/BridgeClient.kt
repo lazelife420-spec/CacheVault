@@ -45,6 +45,14 @@ class BridgeClient(
         post("/mobile/v1/clips/$clipId/share")
     }
 
+    fun logSave(clipId: String) {
+        post("/mobile/v1/clips/$clipId/save")
+    }
+
+    fun requestAsset(clipId: String) {
+        runCatching { get("/mobile/v1/clips/$clipId/asset", OkJson::class.java) }
+    }
+
     private fun <T> get(path: String, type: Class<T>): T {
         val request = baseRequest(path).get().build()
         return execute(request, type)
@@ -131,10 +139,11 @@ class BridgeClient(
         @Json(name = "is_sensitive") val isSensitive: Boolean,
         val collection: String?,
         @Json(name = "deleted_at") val deletedAt: String?,
+        @Json(name = "has_asset") val hasAsset: Boolean = false,
     ) {
         fun toModel() = ClipSummary(
             id, preview, content, classification, contentType, sourceApp,
-            createdAt, isFavorite, isSensitive, collection, deletedAt,
+            createdAt, isFavorite, isSensitive, collection, deletedAt, hasAsset,
         )
     }
 

@@ -152,6 +152,8 @@ fun CacheVaultMobileRoot(
                     },
                     onCopy = { vm.logCopy(clip.id) },
                     onShare = { vm.logShare(clip.id) },
+                    onSave = { vm.logSave(clip.id) },
+                    onViewAsset = { vm.logAssetOpen(clip.id) },
                 )
             }
         }

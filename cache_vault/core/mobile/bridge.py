@@ -291,6 +291,20 @@ class MobileBridge:
                 return 404, {"error": "not_found", "clip_id": clip_id}
             return 200, {"clip": api_mod.clip_to_api(clip, full_content=True)}
 
+        if family == "/mobile/v1/clips/{id}/asset":
+            m = re.match(r"^/mobile/v1/clips/([a-f0-9]+)/asset$", path)
+            clip_id = m.group(1) if m else ""
+            clip = self.vault.storage.get_clip(clip_id)
+            if clip is None:
+                return 404, {"error": "not_found", "clip_id": clip_id}
+            if not api_mod.clip_has_asset(clip):
+                return 404, {
+                    "error": "asset_not_available",
+                    "clip_id": clip_id,
+                    "message": "No retrievable image asset for this clip yet.",
+                }
+            return 404, {"error": "asset_not_available", "clip_id": clip_id}
+
         if family == "/mobile/v1/search":
             q = (query.get("q") or [""])[0]
             sq = search.parse(q, FILTER_SEARCH_ALL)
@@ -314,7 +328,7 @@ class MobileBridge:
     def _dispatch_receipt_post(self, family: str, path: str,
                                device: PairedDevice) -> tuple[int, dict]:
         """Log copy/share receipts without mutating vault state."""
-        m = re.match(r"^/mobile/v1/clips/([a-f0-9]+)/(copy|share)$", path)
+        m = re.match(r"^/mobile/v1/clips/([a-f0-9]+)/(copy|share|save)$", path)
         if m is None:
             return 404, {"error": "not_found"}
         clip_id = m.group(1)

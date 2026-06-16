@@ -206,7 +206,8 @@ is **unchanged** by this document.
 
 | Component | Status |
 |-----------|--------|
-| Android app | **MVP** (`android/` — pair, browse, search, copy, share) |
+| Android app | **MVP** (`android/` — Easy Connect, browse, copy, share) |
+| Screenshot/image assets | **Gap** — desktop stores text only; `/asset` + UI placeholder ready |
 | Desktop mobile server | **Bridge implemented** (read-only, OFF by default) |
 | QR pairing UI | **Placeholder** (manual credentials; QR later) |
 | Mobile access receipts | **Implemented** (`mobile_access_receipts.json`) |

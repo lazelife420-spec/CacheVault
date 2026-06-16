@@ -156,6 +156,22 @@ class AppViewModel(
         }
     }
 
+    fun logSave(clipId: String) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { repository.client().logSave(clipId) }
+            }
+        }
+    }
+
+    fun logAssetOpen(clipId: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                repository.client().requestAsset(clipId)
+            }
+        }
+    }
+
     private fun refreshClips() {
         viewModelScope.launch {
             uiState = uiState.copy(loading = true, error = null)
@@ -165,6 +181,9 @@ class AppViewModel(
                     when (uiState.activeFeed) {
                         ClipFeed.ALL -> client.listClips().clips
                         ClipFeed.FAVORITES -> client.listFavorites().clips
+                        ClipFeed.SCREENSHOTS -> client.listClips().clips.filter {
+                            com.prooffoundry.cachevaultmobile.data.ClipKinds.isImageReference(it)
+                        }
                         ClipFeed.RECENTLY_REMOVED -> client.listRecentlyRemoved().clips
                         ClipFeed.COLLECTION -> {
                             val name = uiState.selectedCollection

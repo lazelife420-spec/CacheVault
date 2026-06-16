@@ -25,13 +25,16 @@ READ_ONLY_ROUTES = frozenset({
 })
 
 CLIP_ID_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)$")
+CLIP_ASSET_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)/asset$")
 CLIP_COPY_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)/copy$")
 CLIP_SHARE_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)/share$")
+CLIP_SAVE_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)/save$")
 
-# Receipt-only POST routes — log mobile copy/share; never mutate the vault.
+# Receipt-only POST routes — log mobile copy/share/save; never mutate the vault.
 RECEIPT_POST_ROUTES = frozenset({
     "/mobile/v1/clips/{id}/copy",
     "/mobile/v1/clips/{id}/share",
+    "/mobile/v1/clips/{id}/save",
 })
 
 FORBIDDEN_ROUTE_PARTS = frozenset({
@@ -45,16 +48,29 @@ def route_family(path: str) -> str | None:
         return path
     if CLIP_ID_RE.match(path):
         return "/mobile/v1/clips/{id}"
+    if CLIP_ASSET_RE.match(path):
+        return "/mobile/v1/clips/{id}/asset"
     if CLIP_COPY_RE.match(path):
         return "/mobile/v1/clips/{id}/copy"
     if CLIP_SHARE_RE.match(path):
         return "/mobile/v1/clips/{id}/share"
+    if CLIP_SAVE_RE.match(path):
+        return "/mobile/v1/clips/{id}/save"
     return None
 
 
 def is_forbidden_route(path: str) -> bool:
     low = path.lower()
     return any(part in low for part in FORBIDDEN_ROUTE_PARTS)
+
+
+def clip_has_asset(clip: models.Clip) -> bool:
+    """True when the vault stores a retrievable binary asset for this clip.
+
+    Desktop Cache Vault currently stores text clips only. Image asset delivery
+    will enable when desktop screenshot/image capture ships.
+    """
+    return False
 
 
 def clip_to_api(clip: models.Clip, *, full_content: bool = False) -> dict:
@@ -81,6 +97,7 @@ def clip_to_api(clip: models.Clip, *, full_content: bool = False) -> dict:
         "is_sensitive": bool(clip.is_sensitive),
         "collection": clip.collection,
         "deleted_at": clip.deleted_at,
+        "has_asset": clip_has_asset(clip),
     }
 
 
@@ -94,12 +111,14 @@ def action_for_route(route_family: str, method: str) -> str:
         "/mobile/v1/status": "status",
         "/mobile/v1/clips": "list_clips",
         "/mobile/v1/clips/{id}": "get_clip",
+        "/mobile/v1/clips/{id}/asset": "get_asset",
         "/mobile/v1/search": "search",
         "/mobile/v1/collections": "list_collections",
         "/mobile/v1/favorites": "list_favorites",
         "/mobile/v1/recently-removed": "list_recently_removed",
         "/mobile/v1/clips/{id}/copy": "copy",
         "/mobile/v1/clips/{id}/share": "share",
+        "/mobile/v1/clips/{id}/save": "save",
     }
     return mapping.get(route_family, method.lower())
 

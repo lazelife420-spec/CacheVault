@@ -119,6 +119,31 @@ def test_copy_share_receipt_post_does_not_mutate(vault, mobile_bridge):
     assert "share" in actions
 
 
+def test_asset_endpoint_not_available_writes_receipt(vault, mobile_bridge):
+    clip = vault.capture("plain text")
+    device, token = _pair(mobile_bridge, vault)
+    headers = _auth(device.device_id, token)
+    code, body = mobile_bridge.handle(
+        "GET", f"/mobile/v1/clips/{clip.id}/asset", headers)
+    assert code == 404
+    assert body["error"] == "asset_not_available"
+    rec = mobile_bridge.receipts.recent()[-1]
+    assert rec["action"] == "get_asset"
+    assert rec["clip_id"] == clip.id
+
+
+def test_save_receipt_post(vault, mobile_bridge):
+    clip = vault.capture("save me")
+    device, token = _pair(mobile_bridge, vault)
+    headers = _auth(device.device_id, token)
+    code, body = mobile_bridge.handle(
+        "POST", f"/mobile/v1/clips/{clip.id}/save", headers)
+    assert code == 200
+    assert body["ok"] is True
+    rec = mobile_bridge.receipts.recent()[-1]
+    assert rec["action"] == "save"
+
+
 def test_read_only_endpoints_do_not_mutate_vault(vault, mobile_bridge):
     vault.capture("immutable")
     before = len(vault.list_clips())

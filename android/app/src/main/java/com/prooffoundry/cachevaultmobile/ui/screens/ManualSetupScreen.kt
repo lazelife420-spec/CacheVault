@@ -67,6 +67,11 @@ fun ManualSetupScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.pairing_hint), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Use your PC's LAN IP — not localhost or 127.0.0.1.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             OutlinedTextField(
                 value = host,
                 onValueChange = { host = it },

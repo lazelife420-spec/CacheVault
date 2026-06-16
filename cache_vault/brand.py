@@ -40,7 +40,7 @@ TERM_COLLECTIONS = "Collections"
 
 MOBILE_PRODUCT_NAME = "Cache Vault Mobile"
 MOBILE_BYLINE = "A Proof Foundry companion app"
-MOBILE_PROMISE = "Access your saved clips. Keep the receipt."
+MOBILE_PROMISE = "Saved on your PC. Ready on your phone. Keep the receipt."
 TERM_MOBILE_ACCESS = "Mobile Access"
 TERM_MOBILE_ACCESS_RECEIPTS = "Mobile Access Receipts"
 
