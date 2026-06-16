@@ -78,9 +78,9 @@ class SettingsDialog(ctk.CTkToplevel):
                  *, mobile: dict | None = None):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
-        self.geometry("500x680")
+        self.geometry("520x720")
         self.resizable(False, True)
-        self.minsize(500, 480)
+        self.minsize(520, 560)
         self._settings = settings
         self._on_save = on_save
         self._mobile = mobile or {}
@@ -93,6 +93,13 @@ class SettingsDialog(ctk.CTkToplevel):
         body = ctk.CTkScrollableFrame(self)
         body.pack(fill="both", expand=True, padx=8, pady=(0, 4))
 
+        def section(title: str) -> None:
+            ctk.CTkFrame(body, height=1, fg_color=("#C8D0D4", "#263038")).pack(
+                fill="x", padx=8, pady=(14, 6))
+            ctk.CTkLabel(body, text=title, font=ctk.CTkFont(size=13, weight="bold"),
+                         text_color=brand.PROOF_TEAL).pack(anchor="w", padx=8, pady=(0, 4))
+
+        section("Capture")
         self._pause = ctk.CTkSwitch(body, text="Pause capture")
         self._pause.pack(anchor="w", padx=8, pady=6)
         self._pause.select() if settings.capture_paused else self._pause.deselect()
@@ -118,10 +125,12 @@ class SettingsDialog(ctk.CTkToplevel):
         self._auto_paste.pack(anchor="w", padx=8, pady=6)
         self._auto_paste.select() if settings.auto_paste else self._auto_paste.deselect()
 
+        section("Startup")
         self._startup = ctk.CTkSwitch(body, text="Start Cache Vault with Windows")
         self._startup.pack(anchor="w", padx=8, pady=6)
         self._startup.select() if startup.is_enabled() else self._startup.deselect()
 
+        section("History")
         ctk.CTkLabel(body, text="History limit (clips, 0 = unlimited):").pack(
             anchor="w", padx=8, pady=(10, 0))
         self._history_max = ctk.CTkEntry(body, width=80)
@@ -140,17 +149,12 @@ class SettingsDialog(ctk.CTkToplevel):
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
         self._excluded.pack(fill="x", padx=8, pady=4)
 
-        # --- Mobile Access (Cache Vault Mobile companion) ---
-        ctk.CTkFrame(body, height=1, fg_color=("#C8D0D4", "#263038")).pack(
-            fill="x", padx=8, pady=(12, 6))
-        ctk.CTkLabel(body, text=brand.TERM_MOBILE_ACCESS,
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(
-            anchor="w", padx=8, pady=(0, 2))
+        section(brand.TERM_MOBILE_ACCESS)
         ctk.CTkLabel(
             body, text=f"{brand.MOBILE_PRODUCT_NAME} · {brand.MOBILE_BYLINE}\n"
                        f"{brand.MOBILE_PROMISE}",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=10), wraplength=460,
+            font=ctk.CTkFont(size=11), wraplength=460,
         ).pack(anchor="w", padx=8, pady=(0, 6))
 
         self._mobile_on = ctk.CTkSwitch(body, text="Enable Mobile Access")
@@ -165,7 +169,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._mobile_port.pack(side="left", padx=(8, 0))
 
         mob_btns = ctk.CTkFrame(body, fg_color="transparent")
-        mob_btns.pack(fill="x", padx=8, pady=6)
+        mob_btns.pack(fill="x", padx=8, pady=8)
         pending_pair = (
             lambda: self._mobile["pair"](bool(self._mobile_on.get()))
             if callable(self._mobile.get("pair"))
@@ -448,7 +452,7 @@ class EventLogDialog(ctk.CTkToplevel):
         self._reload_list()
 
     def _reload_list(self) -> None:
-        from .receipt_ledger import filter_rows, format_list_line
+        from .receipt_ledger import filter_rows, shorten_hash
 
         for w, _ in self._row_widgets:
             w.destroy()
@@ -469,22 +473,45 @@ class EventLogDialog(ctk.CTkToplevel):
             self._detail.configure(state="disabled")
             return
         for row in shown:
+            frame = ctk.CTkFrame(self._list, fg_color=brand.SURFACE_BG, corner_radius=6)
+            frame.pack(fill="x", pady=3, padx=2)
+            ts = (row.timestamp or "")[:19].replace("T", " ")
+            top = ctk.CTkFrame(frame, fg_color="transparent")
+            top.pack(fill="x", padx=10, pady=(6, 0))
+            ctk.CTkLabel(top, text=row.action_label, anchor="w",
+                         font=ctk.CTkFont(size=12, weight="bold"),
+                         text_color=brand.PROOF_TEAL).pack(side="left")
+            ctk.CTkLabel(top, text=row.result, anchor="e",
+                         text_color=brand.STAMP_GOLD if row.result == "OK" else brand.WARNING_RED,
+                         font=ctk.CTkFont(size=11, weight="bold")).pack(side="right")
+            mid = f"{ts} · {row.item_label} · {row.content_type}"
+            ctk.CTkLabel(frame, text=mid, anchor="w", text_color=brand.MUTED_FG,
+                         font=theme.body_font(11)).pack(fill="x", padx=10, pady=(0, 2))
+            ctk.CTkLabel(frame, text=f"Proof {shorten_hash(row.proof_hash)}", anchor="w",
+                         text_color=brand.STAMP_GOLD, font=theme.mono_font(10)
+                         ).pack(fill="x", padx=10, pady=(0, 6))
             btn = ctk.CTkButton(
-                self._list, text=format_list_line(row), anchor="w", height=32,
-                fg_color=("gray90", "gray20"),
+                frame, text="", width=1, height=1, fg_color="transparent",
+                hover_color=theme.nav_hover_bg(),
                 command=lambda r=row: self._select(r),
             )
-            btn.pack(fill="x", pady=2)
-            self._row_widgets.append((btn, row))
+            btn.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self._row_widgets.append((frame, row))
         self._select(shown[0])
 
     def _select(self, row) -> None:
         from .receipt_ledger import format_detail_text
         self._selected = row
+        for frame, r in self._row_widgets:
+            frame.configure(
+                fg_color=brand.ROW_SELECTED_BG if r is row else brand.SURFACE_BG,
+                border_width=2 if r is row else 0,
+                border_color=brand.PROOF_TEAL if r is row else brand.SURFACE_BG,
+            )
         self._detail.configure(state="normal")
         self._detail.delete("1.0", "end")
         self._detail.insert("1.0", format_detail_text(row))
-        self._detail.configure(state="disabled")
+        self._detail.configure(state="disabled", font=theme.mono_font(11))
 
     def _copy_receipt(self) -> None:
         if self._selected:

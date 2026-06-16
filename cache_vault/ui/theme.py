@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import customtkinter as ctk
+
 from .. import brand
 
 
@@ -60,8 +62,39 @@ def proof_badge_fg() -> str:
 
 
 def nav_active_bg() -> tuple[str, str]:
-    return ("#B8E8E0", "#1A3D38")
+    return ("#9FE8DC", "#1E4A44")
 
 
 def nav_hover_bg() -> tuple[str, str]:
-    return ("#D8ECE8", "#263038")
+    return ("#D8ECE8", "#2A343C")
+
+
+def section_heading(**extra) -> dict:
+    return {
+        "text_color": brand.PROOF_TEAL,
+        "font": ctk.CTkFont(size=12, weight="bold"),
+        **extra,
+    }
+
+
+def body_font(size: int = 12) -> ctk.CTkFont:
+    import customtkinter as ctk
+    return ctk.CTkFont(size=size)
+
+
+def mono_font(size: int = 11) -> ctk.CTkFont:
+    import customtkinter as ctk
+    return ctk.CTkFont(family="Consolas", size=size)
+
+
+def segmented_active(**extra) -> dict:
+    return primary_button(**extra)
+
+
+def segmented_inactive(**extra) -> dict:
+    return {
+        "fg_color": ("#D0D6DA", "#1A2229"),
+        "hover_color": ("#B8C0C6", "#263038"),
+        "text_color": brand.MUTED_FG,
+        **extra,
+    }

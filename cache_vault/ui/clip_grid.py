@@ -11,22 +11,16 @@ from ..core import clip_metadata, models
 from ..core.models import Clip
 from . import theme
 
+# (key, header label, min width weight)
 COLUMNS = [
-    ("name", "Name", 160),
-    ("type", "Type", 70),
-    ("size", "Size", 60),
-    ("added", "Date Added", 110),
-    ("used", "Date Used", 110),
-    ("use_count", "Use Count", 70),
-    ("source", "Source", 90),
-    ("url", "Source URL", 120),
-    ("window", "Window Title", 120),
-    ("favorite", "Favorite", 60),
-    ("collection", "Collection", 90),
-    ("proof", "Proof", 70),
+    ("name", "Name", 3),
+    ("type", "Type", 1),
+    ("added", "First Saved", 2),
+    ("used", "Last Used", 2),
+    ("source", "Source", 2),
+    ("favorite", "★", 1),
+    ("proof", "Proof", 1),
 ]
-
-DEFAULT_VISIBLE = {"name", "type", "added", "used", "source", "favorite"}
 
 
 class ClipGrid(ctk.CTkScrollableFrame):
@@ -42,105 +36,96 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._on_sort = on_sort
         self._selected_id: str | None = None
         self._sort_key = models.SORT_NEWEST_ADDED
-        self._header = ctk.CTkFrame(self, fg_color=brand.SURFACE_BG, corner_radius=0)
-        self._header.pack(fill="x", padx=2, pady=(0, 2))
+        self._header = ctk.CTkFrame(self, fg_color=brand.SURFACE_BG, corner_radius=6)
+        self._header.pack(fill="x", padx=4, pady=(4, 2))
         self._rows_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._rows_frame.pack(fill="both", expand=True)
+        self._rows_frame.pack(fill="both", expand=True, padx=4)
         self._empty = ctk.CTkLabel(
-            self._rows_frame, text="No clips match this view.",
-            text_color=brand.MUTED_FG,
+            self._rows_frame,
+            text="No clips match this filter.\nTry All Clips or clear filters.",
+            text_color=brand.MUTED_FG, justify="center", font=theme.body_font(12),
         )
         self._build_header()
 
     def _build_header(self) -> None:
         for w in self._header.winfo_children():
             w.destroy()
-        for key, label, width in COLUMNS:
-            if key not in DEFAULT_VISIBLE:
-                continue
+        self._header.grid_columnconfigure(tuple(range(len(COLUMNS))), weight=1)
+        for col, (key, label, weight) in enumerate(COLUMNS):
+            self._header.grid_columnconfigure(col, weight=weight)
             btn = ctk.CTkButton(
-                self._header, text=label, width=width, height=28,
+                self._header, text=label, height=30,
                 fg_color="transparent", hover_color=theme.nav_hover_bg(),
-                text_color=brand.MUTED_FG, anchor="w",
-                font=ctk.CTkFont(size=11),
+                text_color=brand.STAMP_GOLD, anchor="w",
+                font=ctk.CTkFont(size=11, weight="bold"),
                 command=lambda k=key: self._sort_by(k),
             )
-            btn.pack(side="left", padx=1)
+            btn.grid(row=0, column=col, sticky="ew", padx=2, pady=2)
 
     def _sort_by(self, col: str) -> None:
         mapping = {
             "added": models.SORT_NEWEST_ADDED,
             "used": models.SORT_RECENTLY_USED,
-            "use_count": models.SORT_MOST_USED,
             "source": models.SORT_SOURCE,
             "type": models.SORT_TYPE,
-            "collection": models.SORT_COLLECTION,
-            "favorite": models.SORT_FAVORITES_FIRST,
-            "size": models.SORT_LARGEST,
             "name": models.SORT_NEWEST_ADDED,
         }
         self._sort_key = mapping.get(col, models.SORT_NEWEST_ADDED)
         if self._on_sort:
             self._on_sort(self._sort_key)
 
-    @property
-    def sort_key(self) -> str:
-        return self._sort_key
-
-    def render(self, clips: list[Clip]) -> None:
+    def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
         for w in self._rows_frame.winfo_children():
             w.destroy()
         if not clips:
-            self._empty.pack(pady=30)
+            self._empty.configure(
+                text=empty_message or (
+                    "No clips match this filter.\nTry All Clips or clear filters."
+                )
+            )
+            self._empty.pack(pady=40)
             return
         self._empty.pack_forget()
         for clip in clips:
             self._build_row(clip)
 
-    def _cell(self, parent, text: str, width: int, *, bold: bool = False) -> None:
-        ctk.CTkLabel(
-            parent, text=text, width=width, anchor="w",
-            font=ctk.CTkFont(size=11, weight="bold" if bold else "normal"),
-            text_color=brand.PROOF_TEAL if bold else brand.MUTED_FG,
-        ).pack(side="left", padx=2)
-
     def _build_row(self, clip: Clip) -> None:
         selected = clip.id == self._selected_id
         row = ctk.CTkFrame(
-            self._rows_frame, corner_radius=4, height=32,
+            self._rows_frame, corner_radius=4, height=34,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
         )
-        row.pack(fill="x", padx=2, pady=2)
+        row.pack(fill="x", pady=2)
+        for col, (key, _label, weight) in enumerate(COLUMNS):
+            row.grid_columnconfigure(col, weight=weight)
+        values = self._row_values(clip)
+        for col, (key, _label, _weight) in enumerate(COLUMNS):
+            text = values[key]
+            lbl = ctk.CTkLabel(
+                row, text=text, anchor="w",
+                font=ctk.CTkFont(size=11, weight="bold" if key == "name" else "normal"),
+                text_color=brand.PROOF_TEAL if key == "name" and selected else brand.MUTED_FG,
+            )
+            lbl.grid(row=0, column=col, sticky="ew", padx=6, pady=6)
+            lbl.bind("<Button-1>", lambda _e, c=clip: self._select(c))
+        row.bind("<Button-1>", lambda _e, c=clip: self._select(c))
 
+    def _row_values(self, clip: Clip) -> dict[str, str]:
         name = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
         if clip.is_sensitive:
             name = "[SENSITIVE]"
-        preview_type = clip_metadata.format_label(clip.classification, clip.content_type)
-        if clip.duplicate_of or self._is_dup_hint(clip):
-            preview_type += " · Dup"
-
-        values = {
-            "name": name[:40],
+        preview_type = clip_metadata.format_label(clip.classification, clip.content_type).upper()
+        if clip.duplicate_of:
+            preview_type += " · DUP"
+        return {
+            "name": name[:36] + ("…" if len(name) > 36 else ""),
             "type": preview_type,
-            "size": _fmt_size(clip.size_bytes),
             "added": _short(clip.created_at),
-            "used": _short(clip.date_used or ""),
-            "use_count": str(clip.use_count or 0),
-            "source": clip_metadata.display(clip.source_app)[:14],
-            "url": clip_metadata.display(clip.source_url)[:18],
-            "window": clip_metadata.display(clip.source_window)[:18],
+            "used": _short(clip.date_used or clip.updated_at),
+            "source": clip_metadata.display(clip.source_app)[:16],
             "favorite": "★" if clip.is_pinned else "",
-            "collection": clip_metadata.display(clip.collection)[:12],
             "proof": clip_metadata.shorten_hash(clip.content_hash),
         }
-        for key, _label, width in COLUMNS:
-            if key not in DEFAULT_VISIBLE:
-                continue
-            self._cell(row, values[key], width, bold=(key == "name"))
-        row.bind("<Button-1>", lambda _e, c=clip: self._select(c))
-
-    def _is_dup_hint(self, clip: Clip) -> bool:
-        return bool(clip.duplicate_of)
 
     def _select(self, clip: Clip) -> None:
         self._selected_id = clip.id
@@ -149,11 +134,3 @@ class ClipGrid(ctk.CTkScrollableFrame):
 
 def _short(iso: str) -> str:
     return (iso or "—").replace("T", " ")[:16]
-
-
-def _fmt_size(n: int) -> str:
-    if n < 1024:
-        return f"{n} B"
-    if n < 1024 * 1024:
-        return f"{n // 1024} KB"
-    return f"{n // (1024 * 1024)} MB"

@@ -10,16 +10,14 @@ from .. import brand
 from ..core import storage as S
 from . import theme
 
-
-# (group heading or None, list of (filter constant, label))
 FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
     (None, [(S.FILTER_HOME, "Home")]),
-    ("Saved Clips", [
+    ("SAVED CLIPS", [
         (S.FILTER_ALL, "All Clips"),
         (S.FILTER_FAVORITES, "Favorites"),
         (S.FILTER_SCREENSHOTS, "Screenshots / Images"),
     ]),
-    ("Types", [
+    ("TYPES", [
         (S.FILTER_LINKS, "Links"),
         (S.FILTER_FILES, "Files / Paths"),
         (S.FILTER_CODE, "Code"),
@@ -27,13 +25,13 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (S.FILTER_EMAILS, "Emails"),
         (S.FILTER_PHONES, "Phone Numbers"),
     ]),
-    ("Review", [
+    ("REVIEW", [
         (S.FILTER_SENSITIVE, "Sensitive"),
         (S.FILTER_DUPLICATES, "Duplicates"),
         (S.FILTER_RECENTLY_REMOVED, "Recently Removed"),
         (S.FILTER_EXPIRED, "Expired"),
     ]),
-    ("Time", [
+    ("TIME", [
         (S.FILTER_TODAY, "Today"),
         (S.FILTER_WEEK, "This Week"),
         (S.FILTER_OLDER, "Older"),
@@ -46,46 +44,48 @@ class FilterNav(ctk.CTkScrollableFrame):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._active = S.FILTER_HOME
-        self._buttons: dict[str, ctk.CTkButton] = {}
-        self._labels: dict[str, str] = {}
-        self._collection_buttons: dict[str, ctk.CTkButton] = {}
+        self._rows: dict[str, ctk.CTkFrame] = {}
+        self._labels: dict[str, ctk.CTkLabel] = {}
+        self._counts: dict[str, ctk.CTkLabel] = {}
+        self._labels_text: dict[str, str] = {}
+        self._collection_rows: dict[str, ctk.CTkFrame] = {}
 
         title = ctk.CTkLabel(self, text=brand.PRODUCT_NAME, anchor="w",
                              font=ctk.CTkFont(size=18, weight="bold"))
         title.pack(fill="x", padx=8, pady=(6, 0))
         byline = ctk.CTkLabel(self, text=brand.PRODUCT_BYLINE, anchor="w",
                               text_color=brand.PROOF_TEAL,
-                              font=ctk.CTkFont(size=10))
+                              font=ctk.CTkFont(size=11))
         byline.pack(fill="x", padx=8, pady=(0, 2))
         tagline = ctk.CTkLabel(self, text=brand.PRODUCT_PROMISE,
                                anchor="w", text_color=brand.MUTED_FG,
-                               font=ctk.CTkFont(size=10), wraplength=190,
+                               font=ctk.CTkFont(size=10), wraplength=200,
                                justify="left")
         tagline.pack(fill="x", padx=8, pady=(0, 10))
 
         for heading, items in FILTER_GROUPS:
             if heading:
                 ctk.CTkLabel(self, text=heading, anchor="w",
-                             text_color=brand.MUTED_FG,
-                             font=ctk.CTkFont(size=11, weight="bold")
-                             ).pack(fill="x", padx=10, pady=(6, 2))
+                             text_color=brand.STAMP_GOLD,
+                             font=ctk.CTkFont(size=10, weight="bold")
+                             ).pack(fill="x", padx=10, pady=(8, 4))
             else:
                 self._separator()
             for key, label in items:
-                self._labels[key] = label
-                self._buttons[key] = self._nav_button(self, key, label)
+                self._labels_text[key] = label
+                self._rows[key] = self._nav_row(self, key, label)
 
         self._separator()
-        ctk.CTkLabel(self, text=brand.TERM_COLLECTIONS, anchor="w",
-                     text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=11, weight="bold")
-                     ).pack(fill="x", padx=10, pady=(2, 2))
+        ctk.CTkLabel(self, text="COLLECTIONS", anchor="w",
+                     text_color=brand.STAMP_GOLD,
+                     font=ctk.CTkFont(size=10, weight="bold")
+                     ).pack(fill="x", padx=10, pady=(2, 4))
         self._collections_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._collections_frame.pack(fill="x")
         self._collections_empty = ctk.CTkLabel(
-            self._collections_frame, text="  (none yet)", anchor="w",
-            text_color=("gray55", "gray50"), font=ctk.CTkFont(size=11))
-        self._collections_empty.pack(fill="x", padx=10)
+            self._collections_frame, text="(none yet)", anchor="w",
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11))
+        self._collections_empty.pack(fill="x", padx=14, pady=2)
 
         self._highlight()
 
@@ -93,15 +93,33 @@ class FilterNav(ctk.CTkScrollableFrame):
         ctk.CTkFrame(self, height=1, fg_color=("#C8D0D4", "#263038")).pack(
             fill="x", padx=10, pady=6)
 
-    def _nav_button(self, parent, key: str, label: str) -> ctk.CTkButton:
-        btn = ctk.CTkButton(
-            parent, text=label, anchor="w", corner_radius=6,
-            fg_color="transparent", text_color=brand.MUTED_FG,
-            hover_color=theme.nav_hover_bg(),
-            command=lambda k=key: self._select(k),
-        )
-        btn.pack(fill="x", padx=6, pady=1)
-        return btn
+    def _nav_row(self, parent, key: str, label: str) -> ctk.CTkFrame:
+        row = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=6)
+        row.pack(fill="x", padx=4, pady=1)
+        row.grid_columnconfigure(0, weight=1)
+        lbl = ctk.CTkLabel(row, text=label, anchor="w",
+                           font=ctk.CTkFont(size=12))
+        lbl.grid(row=0, column=0, sticky="w", padx=(8, 4), pady=6)
+        cnt = ctk.CTkLabel(row, text="", anchor="e", width=36,
+                           font=ctk.CTkFont(size=11),
+                           text_color=brand.MUTED_FG)
+        cnt.grid(row=0, column=1, sticky="e", padx=(0, 8))
+        self._labels[key] = lbl
+        self._counts[key] = cnt
+        for w in (row, lbl, cnt):
+            w.bind("<Button-1>", lambda _e, k=key: self._select(k))
+            w.configure(cursor="hand2")
+        row.bind("<Enter>", lambda _e, r=row: self._hover_row(r, key, True))
+        row.bind("<Leave>", lambda _e, r=row: self._hover_row(r, key, False))
+        return row
+
+    def _hover_row(self, row: ctk.CTkFrame, key: str, inside: bool) -> None:
+        if key == self._active:
+            return
+        if inside:
+            row.configure(fg_color=theme.nav_hover_bg())
+        else:
+            row.configure(fg_color="transparent")
 
     def _select(self, key: str) -> None:
         self._active = key
@@ -117,34 +135,45 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._highlight()
 
     def _highlight(self) -> None:
-        for key, btn in {**self._buttons, **self._collection_buttons}.items():
-            if key == self._active:
-                btn.configure(fg_color=theme.nav_active_bg(),
-                              text_color=(brand.FOUNDRY_BLACK, brand.PROOF_TEAL))
-            else:
-                btn.configure(fg_color="transparent",
-                              text_color=brand.MUTED_FG)
+        all_keys = {**self._rows, **self._collection_rows}
+        for key, row in all_keys.items():
+            active = key == self._active
+            row.configure(fg_color=theme.nav_active_bg() if active else "transparent")
+            lbl = self._labels.get(key)
+            if lbl:
+                lbl.configure(
+                    text_color=(brand.FOUNDRY_BLACK, brand.PROOF_TEAL) if active else brand.MUTED_FG,
+                    font=ctk.CTkFont(size=12, weight="bold" if active else "normal"),
+                )
+            cnt = self._counts.get(key)
+            if cnt:
+                cnt.configure(
+                    text_color=(brand.FOUNDRY_BLACK, brand.STAMP_GOLD) if active else brand.MUTED_FG,
+                )
 
     def update_counts(self, counts: dict[str, int]) -> None:
-        for key, label in self._labels.items():
+        for key, label in self._labels_text.items():
             if key == S.FILTER_HOME:
-                self._buttons[key].configure(text=label)
+                self._counts[key].configure(text="")
                 continue
             n = counts.get(key, 0)
-            self._buttons[key].configure(text=f"{label}   ({n})" if n else label)
+            self._counts[key].configure(text=str(n) if n else "")
 
     def update_collections(self, collections: list[dict]) -> None:
-        for btn in self._collection_buttons.values():
-            btn.destroy()
-        self._collection_buttons.clear()
+        for row in self._collection_rows.values():
+            row.destroy()
+        self._collection_rows.clear()
+        for key in list(self._labels):
+            if key.startswith(S.COLLECTION_PREFIX):
+                del self._labels[key]
+                del self._counts[key]
         if not collections:
-            self._collections_empty.pack(fill="x", padx=10)
+            self._collections_empty.pack(fill="x", padx=14, pady=2)
         else:
             self._collections_empty.pack_forget()
             for col in collections:
                 key = S.COLLECTION_PREFIX + col["name"]
-                btn = self._nav_button(
-                    self._collections_frame, key,
-                    f"  {col['name']}   ({col['count']})")
-                self._collection_buttons[key] = btn
+                row = self._nav_row(self._collections_frame, key, f"  {col['name']}")
+                self._collection_rows[key] = row
+                self._counts[key].configure(text=str(col["count"]))
         self._highlight()

@@ -31,12 +31,12 @@ class TestSettingsDialog:
         root = ctk.CTk()
         dialog = SettingsDialog(root, Settings(), on_save=lambda s: None)
 
-        assert dialog._current_width == 500, (
-            f"expected width 500, got {dialog._current_width}"
+        assert dialog._current_width == 520, (
+            f"expected width 520, got {dialog._current_width}"
         )
-        assert dialog._current_height >= 680, (
+        assert dialog._current_height >= 720, (
             f"Settings dialog requested height is {dialog._current_height}px; "
-            f"expected >= 680px to prevent footer clipping under display scaling"
+            f"expected >= 720px to prevent footer clipping under display scaling"
         )
 
         dialog.destroy()
@@ -66,11 +66,11 @@ class TestSettingsDialog:
         root = ctk.CTk()
         dialog = SettingsDialog(root, Settings(), on_save=lambda s: None)
 
-        assert dialog._min_width == 500, (
-            f"expected min width 500, got {dialog._min_width}"
+        assert dialog._min_width == 520, (
+            f"expected min width 520, got {dialog._min_width}"
         )
-        assert dialog._min_height == 480, (
-            f"expected min height 480, got {dialog._min_height}"
+        assert dialog._min_height == 560, (
+            f"expected min height 560, got {dialog._min_height}"
         )
 
         dialog.destroy()

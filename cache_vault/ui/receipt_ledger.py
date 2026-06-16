@@ -36,6 +36,8 @@ ACTION_LABELS: dict[str, str] = {
     "share_requested": "Share Requested",
     "copy_requested": "Copy Requested",
     "duplicate_review": "Duplicate Review",
+    models.EVENT_DUPLICATE_REVIEW: "Duplicate Review",
+    models.EVENT_USAGE_MERGED: "Usage Merged",
     "list_clips": "Mobile Access",
     "get_clip": "Mobile Access",
     "search": "Mobile Access",

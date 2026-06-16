@@ -75,8 +75,8 @@ class CacheVaultApp(ctk.CTk):
         super().__init__()
         self.vault = vault or Vault()
         self.title(brand.WINDOW_TITLE)
-        self.geometry("1120x700")
-        self.minsize(900, 520)
+        self.geometry("1200x760")
+        self.minsize(1000, 650)
         self._apply_window_icon()
 
         self._search_var = ctk.StringVar()
@@ -168,7 +168,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _center_on_screen(self) -> None:
         self.update_idletasks()
-        w, h = 1120, 700
+        w, h = 1200, 760
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         x = max(0, (sw - w) // 2)
@@ -177,9 +177,9 @@ class CacheVaultApp(ctk.CTk):
 
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
-        self.grid_columnconfigure(0, weight=0, minsize=210)
+        self.grid_columnconfigure(0, weight=0, minsize=220)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, weight=0, minsize=300)
+        self.grid_columnconfigure(2, weight=0, minsize=340)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=0)
 
@@ -187,28 +187,22 @@ class CacheVaultApp(ctk.CTk):
         top = ctk.CTkFrame(self, height=52, corner_radius=0,
                            fg_color=brand.SURFACE_BG)
         top.grid(row=0, column=0, columnspan=3, sticky="ew")
-        top.grid_columnconfigure(0, weight=1)
-        search = ctk.CTkEntry(
-            top, textvariable=self._search_var,
-            placeholder_text="Search everything…  (try type:link  source:cursor  sensitive:true)",
-        )
-        search.grid(row=0, column=0, sticky="ew", padx=12, pady=10)
-        self._search_var.trace_add("write", self._on_search_changed)
+        top.grid_columnconfigure(0, weight=0)
         self._status = ctk.CTkLabel(top, text="", text_color=brand.MUTED_FG,
                                     font=ctk.CTkFont(size=11))
-        self._status.grid(row=0, column=1, padx=6)
+        self._status.grid(row=0, column=0, sticky="w", padx=12)
         ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
                       command=self._export_view, **theme.primary_button()
-                      ).grid(row=0, column=2, padx=4)
+                      ).grid(row=0, column=1, padx=4)
         ctk.CTkButton(top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
                       command=self._open_events, **theme.secondary_button()
-                      ).grid(row=0, column=3, padx=4)
+                      ).grid(row=0, column=2, padx=4)
         ctk.CTkButton(top, text="About", width=70, command=self._open_about,
                       **theme.secondary_button()
-                      ).grid(row=0, column=4, padx=4)
+                      ).grid(row=0, column=3, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
-                      ).grid(row=0, column=5, padx=(4, 12))
+                      ).grid(row=0, column=4, padx=(4, 12))
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
@@ -225,7 +219,10 @@ class CacheVaultApp(ctk.CTk):
         self._toolbar_row1 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
         self._toolbar_row1.pack(fill="x", padx=2, pady=(4, 2))
         self._toolbar_row2 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
-        self._toolbar_row2.pack(fill="x", padx=2, pady=(0, 4))
+        self._toolbar_row2.pack(fill="x", padx=2, pady=(0, 2))
+        self._toolbar_row3 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
+        self._toolbar_row3.pack(fill="x", padx=2, pady=(0, 4))
+        self._search_var.trace_add("write", self._on_search_changed)
         self._build_toolbar()
 
         self._home = HomeDashboard(
@@ -269,14 +266,22 @@ class CacheVaultApp(ctk.CTk):
 
     def _build_toolbar(self) -> None:
         self._sort_var = ctk.StringVar(value="Newest Added")
-        self._added_var = ctk.StringVar(value="First Saved: Any")
-        self._used_var = ctk.StringVar(value="Last Used: Any")
+        self._added_var = ctk.StringVar(value="Any")
+        self._used_var = ctk.StringVar(value="Any")
         self._type_var = ctk.StringVar(value="All Types")
 
-        ctk.CTkLabel(self._toolbar_row1, text="Sort:", text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=10)).pack(side="left", padx=(6, 2))
+        self._clips_search = ctk.CTkEntry(
+            self._toolbar_row1,
+            textvariable=self._search_var,
+            placeholder_text="Search saved clips…  (type:link  source:cursor)",
+            height=32,
+        )
+        self._clips_search.pack(fill="x", padx=6, pady=4)
+
+        ctk.CTkLabel(self._toolbar_row2, text="Sort:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11)).pack(side="left", padx=(8, 4))
         ctk.CTkOptionMenu(
-            self._toolbar_row1, variable=self._sort_var, width=130,
+            self._toolbar_row2, variable=self._sort_var, width=128,
             values=[
                 "Newest Added", "Oldest Added", "Recently Used", "Oldest Used",
                 "Most Used", "Least Used", "Largest", "Smallest",
@@ -284,24 +289,26 @@ class CacheVaultApp(ctk.CTk):
             ],
             command=self._on_sort_menu,
         ).pack(side="left", padx=2)
+        ctk.CTkLabel(self._toolbar_row2, text="First Saved:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11)).pack(side="left", padx=(8, 2))
         ctk.CTkOptionMenu(
-            self._toolbar_row1, variable=self._added_var, width=140,
-            values=[
-                "First Saved: Any", "Today", "Yesterday", "This Week",
-                "Last 7 Days", "This Month", "Last 30 Days", "Older",
-            ],
+            self._toolbar_row2, variable=self._added_var, width=110,
+            values=["Any", "Today", "Yesterday", "This Week", "Last 7 Days",
+                    "This Month", "Last 30 Days", "Older"],
             command=self._on_added_filter,
         ).pack(side="left", padx=2)
+        ctk.CTkLabel(self._toolbar_row2, text="Last Used:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11)).pack(side="left", padx=(8, 2))
         ctk.CTkOptionMenu(
-            self._toolbar_row1, variable=self._used_var, width=130,
-            values=[
-                "Last Used: Any", "Today", "Yesterday", "This Week",
-                "Last 7 Days", "This Month", "Last 30 Days", "Older",
-            ],
+            self._toolbar_row2, variable=self._used_var, width=110,
+            values=["Any", "Today", "Yesterday", "This Week", "Last 7 Days",
+                    "This Month", "Last 30 Days", "Older"],
             command=self._on_used_filter,
         ).pack(side="left", padx=2)
+        ctk.CTkLabel(self._toolbar_row2, text="Type:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11)).pack(side="left", padx=(8, 2))
         ctk.CTkOptionMenu(
-            self._toolbar_row1, variable=self._type_var, width=110,
+            self._toolbar_row2, variable=self._type_var, width=108,
             values=[
                 "All Types", "Text", "Links", "Code", "Commands",
                 "Emails", "Phone Numbers", "Files / Paths", "Screenshots / Images", "Sensitive",
@@ -309,27 +316,28 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
 
-        self._cards_btn = ctk.CTkButton(
-            self._toolbar_row2, text="Cards", width=56, height=26,
-            command=lambda: self._set_view_mode("cards"), **theme.primary_button(),
-        )
-        self._cards_btn.pack(side="right", padx=2)
+        ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11)).pack(side="right", padx=(4, 2))
         self._grid_btn = ctk.CTkButton(
-            self._toolbar_row2, text="Grid", width=56, height=26,
-            command=lambda: self._set_view_mode("grid"), **theme.secondary_button(),
+            self._toolbar_row3, text="Grid", width=58, height=28,
+            command=lambda: self._set_view_mode("grid"), **theme.segmented_inactive(),
         )
         self._grid_btn.pack(side="right", padx=2)
+        self._cards_btn = ctk.CTkButton(
+            self._toolbar_row3, text="Cards", width=58, height=28,
+            command=lambda: self._set_view_mode("cards"), **theme.segmented_active(),
+        )
+        self._cards_btn.pack(side="right", padx=2)
         self._dup_btn = ctk.CTkButton(
-            self._toolbar_row2, text="Review Duplicates", width=140, height=26,
+            self._toolbar_row3, text="Review Duplicates", width=140, height=28,
             command=self._open_duplicate_review, **theme.secondary_button(),
         )
-        self._dup_btn.pack(side="right", padx=6)
+        self._dup_btn.pack(side="left", padx=8)
         ctk.CTkLabel(
-            self._toolbar_row2,
+            self._toolbar_row3,
             text="Extras go to Recently Removed — nothing is permanently deleted.",
-            text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=10),
-        ).pack(side="left", padx=8)
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
+        ).pack(side="left", padx=4)
 
     def _sort_label_to_key(self, label: str) -> str:
         return {
@@ -349,7 +357,7 @@ class CacheVaultApp(ctk.CTk):
         }.get(label, models.SORT_NEWEST_ADDED)
 
     def _preset_from_label(self, label: str) -> str | None:
-        if label.endswith(": Any"):
+        if label in ("Any", "First Saved: Any", "Last Used: Any"):
             return None
         mapping = {
             "Today": "today",
@@ -406,15 +414,24 @@ class CacheVaultApp(ctk.CTk):
     def _set_view_mode(self, mode: str) -> None:
         self._view_mode = mode
         if mode == "cards":
-            self._cards_btn.configure(**theme.primary_button())
-            self._grid_btn.configure(**theme.secondary_button())
+            self._cards_btn.configure(**theme.segmented_active())
+            self._grid_btn.configure(**theme.segmented_inactive())
         else:
-            self._grid_btn.configure(**theme.primary_button())
-            self._cards_btn.configure(**theme.secondary_button())
+            self._grid_btn.configure(**theme.segmented_active())
+            self._cards_btn.configure(**theme.segmented_inactive())
         self.refresh()
 
     def _navigate_filter(self, key: str) -> None:
         self._filters.set_active(key)
+        if key == FILTER_HOME:
+            self._preview.show_vault_summary(
+                self.vault.dashboard_summary(),
+                {
+                    "review_duplicates": self._open_duplicate_review,
+                    "open_receipts": self._open_events,
+                    "pair_android": lambda: self._open_pair_android(),
+                },
+            )
         self._on_filter_select(key)
 
     def _show_home(self) -> None:
@@ -505,15 +522,25 @@ class CacheVaultApp(ctk.CTk):
                     self.vault.list_clips(q_fav)[:6],
                     self.vault.list_clips(q_img)[:6],
                 )
+                if self._preview._clip is None:  # noqa: SLF001
+                    self._preview.show_vault_summary(
+                        summary,
+                        {
+                            "review_duplicates": self._open_duplicate_review,
+                            "open_receipts": self._open_events,
+                            "pair_android": lambda: self._open_pair_android(),
+                        },
+                    )
                 clip_count = summary.get("all", 0)
             else:
                 self._show_clips()
                 query = self._build_query()
                 clips = self.vault.list_clips(query)
+                empty_msg = self._empty_message(active, clips, query)
                 if self._view_mode == "grid":
-                    self._grid.render(clips)
+                    self._grid.render(clips, empty_message=empty_msg)
                 else:
-                    self._list.render(clips)
+                    self._list.render(clips, empty_message=empty_msg)
                 clip_count = len(clips)
 
             mode = "paused" if self._monitor.paused else f"capturing ({self._monitor.mode})"
@@ -570,7 +597,24 @@ class CacheVaultApp(ctk.CTk):
         self._search_job = None
         self.refresh()
 
-    def _on_filter_select(self, _key: str) -> None:
+    def _empty_message(self, active: str, clips: list, query) -> str | None:
+        from ..core import storage as S
+        if clips:
+            return None
+        if active != S.FILTER_ALL or query.text or query.type_filter or query.date_added_preset:
+            return "No clips match this filter.\nTry All Clips or clear filters."
+        return None
+
+    def _on_filter_select(self, key: str) -> None:
+        if key == FILTER_HOME and self._preview._clip is None:  # noqa: SLF001
+            self._preview.show_vault_summary(
+                self.vault.dashboard_summary(),
+                {
+                    "review_duplicates": self._open_duplicate_review,
+                    "open_receipts": self._open_events,
+                    "pair_android": lambda: self._open_pair_android(),
+                },
+            )
         self.refresh()
 
     def _on_clip_select(self, clip) -> None:

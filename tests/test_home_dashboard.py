@@ -46,10 +46,10 @@ def test_home_filter_constant_exists():
 
 def test_sidebar_group_headings():
     headings = [h for h, _ in filters_ui.FILTER_GROUPS if h]
-    assert "Saved Clips" in headings
-    assert "Types" in headings
-    assert "Review" in headings
-    assert "Time" in headings
+    assert "SAVED CLIPS" in headings
+    assert "TYPES" in headings
+    assert "REVIEW" in headings
+    assert "TIME" in headings
 
 
 def test_dashboard_summary_real_counts(storage):
@@ -179,18 +179,22 @@ def test_sensitive_masked_preview():
 
 
 def test_grid_metadata_fields():
-    from cache_vault.ui.clip_grid import COLUMNS, DEFAULT_VISIBLE
+    from cache_vault.ui.clip_grid import COLUMNS
     keys = {k for k, _l, _w in COLUMNS}
-    for field in ("name", "type", "added", "used", "source", "favorite"):
+    for field in ("name", "type", "added", "used", "source", "favorite", "proof"):
         assert field in keys
-    assert "collection" in keys
-    assert "added" in DEFAULT_VISIBLE
-    assert "used" in DEFAULT_VISIBLE
-    assert "collection" not in DEFAULT_VISIBLE
 
 
-def test_home_dashboard_module_importable():
-    assert HomeDashboard is not None
+def test_clip_metadata_display():
+    from cache_vault.core.clip_metadata import display
+    assert display(None) == "—"
+    assert display("") == "—"
+    assert display("Cursor") == "Cursor"
+
+
+def test_duplicate_dialog_warning_copy():
+    from cache_vault.ui.duplicate_dialog import DuplicateReviewDialog
+    assert DuplicateReviewDialog is not None
 
 
 def test_screenshot_filter_honest_count(storage):

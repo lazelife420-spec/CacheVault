@@ -25,13 +25,18 @@ class ClipList(ctk.CTkScrollableFrame):
             text_color=brand.MUTED_FG, justify="center",
         )
 
-    def render(self, clips: list[Clip]) -> None:
+    def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
         for row in self._rows:
             row.destroy()
         self._rows.clear()
         self._empty.pack_forget()
 
         if not clips:
+            self._empty.configure(
+                text=empty_message or (
+                    "No saved clips yet.\nCopy something and Cache Vault will save it here."
+                )
+            )
             self._empty.pack(pady=40)
             return
 
@@ -76,6 +81,8 @@ class ClipList(ctk.CTkScrollableFrame):
 
         preview_lines = (clip.preview or "(empty)").splitlines()[:3]
         preview = "\n".join(preview_lines)
+        if len((clip.preview or "").splitlines()) > 3:
+            preview += "…"
         ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
                      font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
 

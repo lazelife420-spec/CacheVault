@@ -7,8 +7,9 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core.duplicates import DuplicateGroup, duplicate_label
 from ..core import clip_metadata
+from ..core.duplicates import DuplicateGroup, duplicate_label
+from ..core.models import Clip
 from . import theme
 
 
@@ -22,41 +23,58 @@ class DuplicateReviewDialog(ctk.CTkToplevel):
     ):
         super().__init__(master, **kw)
         self.title("Duplicate Review")
-        self.geometry("640x520")
+        self.geometry("660x560")
         self.transient(master)
         self.grab_set()
         self._group = group
         self._on_action = on_action
 
         label = duplicate_label(group)
-        ctk.CTkLabel(self, text=f"Same Clip Group — {label}",
-                     font=ctk.CTkFont(size=15, weight="bold")).pack(
-            anchor="w", padx=14, pady=(12, 4))
+        ctk.CTkLabel(self, text="Duplicate Review",
+                     font=ctk.CTkFont(size=17, weight="bold"),
+                     text_color=brand.PROOF_TEAL).pack(anchor="w", padx=16, pady=(14, 2))
         ctk.CTkLabel(
             self,
-            text="Nothing is permanently deleted. Extras move to Recently Removed.",
-            text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11),
+            text="Same clips are grouped. Nothing is permanently deleted.",
+            text_color=brand.MUTED_FG, font=theme.body_font(12), anchor="w",
+        ).pack(fill="x", padx=16, pady=(0, 4))
+        ctk.CTkLabel(
+            self,
+            text=f"Group type: {label}",
+            text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=11, weight="bold"),
             anchor="w",
-        ).pack(fill="x", padx=14, pady=(0, 4))
+        ).pack(fill="x", padx=16, pady=(0, 4))
+        ctk.CTkLabel(
+            self,
+            text="Extras are moved to Recently Removed, not permanently deleted.",
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11), anchor="w",
+        ).pack(fill="x", padx=16, pady=(0, 8))
+
         clips = group.clips
         summary = (
             f"First Saved: {min(c.created_at for c in clips)[:19]}\n"
             f"Last Used: {max((c.date_used or c.created_at) for c in clips)[:19]}\n"
             f"Times Copied: {sum(c.use_count for c in clips)}\n"
-            f"Source Apps: {', '.join(sorted({clip_metadata.display(c.source_app) for c in clips}))}\n"
+            f"Favorite: {'yes' if any(c.is_pinned for c in clips) else 'no'}\n"
+            f"Collections: {', '.join(sorted({clip_metadata.display(c.collection) for c in clips}))}\n"
             f"Hash: {group.content_hash[:12]}…"
         )
-        ctk.CTkLabel(self, text=summary, justify="left", anchor="w",
-                     text_color=brand.MUTED_FG).pack(fill="x", padx=14)
+        box = ctk.CTkFrame(self, fg_color=brand.SURFACE_BG, corner_radius=8)
+        box.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(box, text="Same Clip Group", anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(
+            anchor="w", padx=12, pady=(10, 4))
+        ctk.CTkLabel(box, text=summary, justify="left", anchor="w",
+                     text_color=brand.MUTED_FG, font=theme.body_font(11)).pack(
+            fill="x", padx=12, pady=(0, 10))
 
-        scroll = ctk.CTkScrollableFrame(self, height=220)
-        scroll.pack(fill="both", expand=True, padx=14, pady=8)
+        scroll = ctk.CTkScrollableFrame(self, height=180)
+        scroll.pack(fill="both", expand=True, padx=16, pady=8)
         for clip in clips:
             self._occurrence(scroll, clip)
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
-        actions.pack(fill="x", padx=14, pady=8)
+        actions.pack(fill="x", padx=16, pady=8)
         for text, action in [
             ("Keep Newest", "keep_newest"),
             ("Keep Oldest", "keep_oldest"),
@@ -68,7 +86,7 @@ class DuplicateReviewDialog(ctk.CTkToplevel):
         ]:
             destructive = action == "move_extras"
             ctk.CTkButton(
-                actions, text=text, height=30,
+                actions, text=text, height=32,
                 command=lambda a=action: self._fire(a),
                 **(theme.destructive_button() if destructive else theme.secondary_button()),
             ).pack(fill="x", pady=2)
@@ -85,16 +103,14 @@ class DuplicateReviewDialog(ctk.CTkToplevel):
             f"{preview[:120]}"
         )
         ctk.CTkLabel(frame, text=text, justify="left", anchor="w",
-                     wraplength=580).pack(fill="x", padx=10, pady=8)
+                     wraplength=600, font=theme.body_font(11)).pack(fill="x", padx=10, pady=8)
 
     def _fire(self, action: str) -> None:
         merge = action == "merge"
-        key = "keep_newest" if merge else action
         if action == "move_extras":
-            key = "keep_newest"
             self._on_action("move_extras", False)
         elif action == "merge":
             self._on_action("keep_newest", True)
         else:
-            self._on_action(key, merge)
+            self._on_action(action, merge)
         self.destroy()
