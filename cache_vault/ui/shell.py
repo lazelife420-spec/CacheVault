@@ -12,6 +12,8 @@ Layout::
 from __future__ import annotations
 
 import os
+import sys
+import traceback
 
 import customtkinter as ctk
 
@@ -32,11 +34,30 @@ from .quick_paste import QuickPaste
 from .toast import Toast
 from .tray import TrayController
 from . import theme
+from .crashlog import write_crash
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
 
 
 class CacheVaultApp(ctk.CTk):
+    def report_callback_exception(self, exc, val, tb):  # noqa: N802 - Tk API
+        """Log Tk callback failures instead of failing silently."""
+        err = val if isinstance(val, BaseException) else Exception(val)
+        path = write_crash("Tk callback error", err)
+        sys.stderr.write(
+            f"\nCache Vault UI error (logged to {path}):\n"
+            + "".join(traceback.format_exception(exc, val, tb))
+        )
+        try:
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Cache Vault — Error",
+                f"Something went wrong.\n\nDetails were saved to:\n{path}",
+                parent=self if self._alive() else None,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     def __init__(self, vault: Vault | None = None):
         super().__init__()
         self.vault = vault or Vault()
@@ -47,6 +68,8 @@ class CacheVaultApp(ctk.CTk):
 
         self._search_var = ctk.StringVar()
         self._search_job = None
+        self._expiry_job = None
+        self._shutting_down = False
 
         self._build_layout()
 
@@ -83,7 +106,20 @@ class CacheVaultApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.refresh()
-        self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
+        self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
+
+    def _alive(self) -> bool:
+        if self._shutting_down:
+            return False
+        try:
+            return bool(self.winfo_exists())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _safe_after(self, ms: int, fn):
+        if not self._alive():
+            return None
+        return self.after(ms, fn)
 
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
@@ -166,31 +202,53 @@ class CacheVaultApp(ctk.CTk):
 
     # --- data refresh ------------------------------------------------------
     def refresh(self) -> None:
-        query = self._build_query()
-        clips = self.vault.list_clips(query)
-        self._list.render(clips)
-        self._filters.update_counts(self.vault.counts())
-        self._filters.update_collections(self.vault.list_collections())
-        mode = "paused" if self._monitor.paused else f"capturing ({self._monitor.mode})"
-        from ..core.hotkey import normalize_hotkey
-        hk = normalize_hotkey(self.vault.settings.quick_paste_hotkey)
-        paste = f" · paste: {hk}" if getattr(self, "_hotkey", None) and self._hotkey.available else ""
-        self._status.configure(text=f"{len(clips)} shown · {mode}{paste}")
+        if not self._alive():
+            return
+        try:
+            query = self._build_query()
+            clips = self.vault.list_clips(query)
+            self._list.render(clips)
+            self._filters.update_counts(self.vault.counts())
+            self._filters.update_collections(self.vault.list_collections())
+            mode = "paused" if self._monitor.paused else f"capturing ({self._monitor.mode})"
+            from ..core.hotkey import normalize_hotkey
+            hk = normalize_hotkey(self.vault.settings.quick_paste_hotkey)
+            paste = f" · paste: {hk}" if getattr(self, "_hotkey", None) and self._hotkey.available else ""
+            self._status.configure(text=f"{len(clips)} shown · {mode}{paste}")
+        except Exception as exc:  # noqa: BLE001
+            write_crash("refresh", exc)
+            raise
 
     # --- event handlers ----------------------------------------------------
     def _on_clip_captured(self, text: str, source: dict) -> None:
         # Runs on the monitor thread → hop to the UI thread before touching Tk.
-        self.after(0, lambda: self._ingest(text, source))
+        if self._alive():
+            self.after(0, lambda t=text, s=source: self._ingest(t, s))
 
     def _ingest(self, text: str, source: dict) -> None:
-        self.vault.capture(text, source_app=source.get("source_app"),
-                           source_window=source.get("source_window"))
-        self.refresh()
+        if not self._alive():
+            return
+        try:
+            self.vault.capture(text, source_app=source.get("source_app"),
+                               source_window=source.get("source_window"))
+            self.refresh()
+        except Exception as exc:  # noqa: BLE001
+            write_crash("clipboard ingest", exc)
+            raise
 
     def _on_search_changed(self, *_):
+        if not self._alive():
+            return
         if self._search_job:
-            self.after_cancel(self._search_job)
-        self._search_job = self.after(180, self.refresh)  # debounce
+            try:
+                self.after_cancel(self._search_job)
+            except Exception:  # noqa: BLE001
+                pass
+        self._search_job = self._safe_after(180, self._debounced_refresh)
+
+    def _debounced_refresh(self) -> None:
+        self._search_job = None
+        self.refresh()
 
     def _on_filter_select(self, _key: str) -> None:
         self.refresh()
@@ -445,18 +503,26 @@ class CacheVaultApp(ctk.CTk):
 
     # --- quick paste (global hotkey) ---------------------------------------
     def _open_quick_paste(self) -> None:
-        # If a popup is already up (hotkey pressed twice), just refocus it.
-        existing = getattr(self, "_quick_paste", None)
-        if existing is not None and existing.winfo_exists():
-            existing.focus_popup()
+        if not self._alive():
             return
-        # Remember the app the user was in so we can paste back into it.
-        self._paste_target = foreground_window()
-        self.vault.run_expiry_sweep()  # don't offer secrets that should be gone
-        # Recent clipboard history, strictly newest-first.
-        clips = sorted(self.vault.list_clips(), key=lambda c: c.created_at,
-                       reverse=True)[: self.vault.settings.quick_paste_count]
-        self._quick_paste = QuickPaste(self, clips, on_choose=self._do_paste)
+        try:
+            # If a popup is already up (hotkey pressed twice), just refocus it.
+            existing = getattr(self, "_quick_paste", None)
+            if existing is not None:
+                try:
+                    if existing.winfo_exists():
+                        existing.focus_popup()
+                        return
+                except Exception:  # noqa: BLE001
+                    self._quick_paste = None
+            self._paste_target = foreground_window()
+            self.vault.run_expiry_sweep()
+            clips = sorted(self.vault.list_clips(), key=lambda c: c.created_at,
+                           reverse=True)[: self.vault.settings.quick_paste_count]
+            self._quick_paste = QuickPaste(self, clips, on_choose=self._do_paste)
+        except Exception as exc:  # noqa: BLE001
+            write_crash("quick paste", exc)
+            raise
 
     def _do_paste(self, clip) -> None:
         content = self.vault.copied_again(clip.id)  # logs copied_again
@@ -478,10 +544,17 @@ class CacheVaultApp(ctk.CTk):
 
     # --- maintenance / lifecycle -------------------------------------------
     def _expiry_tick(self) -> None:
-        n = self.vault.run_expiry_sweep()
-        if n:
-            self.refresh()
-        self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
+        if not self._alive():
+            return
+        try:
+            n = self.vault.run_expiry_sweep()
+            if n:
+                self.refresh()
+        except Exception as exc:  # noqa: BLE001
+            write_crash("expiry tick", exc)
+        finally:
+            if self._alive():
+                self._expiry_job = self._safe_after(EXPIRY_SWEEP_MS, self._expiry_tick)
 
     def _show_window(self) -> None:
         self.deiconify()
@@ -496,10 +569,20 @@ class CacheVaultApp(ctk.CTk):
             self._quit()
 
     def _quit(self) -> None:
+        self._shutting_down = True
+        for job in (self._search_job, self._expiry_job):
+            if job:
+                try:
+                    self.after_cancel(job)
+                except Exception:  # noqa: BLE001
+                    pass
         try:
             self._monitor.stop()
             self._hotkey.stop()
             self._tray.stop()
             self.vault.close()
         finally:
-            self.destroy()
+            try:
+                self.destroy()
+            except Exception:  # noqa: BLE001
+                pass

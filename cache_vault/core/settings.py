@@ -47,7 +47,12 @@ class Settings:
         except (json.JSONDecodeError, OSError):
             return cls()
         known = {f for f in cls().__dict__}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        s = cls(**{k: v for k, v in data.items() if k in known})
+        try:
+            s.history_max_clips = max(0, int(s.history_max_clips))
+        except (TypeError, ValueError):
+            s.history_max_clips = 0
+        return s
 
     def save(self, path: str | os.PathLike | None = None) -> None:
         path = Path(path or default_settings_path())

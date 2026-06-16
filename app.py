@@ -40,9 +40,11 @@ def main() -> int:
         )
         return 1
 
+    from cache_vault.ui.crashlog import install_global_hook
     from cache_vault.ui.shell import CacheVaultApp
     from cache_vault.ui.theme import apply_app_theme
 
+    install_global_hook()
     apply_app_theme()
     app = CacheVaultApp()
     app.mainloop()
