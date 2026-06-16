@@ -82,20 +82,54 @@ class PreviewPanel(ctk.CTkFrame):
         )
 
     def show_vault_summary(self, summary: dict, callbacks: dict[str, Callable]) -> None:
+        """Show Vault Control when Home is active and no clip is selected."""
+        self.show_vault_control(summary, callbacks)
+
+    def show_vault_control(self, summary: dict, callbacks: dict[str, Callable]) -> None:
         self._clip = None
         self._revealed = False
         for w in self._buttons.winfo_children():
             w.destroy()
         self._hide_clip_sections()
-        self._title.configure(text="Vault Summary")
-        self._subtitle.configure(text="Overview of your saved clips")
+        self._title.configure(text="Vault Control")
+        self._subtitle.configure(text=brand.VAULT_TAGLINE)
         self._set_body("")
         self._body.pack_forget()
 
-        self._vault_frame.pack(fill="x", padx=10, pady=6)
+        self._vault_frame.pack(fill="both", expand=True, padx=10, pady=6)
         for w in self._vault_frame.winfo_children():
             w.destroy()
 
+        ctk.CTkLabel(self._vault_frame, text="Status", anchor="w",
+                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(10, 4))
+
+        capture = "Capture paused" if summary.get("capture_paused") else "Capture active"
+        mobile = (
+            "Mobile Access on" if summary.get("mobile_enabled")
+            else "Mobile Access off"
+        )
+        status_lines = [
+            ("Local vault active", brand.PROOF_TEAL),
+            (capture, brand.PROOF_TEAL if not summary.get("capture_paused") else brand.STAMP_GOLD),
+            (mobile, brand.PROOF_TEAL if summary.get("mobile_enabled") else brand.MUTED_FG),
+            ("Receipts available", brand.STAMP_GOLD),
+        ]
+        for line, color in status_lines:
+            row = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
+            row.pack(fill="x", padx=12, pady=2)
+            ctk.CTkLabel(row, text="●", text_color=color,
+                         font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 6))
+            ctk.CTkLabel(row, text=line, anchor="w",
+                         font=theme.body_font(11)).pack(side="left")
+
+        ctk.CTkLabel(
+            self._vault_frame, text=brand.VAULT_STATUS_NOTE,
+            anchor="w", justify="left", wraplength=280,
+            text_color=brand.MUTED_FG, font=theme.body_font(10),
+        ).pack(anchor="w", padx=12, pady=(6, 4))
+
+        ctk.CTkLabel(self._vault_frame, text="Counts", anchor="w",
+                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(12, 4))
         lines = [
             ("Saved clips", summary.get("all", 0)),
             ("Favorites", summary.get("favorites", 0)),
@@ -114,22 +148,30 @@ class PreviewPanel(ctk.CTkFrame):
                          font=ctk.CTkFont(size=13, weight="bold")).grid(
                 row=0, column=1, sticky="e")
 
-        ctk.CTkLabel(self._vault_frame, text="Next actions", anchor="w",
-                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(10, 4))
+        ctk.CTkLabel(self._vault_frame, text="Quick Actions", anchor="w",
+                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(12, 4))
         actions = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
-        actions.pack(fill="x", padx=10, pady=(0, 10))
+        actions.pack(fill="x", padx=10, pady=(0, 12))
         if callbacks.get("review_duplicates"):
             ctk.CTkButton(actions, text="Review Duplicates",
                           command=callbacks["review_duplicates"],
                           **theme.secondary_button()).pack(fill="x", pady=2)
         if callbacks.get("open_receipts"):
-            ctk.CTkButton(actions, text="Open Stamped Receipts",
+            ctk.CTkButton(actions, text=f"Open {brand.TERM_STAMPED_RECEIPTS}",
                           command=callbacks["open_receipts"],
                           **theme.secondary_button()).pack(fill="x", pady=2)
         if callbacks.get("pair_android"):
             ctk.CTkButton(actions, text="Pair Android Device",
                           command=callbacks["pair_android"],
                           **theme.primary_button()).pack(fill="x", pady=2)
+        if callbacks.get("export"):
+            ctk.CTkButton(actions, text=brand.TERM_EXPORT,
+                          command=callbacks["export"],
+                          **theme.secondary_button()).pack(fill="x", pady=2)
+        if callbacks.get("mobile_settings"):
+            ctk.CTkButton(actions, text=brand.TERM_MOBILE_ACCESS,
+                          command=callbacks["mobile_settings"],
+                          **theme.secondary_button()).pack(fill="x", pady=2)
 
     def _hide_clip_sections(self) -> None:
         self._body.pack(fill="x", padx=10, pady=6)

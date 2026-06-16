@@ -19,8 +19,15 @@ PRODUCT_POSITIONING = (
     "A modern clipboard vault from The Proof Foundry."
 )
 PRODUCT_PROMISE = (
-    "Capture everything. Auto-organize it. Save what matters. "
-    "Export with receipts."
+    "Capture everything. Keep what matters. Export with receipts."
+)
+VAULT_TAGLINE = "Local saved-clips vault"
+VAULT_STATUS_ACTIVE = "Local Vault Active"
+VAULT_STATUS_NOTE = (
+    "Your saved clips stay on this PC unless you export or enable Mobile Access."
+)
+MOBILE_ACCESS_HONEST = (
+    "Mobile Access is off by default. Pair a phone only when you choose."
 )
 PRODUCT_ABOUT = (
     "Cache Vault does not pretend to be magic. It captures clipboard history, "

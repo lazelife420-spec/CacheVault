@@ -283,6 +283,7 @@ class Vault:
             "mobile_enabled": bool(self.settings.mobile_access_enabled),
             "mobile_port": self.settings.mobile_access_port,
             "paired_count": len(self.settings.paired_devices),
+            "capture_paused": bool(self.settings.capture_paused),
         }
 
     def duplicate_groups(self, *, include_possible: bool = True) -> list[DuplicateGroup]:

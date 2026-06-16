@@ -10,14 +10,30 @@ from .. import brand
 from ..core import storage as S
 from . import theme
 
+# Sidebar actions — open dialogs, not clip filters.
+NAV_STAMPED_RECEIPTS = "nav_stamped_receipts"
+NAV_MOBILE_ACCESS = "nav_mobile_access"
+NAV_ACTION_KEYS = frozenset({NAV_STAMPED_RECEIPTS, NAV_MOBILE_ACCESS})
+
+_NAV_ICONS: dict[str, str] = {
+    S.FILTER_HOME: "⌂ ",
+    S.FILTER_ALL: "▣ ",
+    S.FILTER_FAVORITES: "★ ",
+    S.FILTER_SCREENSHOTS: "▦ ",
+    S.FILTER_SENSITIVE: "⚠ ",
+    S.FILTER_DUPLICATES: "≡ ",
+    NAV_STAMPED_RECEIPTS: "⬢ ",
+    NAV_MOBILE_ACCESS: "◉ ",
+}
+
 FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
-    (None, [(S.FILTER_HOME, "Home")]),
-    ("SAVED CLIPS", [
+    ("VAULT", [
+        (S.FILTER_HOME, "Home"),
         (S.FILTER_ALL, "All Clips"),
         (S.FILTER_FAVORITES, "Favorites"),
         (S.FILTER_SCREENSHOTS, "Screenshots / Images"),
     ]),
-    ("TYPES", [
+    ("SMART VIEWS", [
         (S.FILTER_LINKS, "Links"),
         (S.FILTER_FILES, "Files / Paths"),
         (S.FILTER_CODE, "Code"),
@@ -30,6 +46,10 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (S.FILTER_DUPLICATES, "Duplicates"),
         (S.FILTER_RECENTLY_REMOVED, "Recently Removed"),
         (S.FILTER_EXPIRED, "Expired"),
+    ]),
+    ("PROOF & ACCESS", [
+        (NAV_STAMPED_RECEIPTS, brand.TERM_STAMPED_RECEIPTS),
+        (NAV_MOBILE_ACCESS, brand.TERM_MOBILE_ACCESS),
     ]),
     ("TIME", [
         (S.FILTER_TODAY, "Today"),
@@ -57,11 +77,16 @@ class FilterNav(ctk.CTkScrollableFrame):
                               text_color=brand.PROOF_TEAL,
                               font=ctk.CTkFont(size=11))
         byline.pack(fill="x", padx=8, pady=(0, 2))
-        tagline = ctk.CTkLabel(self, text=brand.PRODUCT_PROMISE,
+        tagline = ctk.CTkLabel(self, text=brand.VAULT_TAGLINE,
                                anchor="w", text_color=brand.MUTED_FG,
                                font=ctk.CTkFont(size=10), wraplength=200,
                                justify="left")
-        tagline.pack(fill="x", padx=8, pady=(0, 10))
+        tagline.pack(fill="x", padx=8, pady=(0, 2))
+        promise = ctk.CTkLabel(self, text=brand.PRODUCT_PROMISE,
+                               anchor="w", text_color=brand.MUTED_FG,
+                               font=ctk.CTkFont(size=10), wraplength=200,
+                               justify="left")
+        promise.pack(fill="x", padx=8, pady=(0, 10))
 
         for heading, items in FILTER_GROUPS:
             if heading:
@@ -69,11 +94,10 @@ class FilterNav(ctk.CTkScrollableFrame):
                              text_color=brand.STAMP_GOLD,
                              font=ctk.CTkFont(size=10, weight="bold")
                              ).pack(fill="x", padx=10, pady=(8, 4))
-            else:
-                self._separator()
             for key, label in items:
                 self._labels_text[key] = label
-                self._rows[key] = self._nav_row(self, key, label)
+                display = _NAV_ICONS.get(key, "") + label
+                self._rows[key] = self._nav_row(self, key, display)
 
         self._separator()
         ctk.CTkLabel(self, text="COLLECTIONS", anchor="w",
@@ -122,6 +146,9 @@ class FilterNav(ctk.CTkScrollableFrame):
             row.configure(fg_color="transparent")
 
     def _select(self, key: str) -> None:
+        if key in NAV_ACTION_KEYS:
+            self._on_select(key)
+            return
         self._active = key
         self._highlight()
         self._on_select(key)
@@ -131,6 +158,8 @@ class FilterNav(ctk.CTkScrollableFrame):
         return self._active
 
     def set_active(self, key: str) -> None:
+        if key in NAV_ACTION_KEYS:
+            return
         self._active = key
         self._highlight()
 
@@ -155,6 +184,10 @@ class FilterNav(ctk.CTkScrollableFrame):
         for key, label in self._labels_text.items():
             if key == S.FILTER_HOME:
                 self._counts[key].configure(text="")
+                continue
+            if key in NAV_ACTION_KEYS:
+                n = counts.get(key, 0)
+                self._counts[key].configure(text=str(n) if n else "")
                 continue
             n = counts.get(key, 0)
             self._counts[key].configure(text=str(n) if n else "")

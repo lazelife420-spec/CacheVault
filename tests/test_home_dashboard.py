@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+
+from cache_vault import brand
 from cache_vault.core import clip_metadata, models, search
 from cache_vault.core.duplicates import (
     DuplicateGroup,
@@ -11,6 +14,7 @@ from cache_vault.core.duplicates import (
 )
 from cache_vault.core.models import Clip
 from cache_vault.core.storage import (
+    FILTER_ALL,
     FILTER_DUPLICATES,
     FILTER_HOME,
     FILTER_OLDER,
@@ -19,7 +23,8 @@ from cache_vault.core.storage import (
 )
 from cache_vault.core.vault import Vault
 from cache_vault.ui import filters as filters_ui
-from cache_vault.ui.home_dashboard import HomeDashboard
+from cache_vault.ui.filters import NAV_MOBILE_ACCESS, NAV_STAMPED_RECEIPTS
+from cache_vault.ui.home_dashboard import HomeDashboard, vault_status_text
 
 
 def _clip(content: str, **kw) -> Clip:
@@ -46,10 +51,41 @@ def test_home_filter_constant_exists():
 
 def test_sidebar_group_headings():
     headings = [h for h, _ in filters_ui.FILTER_GROUPS if h]
-    assert "SAVED CLIPS" in headings
-    assert "TYPES" in headings
+    assert "VAULT" in headings
+    assert "SMART VIEWS" in headings
     assert "REVIEW" in headings
+    assert "PROOF & ACCESS" in headings
     assert "TIME" in headings
+
+
+def test_sidebar_proof_and_access_items():
+    keys = [k for _h, items in filters_ui.FILTER_GROUPS for k, _l in items]
+    assert NAV_STAMPED_RECEIPTS in keys
+    assert NAV_MOBILE_ACCESS in keys
+
+
+def test_vault_status_text_honest():
+    text = vault_status_text({
+        "all": 5, "receipts": 3, "capture_paused": False, "mobile_enabled": False,
+    })
+    assert "Local-only" in text
+    assert "Mobile Access off" in text
+    assert "encryption" not in text.lower()
+    assert "cloud" not in text.lower()
+    assert "sync" not in text.lower()
+
+
+def test_brand_no_fake_security_claims():
+    from cache_vault import brand
+    for blob in (
+        brand.PRODUCT_ABOUT, brand.VAULT_STATUS_NOTE, brand.MOBILE_ACCESS_HONEST,
+        brand.VAULT_TAGLINE, brand.PRODUCT_PROMISE,
+    ):
+        low = blob.lower()
+        assert "encrypted vault" not in low
+        assert "cloud backup" not in low
+        assert "secure sync" not in low
+        assert "military" not in low
 
 
 def test_dashboard_summary_real_counts(storage):
@@ -223,3 +259,143 @@ def test_asset_storage_ready_false_without_table(tmp_path):
     s = VaultStorage(db)
     assert s.asset_storage_ready() is False
     s.close()
+
+
+try:
+    import customtkinter as ctk
+    _HAS_DISPLAY = True
+except Exception:
+    _HAS_DISPLAY = False
+
+if _HAS_DISPLAY:
+    try:
+        _root = ctk.CTk()
+        _root.destroy()
+    except Exception:
+        _HAS_DISPLAY = False
+
+
+_ui_mark = pytest.mark.skipif(not _HAS_DISPLAY, reason="requires a display")
+
+
+@_ui_mark
+class TestHomeVaultUI:
+    def test_home_vault_status_header_renders(self):
+        root = ctk.CTk()
+        root.withdraw()
+        receipts: list[str] = []
+        dashboard = HomeDashboard(
+            root,
+            on_filter=lambda _k: None,
+            on_open_receipts=lambda: receipts.append("receipts"),
+            on_mobile_settings=lambda: None,
+            on_pair_android=lambda: None,
+            on_export=lambda: None,
+            on_select_clip=lambda _c: None,
+            on_copy=lambda _id: None,
+        )
+        summary = {
+            "all": 12, "favorites": 1, "screenshots": 0, "duplicates": 2,
+            "recently_removed": 0, "receipts": 8, "sensitive": 0, "expired": 0,
+            "capture_paused": False, "mobile_enabled": False,
+        }
+        dashboard.render(summary, [], [], [])
+        dashboard.update_idletasks()
+
+        def _labels(widget):
+            texts = []
+            for child in widget.winfo_children():
+                if isinstance(child, ctk.CTkLabel):
+                    texts.append(child.cget("text"))
+                texts.extend(_labels(child))
+            return texts
+
+        labels = _labels(dashboard._body)
+        assert brand.VAULT_STATUS_ACTIVE in labels
+        assert any("Local-only" in t for t in labels)
+        assert any("Mobile Access off" in t for t in labels)
+
+        dashboard.destroy()
+        root.destroy()
+
+    def test_vault_control_panel_renders(self):
+        from cache_vault.ui.preview import PreviewPanel
+
+        root = ctk.CTk()
+        root.withdraw()
+        panel = PreviewPanel(root, actions={})
+        summary = {
+            "all": 5, "favorites": 1, "duplicates": 0, "recently_removed": 0,
+            "receipts": 3, "capture_paused": False, "mobile_enabled": False,
+        }
+        panel.show_vault_control(summary, {
+            "review_duplicates": lambda: None,
+            "open_receipts": lambda: None,
+            "pair_android": lambda: None,
+            "export": lambda: None,
+            "mobile_settings": lambda: None,
+        })
+        panel.update_idletasks()
+        assert panel._title.cget("text") == "Vault Control"
+
+        def _button_texts(widget):
+            texts = []
+            for child in widget.winfo_children():
+                if isinstance(child, ctk.CTkButton):
+                    texts.append(child.cget("text"))
+                texts.extend(_button_texts(child))
+            return texts
+
+        buttons = set(_button_texts(panel._vault_frame))
+        assert "Review Duplicates" in buttons
+        assert f"Open {brand.TERM_STAMPED_RECEIPTS}" in buttons
+        assert "Pair Android Device" in buttons
+        assert brand.TERM_EXPORT in buttons
+
+        panel.destroy()
+        root.destroy()
+
+    def test_summary_cards_clickable(self):
+        root = ctk.CTk()
+        root.withdraw()
+        navigated: list[str] = []
+        receipts: list[str] = []
+        dashboard = HomeDashboard(
+            root,
+            on_filter=lambda k: navigated.append(k),
+            on_open_receipts=lambda: receipts.append("yes"),
+            on_mobile_settings=lambda: None,
+            on_pair_android=lambda: None,
+            on_export=lambda: None,
+            on_select_clip=lambda _c: None,
+            on_copy=lambda _id: None,
+        )
+        summary = {
+            "all": 1, "favorites": 0, "screenshots": 0, "duplicates": 0,
+            "recently_removed": 0, "receipts": 2, "sensitive": 0, "expired": 0,
+            "capture_paused": False, "mobile_enabled": False,
+        }
+        dashboard.render(summary, [], [], [])
+        dashboard.update_idletasks()
+
+        def _find_label(widget, text):
+            for child in widget.winfo_children():
+                if isinstance(child, ctk.CTkLabel) and child.cget("text") == text:
+                    return child
+                found = _find_label(child, text)
+                if found is not None:
+                    return found
+            return None
+
+        all_lbl = _find_label(dashboard._body, "All Clips")
+        receipts_lbl = _find_label(dashboard._body, "Receipts")
+        assert all_lbl is not None
+        assert receipts_lbl is not None
+
+        dashboard._on_filter(FILTER_ALL)
+        assert navigated == [FILTER_ALL]
+        dashboard._on_open_receipts()
+        assert receipts == ["yes"]
+
+        dashboard.destroy()
+        root.destroy()

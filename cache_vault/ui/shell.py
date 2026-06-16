@@ -31,7 +31,7 @@ from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SettingsDialog,
 )
-from .filters import FilterNav
+from .filters import FilterNav, NAV_MOBILE_ACCESS, NAV_STAMPED_RECEIPTS
 from .home_dashboard import HomeDashboard
 from .duplicate_dialog import DuplicateReviewDialog
 from .mobile_dialogs import (
@@ -231,6 +231,7 @@ class CacheVaultApp(ctk.CTk):
             on_open_receipts=self._open_events,
             on_mobile_settings=self._open_settings,
             on_pair_android=lambda: self._open_pair_android(),
+            on_export=self._export_view,
             on_select_clip=self._on_clip_select,
             on_copy=self._copy_again,
             image_assets_ready=False,
@@ -421,16 +422,21 @@ class CacheVaultApp(ctk.CTk):
             self._cards_btn.configure(**theme.segmented_inactive())
         self.refresh()
 
+    def _vault_panel_callbacks(self) -> dict:
+        return {
+            "review_duplicates": self._open_duplicate_review,
+            "open_receipts": self._open_events,
+            "pair_android": lambda: self._open_pair_android(),
+            "export": self._export_view,
+            "mobile_settings": self._open_settings,
+        }
+
     def _navigate_filter(self, key: str) -> None:
         self._filters.set_active(key)
         if key == FILTER_HOME:
-            self._preview.show_vault_summary(
+            self._preview.show_vault_control(
                 self.vault.dashboard_summary(),
-                {
-                    "review_duplicates": self._open_duplicate_review,
-                    "open_receipts": self._open_events,
-                    "pair_android": lambda: self._open_pair_android(),
-                },
+                self._vault_panel_callbacks(),
             )
         self._on_filter_select(key)
 
@@ -502,12 +508,15 @@ class CacheVaultApp(ctk.CTk):
             from ..core import storage as S
 
             active = self._filters.active
-            self._filters.update_counts(self.vault.counts())
+            counts = self.vault.counts()
+            summary = self.vault.dashboard_summary()
+            counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
+            counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
+            self._filters.update_counts(counts)
             self._filters.update_collections(self.vault.list_collections())
 
             if active == FILTER_HOME:
                 self._show_home()
-                summary = self.vault.dashboard_summary()
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)
@@ -523,13 +532,9 @@ class CacheVaultApp(ctk.CTk):
                     self.vault.list_clips(q_img)[:6],
                 )
                 if self._preview._clip is None:  # noqa: SLF001
-                    self._preview.show_vault_summary(
+                    self._preview.show_vault_control(
                         summary,
-                        {
-                            "review_duplicates": self._open_duplicate_review,
-                            "open_receipts": self._open_events,
-                            "pair_android": lambda: self._open_pair_android(),
-                        },
+                        self._vault_panel_callbacks(),
                     )
                 clip_count = summary.get("all", 0)
             else:
@@ -606,14 +611,16 @@ class CacheVaultApp(ctk.CTk):
         return None
 
     def _on_filter_select(self, key: str) -> None:
+        if key == NAV_STAMPED_RECEIPTS:
+            self._open_events()
+            return
+        if key == NAV_MOBILE_ACCESS:
+            self._open_settings()
+            return
         if key == FILTER_HOME and self._preview._clip is None:  # noqa: SLF001
-            self._preview.show_vault_summary(
+            self._preview.show_vault_control(
                 self.vault.dashboard_summary(),
-                {
-                    "review_duplicates": self._open_duplicate_review,
-                    "open_receipts": self._open_events,
-                    "pair_android": lambda: self._open_pair_android(),
-                },
+                self._vault_panel_callbacks(),
             )
         self.refresh()
 
