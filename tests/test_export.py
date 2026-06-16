@@ -31,24 +31,46 @@ def test_export_collection_folder_structure(tmp_path):
     out = export.export_collection(clips, tmp_path / "out", collection_name="Work")
     assert (out / "index.html").exists()
     assert (out / "manifest.json").exists()
+    assert (out / "stamped_receipt.txt").exists()
     assert list((out / "clips").glob("*.txt"))
     # No files/ copies by default.
     assert not (out / "files").exists()
 
 
 def test_manifest_contains_metadata(tmp_path):
+    from cache_vault import brand
+
     clip = _text_clip("meta me", source_app="chrome.exe", is_pinned=True,
                       collection="Links")
     out = export.export_collection([clip], tmp_path / "out")
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["count"] == 1
+    assert manifest["document_type"] == "proof_manifest"
+    assert manifest["product"] == brand.PRODUCT_NAME
+    assert manifest["studio"] == brand.STUDIO_NAME
+    assert manifest["receipt_note"] == brand.RECEIPT_NOTE
     m = manifest["clips"][0]
     for key in ("id", "name", "content", "type", "size_bytes", "date_added",
                 "date_used", "source_app", "is_favorite", "collection",
-                "export_timestamp", "cache_vault_version"):
+                "export_timestamp", "cache_vault_version", "product", "studio"):
         assert key in m
     assert m["is_favorite"] is True
     assert m["collection"] == "Links"
+
+
+def test_export_includes_proof_foundry_branding(tmp_path):
+    from cache_vault import brand
+
+    clips = [_text_clip("branded")]
+    out = export.export_collection(clips, tmp_path / "out", collection_name="Work")
+    assert (out / "stamped_receipt.txt").exists()
+    receipt = (out / "stamped_receipt.txt").read_text(encoding="utf-8")
+    assert brand.PRODUCT_NAME in receipt
+    assert brand.STUDIO_FOOTER in receipt
+    assert brand.RECEIPT_NOTE in receipt
+    html = (out / "index.html").read_text(encoding="utf-8")
+    assert brand.PRODUCT_BYLINE in html
+    assert brand.STUDIO_FOOTER in html
 
 
 def test_export_zip(tmp_path):
@@ -58,6 +80,7 @@ def test_export_zip(tmp_path):
         names = zf.namelist()
     assert "index.html" in names
     assert "manifest.json" in names
+    assert "stamped_receipt.txt" in names
     assert any(n.startswith("clips/") for n in names)
 
 

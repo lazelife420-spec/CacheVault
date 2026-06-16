@@ -1,7 +1,25 @@
-# Cache Vault — Feature Direction
+# Cache Vault™ — Feature Direction
 
-> One local database. Saved clips, organization, and clean export.
+> **A Proof Foundry product** — proof-first software forged for builders.
+>
+> One local database. Saved clips, organization, and clean export with receipts.
 > Multi-vault switching is **out of scope** for this phase.
+
+## Brand & voice
+
+| | |
+|---|---|
+| **Studio** | The Proof Foundry™ |
+| **Product** | Cache Vault™ |
+| **Promise** | Capture everything. Auto-organize it. Save what matters. Export with receipts. |
+| **Footer** | Forged by The Proof Foundry™ — Build it. Prove it. Ship it. |
+
+Voice: direct, confident, practical, evidence-backed. No hype, no fake claims,
+no “revolutionary AI” language. Local-first, user-control-first, reversible
+before risky.
+
+Canonical UI terms: **Favorites**, **Collections**, **Recently Removed**,
+**Export / Save As**, **Proof Manifest**, **Stamped Receipts**.
 
 ## Core concepts
 
@@ -66,10 +84,11 @@ Save as `.txt`, `.md`, `.html`, or `.json` (JSON includes full metadata).
 Export as an **organized folder** or **zip archive** with:
 
 ```
-index.html      — human-readable export browser
-manifest.json   — machine-readable metadata
-clips/          — one text file per clip
-files/          — optional file copies (only when opted in)
+index.html           — human-readable export browser (Proof Foundry branded)
+manifest.json        — Proof Manifest (machine-readable metadata)
+stamped_receipt.txt  — Stamped Receipt summary
+clips/               — one text file per clip
+files/               — optional file copies (only when opted in)
 ```
 
 ### File safety (non-negotiable)
@@ -97,6 +116,7 @@ files/          — optional file copies (only when opted in)
 | Collection name | `collection` |
 | Export timestamp | set at export time |
 | Cache Vault version | package `__version__` |
+| Product / Studio | Cache Vault™ / The Proof Foundry™ |
 
 ## UI
 
@@ -130,9 +150,10 @@ Permanently Remove for deleted clips).
 
 ### Export control
 
-Top bar button: **Export / Save As** (not “Import Vault”). Exports the clips
-currently shown (active filter/collection + search). Per-clip export via
-right-click menu.
+Top bar button: **Export / Save As**. Exports the clips currently shown (active
+filter/collection + search). Bulk exports include a **Proof Manifest**
+(`manifest.json`) and **Stamped Receipt** (`stamped_receipt.txt`). Per-clip
+export via right-click menu.
 
 ## Database
 

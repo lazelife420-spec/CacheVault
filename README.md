@@ -4,15 +4,19 @@
 
 # Cache Vault™
 
-> Keep the cache worth keeping.
+> A Proof Foundry product — proof-first software forged for builders.
 
-Cache Vault is a **local-only** clipboard vault for Windows. It saves what you
-copy, classifies it with smart filters (links, code, commands, paths, emails,
-sensitive secrets), and lets you search, pin, and expire clips — so copied
-chaos becomes searchable value.
+**Cache Vault™** is a modern clipboard vault from **The Proof Foundry™**.
+Capture everything. Auto-organize it. Save what matters. Export with receipts.
 
-It is part of the same product family as Cleanroom and Lights Out, and follows
-the same trust standard.
+It is a **local-only** Windows clipboard vault. It saves what you copy,
+classifies it with smart filters (links, code, commands, paths, emails,
+sensitive secrets), and lets you search, favorite, and organize clips — with
+**Export / Save As**, **Proof Manifests**, and **Stamped Receipts** when you
+need evidence, not promises.
+
+Cache Vault does not pretend to be magic. No cloud sync, no accounts, no
+telemetry — local-first, user-control-first, reversible before risky.
 
 ## Download / verify release
 
@@ -122,10 +126,12 @@ Favorites, Collections (virtual app folders — one DB, not separate vaults), an
 Recently Removed (Restore or Permanently Remove).
 
 Export a single clip as `.txt` / `.md` / `.html` / `.json`, or a whole view /
-collection as an organized folder or zip (`index.html`, `manifest.json`,
-`clips/`). Path clips export a **reference + metadata only** by default; real
-files are copied into `files/` only if you tick *Include file copies*, and
-originals are never moved or deleted.
+collection as an organized folder or zip (`index.html`, `manifest.json` as
+**Proof Manifest**, `stamped_receipt.txt`, `clips/`). Path clips export a
+**reference + metadata only** by default; real files are copied into `files/`
+only if you tick *Include file copies*, and originals are never moved or deleted.
+
+*If it matters, keep the receipt.*
 
 Settings → **History limit** prunes oldest non-favorite clips to Recently
 Removed when exceeded (`0` = unlimited). Favorites always survive pruning.

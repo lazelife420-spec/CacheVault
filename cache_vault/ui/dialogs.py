@@ -6,8 +6,10 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from .. import brand
 from ..core import startup
 from ..core.settings import Settings
+from . import theme
 
 
 def _bring_to_front(win: ctk.CTkToplevel, master, *, modal: bool) -> None:
@@ -33,10 +35,48 @@ def _bring_to_front(win: ctk.CTkToplevel, master, *, modal: bool) -> None:
     win.after(200, _raise)
 
 
+class AboutDialog(ctk.CTkToplevel):
+    def __init__(self, master):
+        super().__init__(master)
+        self.title(f"About {brand.PRODUCT_NAME}")
+        self.geometry("460x380")
+        self.resizable(False, False)
+
+        ctk.CTkLabel(self, text=brand.PRODUCT_NAME,
+                     font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color=brand.PROOF_TEAL).pack(anchor="w", padx=20, pady=(18, 2))
+        ctk.CTkLabel(self, text=brand.PRODUCT_BYLINE, anchor="w",
+                     text_color=brand.MUTED_FG,
+                     font=ctk.CTkFont(size=12)).pack(anchor="w", padx=20)
+        ctk.CTkLabel(self, text=brand.PRODUCT_POSITIONING, anchor="w",
+                     wraplength=400, justify="left",
+                     font=ctk.CTkFont(size=12)).pack(anchor="w", padx=20, pady=(10, 4))
+        ctk.CTkLabel(self, text=brand.PRODUCT_PROMISE, anchor="w",
+                     wraplength=400, justify="left", text_color=brand.MUTED_FG,
+                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=20, pady=(0, 10))
+
+        body = ctk.CTkTextbox(self, height=120, wrap="word")
+        body.pack(fill="x", padx=20, pady=4)
+        body.insert("1.0", brand.PRODUCT_ABOUT)
+        body.configure(state="disabled")
+
+        ctk.CTkLabel(self, text=brand.RECEIPT_NOTE, anchor="w",
+                     text_color=brand.STAMP_GOLD,
+                     font=ctk.CTkFont(size=11)
+                     ).pack(anchor="w", padx=20, pady=(8, 4))
+        ctk.CTkLabel(self, text=brand.STUDIO_FOOTER, anchor="w",
+                     text_color=brand.MUTED_FG,
+                     font=ctk.CTkFont(size=10)).pack(anchor="w", padx=20, pady=(0, 12))
+
+        ctk.CTkButton(self, text="Close", command=self.destroy,
+                      **theme.primary_button()).pack(anchor="e", padx=20, pady=(0, 16))
+        _bring_to_front(self, master, modal=True)
+
+
 class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None]):
         super().__init__(master)
-        self.title("Cache Vault — Settings")
+        self.title(f"{brand.PRODUCT_NAME} — Settings")
         self.geometry("440x560")
         self.resizable(False, True)
         self.minsize(440, 360)
@@ -89,7 +129,7 @@ class SettingsDialog(ctk.CTkToplevel):
             body,
             text="Oldest non-favorite clips move to Recently Removed when exceeded.\n"
                  "Favorites always survive pruning.",
-            anchor="w", justify="left", text_color=("gray45", "gray60"),
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
             font=ctk.CTkFont(size=11)).pack(anchor="w", padx=8)
 
         ctk.CTkLabel(body, text="Excluded apps (one per line):").pack(
@@ -102,10 +142,10 @@ class SettingsDialog(ctk.CTkToplevel):
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.pack(fill="x", padx=16, pady=(0, 12))
 
-        ctk.CTkButton(footer, text="Save", command=self._save
-                      ).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(footer, text="Cancel", command=self.destroy
-                      ).pack(side="right")
+        ctk.CTkButton(footer, text="Save", command=self._save,
+                      **theme.primary_button()).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(footer, text="Cancel", command=self.destroy,
+                      **theme.secondary_button()).pack(side="right")
 
         _bring_to_front(self, master, modal=True)
 
@@ -193,13 +233,19 @@ class ExportViewDialog(ctk.CTkToplevel):
     def __init__(self, master, count: int,
                  on_export: Callable[[str, bool], None]):
         super().__init__(master)
-        self.title("Export / Save As")
-        self.geometry("380x240")
+        self.title(brand.TERM_EXPORT)
+        self.geometry("400x280")
         self._on_export = on_export
 
-        ctk.CTkLabel(self, text=f"Export {count} clip(s)",
+        ctk.CTkLabel(self, text=f"{brand.TERM_EXPORT} — {count} clip(s)",
                      font=ctk.CTkFont(size=15, weight="bold")
-                     ).pack(anchor="w", padx=16, pady=(14, 6))
+                     ).pack(anchor="w", padx=16, pady=(14, 4))
+        ctk.CTkLabel(
+            self, text=f"Includes {brand.TERM_PROOF_MANIFEST.lower()}, "
+                       f"{brand.TERM_STAMPED_RECEIPTS.lower()}, and clip files.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11), wraplength=360,
+        ).pack(anchor="w", padx=16, pady=(0, 8))
 
         self._kind = ctk.StringVar(value="folder")
         ctk.CTkRadioButton(self, text="Organized folder", variable=self._kind,
@@ -213,10 +259,11 @@ class ExportViewDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             self, text="Off by default: path clips export a reference only.\n"
                        "Originals are never moved or deleted.",
-            anchor="w", justify="left", text_color=("gray45", "gray60"),
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
             font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16)
 
-        ctk.CTkButton(self, text="Continue…", command=self._go
+        ctk.CTkButton(self, text="Continue…", command=self._go,
+                      **theme.primary_button()
                       ).pack(anchor="e", padx=16, pady=12)
         _bring_to_front(self, master, modal=True)
 
@@ -230,9 +277,9 @@ class ExportViewDialog(ctk.CTkToplevel):
 class EventLogDialog(ctk.CTkToplevel):
     def __init__(self, master, events: list[dict]):
         super().__init__(master)
-        self.title("Cache Vault — Event Log")
+        self.title(f"{brand.PRODUCT_NAME} — {brand.TERM_STAMPED_RECEIPTS}")
         self.geometry("520x460")
-        ctk.CTkLabel(self, text="Event Log (local proof history)",
+        ctk.CTkLabel(self, text=f"{brand.TERM_STAMPED_RECEIPTS} (local proof history)",
                      font=ctk.CTkFont(size=15, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
         box = ctk.CTkTextbox(self, wrap="none")

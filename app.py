@@ -41,9 +41,9 @@ def main() -> int:
         return 1
 
     from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui.theme import apply_app_theme
 
-    ctk.set_appearance_mode("system")
-    ctk.set_default_color_theme("blue")
+    apply_app_theme()
     app = CacheVaultApp()
     app.mainloop()
     return 0

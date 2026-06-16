@@ -66,6 +66,10 @@ _version_info = VSVersionInfo(
 datas += [
     (_icon, "assets"),
     (os.path.join(ROOT, "assets", "cache-vault-icon-256.png"), "assets"),
+    (
+        os.path.join(ROOT, "cache_vault", "ui", "themes", "proof_foundry.json"),
+        os.path.join("cache_vault", "ui", "themes"),
+    ),
 ]
 
 a = Analysis(

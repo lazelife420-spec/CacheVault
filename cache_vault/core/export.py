@@ -24,7 +24,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from .. import __version__
+from .. import __version__, brand
 from . import models, pathutil
 from .models import Clip
 
@@ -54,6 +54,8 @@ def clip_metadata(clip: Clip, *, export_ts: str | None = None) -> dict:
         "collection": clip.collection,
         "export_timestamp": export_ts or models.now_iso(),
         "cache_vault_version": __version__,
+        "product": brand.PRODUCT_NAME,
+        "studio": brand.STUDIO_NAME,
     }
 
 
@@ -125,7 +127,38 @@ def export_single(clip: Clip, dest_path: str | os.PathLike,
 
 
 # --- collection / multi-clip export ----------------------------------------
-def _index_html(metas: list[dict], clips: list[Clip], collection_name: str | None) -> str:
+def _export_brand_block() -> dict:
+    """Shared Proof Foundry identity fields for bulk exports."""
+    return {
+        "document_type": "proof_manifest",
+        "product": brand.PRODUCT_NAME,
+        "studio": brand.STUDIO_NAME,
+        "receipt_note": brand.RECEIPT_NOTE,
+    }
+
+
+def _stamped_receipt_text(*, export_ts: str, count: int,
+                          collection_name: str | None,
+                          include_files: bool) -> str:
+    lines = [
+        f"{brand.PRODUCT_NAME} — Stamped Receipt",
+        brand.PRODUCT_BYLINE,
+        "",
+        f"Exported:              {export_ts}",
+        f"Cache Vault version:   {__version__}",
+        f"Clips in export:       {count}",
+        f"Collection:            {collection_name or '—'}",
+        f"File copies included:  {'yes' if include_files else 'no'}",
+        "",
+        brand.RECEIPT_NOTE,
+        "",
+        brand.STUDIO_FOOTER,
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _index_html(metas: list[dict], clips: list[Clip], collection_name: str | None,
+                *, export_ts: str) -> str:
     rows = []
     for m, clip in zip(metas, clips):
         ref = ""
@@ -137,24 +170,49 @@ def _index_html(metas: list[dict], clips: list[Clip], collection_name: str | Non
             f"<h2>{html.escape(m['name'] or m['id'])}</h2>"
             f"<p class='meta'>{html.escape(m['type'])} · {html.escape(m['date_added'])}"
             f" · {html.escape(m['source_app'] or '—')}"
-            f"{' · ★ favorite' if m['is_favorite'] else ''}"
+            f"{' · <span class=\"fav\">★ favorite</span>' if m['is_favorite'] else ''}"
             f"{(' · ' + html.escape(m['collection'])) if m['collection'] else ''}</p>"
             f"{ref}"
             f"<pre>{html.escape(clip.content or '')}</pre>"
             "</div>"
         )
-    title = f"Cache Vault export — {collection_name}" if collection_name else "Cache Vault export"
+    title = (
+        f"{brand.PRODUCT_NAME} — {collection_name}"
+        if collection_name else f"{brand.PRODUCT_NAME} export"
+    )
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         f"<title>{html.escape(title)}</title>"
-        "<style>body{font-family:Segoe UI,Arial,sans-serif;margin:2rem;max-width:900px;}"
-        ".clip{border:1px solid #e4e4e7;border-radius:10px;padding:1rem;margin:1rem 0;}"
-        ".meta{color:#71717a;font-size:.9rem;}"
-        "pre{background:#f4f4f5;padding:1rem;border-radius:8px;white-space:pre-wrap;"
-        "word-break:break-word;}</style></head><body>"
+        "<style>"
+        "body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#0B0F14;"
+        "color:#F4F7F8;}"
+        "header{background:#1C232B;padding:1.5rem 2rem;border-bottom:2px solid #00D1B2;}"
+        "header h1{margin:0;font-size:1.4rem;}"
+        "header .byline{color:#00D1B2;font-size:.9rem;margin-top:.25rem;}"
+        "header .meta{color:#8A939C;font-size:.85rem;margin-top:.5rem;}"
+        "main{margin:2rem;max-width:900px;}"
+        ".clip{border:1px solid #263038;border-radius:10px;padding:1rem;margin:1rem 0;"
+        "background:#1C232B;}"
+        ".clip h2{margin-top:0;color:#F4F7F8;}"
+        ".meta{color:#8A939C;font-size:.9rem;}"
+        ".fav{color:#D6A84F;}"
+        "pre{background:#0B0F14;padding:1rem;border-radius:8px;white-space:pre-wrap;"
+        "word-break:break-word;border:1px solid #263038;}"
+        "footer{margin:2rem;padding:1rem 2rem;border-top:1px solid #263038;"
+        "color:#8A939C;font-size:.85rem;}"
+        ".receipt{color:#D6A84F;font-style:italic;}"
+        "</style></head><body>"
+        "<header>"
         f"<h1>{html.escape(title)}</h1>"
-        f"<p class='meta'>{len(clips)} clip(s) · exported {html.escape(models.now_iso())}</p>"
-        + "".join(rows) + "</body></html>"
+        f"<div class='byline'>{html.escape(brand.PRODUCT_BYLINE)}</div>"
+        f"<p class='meta'>{len(clips)} clip(s) · exported {html.escape(export_ts)}"
+        f" · {html.escape(brand.TERM_PROOF_MANIFEST)}</p>"
+        "</header><main>"
+        + "".join(rows) +
+        "</main><footer>"
+        f"<p class='receipt'>{html.escape(brand.RECEIPT_NOTE)}</p>"
+        f"<p>{html.escape(brand.STUDIO_FOOTER)}</p>"
+        "</footer></body></html>"
     )
 
 
@@ -169,6 +227,7 @@ def _build_artifacts(clips: list[Clip], *, include_files: bool,
     generated: dict[str, str] = {}
 
     generated["manifest.json"] = json.dumps({
+        **_export_brand_block(),
         "exported_at": export_ts,
         "cache_vault_version": __version__,
         "collection": collection_name,
@@ -176,7 +235,11 @@ def _build_artifacts(clips: list[Clip], *, include_files: bool,
         "include_files": include_files,
         "clips": metas,
     }, indent=2)
-    generated["index.html"] = _index_html(metas, clips, collection_name)
+    generated["stamped_receipt.txt"] = _stamped_receipt_text(
+        export_ts=export_ts, count=len(clips),
+        collection_name=collection_name, include_files=include_files)
+    generated["index.html"] = _index_html(
+        metas, clips, collection_name, export_ts=export_ts)
 
     file_copies: list[tuple[str, str]] = []
     for i, clip in enumerate(clips):

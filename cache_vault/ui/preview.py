@@ -9,8 +9,10 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from .. import brand
 from ..core import models
 from ..core.models import Clip
+from . import theme
 
 
 class PreviewPanel(ctk.CTkFrame):
@@ -35,7 +37,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._body.configure(state="disabled")
 
         self._meta = ctk.CTkLabel(self, text="", anchor="w", justify="left",
-                                  text_color=("gray45", "gray60"),
+                                  text_color=brand.MUTED_FG,
                                   font=ctk.CTkFont(size=11))
         self._meta.pack(fill="x", padx=14, pady=4)
 
@@ -96,26 +98,24 @@ class PreviewPanel(ctk.CTkFrame):
                           ).pack(fill="x", pady=2)
 
         if clip.deleted_at is not None:
-            add("Copy Again", "copy_again")
-            add("Restore", "restore")
-            add("Permanently Remove", "permanently_remove",
-                fg_color=("gray60", "gray35"), hover_color=("#b04632", "#7a2f24"))
+            add("Copy Again", "copy_again", **theme.primary_button())
+            add("Restore", "restore", **theme.primary_button())
+            add("Permanently Remove", "permanently_remove", **theme.destructive_button())
             return
 
-        add("Copy Again", "copy_again")
+        add("Copy Again", "copy_again", **theme.primary_button())
         if clip.is_sensitive:
-            add("Reveal Sensitive Clip", "reveal", fg_color=("#b04632", "#7a2f24"))
+            add("Reveal Sensitive Clip", "reveal", **theme.destructive_button())
         if clip.classification == models.CLASS_LINK:
-            add("Open Link", "open_link")
+            add("Open Link", "open_link", **theme.secondary_button())
         if clip.classification == models.CLASS_PATH:
-            add("Open File Location", "open_path")
+            add("Open File Location", "open_path", **theme.secondary_button())
         add("Remove from Favorites" if clip.is_pinned else "Add to Favorites",
-            "toggle_favorite")
-        add("Mark Keep", "mark_keep")
-        add("Copy Metadata", "copy_metadata")
-        add("Expire Now", "expire_now")
-        add("Remove from History", "remove_from_history",
-            fg_color=("gray60", "gray35"), hover_color=("#b04632", "#7a2f24"))
+            "toggle_favorite", **theme.secondary_button())
+        add("Mark Keep", "mark_keep", **theme.secondary_button())
+        add("Copy Metadata", "copy_metadata", **theme.secondary_button())
+        add("Expire Now", "expire_now", **theme.secondary_button())
+        add("Remove from History", "remove_from_history", **theme.destructive_button())
 
     # --- action plumbing ---------------------------------------------------
     def _fire(self, key: str, clip: Clip) -> None:

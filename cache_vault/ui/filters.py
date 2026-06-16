@@ -6,7 +6,9 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from .. import brand
 from ..core import storage as S
+from . import theme
 
 
 # (filter constant, label) in display order. A None entry renders a separator.
@@ -40,12 +42,17 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._labels: dict[str, str] = {}     # fixed filters only
         self._collection_buttons: dict[str, ctk.CTkButton] = {}
 
-        title = ctk.CTkLabel(self, text="Cache Vault", anchor="w",
+        title = ctk.CTkLabel(self, text=brand.PRODUCT_NAME, anchor="w",
                              font=ctk.CTkFont(size=18, weight="bold"))
-        title.pack(fill="x", padx=8, pady=(6, 2))
-        tagline = ctk.CTkLabel(self, text="Keep the cache worth keeping.",
-                               anchor="w", text_color=("gray40", "gray60"),
-                               font=ctk.CTkFont(size=11))
+        title.pack(fill="x", padx=8, pady=(6, 0))
+        byline = ctk.CTkLabel(self, text=brand.PRODUCT_BYLINE, anchor="w",
+                              text_color=brand.PROOF_TEAL,
+                              font=ctk.CTkFont(size=10))
+        byline.pack(fill="x", padx=8, pady=(0, 2))
+        tagline = ctk.CTkLabel(self, text=brand.PRODUCT_PROMISE,
+                               anchor="w", text_color=brand.MUTED_FG,
+                               font=ctk.CTkFont(size=10), wraplength=190,
+                               justify="left")
         tagline.pack(fill="x", padx=8, pady=(0, 10))
 
         for key, label in FILTER_ITEMS:
@@ -57,8 +64,8 @@ class FilterNav(ctk.CTkScrollableFrame):
 
         # Collections section (populated dynamically from the database).
         self._separator()
-        ctk.CTkLabel(self, text="Collections", anchor="w",
-                     text_color=("gray40", "gray60"),
+        ctk.CTkLabel(self, text=brand.TERM_COLLECTIONS, anchor="w",
+                     text_color=brand.MUTED_FG,
                      font=ctk.CTkFont(size=11, weight="bold")
                      ).pack(fill="x", padx=10, pady=(2, 2))
         self._collections_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -72,14 +79,14 @@ class FilterNav(ctk.CTkScrollableFrame):
 
     # --- helpers -----------------------------------------------------------
     def _separator(self) -> None:
-        ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
+        ctk.CTkFrame(self, height=1, fg_color=("#C8D0D4", "#263038")).pack(
             fill="x", padx=10, pady=6)
 
     def _nav_button(self, parent, key: str, label: str) -> ctk.CTkButton:
         btn = ctk.CTkButton(
             parent, text=label, anchor="w", corner_radius=6,
-            fg_color="transparent", text_color=("gray10", "gray90"),
-            hover_color=("gray85", "gray25"),
+            fg_color="transparent", text_color=brand.MUTED_FG,
+            hover_color=theme.nav_hover_bg(),
             command=lambda k=key: self._select(k),
         )
         btn.pack(fill="x", padx=6, pady=1)
@@ -96,8 +103,12 @@ class FilterNav(ctk.CTkScrollableFrame):
 
     def _highlight(self) -> None:
         for key, btn in {**self._buttons, **self._collection_buttons}.items():
-            btn.configure(fg_color=("gray75", "gray30") if key == self._active
-                          else "transparent")
+            if key == self._active:
+                btn.configure(fg_color=theme.nav_active_bg(),
+                              text_color=(brand.FOUNDRY_BLACK, brand.PROOF_TEAL))
+            else:
+                btn.configure(fg_color="transparent",
+                              text_color=brand.MUTED_FG)
 
     def update_counts(self, counts: dict[str, int]) -> None:
         for key, label in self._labels.items():

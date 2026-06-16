@@ -15,6 +15,7 @@ import os
 
 import customtkinter as ctk
 
+from .. import brand
 from ..core import models, search
 from ..core.clipboard import ClipboardMonitor
 from ..core.hotkey import HotkeyListener, focus_and_paste, foreground_window
@@ -22,13 +23,15 @@ from ..core.storage import FILTER_SEARCH_ALL
 from ..core.vault import Vault
 from .clip_list import ClipList
 from .dialogs import (
-    EventLogDialog, ExportViewDialog, MoveToCollectionDialog, SettingsDialog,
+    AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
+    SettingsDialog,
 )
 from .filters import FilterNav
 from .preview import PreviewPanel
 from .quick_paste import QuickPaste
 from .toast import Toast
 from .tray import TrayController
+from . import theme
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
 
@@ -37,8 +40,8 @@ class CacheVaultApp(ctk.CTk):
     def __init__(self, vault: Vault | None = None):
         super().__init__()
         self.vault = vault or Vault()
-        self.title("Cache Vault")
-        self.geometry("1040x640")
+        self.title(brand.WINDOW_TITLE)
+        self.geometry("1040x660")
         self.minsize(820, 480)
         self._apply_window_icon()
 
@@ -88,9 +91,11 @@ class CacheVaultApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure(2, weight=0, minsize=300)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
 
         # Top bar.
-        top = ctk.CTkFrame(self, height=52, corner_radius=0)
+        top = ctk.CTkFrame(self, height=52, corner_radius=0,
+                           fg_color=brand.SURFACE_BG)
         top.grid(row=0, column=0, columnspan=3, sticky="ew")
         top.grid_columnconfigure(0, weight=1)
         search = ctk.CTkEntry(
@@ -99,15 +104,21 @@ class CacheVaultApp(ctk.CTk):
         )
         search.grid(row=0, column=0, sticky="ew", padx=12, pady=10)
         self._search_var.trace_add("write", self._on_search_changed)
-        self._status = ctk.CTkLabel(top, text="", text_color=("gray45", "gray60"),
+        self._status = ctk.CTkLabel(top, text="", text_color=brand.MUTED_FG,
                                     font=ctk.CTkFont(size=11))
         self._status.grid(row=0, column=1, padx=6)
-        ctk.CTkButton(top, text="Export / Save As", width=120, command=self._export_view
+        ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
+                      command=self._export_view, **theme.primary_button()
                       ).grid(row=0, column=2, padx=4)
-        ctk.CTkButton(top, text="Events", width=70, command=self._open_events
+        ctk.CTkButton(top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
+                      command=self._open_events, **theme.secondary_button()
                       ).grid(row=0, column=3, padx=4)
-        ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings
-                      ).grid(row=0, column=4, padx=(4, 12))
+        ctk.CTkButton(top, text="About", width=70, command=self._open_about,
+                      **theme.secondary_button()
+                      ).grid(row=0, column=4, padx=4)
+        ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
+                      **theme.secondary_button()
+                      ).grid(row=0, column=5, padx=(4, 12))
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
@@ -116,12 +127,20 @@ class CacheVaultApp(ctk.CTk):
 
         self._list = ClipList(self, on_select=self._on_clip_select,
                               on_context=self._open_clip_menu,
-                              corner_radius=0, fg_color=("gray96", "gray16"))
+                              corner_radius=0, fg_color=brand.PANEL_BG)
         self._list.grid(row=1, column=1, sticky="nsew", padx=1)
 
         self._preview = PreviewPanel(self, actions=self._build_actions(),
-                                     corner_radius=0)
+                                     corner_radius=0, fg_color=brand.SURFACE_BG)
         self._preview.grid(row=1, column=2, sticky="nsew")
+
+        # Footer.
+        footer = ctk.CTkFrame(self, height=28, corner_radius=0,
+                              fg_color=brand.SURFACE_BG)
+        footer.grid(row=2, column=0, columnspan=3, sticky="ew")
+        ctk.CTkLabel(footer, text=brand.STUDIO_FOOTER, anchor="center",
+                     text_color=brand.MUTED_FG,
+                     font=ctk.CTkFont(size=10)).pack(fill="x", pady=4)
 
     def _apply_window_icon(self) -> None:
         from .icon import icon_ico_path
@@ -325,7 +344,7 @@ class CacheVaultApp(ctk.CTk):
             defaultextension=".txt",
             initialfile=f"{(clip.preview or 'clip')[:40].strip()}.txt",
             filetypes=[("Plain text", "*.txt"), ("Markdown", "*.md"),
-                       ("HTML", "*.html"), ("JSON (with metadata)", "*.json")],
+                       ("HTML", "*.html"), ("JSON (Proof Manifest)", "*.json")],
         )
         if not path:
             return
@@ -348,7 +367,8 @@ class CacheVaultApp(ctk.CTk):
         from ..core import export, models
         if kind == "zip":
             dest = filedialog.asksaveasfilename(
-                parent=self, title="Export as zip", defaultextension=".zip",
+                parent=self, title=f"{brand.TERM_EXPORT} — zip",
+                defaultextension=".zip",
                 initialfile=f"{(collection_name or 'cache-vault-export')}.zip",
                 filetypes=[("Zip archive", "*.zip")])
             if not dest:
@@ -356,7 +376,8 @@ class CacheVaultApp(ctk.CTk):
             export.export_zip(clips, dest, include_files=include_files,
                               collection_name=collection_name)
         else:
-            dest = filedialog.askdirectory(parent=self, title="Export to folder")
+            dest = filedialog.askdirectory(
+                parent=self, title=f"{brand.TERM_EXPORT} — folder")
             if not dest:
                 return
             export.export_collection(clips, dest, include_files=include_files,
@@ -418,6 +439,9 @@ class CacheVaultApp(ctk.CTk):
 
     def _open_events(self) -> None:
         EventLogDialog(self, self.vault.events.recent())
+
+    def _open_about(self) -> None:
+        AboutDialog(self)
 
     # --- quick paste (global hotkey) ---------------------------------------
     def _open_quick_paste(self) -> None:
