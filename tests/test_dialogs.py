@@ -34,9 +34,9 @@ class TestSettingsDialog:
         assert dialog._current_width == 440, (
             f"expected width 440, got {dialog._current_width}"
         )
-        assert dialog._current_height >= 560, (
+        assert dialog._current_height >= 640, (
             f"Settings dialog requested height is {dialog._current_height}px; "
-            f"expected >= 560px to prevent footer clipping under display scaling"
+            f"expected >= 640px to prevent footer clipping under display scaling"
         )
 
         dialog.destroy()
@@ -69,8 +69,8 @@ class TestSettingsDialog:
         assert dialog._min_width == 440, (
             f"expected min width 440, got {dialog._min_width}"
         )
-        assert dialog._min_height == 360, (
-            f"expected min height 360, got {dialog._min_height}"
+        assert dialog._min_height == 400, (
+            f"expected min height 400, got {dialog._min_height}"
         )
 
         dialog.destroy()

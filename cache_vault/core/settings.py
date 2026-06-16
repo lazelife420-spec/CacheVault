@@ -36,6 +36,13 @@ class Settings:
     # 0 = unlimited. Favorites always survive pruning.
     history_max_clips: int = 0
 
+    # Cache Vault Mobile — read-only LAN bridge (OFF by default).
+    # See docs/MOBILE_ANDROID_DIRECTION.md.
+    mobile_access_enabled: bool = False
+    mobile_access_port: int = 8742  # LAN read-only API; see MOBILE_ANDROID_DIRECTION.md
+    mobile_access_bind_host: str = ""  # empty = use bridge default when enabled
+    paired_devices: list[dict] = field(default_factory=list)
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":
@@ -52,6 +59,12 @@ class Settings:
             s.history_max_clips = max(0, int(s.history_max_clips))
         except (TypeError, ValueError):
             s.history_max_clips = 0
+        try:
+            s.mobile_access_port = max(1024, min(65535, int(s.mobile_access_port)))
+        except (TypeError, ValueError):
+            s.mobile_access_port = 8742
+        if not isinstance(s.paired_devices, list):
+            s.paired_devices = []
         return s
 
     def save(self, path: str | os.PathLike | None = None) -> None:

@@ -22,6 +22,7 @@ from ..core import models, search
 from ..core.clipboard import ClipboardMonitor
 from ..core.hotkey import HotkeyListener, focus_and_paste, foreground_window
 from ..core.storage import FILTER_SEARCH_ALL
+from ..core.mobile.bridge import MobileBridge
 from ..core.vault import Vault
 from .clip_list import ClipList
 from .dialogs import (
@@ -29,6 +30,9 @@ from .dialogs import (
     SettingsDialog,
 )
 from .filters import FilterNav
+from .mobile_dialogs import (
+    MobileAccessReceiptsDialog, PairAndroidDialog, PairedDevicesDialog,
+)
 from .preview import PreviewPanel
 from .quick_paste import QuickPaste
 from .toast import Toast
@@ -71,6 +75,8 @@ class CacheVaultApp(ctk.CTk):
         self._expiry_job = None
         self._shutting_down = False
 
+        self._mobile_bridge = MobileBridge(self.vault)
+
         self._build_layout()
 
         # Clipboard monitor — callback marshalled onto the Tk thread.
@@ -107,6 +113,7 @@ class CacheVaultApp(ctk.CTk):
 
         self.refresh()
         self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
+        self._mobile_bridge.sync(self.vault.settings)
 
     def _alive(self) -> bool:
         if self._shutting_down:
@@ -475,7 +482,32 @@ class CacheVaultApp(ctk.CTk):
 
     # --- dialogs -----------------------------------------------------------
     def _open_settings(self) -> None:
-        SettingsDialog(self, self.vault.settings, on_save=self._apply_settings)
+        SettingsDialog(
+            self, self.vault.settings, on_save=self._apply_settings,
+            mobile={
+                "pair": self._open_pair_android,
+                "devices": self._open_paired_devices,
+                "receipts": self._open_mobile_receipts,
+            },
+        )
+
+    def _open_pair_android(self) -> None:
+        PairAndroidDialog(self, on_pair=self._complete_mobile_pair)
+
+    def _complete_mobile_pair(self, device_id: str, name: str) -> tuple[str, str]:
+        _, token = self._mobile_bridge.pair_device(device_id, name)
+        return device_id, token
+
+    def _open_paired_devices(self) -> None:
+        devices = [d.to_dict() for d in self._mobile_bridge.active_devices()]
+        PairedDevicesDialog(self, devices, on_revoke=self._revoke_mobile_device)
+
+    def _revoke_mobile_device(self, device_id: str) -> None:
+        self._mobile_bridge.revoke_device(device_id)
+
+    def _open_mobile_receipts(self) -> None:
+        MobileAccessReceiptsDialog(
+            self, self._mobile_bridge.receipts.recent())
 
     def _apply_settings(self, settings) -> None:
         settings.save()
@@ -483,6 +515,7 @@ class CacheVaultApp(ctk.CTk):
         self._rebind_hotkey(settings.quick_paste_hotkey)
         from ..core import startup
         startup.sync(settings.start_with_windows)
+        self._mobile_bridge.sync(settings)
         self.refresh()
 
     def _rebind_hotkey(self, spec: str) -> None:
@@ -580,6 +613,7 @@ class CacheVaultApp(ctk.CTk):
             self._monitor.stop()
             self._hotkey.stop()
             self._tray.stop()
+            self._mobile_bridge.stop()
             self.vault.close()
         finally:
             try:

@@ -208,9 +208,9 @@ is **unchanged** by this document.
 | Component | Status |
 |-----------|--------|
 | Android app | **Not started** |
-| Desktop mobile server | **Not started** |
-| QR pairing UI | **Not started** |
-| Mobile access receipts | **Not started** |
+| Desktop mobile server | **Bridge implemented** (read-only, OFF by default) |
+| QR pairing UI | **Placeholder** (credentials dialog; QR when Android ships) |
+| Mobile access receipts | **Implemented** (`mobile_access_receipts.json`) |
 | Release tag | **None** |
 
 When implementation begins, start with desktop bridge + read-only API behind

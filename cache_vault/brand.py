@@ -38,6 +38,12 @@ TERM_RECENTLY_REMOVED = "Recently Removed"
 TERM_FAVORITES = "Favorites"
 TERM_COLLECTIONS = "Collections"
 
+MOBILE_PRODUCT_NAME = "Cache Vault Mobile"
+MOBILE_BYLINE = "A Proof Foundry companion app"
+MOBILE_PROMISE = "Access your saved clips. Keep the receipt."
+TERM_MOBILE_ACCESS = "Mobile Access"
+TERM_MOBILE_ACCESS_RECEIPTS = "Mobile Access Receipts"
+
 RECEIPT_NOTE = "If it matters, keep the receipt."
 
 # --- Palette ----------------------------------------------------------------

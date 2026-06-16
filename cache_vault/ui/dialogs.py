@@ -74,14 +74,16 @@ class AboutDialog(ctk.CTkToplevel):
 
 
 class SettingsDialog(ctk.CTkToplevel):
-    def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None]):
+    def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None],
+                 *, mobile: dict | None = None):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
-        self.geometry("440x560")
+        self.geometry("440x640")
         self.resizable(False, True)
-        self.minsize(440, 360)
+        self.minsize(440, 400)
         self._settings = settings
         self._on_save = on_save
+        self._mobile = mobile or {}
 
         # --- title (fixed at top) ---
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
@@ -138,6 +140,50 @@ class SettingsDialog(ctk.CTkToplevel):
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
         self._excluded.pack(fill="x", padx=8, pady=4)
 
+        # --- Mobile Access (Cache Vault Mobile companion) ---
+        ctk.CTkFrame(body, height=1, fg_color=("#C8D0D4", "#263038")).pack(
+            fill="x", padx=8, pady=(12, 6))
+        ctk.CTkLabel(body, text=brand.TERM_MOBILE_ACCESS,
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(
+            anchor="w", padx=8, pady=(0, 2))
+        ctk.CTkLabel(
+            body, text=f"{brand.MOBILE_PRODUCT_NAME} · {brand.MOBILE_BYLINE}\n"
+                       f"{brand.MOBILE_PROMISE}",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=10), wraplength=380,
+        ).pack(anchor="w", padx=8, pady=(0, 6))
+
+        self._mobile_on = ctk.CTkSwitch(body, text="Enable Mobile Access")
+        self._mobile_on.pack(anchor="w", padx=8, pady=4)
+        self._mobile_on.select() if settings.mobile_access_enabled else self._mobile_on.deselect()
+
+        port_row = ctk.CTkFrame(body, fg_color="transparent")
+        port_row.pack(fill="x", padx=8, pady=4)
+        ctk.CTkLabel(port_row, text="Port (default 8742):").pack(side="left")
+        self._mobile_port = ctk.CTkEntry(port_row, width=80)
+        self._mobile_port.insert(0, str(settings.mobile_access_port))
+        self._mobile_port.pack(side="right")
+
+        mob_btns = ctk.CTkFrame(body, fg_color="transparent")
+        mob_btns.pack(fill="x", padx=8, pady=6)
+        if self._mobile.get("pair"):
+            ctk.CTkButton(mob_btns, text="Pair Android Device", width=140,
+                          command=self._mobile["pair"],
+                          **theme.secondary_button()).pack(side="left", padx=(0, 6))
+        if self._mobile.get("devices"):
+            ctk.CTkButton(mob_btns, text="Paired Devices", width=120,
+                          command=self._mobile["devices"],
+                          **theme.secondary_button()).pack(side="left", padx=(0, 6))
+        if self._mobile.get("receipts"):
+            ctk.CTkButton(mob_btns, text=brand.TERM_MOBILE_ACCESS_RECEIPTS, width=160,
+                          command=self._mobile["receipts"],
+                          **theme.secondary_button()).pack(side="left")
+
+        ctk.CTkLabel(
+            body, text="Off by default. Read-only API — no delete or edit from mobile.",
+            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
+        ).pack(anchor="w", padx=8, pady=(0, 4))
+
         # --- fixed footer (never scrolls) ---
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.pack(fill="x", padx=16, pady=(0, 12))
@@ -169,6 +215,12 @@ class SettingsDialog(ctk.CTkToplevel):
             line.strip() for line in self._excluded.get("1.0", "end").splitlines()
             if line.strip()
         ]
+        self._settings.mobile_access_enabled = bool(self._mobile_on.get())
+        try:
+            self._settings.mobile_access_port = max(
+                1024, min(65535, int(self._mobile_port.get())))
+        except ValueError:
+            pass
         self._on_save(self._settings)
         self.destroy()
 
