@@ -30,6 +30,10 @@ class Settings:
     quick_paste_count: int = 12               # how many recent clips to show
     auto_paste: bool = True                   # send Ctrl+V after choosing
 
+    # Mouse wheel — match Windows Settings scroll lines (SPI_GETWHEELSCROLLLINES).
+    use_windows_scroll_settings: bool = True
+    scroll_multiplier: float = 1.0            # optional fine-tune; 1.0 = OS-equivalent
+
     start_with_windows: bool = False          # synced to the HKCU Run key
 
     # History pruning: keep at most this many live (non-deleted) clips.
@@ -65,6 +69,10 @@ class Settings:
             s.mobile_access_port = 8742
         if not isinstance(s.paired_devices, list):
             s.paired_devices = []
+        try:
+            s.scroll_multiplier = max(0.25, min(4.0, float(s.scroll_multiplier)))
+        except (TypeError, ValueError):
+            s.scroll_multiplier = 1.0
         return s
 
     def save(self, path: str | os.PathLike | None = None) -> None:

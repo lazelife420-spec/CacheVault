@@ -47,6 +47,12 @@ def main() -> int:
     if "--selftest" in sys.argv:
         return _selftest()
 
+    from cache_vault.core.settings import Settings
+    from cache_vault.ui.scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
+
+    _settings = Settings.load()
+    install_windows_scroll_patch(lambda: scroll_config_from_settings(_settings))
+
     from cache_vault.core.single_instance import claim_or_exit
     claim_or_exit()
 

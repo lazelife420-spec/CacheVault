@@ -46,6 +46,8 @@ from .toast import Toast
 from .tray import TrayController
 from . import theme
 from .crashlog import write_crash
+from .scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
+from .win_scroll import refresh_windows_scroll_cache
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
 
@@ -95,6 +97,10 @@ class CacheVaultApp(ctk.CTk):
         self._sensitive_only = False
 
         self._mobile_bridge = MobileBridge(self.vault)
+
+        install_windows_scroll_patch(
+            lambda: scroll_config_from_settings(self.vault.settings),
+        )
 
         self._build_layout()
 
@@ -1021,6 +1027,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _apply_settings(self, settings) -> None:
         settings.save()
+        refresh_windows_scroll_cache()
         self._monitor.pause() if settings.capture_paused else self._monitor.resume()
         self._rebind_hotkey(settings.quick_paste_hotkey)
         from ..core import startup

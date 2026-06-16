@@ -127,6 +127,27 @@ class SettingsDialog(ctk.CTkToplevel):
         self._auto_paste.pack(anchor="w", padx=8, pady=6)
         self._auto_paste.select() if settings.auto_paste else self._auto_paste.deselect()
 
+        section("Display")
+        self._win_scroll = ctk.CTkSwitch(
+            body, text="Use Windows scroll settings (recommended)",
+        )
+        self._win_scroll.pack(anchor="w", padx=8, pady=6)
+        if settings.use_windows_scroll_settings:
+            self._win_scroll.select()
+        ctk.CTkLabel(
+            body,
+            text="Scroll speed follows Windows mouse wheel lines.\n"
+                 "Applies to vault lists, preview, settings, and images grid.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=8, pady=(0, 4))
+        mult_row = ctk.CTkFrame(body, fg_color="transparent")
+        mult_row.pack(fill="x", padx=8, pady=(0, 4))
+        ctk.CTkLabel(mult_row, text="Scroll multiplier (1.0 = OS default):").pack(side="left")
+        self._scroll_mult = ctk.CTkEntry(mult_row, width=60)
+        self._scroll_mult.insert(0, str(settings.scroll_multiplier))
+        self._scroll_mult.pack(side="right")
+
         section("Startup")
         self._startup = ctk.CTkSwitch(body, text="Start Cache Vault with Windows")
         self._startup.pack(anchor="w", padx=8, pady=6)
@@ -227,6 +248,12 @@ class SettingsDialog(ctk.CTkToplevel):
         if hotkey:
             self._settings.quick_paste_hotkey = hotkey
         self._settings.auto_paste = bool(self._auto_paste.get())
+        self._settings.use_windows_scroll_settings = bool(self._win_scroll.get())
+        try:
+            self._settings.scroll_multiplier = max(
+                0.25, min(4.0, float(self._scroll_mult.get())))
+        except ValueError:
+            pass
         self._settings.start_with_windows = bool(self._startup.get())
         try:
             self._settings.history_max_clips = max(0, int(self._history_max.get()))
