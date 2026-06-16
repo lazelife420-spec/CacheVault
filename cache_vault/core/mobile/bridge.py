@@ -170,7 +170,11 @@ class MobileBridge:
             return 503, {"error": "mobile_access_disabled",
                          "message": "Mobile Access is disabled."}
 
-        if method != "GET":
+        allowed_post = (
+            method == "POST"
+            and family in api_mod.RECEIPT_POST_ROUTES
+        )
+        if method != "GET" and not allowed_post:
             rec = api_mod.reject_receipt(
                 path_only, action, "denied", "method_not_allowed")
             self.receipts.record(rec)
@@ -195,9 +199,15 @@ class MobileBridge:
             self.receipts.record(rec)
             return 404, {"error": "not_found"}
 
-        status, body = self._dispatch_get(
-            family, path_only, query, device)
-        clip_id = body.get("clip", {}).get("id") if isinstance(body.get("clip"), dict) else None
+        if method == "POST":
+            status, body = self._dispatch_receipt_post(
+                family, path_only, device)
+        else:
+            status, body = self._dispatch_get(
+                family, path_only, query, device)
+        clip_id = body.get("clip_id")
+        if clip_id is None and isinstance(body.get("clip"), dict):
+            clip_id = body["clip"].get("id")
         if clip_id is None and "clips" in body and len(body["clips"]) == 1:
             clip_id = body["clips"][0].get("id")
         rec = MobileAccessReceipt.make(
@@ -273,7 +283,7 @@ class MobileBridge:
             clip = self.vault.storage.get_clip(clip_id)
             if clip is None:
                 return 404, {"error": "not_found", "clip_id": clip_id}
-            return 200, {"clip": api_mod.clip_to_api(clip)}
+            return 200, {"clip": api_mod.clip_to_api(clip, full_content=True)}
 
         if family == "/mobile/v1/search":
             q = (query.get("q") or [""])[0]
@@ -295,6 +305,18 @@ class MobileBridge:
 
         return 404, {"error": "not_found"}
 
+    def _dispatch_receipt_post(self, family: str, path: str,
+                               device: PairedDevice) -> tuple[int, dict]:
+        """Log copy/share receipts without mutating vault state."""
+        m = re.match(r"^/mobile/v1/clips/([a-f0-9]+)/(copy|share)$", path)
+        if m is None:
+            return 404, {"error": "not_found"}
+        clip_id = m.group(1)
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return 404, {"error": "not_found", "clip_id": clip_id}
+        return 200, {"ok": True, "clip_id": clip_id, "action": family.split("/")[-1]}
+
     @staticmethod
     def allowed_routes() -> frozenset[str]:
-        return api_mod.READ_ONLY_ROUTES
+        return api_mod.READ_ONLY_ROUTES | api_mod.RECEIPT_POST_ROUTES

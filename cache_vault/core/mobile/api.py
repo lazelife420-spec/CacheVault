@@ -25,6 +25,14 @@ READ_ONLY_ROUTES = frozenset({
 })
 
 CLIP_ID_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)$")
+CLIP_COPY_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)/copy$")
+CLIP_SHARE_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)/share$")
+
+# Receipt-only POST routes — log mobile copy/share; never mutate the vault.
+RECEIPT_POST_ROUTES = frozenset({
+    "/mobile/v1/clips/{id}/copy",
+    "/mobile/v1/clips/{id}/share",
+})
 
 FORBIDDEN_ROUTE_PARTS = frozenset({
     "delete", "permanent", "remove", "edit", "restore", "capture", "export",
@@ -37,6 +45,10 @@ def route_family(path: str) -> str | None:
         return path
     if CLIP_ID_RE.match(path):
         return "/mobile/v1/clips/{id}"
+    if CLIP_COPY_RE.match(path):
+        return "/mobile/v1/clips/{id}/copy"
+    if CLIP_SHARE_RE.match(path):
+        return "/mobile/v1/clips/{id}/share"
     return None
 
 
@@ -45,12 +57,20 @@ def is_forbidden_route(path: str) -> bool:
     return any(part in low for part in FORBIDDEN_ROUTE_PARTS)
 
 
-def clip_to_api(clip: models.Clip) -> dict:
-    """Serialize a clip for mobile clients. Sensitive content is never exposed."""
+def clip_to_api(clip: models.Clip, *, full_content: bool = False) -> dict:
+    """Serialize a clip for mobile clients.
+
+    List/search endpoints omit sensitive full content (preview only).
+    Clip detail returns full content for paired, authorized clients.
+    """
+    if full_content:
+        content = clip.content or ""
+    else:
+        content = "" if clip.is_sensitive else (clip.content or "")
     return {
         "id": clip.id,
         "preview": clip.preview,
-        "content": "" if clip.is_sensitive else (clip.content or ""),
+        "content": content,
         "classification": clip.classification,
         "content_type": clip.content_type,
         "source_app": clip.source_app,
@@ -78,6 +98,8 @@ def action_for_route(route_family: str, method: str) -> str:
         "/mobile/v1/collections": "list_collections",
         "/mobile/v1/favorites": "list_favorites",
         "/mobile/v1/recently-removed": "list_recently_removed",
+        "/mobile/v1/clips/{id}/copy": "copy",
+        "/mobile/v1/clips/{id}/share": "share",
     }
     return mapping.get(route_family, method.lower())
 

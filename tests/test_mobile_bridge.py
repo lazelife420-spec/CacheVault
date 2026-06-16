@@ -86,14 +86,36 @@ def test_get_clip_by_id(vault, mobile_bridge):
     assert "detail" in body["clip"]["content"]
 
 
-def test_sensitive_clip_masks_content(vault, mobile_bridge):
+def test_sensitive_clip_masks_content_on_list_not_detail(vault, mobile_bridge):
     secret = vault.capture("sk-abc123DEF456ghi789JKL0")
     device, token = _pair(mobile_bridge, vault)
+    headers = _auth(device.device_id, token)
+    code, body = mobile_bridge.handle("GET", "/mobile/v1/clips", headers)
+    assert code == 200
+    listed = next(c for c in body["clips"] if c["id"] == secret.id)
+    assert listed["is_sensitive"] is True
+    assert listed["content"] == ""
     code, body = mobile_bridge.handle(
-        "GET", f"/mobile/v1/clips/{secret.id}", _auth(device.device_id, token))
+        "GET", f"/mobile/v1/clips/{secret.id}", headers)
     assert code == 200
     assert body["clip"]["is_sensitive"] is True
-    assert body["clip"]["content"] == ""
+    assert "sk-abc123" in body["clip"]["content"]
+
+
+def test_copy_share_receipt_post_does_not_mutate(vault, mobile_bridge):
+    clip = vault.capture("copy me")
+    device, token = _pair(mobile_bridge, vault)
+    headers = _auth(device.device_id, token)
+    before = len(vault.list_clips())
+    for suffix in ("copy", "share"):
+        code, body = mobile_bridge.handle(
+            "POST", f"/mobile/v1/clips/{clip.id}/{suffix}", headers)
+        assert code == 200
+        assert body["ok"] is True
+    assert len(vault.list_clips()) == before
+    actions = {r["action"] for r in mobile_bridge.receipts.recent(5)}
+    assert "copy" in actions
+    assert "share" in actions
 
 
 def test_read_only_endpoints_do_not_mutate_vault(vault, mobile_bridge):
