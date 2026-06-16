@@ -217,7 +217,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ctk.CTkLabel(card, text=preview, anchor="w", justify="left",
                      text_color=brand.MUTED_FG, wraplength=500,
                      font=ctk.CTkFont(size=10)).pack(fill="x", padx=10)
-        meta = f"{clip.source_app or 'Unknown source'} · Added {_short(clip.created_at)}"
+        meta = f"{clip_metadata.display(clip.source_app)} · Added {_short(clip.created_at)}"
         ctk.CTkLabel(card, text=meta, anchor="w", text_color=brand.MUTED_FG,
                      font=ctk.CTkFont(size=9)).pack(fill="x", padx=10, pady=(0, 4))
 

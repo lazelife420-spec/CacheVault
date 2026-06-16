@@ -68,3 +68,12 @@ def shorten_hash(value: str) -> str:
     if len(value) <= 12:
         return value or "—"
     return f"{value[:4]}…{value[-5:]}"
+
+
+def display(value: str | None, *, fallback: str = "—") -> str:
+    """Safe display for missing metadata — never show None."""
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return text if text else fallback
+

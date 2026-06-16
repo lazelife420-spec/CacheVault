@@ -181,10 +181,12 @@ def test_sensitive_masked_preview():
 def test_grid_metadata_fields():
     from cache_vault.ui.clip_grid import COLUMNS, DEFAULT_VISIBLE
     keys = {k for k, _l, _w in COLUMNS}
-    for field in ("name", "type", "added", "used", "source", "favorite", "collection"):
+    for field in ("name", "type", "added", "used", "source", "favorite"):
         assert field in keys
+    assert "collection" in keys
     assert "added" in DEFAULT_VISIBLE
     assert "used" in DEFAULT_VISIBLE
+    assert "collection" not in DEFAULT_VISIBLE
 
 
 def test_home_dashboard_module_importable():

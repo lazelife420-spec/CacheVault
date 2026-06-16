@@ -8,7 +8,7 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core.duplicates import DuplicateGroup, duplicate_label
-from ..core.models import Clip
+from ..core import clip_metadata
 from . import theme
 
 
@@ -32,12 +32,19 @@ class DuplicateReviewDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text=f"Same Clip Group — {label}",
                      font=ctk.CTkFont(size=15, weight="bold")).pack(
             anchor="w", padx=14, pady=(12, 4))
+        ctk.CTkLabel(
+            self,
+            text="Nothing is permanently deleted. Extras move to Recently Removed.",
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11),
+            anchor="w",
+        ).pack(fill="x", padx=14, pady=(0, 4))
         clips = group.clips
         summary = (
             f"First Saved: {min(c.created_at for c in clips)[:19]}\n"
             f"Last Used: {max((c.date_used or c.created_at) for c in clips)[:19]}\n"
             f"Times Copied: {sum(c.use_count for c in clips)}\n"
-            f"Source Apps: {', '.join(sorted({c.source_app or 'Unknown' for c in clips}))}\n"
+            f"Source Apps: {', '.join(sorted({clip_metadata.display(c.source_app) for c in clips}))}\n"
             f"Hash: {group.content_hash[:12]}…"
         )
         ctk.CTkLabel(self, text=summary, justify="left", anchor="w",
@@ -72,8 +79,8 @@ class DuplicateReviewDialog(ctk.CTkToplevel):
         preview = clip.preview if not clip.is_sensitive else "[masked sensitive]"
         text = (
             f"Added {clip.created_at[:19]} · Used {(clip.date_used or '—')[:19]}\n"
-            f"{clip.source_app or 'Unknown'} · {clip.source_window or '—'}\n"
-            f"Collection: {clip.collection or '—'} · "
+            f"{clip_metadata.display(clip.source_app)} · {clip_metadata.display(clip.source_window)}\n"
+            f"Collection: {clip_metadata.display(clip.collection)} · "
             f"Favorite: {'yes' if clip.is_pinned else 'no'}\n"
             f"{preview[:120]}"
         )

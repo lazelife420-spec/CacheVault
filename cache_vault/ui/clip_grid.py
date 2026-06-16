@@ -26,7 +26,7 @@ COLUMNS = [
     ("proof", "Proof", 70),
 ]
 
-DEFAULT_VISIBLE = {"name", "type", "added", "used", "source", "favorite", "collection"}
+DEFAULT_VISIBLE = {"name", "type", "added", "used", "source", "favorite"}
 
 
 class ClipGrid(ctk.CTkScrollableFrame):
@@ -62,6 +62,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 self._header, text=label, width=width, height=28,
                 fg_color="transparent", hover_color=theme.nav_hover_bg(),
                 text_color=brand.MUTED_FG, anchor="w",
+                font=ctk.CTkFont(size=11),
                 command=lambda k=key: self._sort_by(k),
             )
             btn.pack(side="left", padx=1)
@@ -99,17 +100,17 @@ class ClipGrid(ctk.CTkScrollableFrame):
     def _cell(self, parent, text: str, width: int, *, bold: bool = False) -> None:
         ctk.CTkLabel(
             parent, text=text, width=width, anchor="w",
-            font=ctk.CTkFont(size=10, weight="bold" if bold else "normal"),
-            text_color=brand.RECEIPT_WHITE if bold else brand.MUTED_FG,
-        ).pack(side="left", padx=1)
+            font=ctk.CTkFont(size=11, weight="bold" if bold else "normal"),
+            text_color=brand.PROOF_TEAL if bold else brand.MUTED_FG,
+        ).pack(side="left", padx=2)
 
     def _build_row(self, clip: Clip) -> None:
         selected = clip.id == self._selected_id
         row = ctk.CTkFrame(
-            self._rows_frame, corner_radius=4, height=28,
+            self._rows_frame, corner_radius=4, height=32,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
         )
-        row.pack(fill="x", padx=2, pady=1)
+        row.pack(fill="x", padx=2, pady=2)
 
         name = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
         if clip.is_sensitive:
@@ -125,11 +126,11 @@ class ClipGrid(ctk.CTkScrollableFrame):
             "added": _short(clip.created_at),
             "used": _short(clip.date_used or ""),
             "use_count": str(clip.use_count or 0),
-            "source": (clip.source_app or "Unknown")[:14],
-            "url": (clip.source_url or "—")[:18],
-            "window": (clip.source_window or "—")[:18],
+            "source": clip_metadata.display(clip.source_app)[:14],
+            "url": clip_metadata.display(clip.source_url)[:18],
+            "window": clip_metadata.display(clip.source_window)[:18],
             "favorite": "★" if clip.is_pinned else "",
-            "collection": (clip.collection or "—")[:12],
+            "collection": clip_metadata.display(clip.collection)[:12],
             "proof": clip_metadata.shorten_hash(clip.content_hash),
         }
         for key, _label, width in COLUMNS:

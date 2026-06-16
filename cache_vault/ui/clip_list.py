@@ -79,7 +79,7 @@ class ClipList(ctk.CTkScrollableFrame):
         ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
                      font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
 
-        src = clip.source_app or "Unknown source"
+        src = clip_metadata.display(clip.source_app)
         added = _short_time(clip.created_at)
         used = _short_time(clip.date_used or clip.updated_at)
         ctk.CTkLabel(

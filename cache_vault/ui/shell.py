@@ -75,8 +75,8 @@ class CacheVaultApp(ctk.CTk):
         super().__init__()
         self.vault = vault or Vault()
         self.title(brand.WINDOW_TITLE)
-        self.geometry("1040x660")
-        self.minsize(820, 480)
+        self.geometry("1120x700")
+        self.minsize(900, 520)
         self._apply_window_icon()
 
         self._search_var = ctk.StringVar()
@@ -168,7 +168,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _center_on_screen(self) -> None:
         self.update_idletasks()
-        w, h = 1040, 660
+        w, h = 1120, 700
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         x = max(0, (sw - w) // 2)
@@ -220,8 +220,12 @@ class CacheVaultApp(ctk.CTk):
         self._center.grid_rowconfigure(1, weight=1)
         self._center.grid_columnconfigure(0, weight=1)
 
-        self._toolbar = ctk.CTkFrame(self._center, fg_color=brand.SURFACE_BG, height=40)
+        self._toolbar = ctk.CTkFrame(self._center, fg_color=brand.SURFACE_BG)
         self._toolbar.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+        self._toolbar_row1 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
+        self._toolbar_row1.pack(fill="x", padx=2, pady=(4, 2))
+        self._toolbar_row2 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
+        self._toolbar_row2.pack(fill="x", padx=2, pady=(0, 4))
         self._build_toolbar()
 
         self._home = HomeDashboard(
@@ -269,10 +273,10 @@ class CacheVaultApp(ctk.CTk):
         self._used_var = ctk.StringVar(value="Last Used: Any")
         self._type_var = ctk.StringVar(value="All Types")
 
-        ctk.CTkLabel(self._toolbar, text="Sort:", text_color=brand.MUTED_FG,
+        ctk.CTkLabel(self._toolbar_row1, text="Sort:", text_color=brand.MUTED_FG,
                      font=ctk.CTkFont(size=10)).pack(side="left", padx=(6, 2))
         ctk.CTkOptionMenu(
-            self._toolbar, variable=self._sort_var, width=130,
+            self._toolbar_row1, variable=self._sort_var, width=130,
             values=[
                 "Newest Added", "Oldest Added", "Recently Used", "Oldest Used",
                 "Most Used", "Least Used", "Largest", "Smallest",
@@ -281,7 +285,7 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_sort_menu,
         ).pack(side="left", padx=2)
         ctk.CTkOptionMenu(
-            self._toolbar, variable=self._added_var, width=140,
+            self._toolbar_row1, variable=self._added_var, width=140,
             values=[
                 "First Saved: Any", "Today", "Yesterday", "This Week",
                 "Last 7 Days", "This Month", "Last 30 Days", "Older",
@@ -289,7 +293,7 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_added_filter,
         ).pack(side="left", padx=2)
         ctk.CTkOptionMenu(
-            self._toolbar, variable=self._used_var, width=130,
+            self._toolbar_row1, variable=self._used_var, width=130,
             values=[
                 "Last Used: Any", "Today", "Yesterday", "This Week",
                 "Last 7 Days", "This Month", "Last 30 Days", "Older",
@@ -297,7 +301,7 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_used_filter,
         ).pack(side="left", padx=2)
         ctk.CTkOptionMenu(
-            self._toolbar, variable=self._type_var, width=110,
+            self._toolbar_row1, variable=self._type_var, width=110,
             values=[
                 "All Types", "Text", "Links", "Code", "Commands",
                 "Emails", "Phone Numbers", "Files / Paths", "Screenshots / Images", "Sensitive",
@@ -306,20 +310,26 @@ class CacheVaultApp(ctk.CTk):
         ).pack(side="left", padx=2)
 
         self._cards_btn = ctk.CTkButton(
-            self._toolbar, text="Cards", width=56, height=26,
+            self._toolbar_row2, text="Cards", width=56, height=26,
             command=lambda: self._set_view_mode("cards"), **theme.primary_button(),
         )
         self._cards_btn.pack(side="right", padx=2)
         self._grid_btn = ctk.CTkButton(
-            self._toolbar, text="Grid", width=56, height=26,
+            self._toolbar_row2, text="Grid", width=56, height=26,
             command=lambda: self._set_view_mode("grid"), **theme.secondary_button(),
         )
         self._grid_btn.pack(side="right", padx=2)
         self._dup_btn = ctk.CTkButton(
-            self._toolbar, text="Review Duplicates", width=120, height=26,
+            self._toolbar_row2, text="Review Duplicates", width=140, height=26,
             command=self._open_duplicate_review, **theme.secondary_button(),
         )
         self._dup_btn.pack(side="right", padx=6)
+        ctk.CTkLabel(
+            self._toolbar_row2,
+            text="Extras go to Recently Removed — nothing is permanently deleted.",
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=10),
+        ).pack(side="left", padx=8)
 
     def _sort_label_to_key(self, label: str) -> str:
         return {

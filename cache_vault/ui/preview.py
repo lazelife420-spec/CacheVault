@@ -41,10 +41,9 @@ class PreviewPanel(ctk.CTkFrame):
                                   font=ctk.CTkFont(size=10))
         self._meta.pack(fill="x", padx=14, pady=4)
 
-        self._usage = ctk.CTkLabel(self, text="", anchor="nw", justify="left",
-                                   text_color=brand.MUTED_FG,
-                                   font=ctk.CTkFont(size=10))
+        self._usage = ctk.CTkTextbox(self, height=72, wrap="word")
         self._usage.pack(fill="x", padx=14, pady=4)
+        self._usage.configure(state="disabled")
 
         self._buttons = ctk.CTkFrame(self, fg_color="transparent")
         self._buttons.pack(fill="x", padx=10, pady=8)
@@ -65,7 +64,7 @@ class PreviewPanel(ctk.CTkFrame):
             self._subtitle.configure(text="")
             self._set_body("Select a clip to see details.")
             self._meta.configure(text="")
-            self._usage.configure(text="")
+            self._set_usage("")
             return
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
@@ -78,8 +77,14 @@ class PreviewPanel(ctk.CTkFrame):
         else:
             self._set_body(clip.content or "(empty)")
         self._meta.configure(text=self._meta_text(clip))
-        self._usage.configure(text=self._usage_text(clip))
+        self._set_usage(self._usage_text(clip))
         self._render_buttons(clip)
+
+    def _set_usage(self, text: str) -> None:
+        self._usage.configure(state="normal")
+        self._usage.delete("1.0", "end")
+        self._usage.insert("1.0", text)
+        self._usage.configure(state="disabled")
 
     def _set_body(self, text: str) -> None:
         self._body.configure(state="normal")
@@ -92,11 +97,11 @@ class PreviewPanel(ctk.CTkFrame):
             f"Added:       {clip.created_at.replace('T', ' ')[:19]}",
             f"Last used:   {(clip.date_used or clip.updated_at).replace('T', ' ')[:19]}",
             f"Use count:   {clip.use_count}",
-            f"Source app:  {clip.source_app or '—'}",
-            f"Window:      {clip.source_window or '—'}",
-            f"Source URL:  {clip.source_url or '—'}",
+            f"Source app:  {clip_metadata.display(clip.source_app)}",
+            f"Window:      {clip_metadata.display(clip.source_window)}",
+            f"Source URL:  {clip_metadata.display(clip.source_url)}",
             f"Favorite:    {'yes' if clip.is_pinned else 'no'}",
-            f"Collection:  {clip.collection or '—'}",
+            f"Collection:  {clip_metadata.display(clip.collection)}",
             f"Proof/hash:  {clip_metadata.shorten_hash(clip.content_hash)}",
             f"Safety:      {'Sensitive — masked in lists' if clip.is_sensitive else 'Standard'}",
         ]
@@ -113,9 +118,9 @@ class PreviewPanel(ctk.CTkFrame):
             f"Last Used:   {(clip.date_used or clip.updated_at).replace('T', ' ')[:19]}",
             f"Used:        {clip.use_count} times",
             f"Copied Again: {clip.copied_count}",
-            f"Source:      {clip.source_app or '—'}",
-            f"Window:      {clip.source_window or '—'}",
-            f"URL:         {clip.source_url or '—'}",
+            f"Source:      {clip_metadata.display(clip.source_app)}",
+            f"Window:      {clip_metadata.display(clip.source_window)}",
+            f"URL:         {clip_metadata.display(clip.source_url)}",
         ]
         copied = [
             e for e in self._usage_events
@@ -123,7 +128,7 @@ class PreviewPanel(ctk.CTkFrame):
         ]
         if len(copied) > 1:
             lines.append("Copied on:")
-            for ev in copied[:12]:
+            for ev in copied[:8]:
                 ts = (ev.get("created_at") or "")[:19].replace("T", " ")
                 lines.append(f"  - {ts}")
         return "\n".join(lines)
