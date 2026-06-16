@@ -80,18 +80,20 @@ class SettingsDialog(ctk.CTkToplevel):
         self.title(f"{brand.PRODUCT_NAME} — Settings")
         self.geometry("520x720")
         self.resizable(False, True)
-        self.minsize(520, 560)
+        self.minsize(520, 600)
         self._settings = settings
         self._on_save = on_save
         self._mobile = mobile or {}
 
-        # --- title (fixed at top) ---
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
-                     ).pack(anchor="w", padx=16, pady=(14, 8))
+                     ).pack(anchor="w", padx=16, pady=(14, 6))
 
-        # --- scrollable content ---
+        # Mobile Access — pinned above scroll so pairing is visible without scrolling.
+        self._mobile_section = self._build_mobile_section(settings)
+
         body = ctk.CTkScrollableFrame(self)
-        body.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        body.pack(fill="both", expand=True, padx=8, pady=(4, 4))
+        self._scroll_body = body
 
         def section(title: str) -> None:
             ctk.CTkFrame(body, height=1, fg_color=("#C8D0D4", "#263038")).pack(
@@ -147,38 +149,51 @@ class SettingsDialog(ctk.CTkToplevel):
             anchor="w", padx=8, pady=(10, 0))
         self._excluded = ctk.CTkTextbox(body, height=80)
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
-        self._excluded.pack(fill="x", padx=8, pady=4)
+        self._excluded.pack(fill="x", padx=8, pady=(4, 8))
 
-        section(brand.TERM_MOBILE_ACCESS)
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=16, pady=(0, 12))
+
+        ctk.CTkButton(footer, text="Save", command=self._save,
+                      **theme.primary_button()).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(footer, text="Cancel", command=self.destroy,
+                      **theme.secondary_button()).pack(side="right")
+
+        _bring_to_front(self, master, modal=True)
+
+    def _build_mobile_section(self, settings: Settings) -> ctk.CTkFrame:
+        card = ctk.CTkFrame(self, fg_color=brand.SURFACE_BG, corner_radius=8)
+        card.pack(fill="x", padx=12, pady=(0, 4))
+
+        ctk.CTkLabel(card, text=brand.TERM_MOBILE_ACCESS,
+                     font=ctk.CTkFont(size=13, weight="bold"),
+                     text_color=brand.PROOF_TEAL).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
-            body, text=f"{brand.MOBILE_PRODUCT_NAME} · {brand.MOBILE_BYLINE}\n"
-                       f"{brand.MOBILE_PROMISE}",
+            card,
+            text=f"{brand.MOBILE_PRODUCT_NAME} · {brand.MOBILE_BYLINE}\n"
+                 f"{brand.MOBILE_PROMISE}",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             font=ctk.CTkFont(size=11), wraplength=460,
-        ).pack(anchor="w", padx=8, pady=(0, 6))
+        ).pack(anchor="w", padx=12, pady=(0, 6))
 
-        self._mobile_on = ctk.CTkSwitch(body, text="Enable Mobile Access")
-        self._mobile_on.pack(anchor="w", padx=8, pady=4)
-        self._mobile_on.select() if settings.mobile_access_enabled else self._mobile_on.deselect()
+        self._mobile_on = ctk.CTkSwitch(card, text="Enable Mobile Access")
+        self._mobile_on.pack(anchor="w", padx=12, pady=4)
+        if settings.mobile_access_enabled:
+            self._mobile_on.select()
 
-        port_row = ctk.CTkFrame(body, fg_color="transparent")
-        port_row.pack(fill="x", padx=8, pady=4)
+        port_row = ctk.CTkFrame(card, fg_color="transparent")
+        port_row.pack(fill="x", padx=12, pady=4)
         ctk.CTkLabel(port_row, text="Port:").pack(side="left")
         self._mobile_port = ctk.CTkEntry(port_row, width=80)
         self._mobile_port.insert(0, str(settings.mobile_access_port))
         self._mobile_port.pack(side="left", padx=(8, 0))
 
-        mob_btns = ctk.CTkFrame(body, fg_color="transparent")
-        mob_btns.pack(fill="x", padx=8, pady=8)
-        pending_pair = (
-            lambda: self._mobile["pair"](bool(self._mobile_on.get()))
-            if callable(self._mobile.get("pair"))
-            else None
-        )
+        mob_btns = ctk.CTkFrame(card, fg_color="transparent")
+        mob_btns.pack(fill="x", padx=12, pady=(4, 4))
         if self._mobile.get("pair"):
             ctk.CTkButton(
                 mob_btns, text="Pair Android Device",
-                command=pending_pair,
+                command=lambda: self._mobile["pair"](bool(self._mobile_on.get())),
                 **theme.secondary_button(),
             ).pack(fill="x", pady=3)
         if self._mobile.get("devices"):
@@ -195,20 +210,11 @@ class SettingsDialog(ctk.CTkToplevel):
             ).pack(fill="x", pady=3)
 
         ctk.CTkLabel(
-            body, text="Off by default. Read-only API — no delete or edit from mobile.",
+            card,
+            text="Off by default. Read-only API — no delete or edit from mobile.",
             anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
-        ).pack(anchor="w", padx=8, pady=(0, 4))
-
-        # --- fixed footer (never scrolls) ---
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=16, pady=(0, 12))
-
-        ctk.CTkButton(footer, text="Save", command=self._save,
-                      **theme.primary_button()).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(footer, text="Cancel", command=self.destroy,
-                      **theme.secondary_button()).pack(side="right")
-
-        _bring_to_front(self, master, modal=True)
+        ).pack(anchor="w", padx=12, pady=(0, 10))
+        return card
 
     def _save(self) -> None:
         self._settings.capture_paused = bool(self._pause.get())

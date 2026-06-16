@@ -69,8 +69,8 @@ class TestSettingsDialog:
         assert dialog._min_width == 520, (
             f"expected min width 520, got {dialog._min_width}"
         )
-        assert dialog._min_height == 560, (
-            f"expected min height 560, got {dialog._min_height}"
+        assert dialog._min_height == 600, (
+            f"expected min height 600, got {dialog._min_height}"
         )
 
         dialog.destroy()
@@ -122,6 +122,131 @@ class TestSettingsDialog:
         assert _find_scrollable(dialog), (
             "Settings dialog must contain a CTkScrollableFrame for content"
         )
+
+        dialog.destroy()
+        root.destroy()
+
+    def test_mobile_section_pinned_before_history(self):
+        """Mobile Access must sit above the scroll area, before History."""
+        from cache_vault.core.settings import Settings
+        from cache_vault.ui.dialogs import SettingsDialog
+
+        root = ctk.CTk()
+        dialog = SettingsDialog(
+            root, Settings(), on_save=lambda s: None,
+            mobile={"pair": lambda on: None, "devices": lambda: None,
+                    "receipts": lambda: None},
+        )
+        dialog.update_idletasks()
+
+        assert hasattr(dialog, "_mobile_section"), "expected pinned Mobile Access card"
+        assert dialog._mobile_section.master is dialog
+
+        def _toplevel_owner(widget):
+            parent = widget
+            while parent.master is not dialog and parent.master is not None:
+                parent = parent.master
+            return parent
+
+        scroll_owner = _toplevel_owner(dialog._scroll_body)
+        assert scroll_owner.master is dialog
+
+        children = list(dialog.winfo_children())
+        mobile_idx = children.index(dialog._mobile_section)
+        scroll_idx = children.index(scroll_owner)
+        assert mobile_idx < scroll_idx, (
+            "Mobile Access card must appear before the scrollable body"
+        )
+
+        def _labels_in(widget):
+            texts = []
+            for child in widget.winfo_children():
+                if isinstance(child, ctk.CTkLabel):
+                    texts.append(child.cget("text"))
+                texts.extend(_labels_in(child))
+            return texts
+
+        scroll_labels = _labels_in(dialog._scroll_body)
+        assert "History" in scroll_labels
+        assert "Mobile Access" not in scroll_labels, (
+            "Mobile Access must not live inside the scrollable History section"
+        )
+
+        dialog.destroy()
+        root.destroy()
+
+    def test_mobile_buttons_present_when_wired(self):
+        """Pairing controls must be visible in the pinned Mobile Access card."""
+        from cache_vault import brand
+        from cache_vault.core.settings import Settings
+        from cache_vault.ui.dialogs import SettingsDialog
+
+        root = ctk.CTk()
+        dialog = SettingsDialog(
+            root, Settings(), on_save=lambda s: None,
+            mobile={"pair": lambda on: None, "devices": lambda: None,
+                    "receipts": lambda: None},
+        )
+        dialog.update_idletasks()
+
+        def _button_texts(widget):
+            texts = []
+            for child in widget.winfo_children():
+                if isinstance(child, ctk.CTkButton):
+                    texts.append(child.cget("text"))
+                texts.extend(_button_texts(child))
+            return texts
+
+        mobile_buttons = set(_button_texts(dialog._mobile_section))
+        assert mobile_buttons == {
+            "Pair Android Device",
+            "Paired Devices",
+            brand.TERM_MOBILE_ACCESS_RECEIPTS,
+        }
+
+        dialog.destroy()
+        root.destroy()
+
+    def test_mobile_access_off_by_default(self):
+        """Enable Mobile Access must start unchecked."""
+        from cache_vault.core.settings import Settings
+        from cache_vault.ui.dialogs import SettingsDialog
+
+        root = ctk.CTk()
+        dialog = SettingsDialog(root, Settings(), on_save=lambda s: None)
+
+        assert dialog._mobile_on.get() == 0
+
+        dialog.destroy()
+        root.destroy()
+
+    def test_pair_android_button_invokes_callback(self):
+        """Pair Android Device must call the supplied pair callback."""
+        from cache_vault.core.settings import Settings
+        from cache_vault.ui.dialogs import SettingsDialog
+
+        root = ctk.CTk()
+        calls: list[bool] = []
+
+        dialog = SettingsDialog(
+            root, Settings(), on_save=lambda s: None,
+            mobile={"pair": lambda on: calls.append(on)},
+        )
+        dialog.update_idletasks()
+
+        def _find_pair_button(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, ctk.CTkButton) and child.cget("text") == "Pair Android Device":
+                    return child
+                found = _find_pair_button(child)
+                if found is not None:
+                    return found
+            return None
+
+        pair_btn = _find_pair_button(dialog._mobile_section)
+        assert pair_btn is not None
+        pair_btn.invoke()
+        assert calls == [False]
 
         dialog.destroy()
         root.destroy()
