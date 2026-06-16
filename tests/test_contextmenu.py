@@ -40,6 +40,7 @@ def test_path_clip_exposes_open_and_reveal(tmp_path):
     assert "open" in by_key and "reveal" in by_key
     assert by_key["open"].enabled is True
     assert by_key["reveal"].enabled is True
+    assert by_key["open"].label == "Open Editable Copy"
 
 
 def test_missing_path_disables_open_but_reveal_if_parent_exists(tmp_path):

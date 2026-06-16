@@ -48,7 +48,9 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
     if pathutil.is_local_path(clip.content):
         exists = pathutil.target_exists(clip.content)
         parent = pathutil.parent_exists(clip.content)
-        items.append(MenuItem("open", "Open", enabled=exists,
+        is_file = pathutil.is_local_file(clip.content)
+        open_label = "Open Editable Copy" if is_file else "Open Folder"
+        items.append(MenuItem("open", open_label, enabled=exists,
                               separator_before=True))
         items.append(MenuItem("reveal", "Reveal in Explorer",
                               enabled=exists or parent))

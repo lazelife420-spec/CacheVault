@@ -540,6 +540,11 @@ class CacheVaultApp(ctk.CTk):
             "asset_meta": asset_meta,
             "save_asset_as": self._save_asset_as,
             "open_asset_folder": open_asset_folder,
+            "latest_editable_copy": self.vault.latest_editable_copy,
+            "create_editable_copy": self._create_editable_copy,
+            "open_editable_copy": self._open_editable_copy,
+            "save_editable_revision": self._save_editable_revision,
+            "reveal_editable_copy_folder": self._reveal_editable_copy_folder,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -772,8 +777,35 @@ class CacheVaultApp(ctk.CTk):
     def _open_clip_path(self, clip_id: str) -> None:
         from ..core import pathutil
         clip = self.vault.storage.get_clip(clip_id)
-        if clip:
+        if clip is None:
+            return
+        if pathutil.is_local_file(clip.content):
+            self._open_editable_copy(clip_id)
+        else:
             pathutil.open_path(clip.content)
+
+    def _create_editable_copy(self, clip_id: str) -> None:
+        self.vault.create_editable_copy(clip_id)
+        self._refresh_editable_preview(clip_id)
+
+    def _open_editable_copy(self, clip_id: str) -> None:
+        self.vault.open_editable_copy(clip_id)
+        self._refresh_editable_preview(clip_id)
+
+    def _save_editable_revision(self, clip_id: str) -> None:
+        self.vault.save_editable_revision(clip_id)
+        self._refresh_editable_preview(clip_id)
+
+    def _reveal_editable_copy_folder(self, clip_id: str) -> None:
+        from ..core import pathutil
+        rec = self.vault.latest_editable_copy(clip_id)
+        if rec is not None:
+            pathutil.reveal_in_explorer(rec.copy_path)
+
+    def _refresh_editable_preview(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is not None:
+            self._preview.show(clip)
 
     def _reveal_clip_path(self, clip_id: str) -> None:
         from ..core import pathutil

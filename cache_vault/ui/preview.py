@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import webbrowser
 from io import BytesIO
 from typing import Callable
@@ -357,7 +356,30 @@ class PreviewPanel(ctk.CTkFrame):
         if clip.classification == models.CLASS_LINK:
             add("Open Link", "open_link", **theme.secondary_button())
         if clip.classification == models.CLASS_PATH:
-            add("Open File Location", "open_path", **theme.secondary_button())
+            from ..core import pathutil
+            if pathutil.is_local_file(clip.content):
+                section("Editable Copy")
+                add("Open Editable Copy", "open_editable_copy",
+                    **theme.primary_button())
+                has_copy = bool(self._actions.get("latest_editable_copy", lambda _cid: None)(clip.id))
+                if not has_copy:
+                    add("Create Editable Copy", "create_editable_copy",
+                        **theme.secondary_button())
+                else:
+                    add("Save Revision", "save_editable_revision",
+                        **theme.secondary_button())
+                    add("Reveal Copy Folder", "reveal_editable_copy_folder",
+                        **theme.secondary_button())
+                section("Original")
+                add("Show Original in Explorer", "show_original_path",
+                    **theme.secondary_button())
+            elif pathutil.target_exists(clip.content):
+                add("Open Folder", "open_folder", **theme.secondary_button())
+                add("Show in Explorer", "show_original_path",
+                    **theme.secondary_button())
+            else:
+                add("Show in Explorer", "show_original_path",
+                    **theme.secondary_button())
 
         section("Organize")
         add("Remove from Favorites" if clip.is_pinned else "Add to Favorites",
@@ -379,22 +401,15 @@ class PreviewPanel(ctk.CTkFrame):
         if key == "open_link":
             webbrowser.open(clip.content.strip())
             return
-        if key == "open_path":
-            _open_path_location(clip)
+        if key == "open_folder":
+            from ..core import pathutil
+            pathutil.open_path(clip.content)
+            return
+        if key == "show_original_path":
+            from ..core import pathutil
+            pathutil.reveal_in_explorer(clip.content)
             return
         handler = self._actions.get(key)
         if handler:
             handler(clip.id)
 
-
-def _open_path_location(clip: Clip) -> None:
-    path = clip.content.strip().strip('"')
-    if not os.path.exists(path):
-        return
-    try:
-        if os.path.isdir(path):
-            os.startfile(path)  # type: ignore[attr-defined]
-        else:
-            subprocess.run(["explorer", "/select,", path], check=False)
-    except Exception:  # noqa: BLE001
-        pass

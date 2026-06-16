@@ -178,6 +178,8 @@ class VaultStorage:
             "UPDATE clips SET use_count = 1 "
             "WHERE (use_count IS NULL OR use_count = 0) AND deleted_at IS NULL"
         )
+        from .editable_copies import EditableCopyStore
+        EditableCopyStore(self.conn).ensure_schema()
 
     def close(self) -> None:
         self.conn.close()

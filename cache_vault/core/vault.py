@@ -277,6 +277,89 @@ class Vault:
             },
         )
 
+    # --- editable copies (originals immutable) -----------------------------
+    def _editable_store(self):
+        from .editable_copies import EditableCopyStore
+        return EditableCopyStore(self.storage.conn)
+
+    def latest_editable_copy(self, clip_id: str):
+        return self._editable_store().latest_for_clip(clip_id)
+
+    def create_editable_copy(self, clip_id: str):
+        import os
+
+        from .editable_copies import (
+            EditableCopyRecord,
+            file_sha256,
+            is_local_file_path,
+            write_file_receipt,
+        )
+        from .pathutil import clean_path
+
+        clip = self.storage.get_clip(clip_id)
+        if clip is None or not is_local_file_path(clip.content):
+            return None
+        original = clean_path(clip.content)
+        before_hash = file_sha256(original)
+        try:
+            rec: EditableCopyRecord = self._editable_store().create_copy(clip_id, original)
+        except (FileNotFoundError, FileExistsError, OSError):
+            return None
+        after_orig = file_sha256(original)
+        if after_orig != before_hash:
+            return None
+        details = {
+            "original_path": original,
+            "copy_path": rec.copy_path,
+            "revision": rec.revision,
+            "size_bytes": os.path.getsize(rec.copy_path),
+            "hash_before": before_hash,
+            "hash_after": rec.copy_hash,
+        }
+        self.events.record(models.EVENT_EDITABLE_COPY_CREATED, clip_id, details)
+        write_file_receipt(
+            "editable_copy_created",
+            {"clip_id": clip_id, "timestamp": rec.created_at, **details},
+        )
+        return rec
+
+    def save_editable_revision(self, clip_id: str):
+        from .editable_copies import write_file_receipt
+
+        rec = self._editable_store().save_revision(clip_id)
+        if rec is None:
+            return None
+        previous_hash = getattr(rec, "_previous_hash", "")
+        details = {
+            "revision": rec.revision,
+            "copy_path": rec.copy_path,
+            "previous_hash": previous_hash,
+            "new_hash": rec.copy_hash,
+        }
+        self.events.record(models.EVENT_EDITABLE_COPY_SAVED, clip_id, details)
+        write_file_receipt(
+            "editable_copy_saved",
+            {"clip_id": clip_id, "timestamp": rec.updated_at, **details},
+        )
+        return rec
+
+    def open_editable_copy(self, clip_id: str) -> bool:
+        from .editable_copies import open_copy_path
+
+        rec = self.latest_editable_copy(clip_id)
+        if rec is None:
+            rec = self.create_editable_copy(clip_id)
+        if rec is None:
+            return False
+        return open_copy_path(rec.copy_path)
+
+    def delete_editable_copy(self, clip_id: str) -> bool:
+        rec = self.latest_editable_copy(clip_id)
+        if rec is None:
+            return False
+        deleted = self._editable_store().delete_copy_record(rec.id)
+        return deleted is not None
+
     def clear_sensitive(self) -> int:
         ids = self.storage.clear_sensitive()
         for cid in ids:

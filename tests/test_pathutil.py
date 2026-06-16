@@ -36,3 +36,22 @@ def test_open_and_reveal_refuse_non_paths():
     assert pathutil.open_path("https://example.com") is False
     assert pathutil.open_path("plain text") is False
     assert pathutil.reveal_in_explorer("https://example.com") is False
+
+
+def test_open_path_refuses_files(tmp_path):
+    f = tmp_path / "file.txt"
+    f.write_text("x", encoding="utf-8")
+    assert pathutil.open_path(str(f)) is False
+
+
+def test_open_path_opens_folders(tmp_path, monkeypatch):
+    d = tmp_path / "folder"
+    d.mkdir()
+    called = {}
+
+    def fake_startfile(path):
+        called["path"] = path
+
+    monkeypatch.setattr(pathutil.os, "startfile", fake_startfile)
+    assert pathutil.open_path(str(d)) is True
+    assert called["path"] == str(d)

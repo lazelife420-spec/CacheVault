@@ -48,15 +48,24 @@ def parent_exists(text: str) -> bool:
     return bool(parent) and os.path.isdir(parent)
 
 
-def open_path(text: str) -> bool:
-    """Open a local file/folder with the OS default handler. No URLs, no shell.
+def is_local_file(text: str) -> bool:
+    """True for an existing local file (not a directory)."""
+    if not is_local_path(text):
+        return False
+    return os.path.isfile(clean_path(text))
 
-    Returns True if the open was attempted. Refuses anything that is not a
-    clearly local, existing path.
+
+def open_path(text: str) -> bool:
+    """Open a local folder with the OS default handler.
+
+    Files are not opened here — use the editable-copy flow so originals stay
+    immutable. Returns True if the open was attempted.
     """
     if not target_exists(text):
         return False
     path = clean_path(text)
+    if not os.path.isdir(path):
+        return False
     try:
         os.startfile(path)  # type: ignore[attr-defined]  # Windows-only
         return True

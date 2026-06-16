@@ -16,7 +16,7 @@
 |-------|--------|--------|
 | **1** | Windows scroll behavior | **Done** — `win_scroll.py`, `scroll_patch.py`, settings |
 | **2** | Paste-from-selection UX | **Done** — focus capture, deliver Ctrl+V, receipts, image paste, restore setting |
-| 3 | Immutable originals + editable copies | Planned |
+| **3** | Immutable originals + editable copies | **Done** — `editable_copies.py`, vault API, preview/context menu, receipts |
 | 4 | Local HTML bundle support | Planned |
 | 5 | Receipts, manifest, export zip | Partial — export exists; receipt model expansion planned |
 | 6 | Smart folders, tags, notes, search | Planned |
@@ -30,6 +30,22 @@
 - Patches `CTkScrollableFrame` and `CTkTextbox` wheel handlers at startup.
 - Settings → Display → **Use Windows scroll settings** (default on).
 - Optional multiplier default `1.0`.
+
+## Phase 2 — paste picker
+
+- Captures foreground window before quick-paste picker opens.
+- Delivers Ctrl+V to the prior target (not Cache Vault itself).
+- Settings for immediate paste and optional clipboard restore (text only).
+- Events: `item_pasted` with delivery receipt metadata.
+
+## Phase 3 — editable copies
+
+- Local files referenced by path clips are never opened for in-place edit.
+- `EditableCopyStore` keeps working copies under `%LOCALAPPDATA%/CacheVault/EditableCopies/`.
+- Revision files: `{stem}.copy.{revision:03d}{suffix}`; originals are never modified.
+- Preview + context menu: Open Editable Copy, Create, Save Revision, Show Original, Reveal Copy Folder.
+- File receipts under `%LOCALAPPDATA%/CacheVault/Receipts/YYYY-MM-DD/`.
+- Events: `editable_copy_created`, `editable_copy_saved`.
 
 ## Core rules (all phases)
 
