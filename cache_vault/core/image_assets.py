@@ -38,9 +38,18 @@ def dib_to_png(dib: bytes) -> tuple[bytes, int, int]:
     if len(dib) < 40:
         raise ValueError("DIB too small")
     header_size = struct.unpack_from("<I", dib, 0)[0]
-    extra = len(dib) - header_size - 4
-    offset = 14 + header_size + extra
-    bmp = b"BM" + struct.pack("<IHHI", len(dib) + 14, 0, 0, offset) + dib
+    if header_size < 40 or header_size > len(dib):
+        raise ValueError("invalid DIB header size")
+    bpp = struct.unpack_from("<H", dib, 14)[0]
+    n_colors = struct.unpack_from("<I", dib, 32)[0]
+    if bpp <= 8:
+        if n_colors == 0:
+            n_colors = 2 ** bpp
+    else:
+        n_colors = 0
+    pixel_offset = header_size + n_colors * 4
+    file_offset = 14 + pixel_offset
+    bmp = b"BM" + struct.pack("<IHHI", len(dib) + 14, 0, 0, file_offset) + dib
     with Image.open(BytesIO(bmp)) as img:
         rgb = img.convert("RGBA")
         out = BytesIO()

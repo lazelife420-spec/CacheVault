@@ -178,6 +178,15 @@ def test_png_dimensions_helper(assets_home):
     assert image_assets.png_dimensions(png) == (12, 10)
 
 
+def test_png_to_dib_roundtrip(assets_home):
+    png = _make_png(37, 29, "teal")
+    dib = image_assets.png_to_dib(png)
+    back, w, h = image_assets.dib_to_png(dib)
+    assert (w, h) == (37, 29)
+    with Image.open(BytesIO(png)) as a, Image.open(BytesIO(back)) as b:
+        assert list(a.convert("RGBA").getdata()) == list(b.getdata())
+
+
 def test_copied_again_image_returns_bytes(vault, assets_home):
     png = _make_png(6, 6)
     clip = vault.capture_image(png, width=6, height=6)
