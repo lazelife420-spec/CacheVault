@@ -10,6 +10,29 @@ from ..core import startup
 from ..core.settings import Settings
 
 
+def _bring_to_front(win: ctk.CTkToplevel, master, *, modal: bool) -> None:
+    """Raise a CustomTkinter toplevel above its parent and focus it.
+
+    CTkToplevel defers its window draw (a withdraw/deiconify cycle), so an
+    immediate lift() gets overridden and the dialog can appear *behind* the
+    main window. Tying it to the parent with transient() and lifting/focusing
+    after that cycle fixes the z-order; ``modal`` also grabs input.
+    """
+    win.transient(master)
+
+    def _raise() -> None:
+        try:
+            win.deiconify()
+            win.lift()
+            win.focus_force()
+            if modal:
+                win.grab_set()
+        except Exception:  # noqa: BLE001 - window may have closed
+            pass
+
+    win.after(200, _raise)
+
+
 class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None]):
         super().__init__(master)
@@ -72,6 +95,8 @@ class SettingsDialog(ctk.CTkToplevel):
         ctk.CTkButton(footer, text="Cancel", command=self.destroy
                       ).pack(side="right")
 
+        _bring_to_front(self, master, modal=True)
+
     def _save(self) -> None:
         self._settings.capture_paused = bool(self._pause.get())
         self._settings.sensitive_expiry_enabled = bool(self._sens.get())
@@ -108,3 +133,5 @@ class EventLogDialog(ctk.CTkToplevel):
             ts = e["created_at"].replace("T", " ")[:19]
             box.insert("end", f"{ts}  {e['event_type']:<20} {e['clip_id'] or ''}\n")
         box.configure(state="disabled")
+
+        _bring_to_front(self, master, modal=False)
