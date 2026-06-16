@@ -12,6 +12,7 @@ import com.prooffoundry.cachevaultmobile.data.ClipFeed
 import com.prooffoundry.cachevaultmobile.data.ClipSummary
 import com.prooffoundry.cachevaultmobile.data.PairingConfig
 import com.prooffoundry.cachevaultmobile.data.PairingStore
+import com.prooffoundry.cachevaultmobile.data.UserMessages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -199,12 +200,7 @@ class AppViewModel(
         }
     }
 
-    private fun Throwable.toUserMessage(): String = when (this) {
-        is BridgeError.Disabled -> message ?: "Mobile Access is disabled."
-        is BridgeError.Unauthorized -> message ?: "Pairing required."
-        is BridgeError.Network -> "Cannot reach PC bridge. Check host, port, and Wi‑Fi."
-        is BridgeError.NotFound -> "Not found on PC."
-        is BridgeError -> message ?: "Bridge error."
-        else -> message ?: "Unexpected error."
-    }
+    private fun Throwable.toUserMessage(): String =
+        if (this is BridgeError) UserMessages.forBridgeError(this)
+        else message ?: UserMessages.PC_UNREACHABLE
 }

@@ -64,6 +64,16 @@ def test_unpaired_request_rejected(vault, mobile_bridge):
     assert rec["reason"]
 
 
+def test_status_includes_mobile_api_version(vault, mobile_bridge):
+    device, token = _pair(mobile_bridge, vault)
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 200
+    assert body["mobile_api_version"] == "1"
+    assert body["read_only"] is True
+    assert "token" not in json.dumps(body).lower()
+
+
 def test_paired_read_only_list_clips(vault, mobile_bridge):
     vault.capture("hello mobile")
     device, token = _pair(mobile_bridge, vault)

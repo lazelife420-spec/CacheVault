@@ -36,8 +36,9 @@ class BridgeClientTest {
             MockResponse().setBody(
                 """
                 {
-                  "product": "Cache Vault Mobile",
+                  "product": "Cache Vault",
                   "byline": "A Proof Foundry companion app",
+                  "mobile_api_version": "1",
                   "mobile_access_enabled": true,
                   "cache_vault_version": "0.1.2",
                   "device_id": "dev-1",
@@ -47,7 +48,8 @@ class BridgeClientTest {
             ),
         )
         val status = client.status()
-        assertEquals("Cache Vault Mobile", status.product)
+        assertEquals("Cache Vault", status.product)
+        assertEquals("1", status.mobileApiVersion)
         assertTrue(status.readOnly)
         val request = server.takeRequest()
         assertEquals("dev-1", request.getHeader("X-Device-Id"))

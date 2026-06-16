@@ -92,5 +92,47 @@ Requires Android SDK, JDK 17+, and phone on same Wi‑Fi as PC.
 
 ## After smoke PASS
 
-1. Merge `android/cache-vault-mobile-mvp`
+1. Merge `android/cache-vault-mobile-mvp` (or current feature branch)
 2. Then start `feature/cache-vault-mobile-qr-pairing` (not before)
+
+## Guardrails (Proof Foundry)
+
+- **No cloud sync.** Local-first companion only.
+- **No background clipboard monitoring.** No camera permission until QR scan ships.
+- **No destructive mobile actions** (delete, edit, restore, prune).
+- **Plain-language errors** — see `UserMessages` in app source.
+- **Logging:** never log clip content, tokens, or bearer headers.
+- Full policy: [docs/MOBILE_THREAT_MODEL.md](../docs/MOBILE_THREAT_MODEL.md)
+
+## LAN / firewall checklist
+
+- [ ] Phone and PC on the **same Wi‑Fi** (not guest / isolated VLAN)
+- [ ] Use PC **LAN IP** from `ipconfig` — **not** `localhost` or `127.0.0.1`
+- [ ] Mobile Access **enabled** on PC
+- [ ] Port **8742** allowed on Windows Firewall (private networks)
+- [ ] Device **not revoked** on PC
+- [ ] `pip install zeroconf` on PC if using **Find PC on this Wi‑Fi**
+
+## Android offline / error states
+
+| State | User sees |
+|-------|-----------|
+| Not paired | Welcome / Connect to My PC |
+| PC offline | Cannot reach your PC… |
+| Bridge disabled | Mobile Access is off… |
+| Auth failed | Pairing failed… |
+| Revoked | Device revoked… |
+| Connected | Home + Paired · Active in Settings |
+
+MVP does not cache vault content offline.
+
+## Permissions policy
+
+| Permission | When requested |
+|------------|----------------|
+| Internet | Always (bridge) |
+| Wi‑Fi multicast | LAN discovery |
+| Camera | **Only** when QR scanner is implemented |
+| Storage | **Only** for explicit Save to Phone when required |
+
+No permissions requested "just in case."

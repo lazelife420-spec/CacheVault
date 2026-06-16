@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
+import com.prooffoundry.cachevaultmobile.data.UserMessages
 import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,15 +52,18 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.promise), color = StampGold)
-            Text("Connected PC host: $host")
+            Text("Status: Paired · Active", style = MaterialTheme.typography.labelLarge)
+            Text("Connected PC: $host")
             status?.let {
                 Text("Bridge: ${it.product}")
+                Text("API version: ${it.mobileApiVersion}")
                 Text("Vault version: ${it.cacheVaultVersion}")
                 Text("Device id: ${it.deviceId}")
                 Text(if (it.readOnly) "Read-only companion" else "Read-only expected")
             }
             Text(
-                "Disconnect clears pairing secrets from this phone. Re-pair from desktop Mobile Access.",
+                "Disconnect removes pairing secrets from this phone only. " +
+                    "Revoke on the PC to block this device entirely.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Button(

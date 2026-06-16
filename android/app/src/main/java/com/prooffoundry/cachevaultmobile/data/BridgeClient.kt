@@ -17,7 +17,16 @@ class BridgeClient(
         .add(KotlinJsonAdapterFactory())
         .build()
 
-    fun status(): BridgeStatus = get("/mobile/v1/status", StatusJson::class.java).toModel()
+    fun status(): BridgeStatus {
+        val status = get("/mobile/v1/status", StatusJson::class.java).toModel()
+        if (status.mobileApiVersion != UserMessages.SUPPORTED_API_VERSION) {
+            throw BridgeError.UnsupportedApi(status.mobileApiVersion)
+        }
+        if (!status.mobileAccessEnabled) {
+            throw BridgeError.Disabled()
+        }
+        return status
+    }
 
     fun listClips(): ClipListResponse =
         get("/mobile/v1/clips", ClipListJson::class.java).toModel()
@@ -117,13 +126,15 @@ class BridgeClient(
     private data class StatusJson(
         val product: String,
         val byline: String,
+        @Json(name = "mobile_api_version") val mobileApiVersion: String = "1",
         @Json(name = "mobile_access_enabled") val mobileAccessEnabled: Boolean,
         @Json(name = "cache_vault_version") val cacheVaultVersion: String,
         @Json(name = "device_id") val deviceId: String,
         @Json(name = "read_only") val readOnly: Boolean,
     ) {
         fun toModel() = BridgeStatus(
-            product, byline, mobileAccessEnabled, cacheVaultVersion, deviceId, readOnly,
+            product, byline, mobileApiVersion, mobileAccessEnabled,
+            cacheVaultVersion, deviceId, readOnly,
         )
     }
 

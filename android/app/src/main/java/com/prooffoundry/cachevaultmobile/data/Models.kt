@@ -11,6 +11,7 @@ data class PairingConfig(
 data class BridgeStatus(
     val product: String,
     val byline: String,
+    val mobileApiVersion: String,
     val mobileAccessEnabled: Boolean,
     val cacheVaultVersion: String,
     val deviceId: String,
@@ -65,4 +66,6 @@ sealed class BridgeError(message: String) : Exception(message) {
     class NotFound : BridgeError("Not found.")
     class Network(cause: Throwable) : BridgeError(cause.message ?: "Network error")
     class Unknown(code: Int, body: String) : BridgeError("HTTP $code: $body")
+    class UnsupportedApi(version: String) :
+        BridgeError("Unsupported mobile API version: $version")
 }

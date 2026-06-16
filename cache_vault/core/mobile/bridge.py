@@ -16,6 +16,7 @@ from . import api as api_mod
 from .models import (
     DEFAULT_BIND_HOST,
     DEFAULT_MOBILE_PORT,
+    MOBILE_API_VERSION,
     MobileAccessReceipt,
     PairedDevice,
     hash_token,
@@ -271,8 +272,9 @@ class MobileBridge:
 
         if family == "/mobile/v1/status":
             return 200, {
-                "product": "Cache Vault Mobile",
+                "product": "Cache Vault",
                 "byline": "A Proof Foundry companion app",
+                "mobile_api_version": MOBILE_API_VERSION,
                 "mobile_access_enabled": True,
                 "cache_vault_version": __version__,
                 "device_id": device.device_id,

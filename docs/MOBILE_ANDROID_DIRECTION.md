@@ -13,7 +13,15 @@
 | **Byline** | A Proof Foundry companion app |
 | **Desktop product** | Cache Vault™ (source of truth) |
 | **Studio** | The Proof Foundry™ |
-| **Promise** | Access your saved clips. Keep the receipt. |
+| **Promise** | Saved on your PC. Ready on your phone. Keep the receipt. |
+
+## Related docs
+
+| Document | Scope |
+|----------|-------|
+| [MOBILE_API_CONTRACT.md](MOBILE_API_CONTRACT.md) | Endpoint contract, auth, mutation rules |
+| [MOBILE_THREAT_MODEL.md](MOBILE_THREAT_MODEL.md) | Threats, mitigations, permissions, logging |
+| [../android/README.md](../android/README.md) | Build, smoke gate, LAN/firewall help |
 
 ## Positioning
 

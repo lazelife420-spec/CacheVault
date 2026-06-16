@@ -12,6 +12,9 @@ from .. import models
 # Default LAN port for the read-only mobile API (documented in settings UI).
 DEFAULT_MOBILE_PORT = 8742
 
+# Mobile bridge API version (see docs/MOBILE_API_CONTRACT.md).
+MOBILE_API_VERSION = "1"
+
 # When Mobile Access is enabled and bind host is empty, listen on all interfaces.
 DEFAULT_BIND_HOST = "0.0.0.0"
 
@@ -33,6 +36,8 @@ class PairedDevice:
     token_hash: str
     last_seen_at: str | None = None
     revoked_at: str | None = None
+    app_version: str | None = None
+    platform: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -50,6 +55,8 @@ class PairedDevice:
             token_hash=data["token_hash"],
             last_seen_at=data.get("last_seen_at"),
             revoked_at=data.get("revoked_at"),
+            app_version=data.get("app_version"),
+            platform=data.get("platform"),
         )
 
 
