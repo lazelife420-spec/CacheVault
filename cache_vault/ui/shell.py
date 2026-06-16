@@ -60,11 +60,13 @@ class CacheVaultApp(ctk.CTk):
             on_resume=lambda: self.after(0, lambda: self._set_paused(False)),
             on_clear_sensitive=lambda: self.after(0, self._clear_sensitive),
             on_quit=lambda: self.after(0, self._quit),
+            on_quick_paste=lambda: self.after(0, self._open_quick_paste),
         )
         self._tray.start()
 
         # Global quick-paste hotkey (default Ctrl+Shift+V).
         self._paste_target = None
+        self._quick_paste = None
         self._hotkey = HotkeyListener(
             self.vault.settings.quick_paste_hotkey,
             on_activate=lambda: self.after(0, self._open_quick_paste),
@@ -247,11 +249,18 @@ class CacheVaultApp(ctk.CTk):
 
     # --- quick paste (global hotkey) ---------------------------------------
     def _open_quick_paste(self) -> None:
+        # If a popup is already up (hotkey pressed twice), just refocus it.
+        existing = getattr(self, "_quick_paste", None)
+        if existing is not None and existing.winfo_exists():
+            existing.focus_popup()
+            return
         # Remember the app the user was in so we can paste back into it.
         self._paste_target = foreground_window()
         self.vault.run_expiry_sweep()  # don't offer secrets that should be gone
-        clips = self.vault.list_clips()[: self.vault.settings.quick_paste_count]
-        QuickPaste(self, clips, on_choose=self._do_paste)
+        # Recent clipboard history, strictly newest-first.
+        clips = sorted(self.vault.list_clips(), key=lambda c: c.created_at,
+                       reverse=True)[: self.vault.settings.quick_paste_count]
+        self._quick_paste = QuickPaste(self, clips, on_choose=self._do_paste)
 
     def _do_paste(self, clip) -> None:
         content = self.vault.copied_again(clip.id)  # logs copied_again

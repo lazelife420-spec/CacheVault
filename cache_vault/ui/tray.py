@@ -26,12 +26,13 @@ def _make_icon_image():
 class TrayController:
     def __init__(self, *, on_open: Callable[[], None], on_pause: Callable[[], None],
                  on_resume: Callable[[], None], on_clear_sensitive: Callable[[], None],
-                 on_quit: Callable[[], None]):
+                 on_quit: Callable[[], None], on_quick_paste: Callable[[], None] | None = None):
         self._on_open = on_open
         self._on_pause = on_pause
         self._on_resume = on_resume
         self._on_clear_sensitive = on_clear_sensitive
         self._on_quit = on_quit
+        self._on_quick_paste = on_quick_paste
         self._icon = None
 
     @property
@@ -41,8 +42,13 @@ class TrayController:
     def start(self) -> None:
         if not _HAS_TRAY:
             return
-        menu = pystray.Menu(
+        items = [
             pystray.MenuItem("Open Cache Vault", lambda: self._on_open(), default=True),
+        ]
+        if self._on_quick_paste is not None:
+            items.append(pystray.MenuItem("Quick Paste", lambda: self._on_quick_paste()))
+        menu = pystray.Menu(
+            *items,
             pystray.MenuItem("Pause Capture", lambda: self._on_pause()),
             pystray.MenuItem("Resume Capture", lambda: self._on_resume()),
             pystray.MenuItem("Clear Sensitive Clips", lambda: self._on_clear_sensitive()),

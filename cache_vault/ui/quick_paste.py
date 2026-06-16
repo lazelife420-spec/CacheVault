@@ -35,8 +35,11 @@ class QuickPaste(ctk.CTkToplevel):
 
         self.title("Paste from Cache Vault")
         self.attributes("-topmost", True)
+        self.overrideredirect(False)
         self.geometry(self._center_geometry(520, min(520, 120 + 46 * max(len(clips), 1))))
         self.resizable(False, False)
+        # Close on Esc or when the popup loses focus (click elsewhere).
+        self.bind("<FocusOut>", self._on_focus_out)
 
         header = ctk.CTkLabel(
             self, anchor="w",
@@ -64,8 +67,17 @@ class QuickPaste(ctk.CTkToplevel):
         for n in range(1, 10):
             self.bind(str(n), lambda _e, k=n - 1: self._choose(k))
 
-        # Grab keyboard focus so the bindings fire immediately.
-        self.after(20, self._grab)
+        # Grab keyboard focus so the bindings fire immediately. The popup is
+        # often launched from a global hotkey while another app is foreground,
+        # so we assert focus on a short delay (and again, in case Windows'
+        # foreground lock swallowed the first attempt).
+        self._closing = False
+        self._settled = False
+        self.after(20, self.focus_popup)
+        self.after(140, self.focus_popup)
+        # Only allow click-away dismissal once focus has stabilised, so the
+        # initial focus-stealing dance can't close the popup prematurely.
+        self.after(350, lambda: setattr(self, "_settled", True))
 
     # --- rows --------------------------------------------------------------
     def _build_row(self, i: int, clip: Clip) -> ctk.CTkFrame:
@@ -112,12 +124,36 @@ class QuickPaste(ctk.CTkToplevel):
             self.destroy()
             self._on_choose(clip)
 
-    def _grab(self) -> None:
+    def focus_popup(self) -> None:
+        """Raise the popup above everything and capture keyboard input."""
+        if self._closing or not self.winfo_exists():
+            return
         try:
+            self.deiconify()
+            self.attributes("-topmost", True)
             self.lift()
             self.focus_force()
+            self.grab_set()  # route key events here regardless of OS focus
+        except Exception:  # noqa: BLE001 - window may be closing
+            pass
+
+    def _on_focus_out(self, _event=None) -> None:
+        # Dismiss if focus genuinely left the popup (not just an internal child).
+        if self._closing or not self._settled:
+            return
+        try:
+            if self.focus_get() is None:
+                self.destroy()
         except Exception:  # noqa: BLE001
             pass
+
+    def destroy(self) -> None:
+        self._closing = True
+        try:
+            self.grab_release()
+        except Exception:  # noqa: BLE001
+            pass
+        super().destroy()
 
     def _center_geometry(self, w: int, h: int) -> str:
         sw = self.winfo_screenwidth()
