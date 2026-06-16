@@ -88,3 +88,38 @@ def image_content_label(width: int, height: int) -> str:
     if width and height:
         return f"[Screenshot PNG {width}×{height}]"
     return "[Screenshot PNG]"
+
+
+def png_to_dib(png_bytes: bytes) -> bytes:
+    """Convert PNG bytes to a Windows CF_DIB payload (no BMP file header)."""
+    with Image.open(BytesIO(png_bytes)) as img:
+        rgb = img.convert("RGB")
+        with BytesIO() as out:
+            rgb.save(out, format="BMP")
+            bmp = out.getvalue()
+    # Drop the 14-byte BITMAPFILEHEADER; CF_DIB is the DIB only.
+    return bmp[14:]
+
+
+def write_clipboard_png(png_bytes: bytes) -> bool:
+    """Put a PNG on the Windows clipboard. Returns False if unavailable."""
+    try:
+        import win32clipboard  # type: ignore
+        import win32con  # type: ignore
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            try:
+                png_fmt = win32clipboard.RegisterClipboardFormat("PNG")
+                win32clipboard.SetClipboardData(png_fmt, png_bytes)
+            except Exception:  # noqa: BLE001
+                dib = png_to_dib(png_bytes)
+                win32clipboard.SetClipboardData(win32con.CF_DIB, dib)
+        finally:
+            win32clipboard.CloseClipboard()
+        return True
+    except Exception:  # noqa: BLE001
+        return False

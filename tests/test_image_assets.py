@@ -171,3 +171,57 @@ def test_list_marks_image_clip_has_asset(vault, mobile_bridge, assets_home):
     listed = next(c for c in body["clips"] if c["id"] == clip.id)
     assert listed["has_asset"] is True
     assert listed["content_type"] == models.CONTENT_IMAGE
+
+
+def test_png_dimensions_helper(assets_home):
+    png = _make_png(12, 10, "green")
+    assert image_assets.png_dimensions(png) == (12, 10)
+
+
+def test_copied_again_image_returns_bytes(vault, assets_home):
+    png = _make_png(6, 6)
+    clip = vault.capture_image(png, width=6, height=6)
+    again = vault.copied_again_image(clip.id)
+    assert again == png
+    text = vault.copied_again(clip.id)
+    assert text is None
+
+
+def test_screenshot_filter_count_real(vault, assets_home):
+    from cache_vault.core.storage import FILTER_SCREENSHOTS
+    assert vault.counts()[FILTER_SCREENSHOTS] == 0
+    vault.capture_image(_make_png(), width=4, height=4)
+    assert vault.counts()[FILTER_SCREENSHOTS] == 1
+
+
+def test_asset_storage_ready_on_fresh_db(storage):
+    assert storage.asset_storage_ready() is True
+
+
+def test_missing_asset_file_returns_not_available(vault, mobile_bridge, assets_home):
+    png = _make_png()
+    clip = vault.capture_image(png, width=8, height=6)
+    path = assets_home / "CacheVault" / "assets" / f"{clip.id}.png"
+    path.unlink()
+    device, token = _pair(mobile_bridge, vault)
+    code, body = mobile_bridge.handle(
+        "GET", f"/mobile/v1/clips/{clip.id}/asset", _auth(device.device_id, token))
+    assert code == 404
+    assert body["error"] == "asset_not_available"
+
+
+def test_export_zip_includes_png_assets(vault, assets_home, tmp_path):
+    from cache_vault.core import export
+    png = _make_png(5, 5)
+    clip = vault.capture_image(png, width=5, height=5)
+    zpath = tmp_path / "out.zip"
+    export.export_zip(
+        [clip], zpath,
+        load_asset_bytes=lambda cid: vault.storage.load_clip_asset_bytes(cid)[0],
+    )
+    import zipfile
+    with zipfile.ZipFile(zpath) as zf:
+        names = zf.namelist()
+        assert any(n.startswith("assets/") and n.endswith(".png") for n in names)
+        asset_name = next(n for n in names if n.startswith("assets/"))
+        assert zf.read(asset_name) == png

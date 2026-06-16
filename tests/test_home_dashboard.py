@@ -255,10 +255,15 @@ def test_clip_usage_events(storage):
 
 
 def test_asset_storage_ready_false_without_table(tmp_path):
-    db = tmp_path / "no_assets.db"
-    s = VaultStorage(db)
+    s = VaultStorage(tmp_path / "legacy.db")
+    s.conn.execute("DROP TABLE clip_assets")
+    s.conn.commit()
     assert s.asset_storage_ready() is False
     s.close()
+
+
+def test_asset_storage_ready_true_with_table(storage):
+    assert storage.asset_storage_ready() is True
 
 
 try:

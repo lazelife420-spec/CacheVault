@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from .. import __version__, brand
@@ -37,7 +38,9 @@ def _slug(text: str, limit: int = 40) -> str:
 def clip_metadata(clip: Clip, *, export_ts: str | None = None) -> dict:
     """The metadata record preserved for a clip on export."""
     is_path = pathutil.is_local_path(clip.content)
-    return {
+    size = clip.size_bytes if clip.content_type == models.CONTENT_IMAGE else len(
+        (clip.content or "").encode("utf-8"))
+    meta = {
         "id": clip.id,
         "name": clip.preview or "",
         "content": clip.content,
@@ -45,7 +48,7 @@ def clip_metadata(clip: Clip, *, export_ts: str | None = None) -> dict:
         "reference_exists": pathutil.target_exists(clip.content) if is_path else None,
         "type": clip.classification,
         "format": clip.content_type,
-        "size_bytes": len((clip.content or "").encode("utf-8")),
+        "size_bytes": size,
         "date_added": clip.created_at,
         "date_used": clip.updated_at,
         "source_app": clip.source_app,
@@ -57,6 +60,10 @@ def clip_metadata(clip: Clip, *, export_ts: str | None = None) -> dict:
         "product": brand.PRODUCT_NAME,
         "studio": brand.STUDIO_NAME,
     }
+    if clip.content_type == models.CONTENT_IMAGE:
+        meta["has_asset"] = True
+        meta["asset_path"] = f"assets/{clip.id}.png"
+    return meta
 
 
 # --- single-clip renderers -------------------------------------------------
@@ -217,14 +224,17 @@ def _index_html(metas: list[dict], clips: list[Clip], collection_name: str | Non
 
 
 def _build_artifacts(clips: list[Clip], *, include_files: bool,
-                     collection_name: str | None, export_ts: str):
-    """Return (generated_text_files, real_file_copies, metas).
+                     collection_name: str | None, export_ts: str,
+                     load_asset_bytes: Callable[[str], bytes | None] | None = None):
+    """Return (generated_text_files, real_file_copies, metas, asset_binaries).
 
     generated_text_files: dict arcname -> text body (manifest/index/clips).
     real_file_copies: list of (src_path, arcname) to copy verbatim.
+    asset_binaries: dict arcname -> raw PNG bytes from the vault.
     """
     metas = [clip_metadata(c, export_ts=export_ts) for c in clips]
     generated: dict[str, str] = {}
+    asset_binaries: dict[str, bytes] = {}
 
     generated["manifest.json"] = json.dumps({
         **_export_brand_block(),
@@ -244,29 +254,39 @@ def _build_artifacts(clips: list[Clip], *, include_files: bool,
     file_copies: list[tuple[str, str]] = []
     for i, clip in enumerate(clips):
         stem = f"{i:03d}_{_slug(clip.preview or clip.id)}"
-        generated[f"clips/{stem}.txt"] = clip.content or ""
+        generated[f"clips/{stem}.txt"] = clip.preview or clip.content or ""
+        if clip.content_type == models.CONTENT_IMAGE and load_asset_bytes:
+            data = load_asset_bytes(clip.id)
+            if data:
+                asset_binaries[f"assets/{stem}.png"] = data
         if include_files and pathutil.is_local_path(clip.content):
             src = pathutil.clean_path(clip.content)
             # Copy real *files* only; directories are referenced, never bulk-copied.
             if os.path.isfile(src):
                 file_copies.append((src, f"files/{i:03d}_{os.path.basename(src)}"))
-    return generated, file_copies, metas
+    return generated, file_copies, metas, asset_binaries
 
 
 def export_collection(clips: list[Clip], dest_dir: str | os.PathLike, *,
                       include_files: bool = False, collection_name: str | None = None,
-                      export_ts: str | None = None) -> Path:
+                      export_ts: str | None = None,
+                      load_asset_bytes: Callable[[str], bytes | None] | None = None,
+                      ) -> Path:
     """Export clips into an organized folder."""
     export_ts = export_ts or models.now_iso()
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
-    generated, file_copies, _ = _build_artifacts(
+    generated, file_copies, _, asset_binaries = _build_artifacts(
         clips, include_files=include_files, collection_name=collection_name,
-        export_ts=export_ts)
+        export_ts=export_ts, load_asset_bytes=load_asset_bytes)
     for arcname, body in generated.items():
         fp = dest / arcname
         fp.parent.mkdir(parents=True, exist_ok=True)
         fp.write_text(body, encoding="utf-8")
+    for arcname, data in asset_binaries.items():
+        fp = dest / arcname
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_bytes(data)
     for src, arcname in file_copies:
         fp = dest / arcname
         fp.parent.mkdir(parents=True, exist_ok=True)
@@ -276,17 +296,21 @@ def export_collection(clips: list[Clip], dest_dir: str | os.PathLike, *,
 
 def export_zip(clips: list[Clip], dest_zip: str | os.PathLike, *,
                include_files: bool = False, collection_name: str | None = None,
-               export_ts: str | None = None) -> Path:
+               export_ts: str | None = None,
+               load_asset_bytes: Callable[[str], bytes | None] | None = None,
+               ) -> Path:
     """Export clips into a single zip archive with the same structure."""
     export_ts = export_ts or models.now_iso()
     dest = Path(dest_zip)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    generated, file_copies, _ = _build_artifacts(
+    generated, file_copies, _, asset_binaries = _build_artifacts(
         clips, include_files=include_files, collection_name=collection_name,
-        export_ts=export_ts)
+        export_ts=export_ts, load_asset_bytes=load_asset_bytes)
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
         for arcname, body in generated.items():
             zf.writestr(arcname, body)
+        for arcname, data in asset_binaries.items():
+            zf.writestr(arcname, data)
         for src, arcname in file_copies:
             zf.write(src, arcname)
     return dest

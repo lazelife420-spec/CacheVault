@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import os
 import queue
+import subprocess
 import sys
 import traceback
+from pathlib import Path
 
 import customtkinter as ctk
 
@@ -488,6 +490,28 @@ class CacheVaultApp(ctk.CTk):
             pass
 
     def _build_actions(self) -> dict:
+        storage = self.vault.storage
+
+        def asset_meta(clip_id: str) -> dict | None:
+            rec = storage.get_asset_record(clip_id)
+            if rec is None:
+                return None
+            return {
+                "sha256": rec.sha256,
+                "size_bytes": rec.size_bytes,
+                "width": rec.width,
+                "height": rec.height,
+            }
+
+        def open_asset_folder(clip_id: str) -> None:
+            from ..core import image_assets
+            rec = storage.get_asset_record(clip_id)
+            if rec is None:
+                return
+            path = image_assets.assets_dir() / rec.storage_name
+            if path.is_file():
+                subprocess.run(["explorer", "/select,", str(path)], check=False)
+
         return {
             "copy_again": self._copy_again,
             "reveal": self.vault.reveal_sensitive,
@@ -498,6 +522,10 @@ class CacheVaultApp(ctk.CTk):
             "remove_from_history": self._remove_from_history,
             "restore": self._restore,
             "permanently_remove": self._permanently_remove,
+            "load_asset": storage.load_clip_asset_bytes,
+            "asset_meta": asset_meta,
+            "save_asset_as": self._save_asset_as,
+            "open_asset_folder": open_asset_folder,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -520,10 +548,7 @@ class CacheVaultApp(ctk.CTk):
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)
-                image_ready = (
-                    self.vault.storage.asset_storage_ready()
-                    and summary.get("screenshots", 0) > 0
-                )
+                image_ready = self.vault.storage.asset_storage_ready()
                 self._home._image_ready = image_ready  # noqa: SLF001
                 self._home.render(
                     summary,
@@ -631,6 +656,17 @@ class CacheVaultApp(ctk.CTk):
 
     # --- per-clip actions --------------------------------------------------
     def _copy_again(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        if clip.content_type == models.CONTENT_IMAGE:
+            png = self.vault.copied_again_image(clip_id)
+            if not png:
+                return
+            from ..core import image_assets
+            if image_assets.write_clipboard_png(png):
+                self._monitor.note_local_copy_image(png)
+            return
         content = self.vault.copied_again(clip_id)
         if content is None:
             return
@@ -764,6 +800,26 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(None)
 
     # --- export ------------------------------------------------------------
+    def _save_asset_as(self, clip_id: str) -> None:
+        from tkinter import filedialog
+
+        loaded = self.vault.storage.load_clip_asset_bytes(clip_id)
+        if not loaded:
+            return
+        png_bytes, _mime = loaded
+        clip = self.vault.storage.get_clip(clip_id)
+        initial = f"{(clip.title if clip else 'screenshot') or 'screenshot'}.png"
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Save Screenshot As",
+            defaultextension=".png",
+            initialfile=initial[:80],
+            filetypes=[("PNG image", "*.png")],
+        )
+        if not path:
+            return
+        Path(path).write_bytes(png_bytes)
+        self.vault.events.record(models.EVENT_EXPORTED, clip_id, {"target": "asset_png"})
+
     def _export_clip(self, clip_id: str) -> None:
         """Export / Save As for a single clip (txt / md / html / json)."""
         from tkinter import filedialog
@@ -772,6 +828,21 @@ class CacheVaultApp(ctk.CTk):
         clip = self.vault.storage.get_clip(clip_id)
         if clip is None:
             return
+        if clip.content_type == models.CONTENT_IMAGE:
+            loaded = self.vault.storage.load_clip_asset_bytes(clip_id)
+            if loaded:
+                png_bytes, _mime = loaded
+                path = filedialog.asksaveasfilename(
+                    parent=self, title="Export / Save As",
+                    defaultextension=".png",
+                    initialfile=f"{(clip.title or 'screenshot')[:40].strip()}.png",
+                    filetypes=[("PNG image", "*.png")],
+                )
+                if path:
+                    Path(path).write_bytes(png_bytes)
+                    self.vault.events.record(
+                        models.EVENT_EXPORTED, clip_id, {"target": "single_png"})
+                return
         path = filedialog.asksaveasfilename(
             parent=self, title="Export / Save As",
             defaultextension=".txt",
@@ -798,6 +869,11 @@ class CacheVaultApp(ctk.CTk):
         from tkinter import filedialog
 
         from ..core import export, models
+
+        def load_asset_bytes(clip_id: str) -> bytes | None:
+            loaded = self.vault.storage.load_clip_asset_bytes(clip_id)
+            return loaded[0] if loaded else None
+
         if kind == "zip":
             dest = filedialog.asksaveasfilename(
                 parent=self, title=f"{brand.TERM_EXPORT} — zip",
@@ -807,14 +883,16 @@ class CacheVaultApp(ctk.CTk):
             if not dest:
                 return
             export.export_zip(clips, dest, include_files=include_files,
-                              collection_name=collection_name)
+                              collection_name=collection_name,
+                              load_asset_bytes=load_asset_bytes)
         else:
             dest = filedialog.askdirectory(
                 parent=self, title=f"{brand.TERM_EXPORT} — folder")
             if not dest:
                 return
             export.export_collection(clips, dest, include_files=include_files,
-                                     collection_name=collection_name)
+                                     collection_name=collection_name,
+                                     load_asset_bytes=load_asset_bytes)
         self.vault.events.record(models.EVENT_EXPORTED, None,
                                  {"target": kind, "count": len(clips),
                                   "include_files": include_files})

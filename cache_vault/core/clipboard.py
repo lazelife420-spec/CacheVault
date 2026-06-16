@@ -147,6 +147,11 @@ class ClipboardMonitor:
         so the resulting change event isn't re-captured as a new clip."""
         self._last_text = text
 
+    def note_local_copy_image(self, png_bytes: bytes) -> None:
+        """Suppress re-capture after Copy Again puts an image on the clipboard."""
+        from . import models
+        self._last_image_hash = models.bytes_hash(png_bytes)
+
     # --- internals ---------------------------------------------------------
     def _emit(self) -> None:
         if self._paused or not self._running:

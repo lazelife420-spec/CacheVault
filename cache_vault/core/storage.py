@@ -606,9 +606,10 @@ class VaultStorage:
         ).fetchone()[0]
 
     def asset_storage_ready(self) -> bool:
+        """True when the clip_assets table exists (screenshot storage is available)."""
         try:
-            count = self.conn.execute("SELECT COUNT(*) FROM clip_assets").fetchone()[0]
-            return int(count) > 0
+            self.conn.execute("SELECT 1 FROM clip_assets LIMIT 1")
+            return True
         except sqlite3.OperationalError:
             return False
 

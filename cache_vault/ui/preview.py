@@ -5,9 +5,11 @@ from __future__ import annotations
 import os
 import subprocess
 import webbrowser
+from io import BytesIO
 from typing import Callable
 
 import customtkinter as ctk
+from PIL import Image
 
 from .. import brand
 from ..core import clip_metadata, models
@@ -38,6 +40,17 @@ class PreviewPanel(ctk.CTkFrame):
                                     font=theme.body_font(12))
         self._body.pack(fill="x", padx=10, pady=6)
         self._body.configure(state="disabled")
+
+        self._image_frame = ctk.CTkFrame(self._scroll, fg_color=brand.SURFACE_BG,
+                                         corner_radius=8)
+        self._image_label = ctk.CTkLabel(self._image_frame, text="")
+        self._image_label.pack(padx=8, pady=8)
+        self._image_ref = None
+        self._image_hint = ctk.CTkLabel(
+            self._image_frame, text="", anchor="w", justify="left",
+            text_color=brand.MUTED_FG, font=theme.body_font(10),
+        )
+        self._image_hint.pack(fill="x", padx=10, pady=(0, 8))
 
         self._meta_title = ctk.CTkLabel(self._scroll, text="Metadata", anchor="w",
                                         **theme.section_heading())
@@ -175,14 +188,20 @@ class PreviewPanel(ctk.CTkFrame):
 
     def _hide_clip_sections(self) -> None:
         self._body.pack(fill="x", padx=10, pady=6)
+        self._image_frame.pack_forget()
         self._meta_title.pack_forget()
         self._meta.pack_forget()
         self._usage_title.pack_forget()
         self._usage.pack_forget()
 
-    def _show_clip_sections(self) -> None:
+    def _show_clip_sections(self, *, image: bool = False) -> None:
         self._vault_frame.pack_forget()
-        self._body.pack(fill="x", padx=10, pady=6)
+        if image:
+            self._body.pack_forget()
+            self._image_frame.pack(fill="x", padx=10, pady=6)
+        else:
+            self._image_frame.pack_forget()
+            self._body.pack(fill="x", padx=10, pady=6)
         self._meta_title.pack(fill="x", padx=10, pady=(4, 2))
         self._meta.pack(fill="x", padx=10, pady=2)
         self._usage_title.pack(fill="x", padx=10, pady=(8, 2))
@@ -196,7 +215,6 @@ class PreviewPanel(ctk.CTkFrame):
         self._revealed = False
         for w in self._buttons.winfo_children():
             w.destroy()
-        self._show_clip_sections()
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
         type_label = clip_metadata.format_label(clip.classification, clip.content_type)
@@ -204,13 +222,47 @@ class PreviewPanel(ctk.CTkFrame):
         self._title.configure(text=title)
         self._subtitle.configure(text=f"{type_label} · {safety}")
 
-        if clip.is_sensitive and not self._revealed:
+        is_image = clip.content_type == models.CONTENT_IMAGE
+        self._show_clip_sections(image=is_image)
+
+        if is_image:
+            self._render_image_preview(clip)
+        elif clip.is_sensitive and not self._revealed:
             self._set_body("Sensitive clip hidden.\nUse Reveal to view its contents.")
         else:
             self._set_body(clip.content or "(empty)")
         self._meta.configure(text=self._meta_text(clip))
         self._set_usage(self._usage_text(clip))
         self._render_buttons(clip)
+
+    def _render_image_preview(self, clip: Clip) -> None:
+        loader = self._actions.get("load_asset")
+        loaded = loader(clip.id) if loader else None
+        if not loaded:
+            self._image_ref = None
+            self._image_label.configure(image=None, text="Image file unavailable.")
+            self._image_hint.configure(
+                text="The vault record exists but the PNG asset is missing from local storage.")
+            return
+        png_bytes, mime = loaded
+        try:
+            with Image.open(BytesIO(png_bytes)) as img:
+                w, h = img.size
+                max_w, max_h = 300, 220
+                scale = min(max_w / w, max_h / h, 1.0)
+                thumb = img.convert("RGBA").resize(
+                    (max(1, int(w * scale)), max(1, int(h * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+                self._image_ref = ctk.CTkImage(
+                    light_image=thumb, dark_image=thumb, size=thumb.size)
+                self._image_label.configure(image=self._image_ref, text="")
+        except Exception:  # noqa: BLE001
+            self._image_ref = None
+            self._image_label.configure(image=None, text="Could not render preview.")
+        size_kb = max(1, len(png_bytes) // 1024)
+        self._image_hint.configure(
+            text=f"Local PNG · {mime} · {size_kb} KB · stored on this PC only.")
 
     def _set_usage(self, text: str) -> None:
         self._usage.configure(state="normal")
@@ -240,6 +292,15 @@ class PreviewPanel(ctk.CTkFrame):
             lines.append(f"Removed:      {clip.deleted_at.replace('T', ' ')[:19]}")
         if clip.expires_at:
             lines.append(f"Expires:      {clip.expires_at.replace('T', ' ')[:19]}")
+        if clip.content_type == models.CONTENT_IMAGE:
+            loader = self._actions.get("asset_meta")
+            if loader:
+                meta = loader(clip.id)
+                if meta:
+                    lines.append(f"Asset SHA256: {clip_metadata.shorten_hash(meta.get('sha256', ''))}")
+                    if meta.get("width") and meta.get("height"):
+                        lines.append(f"Dimensions:   {meta['width']}×{meta['height']}")
+                    lines.append(f"Asset size:   {meta.get('size_bytes', 0)} bytes")
         return "\n".join(lines)
 
     def _usage_text(self, clip: Clip) -> str:
@@ -274,14 +335,23 @@ class PreviewPanel(ctk.CTkFrame):
 
         if clip.deleted_at is not None:
             section("Primary")
-            add("Copy Again", "copy_again", **theme.primary_button())
+            if clip.content_type == models.CONTENT_IMAGE:
+                add("Copy Image", "copy_again", **theme.primary_button())
+            else:
+                add("Copy Again", "copy_again", **theme.primary_button())
             add("Restore", "restore", **theme.primary_button())
             section("Review")
             add("Permanently Remove", "permanently_remove", **theme.destructive_button())
             return
 
         section("Primary")
-        add("Copy Again", "copy_again", **theme.primary_button())
+        if clip.content_type == models.CONTENT_IMAGE:
+            add("Copy Image", "copy_again", **theme.primary_button())
+            add("Save As PNG", "save_asset_as", **theme.secondary_button())
+            if self._actions.get("open_asset_folder"):
+                add("Open Asset Folder", "open_asset_folder", **theme.secondary_button())
+        else:
+            add("Copy Again", "copy_again", **theme.primary_button())
         if clip.is_sensitive:
             add("Reveal Sensitive Clip", "reveal", **theme.destructive_button())
         if clip.classification == models.CLASS_LINK:

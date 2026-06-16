@@ -241,7 +241,19 @@ class Vault:
             return None
         self.storage.touch_clip(clip_id)
         self.events.record(models.EVENT_COPIED_AGAIN, clip_id)
+        if clip.content_type == models.CONTENT_IMAGE:
+            return None
         return clip.content
+
+    def copied_again_image(self, clip_id: str) -> bytes | None:
+        """Return PNG bytes for image clips after logging copied_again."""
+        clip = self.storage.get_clip(clip_id)
+        if clip is None or clip.content_type != models.CONTENT_IMAGE:
+            return None
+        self.storage.touch_clip(clip_id)
+        self.events.record(models.EVENT_COPIED_AGAIN, clip_id)
+        loaded = self.storage.load_clip_asset_bytes(clip_id)
+        return loaded[0] if loaded else None
 
     def clear_sensitive(self) -> int:
         ids = self.storage.clear_sensitive()

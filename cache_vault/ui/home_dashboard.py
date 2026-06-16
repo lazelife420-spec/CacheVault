@@ -14,7 +14,7 @@ from . import theme
 _CARD_META = {
     "All Clips": "Saved items in your vault",
     "Favorites": "Starred clips you keep close",
-    "Screenshots": "Image clips from clipboard",
+    "Screenshots": "Saved PNG screenshots from clipboard",
     "Duplicates": "Needs review",
     "Recently Removed": "Restorable removed clips",
     "Receipts": "Local proof history",
@@ -68,7 +68,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         favorites: list[Clip],
         images: list[Clip],
     ) -> None:
-        del favorites, images  # overview cards cover these; keep signature for shell
+        del favorites
         for w in self._body.winfo_children():
             w.destroy()
 
@@ -87,6 +87,17 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._summary_cards(summary)
         self._section_title("Recently Saved")
         self._recent_section(recent)
+        if images:
+            self._section_title("Recent Screenshots")
+            for clip in images[:6]:
+                self._compact_clip_card(clip)
+        elif self._image_ready and summary.get("screenshots", 0) == 0:
+            ctk.CTkLabel(
+                self._body,
+                text="No screenshots saved yet.\n"
+                     "Copy an image to the clipboard (Win+Shift+S) and Cache Vault will save the PNG locally.",
+                text_color=brand.MUTED_FG, justify="left", font=theme.body_font(11),
+            ).pack(anchor="w", padx=4, pady=4)
         self._section_title("Needs Review")
         self._needs_review(summary)
         self._section_title("Proof & Access")
