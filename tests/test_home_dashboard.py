@@ -51,17 +51,28 @@ def test_home_filter_constant_exists():
 
 def test_sidebar_group_headings():
     headings = [h for h, _ in filters_ui.FILTER_GROUPS if h]
+    assert "COMMAND" in headings
     assert "VAULT" in headings
-    assert "SMART VIEWS" in headings
     assert "REVIEW" in headings
-    assert "PROOF & ACCESS" in headings
+    assert "PROOF" in headings
+    assert "ACCESS" in headings
     assert "TIME" in headings
 
 
-def test_sidebar_proof_and_access_items():
+def test_sidebar_proof_items():
+    from cache_vault.ui.filters import NAV_EDITABLE_COPIES, NAV_EXPORTS, NAV_HTML_BUNDLES
     keys = [k for _h, items in filters_ui.FILTER_GROUPS for k, _l in items]
     assert NAV_STAMPED_RECEIPTS in keys
+    assert NAV_EXPORTS in keys
+    assert NAV_EDITABLE_COPIES in keys
+    assert NAV_HTML_BUNDLES in keys
+
+
+def test_sidebar_access_items():
+    from cache_vault.ui.filters import NAV_SETTINGS
+    keys = [k for _h, items in filters_ui.FILTER_GROUPS for k, _l in items]
     assert NAV_MOBILE_ACCESS in keys
+    assert NAV_SETTINGS in keys
 
 
 def test_vault_status_text_honest():

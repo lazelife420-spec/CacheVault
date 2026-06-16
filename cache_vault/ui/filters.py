@@ -10,10 +10,23 @@ from .. import brand
 from ..core import storage as S
 from . import theme
 
-# Sidebar actions — open dialogs, not clip filters.
+# Sidebar screens and actions
+NAV_QUICK_PASTE = "nav_quick_paste"
 NAV_STAMPED_RECEIPTS = "nav_stamped_receipts"
+NAV_EXPORTS = "nav_exports"
+NAV_EDITABLE_COPIES = "nav_editable_copies"
+NAV_HTML_BUNDLES = "nav_html_bundles"
 NAV_MOBILE_ACCESS = "nav_mobile_access"
-NAV_ACTION_KEYS = frozenset({NAV_STAMPED_RECEIPTS, NAV_MOBILE_ACCESS})
+NAV_SETTINGS = "nav_settings"
+
+NAV_DIALOG_ONLY = frozenset({NAV_QUICK_PASTE})
+NAV_SCREEN_KEYS = frozenset({
+    NAV_STAMPED_RECEIPTS,
+    NAV_EXPORTS,
+    NAV_EDITABLE_COPIES,
+    NAV_HTML_BUNDLES,
+    NAV_MOBILE_ACCESS,
+})
 
 _NAV_ICONS: dict[str, str] = {
     S.FILTER_HOME: "⌂ ",
@@ -22,18 +35,24 @@ _NAV_ICONS: dict[str, str] = {
     S.FILTER_SCREENSHOTS: "▦ ",
     S.FILTER_SENSITIVE: "⚠ ",
     S.FILTER_DUPLICATES: "≡ ",
+    NAV_QUICK_PASTE: "⎘ ",
     NAV_STAMPED_RECEIPTS: "⬢ ",
+    NAV_EXPORTS: "↗ ",
+    NAV_EDITABLE_COPIES: "⎘ ",
+    NAV_HTML_BUNDLES: "🌐 ",
     NAV_MOBILE_ACCESS: "◉ ",
+    NAV_SETTINGS: "⚙ ",
 }
 
 FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
+    ("COMMAND", [
+        (S.FILTER_HOME, brand.TERM_COMMAND_CENTER),
+        (NAV_QUICK_PASTE, "Quick Paste"),
+    ]),
     ("VAULT", [
-        (S.FILTER_HOME, "Home"),
         (S.FILTER_ALL, "All Clips"),
         (S.FILTER_FAVORITES, "Favorites"),
         (S.FILTER_SCREENSHOTS, "Screenshots / Images"),
-    ]),
-    ("SMART VIEWS", [
         (S.FILTER_LINKS, "Links"),
         (S.FILTER_FILES, "Files / Paths"),
         (S.FILTER_CODE, "Code"),
@@ -47,9 +66,15 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (S.FILTER_RECENTLY_REMOVED, "Recently Removed"),
         (S.FILTER_EXPIRED, "Expired"),
     ]),
-    ("PROOF & ACCESS", [
+    ("PROOF", [
         (NAV_STAMPED_RECEIPTS, brand.TERM_STAMPED_RECEIPTS),
+        (NAV_EXPORTS, brand.TERM_EXPORTS),
+        (NAV_EDITABLE_COPIES, brand.TERM_EDITABLE_COPIES),
+        (NAV_HTML_BUNDLES, brand.TERM_HTML_BUNDLES),
+    ]),
+    ("ACCESS", [
         (NAV_MOBILE_ACCESS, brand.TERM_MOBILE_ACCESS),
+        (NAV_SETTINGS, "Settings"),
     ]),
     ("TIME", [
         (S.FILTER_TODAY, "Today"),
@@ -146,7 +171,7 @@ class FilterNav(ctk.CTkScrollableFrame):
             row.configure(fg_color="transparent")
 
     def _select(self, key: str) -> None:
-        if key in NAV_ACTION_KEYS:
+        if key in NAV_DIALOG_ONLY:
             self._on_select(key)
             return
         self._active = key
@@ -158,7 +183,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         return self._active
 
     def set_active(self, key: str) -> None:
-        if key in NAV_ACTION_KEYS:
+        if key in NAV_DIALOG_ONLY:
             return
         self._active = key
         self._highlight()
@@ -184,10 +209,6 @@ class FilterNav(ctk.CTkScrollableFrame):
         for key, label in self._labels_text.items():
             if key == S.FILTER_HOME:
                 self._counts[key].configure(text="")
-                continue
-            if key in NAV_ACTION_KEYS:
-                n = counts.get(key, 0)
-                self._counts[key].configure(text=str(n) if n else "")
                 continue
             n = counts.get(key, 0)
             self._counts[key].configure(text=str(n) if n else "")

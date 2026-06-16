@@ -50,6 +50,20 @@ MOBILE_BYLINE = "A Proof Foundry companion app"
 MOBILE_PROMISE = "Saved on your PC. Ready on your phone. Keep the receipt."
 TERM_MOBILE_ACCESS = "Mobile Access"
 TERM_MOBILE_ACCESS_RECEIPTS = "Mobile Access Receipts"
+TERM_COMMAND_CENTER = "Command Center"
+TERM_EDITABLE_COPIES = "Editable Copies / Revisions"
+TERM_HTML_BUNDLES = "HTML Bundles"
+TERM_EXPORTS = "Exports"
+
+# Vault / proof language (subtle, businesslike)
+LABEL_ORIGINAL_PROTECTED = "Original protected"
+LABEL_EDITABLE_COPY = "Editable copy"
+LABEL_HTML_BUNDLE_COPY = "HTML bundle copy"
+LABEL_RECEIPT_STAMPED = "Receipt stamped"
+LABEL_HASH_VERIFIED = "Hash verified"
+LABEL_LOCAL_ONLY = "Local only"
+LABEL_MOBILE_PAIRED = "Mobile paired"
+LABEL_PHASE5_MANIFEST = "Manifest / SHA export — Phase 5"
 
 RECEIPT_NOTE = "If it matters, keep the receipt."
 

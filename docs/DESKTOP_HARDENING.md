@@ -18,6 +18,7 @@
 | **2** | Paste-from-selection UX | **Done** — focus capture, deliver Ctrl+V, receipts, image paste, restore setting |
 | **3** | Immutable originals + editable copies | **Done** — `editable_copies.py`, vault API, preview/context menu, receipts |
 | **4** | Local HTML bundle support | **Done** — HTML asset scan/copy, bundle revisions, zip export, receipts |
+| **4.5** | UI information architecture | **Done** — Command/Vault/Proof/Access nav, vault screens, inspector |
 | 5 | Receipts, manifest, export zip | Partial — export exists; receipt model expansion planned |
 | 6 | Smart folders, tags, notes, search | Planned |
 | 7 | Sensitive item handling | Partial — auto-expiry exists |
@@ -56,6 +57,15 @@
 - Preview actions: Create HTML Copy, Preview Copy, Edit Source, Reveal Copied Bundle, Show Original, Export HTML Bundle (zip).
 - Receipts: `editable_html_copy_created`, `editable_html_copy_saved`.
 - Smoke: `scripts/html_bundle_smoke.py`.
+
+## Phase 4.5 — UI information architecture
+
+- Sidebar groups: **Command**, **Vault**, **Review**, **Proof**, **Access**, **Time**, **Collections**.
+- Center screens: Stamped Receipts, Exports, Editable Copies, HTML Bundles, Mobile Access.
+- Command Center home with editable-copy and HTML-bundle counts.
+- Inspector panel shows proof status, receipts, editable-copy metadata.
+- Exports screen is honest about Phase 5 manifest/SHA256SUMS.
+- Smoke: `scripts/ui_ia_smoke.py`.
 
 ## Core rules (all phases)
 

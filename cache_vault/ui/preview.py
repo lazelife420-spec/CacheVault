@@ -104,7 +104,7 @@ class PreviewPanel(ctk.CTkFrame):
             w.destroy()
         self._hide_clip_sections()
         self._title.configure(text="Vault Control")
-        self._subtitle.configure(text=brand.VAULT_TAGLINE)
+        self._subtitle.configure(text=f"{brand.VAULT_TAGLINE} · {brand.LABEL_LOCAL_ONLY}")
         self._set_body("")
         self._body.pack_forget()
 
@@ -148,6 +148,8 @@ class PreviewPanel(ctk.CTkFrame):
             ("Duplicates", summary.get("duplicates", 0)),
             ("Recently removed", summary.get("recently_removed", 0)),
             ("Receipts", summary.get("receipts", 0)),
+            ("Editable copies", summary.get("editable_copies", 0)),
+            ("HTML bundles", summary.get("html_bundles", 0)),
         ]
         for label, count in lines:
             row = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
@@ -164,6 +166,18 @@ class PreviewPanel(ctk.CTkFrame):
                      **theme.section_heading()).pack(anchor="w", padx=12, pady=(12, 4))
         actions = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
         actions.pack(fill="x", padx=10, pady=(0, 12))
+        if callbacks.get("open_receipts"):
+            ctk.CTkButton(actions, text=f"View {brand.TERM_STAMPED_RECEIPTS}",
+                          command=callbacks["open_receipts"],
+                          **theme.secondary_button()).pack(fill="x", pady=2)
+        if callbacks.get("view_editable_copies"):
+            ctk.CTkButton(actions, text=brand.TERM_EDITABLE_COPIES,
+                          command=callbacks["view_editable_copies"],
+                          **theme.secondary_button()).pack(fill="x", pady=2)
+        if callbacks.get("view_html_bundles"):
+            ctk.CTkButton(actions, text=brand.TERM_HTML_BUNDLES,
+                          command=callbacks["view_html_bundles"],
+                          **theme.secondary_button()).pack(fill="x", pady=2)
         if callbacks.get("review_duplicates"):
             ctk.CTkButton(actions, text="Review Duplicates",
                           command=callbacks["review_duplicates"],
@@ -219,7 +233,24 @@ class PreviewPanel(ctk.CTkFrame):
         type_label = clip_metadata.format_label(clip.classification, clip.content_type)
         safety = "Sensitive — masked in lists" if clip.is_sensitive else "Standard"
         self._title.configure(text=title)
-        self._subtitle.configure(text=f"{type_label} · {safety}")
+        badges = []
+        ctx_fn = self._actions.get("clip_inspector_context")
+        ctx = ctx_fn(clip.id) if ctx_fn else None
+        if ctx and ctx.get("original_protected"):
+            badges.append(brand.LABEL_ORIGINAL_PROTECTED)
+        if ctx and ctx.get("editable_copy"):
+            if ctx.get("is_html"):
+                badges.append(brand.LABEL_HTML_BUNDLE_COPY)
+            else:
+                badges.append(brand.LABEL_EDITABLE_COPY)
+        if ctx and ctx.get("receipt_count", 0):
+            badges.append(brand.LABEL_RECEIPT_STAMPED)
+        if clip.content_hash:
+            badges.append(brand.LABEL_HASH_VERIFIED)
+        sub = f"{type_label} · {safety}"
+        if badges:
+            sub += " · " + " · ".join(badges)
+        self._subtitle.configure(text=sub)
 
         is_image = clip.content_type == models.CONTENT_IMAGE
         self._show_clip_sections(image=is_image)
@@ -276,7 +307,10 @@ class PreviewPanel(ctk.CTkFrame):
         self._body.configure(state="disabled")
 
     def _meta_text(self, clip: Clip) -> str:
+        ctx_fn = self._actions.get("clip_inspector_context")
+        ctx = ctx_fn(clip.id) if ctx_fn else None
         lines = [
+            f"Item ID:      {clip.id}",
             f"First Saved:  {clip.created_at.replace('T', ' ')[:19]}",
             f"Last Used:    {(clip.date_used or clip.updated_at).replace('T', ' ')[:19]}",
             f"Use Count:    {clip.use_count}",
@@ -287,6 +321,21 @@ class PreviewPanel(ctk.CTkFrame):
             f"Collection:   {clip_metadata.display(clip.collection)}",
             f"Proof Hash:   {clip_metadata.shorten_hash(clip.content_hash)}",
         ]
+        if ctx:
+            lines.append(f"Receipts:     {ctx.get('receipt_count', 0)}")
+            if ctx.get("last_pasted"):
+                lines.append(
+                    f"Last Pasted:  {ctx['last_pasted'].replace('T', ' ')[:19]}"
+                )
+            if ctx.get("last_exported"):
+                lines.append(
+                    f"Last Exported:{ctx['last_exported'].replace('T', ' ')[:19]}"
+                )
+            if ctx.get("original_protected"):
+                lines.append(f"Status:       {brand.LABEL_ORIGINAL_PROTECTED}")
+            rec = ctx.get("editable_copy")
+            if rec:
+                lines.append(f"Editable:     rev {rec.revision} — {rec.copy_path}")
         if clip.deleted_at:
             lines.append(f"Removed:      {clip.deleted_at.replace('T', ' ')[:19]}")
         if clip.expires_at:
@@ -366,7 +415,7 @@ class PreviewPanel(ctk.CTkFrame):
             if self._actions.get("open_asset_folder"):
                 add("Open Asset Folder", "open_asset_folder", **theme.secondary_button())
         else:
-            add("Copy Again", "copy_again", **theme.primary_button())
+            add("Paste / Copy", "copy_again", **theme.primary_button())
         if clip.is_sensitive:
             add("Reveal Sensitive Clip", "reveal", **theme.destructive_button())
         if clip.classification == models.CLASS_LINK:

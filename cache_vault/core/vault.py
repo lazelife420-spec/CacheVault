@@ -457,6 +457,73 @@ class Vault:
         deleted = self._editable_store().delete_copy_record(rec.id)
         return deleted is not None
 
+    def list_editable_copies(self):
+        from .editable_copies import KIND_FILE
+        return self._editable_store().list_latest_records(kind=KIND_FILE)
+
+    def list_html_bundles(self):
+        from .editable_copies import KIND_HTML_BUNDLE
+        return self._editable_store().list_latest_records(kind=KIND_HTML_BUNDLE)
+
+    def editable_copy_counts(self) -> dict:
+        from .editable_copies import KIND_FILE, KIND_HTML_BUNDLE
+        store = self._editable_store()
+        return {
+            "editable_copies": store.count_distinct_clips(kind=KIND_FILE),
+            "html_bundles": store.count_distinct_clips(kind=KIND_HTML_BUNDLE),
+        }
+
+    def list_export_events(self, limit: int = 50) -> list[dict]:
+        rows = self.storage.conn.execute(
+            "SELECT id, created_at, event_type, clip_id, details FROM events "
+            "WHERE event_type = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (models.EVENT_EXPORTED, limit),
+        ).fetchall()
+        out = []
+        for r in rows:
+            import json
+            details = json.loads(r["details"] or "{}")
+            out.append({
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "clip_id": r["clip_id"],
+                "details": details,
+            })
+        return out
+
+    def clip_inspector_context(self, clip_id: str) -> dict:
+        rows = self.storage.conn.execute(
+            "SELECT event_type, created_at FROM events WHERE clip_id = ? "
+            "ORDER BY created_at DESC",
+            (clip_id,),
+        ).fetchall()
+        last_pasted = last_exported = None
+        for r in rows:
+            if r["event_type"] == models.EVENT_ITEM_PASTED and last_pasted is None:
+                last_pasted = r["created_at"]
+            if r["event_type"] == models.EVENT_EXPORTED and last_exported is None:
+                last_exported = r["created_at"]
+        rec = self.latest_editable_copy(clip_id)
+        html = self.html_bundle_summary(clip_id) if rec else None
+        from .editable_copies import is_html_path
+        from .pathutil import clean_path, is_local_file
+        clip = self.storage.get_clip(clip_id)
+        original_protected = bool(
+            clip and clip.classification == models.CLASS_PATH
+            and is_local_file(clip.content)
+        )
+        return {
+            "receipt_count": len(rows),
+            "last_pasted": last_pasted,
+            "last_exported": last_exported,
+            "editable_copy": rec,
+            "html_bundle": html,
+            "original_protected": original_protected,
+            "is_html": bool(
+                clip and is_html_path(clean_path(clip.content))
+            ) if clip else False,
+        }
+
     def clear_sensitive(self) -> int:
         ids = self.storage.clear_sensitive()
         for cid in ids:
@@ -484,6 +551,11 @@ class Vault:
         counts = self.storage.counts()
         recent = self.events.recent(1)
         last_action = recent[0]["event_type"] if recent else "—"
+        copy_counts = self.editable_copy_counts()
+        pasted = [
+            e for e in self.events.recent(200)
+            if e.get("event_type") == models.EVENT_ITEM_PASTED
+        ]
         return {
             "all": counts.get("all", 0),
             "favorites": counts.get("favorites", 0),
@@ -498,6 +570,9 @@ class Vault:
             "mobile_port": self.settings.mobile_access_port,
             "paired_count": len(self.settings.paired_devices),
             "capture_paused": bool(self.settings.capture_paused),
+            "editable_copies": copy_counts.get("editable_copies", 0),
+            "html_bundles": copy_counts.get("html_bundles", 0),
+            "recent_pasted_count": len(pasted),
         }
 
     def duplicate_groups(self, *, include_possible: bool = True) -> list[DuplicateGroup]:

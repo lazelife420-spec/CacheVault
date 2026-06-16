@@ -41,18 +41,18 @@ def _patched_frame_wheel(self, event):
     cfg = current_scroll_config()
     if not cfg.use_windows_settings or not sys.platform.startswith("win"):
         return _original_frame_wheel(self, event)
-    shift = getattr(self, "_shift_pressed", False)
-        if shift:
-            if self._parent_canvas.xview() != (0.0, 1.0):
-                amount = horizontal_canvas_units(event.delta)
-                if amount:
-                    self._parent_canvas.xview("scroll", amount, "units")
-        else:
-            if self._parent_canvas.yview() != (0.0, 1.0):
-                amount = vertical_canvas_units(event.delta)
-                if amount:
-                    self._parent_canvas.yview("scroll", amount, "units")
-        return
+    shift = _shift_pressed()
+    if shift:
+        if self._parent_canvas.xview() != (0.0, 1.0):
+            amount = horizontal_canvas_units(event.delta)
+            if amount:
+                self._parent_canvas.xview("scroll", amount, "units")
+    else:
+        if self._parent_canvas.yview() != (0.0, 1.0):
+            amount = vertical_canvas_units(event.delta)
+            if amount:
+                self._parent_canvas.yview("scroll", amount, "units")
+    return
     return _original_frame_wheel(self, event)
 
 

@@ -41,7 +41,17 @@ from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SettingsDialog,
 )
-from .filters import FilterNav, NAV_MOBILE_ACCESS, NAV_STAMPED_RECEIPTS
+from .filters import (
+    FilterNav,
+    NAV_EDITABLE_COPIES,
+    NAV_EXPORTS,
+    NAV_HTML_BUNDLES,
+    NAV_MOBILE_ACCESS,
+    NAV_QUICK_PASTE,
+    NAV_SCREEN_KEYS,
+    NAV_SETTINGS,
+    NAV_STAMPED_RECEIPTS,
+)
 from .home_dashboard import HomeDashboard
 from .duplicate_dialog import DuplicateReviewDialog
 from .mobile_dialogs import (
@@ -51,6 +61,7 @@ from .preview import PreviewPanel
 from .quick_paste import QuickPaste
 from .toast import Toast
 from .tray import TrayController
+from .vault_screens import VaultScreenHost
 from . import theme
 from .crashlog import write_crash
 from .scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
@@ -203,22 +214,25 @@ class CacheVaultApp(ctk.CTk):
         top = ctk.CTkFrame(self, height=52, corner_radius=0,
                            fg_color=brand.SURFACE_BG)
         top.grid(row=0, column=0, columnspan=3, sticky="ew")
-        top.grid_columnconfigure(0, weight=0)
-        self._status = ctk.CTkLabel(top, text="", text_color=brand.MUTED_FG,
-                                    font=ctk.CTkFont(size=11))
+        top.grid_columnconfigure(0, weight=1)
+        hotkey = self.vault.settings.quick_paste_hotkey or "Ctrl+Shift+V"
+        self._status = ctk.CTkLabel(
+            top,
+            text=f"Quick Paste: {hotkey} · {brand.LABEL_LOCAL_ONLY}",
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11),
+        )
         self._status.grid(row=0, column=0, sticky="w", padx=12)
         ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
                       command=self._export_view, **theme.primary_button()
                       ).grid(row=0, column=1, padx=4)
         ctk.CTkButton(top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
-                      command=self._open_events, **theme.secondary_button()
-                      ).grid(row=0, column=2, padx=4)
-        ctk.CTkButton(top, text="About", width=70, command=self._open_about,
+                      command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
                       **theme.secondary_button()
-                      ).grid(row=0, column=3, padx=4)
+                      ).grid(row=0, column=2, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
-                      ).grid(row=0, column=4, padx=(4, 12))
+                      ).grid(row=0, column=3, padx=(4, 12))
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
@@ -244,12 +258,16 @@ class CacheVaultApp(ctk.CTk):
         self._home = HomeDashboard(
             self._center,
             on_filter=self._navigate_filter,
-            on_open_receipts=self._open_events,
-            on_mobile_settings=self._open_settings,
+            on_open_receipts=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+            on_mobile_settings=lambda: self._navigate_screen(NAV_MOBILE_ACCESS),
             on_pair_android=lambda: self._open_pair_android(),
             on_export=self._export_view,
             on_select_clip=self._on_clip_select,
             on_copy=self._copy_again,
+            on_quick_paste=self._schedule_quick_paste,
+            on_view_editable_copies=lambda: self._navigate_screen(NAV_EDITABLE_COPIES),
+            on_view_html_bundles=lambda: self._navigate_screen(NAV_HTML_BUNDLES),
+            on_settings=self._open_settings,
             image_assets_ready=False,
             corner_radius=0,
         )
@@ -268,6 +286,29 @@ class CacheVaultApp(ctk.CTk):
         self._grid.grid(row=1, column=0, sticky="nsew")
         self._grid.grid_remove()
         self._list.grid_remove()
+
+        self._vault_screens = VaultScreenHost(
+            self._center,
+            callbacks={
+                "vault": lambda: self.vault,
+                "get_clip": self.vault.storage.get_clip,
+                "open_receipts_dialog": self._open_events,
+                "export_view": self._export_view,
+                "open_editable_copy": self._open_editable_copy,
+                "save_revision": self._save_editable_revision,
+                "reveal_copy": self._reveal_editable_copy_folder,
+                "select_clip": self._select_clip_by_id,
+                "preview_html": self._preview_html_copy,
+                "edit_html": self._edit_html_source,
+                "export_html": self._export_html_bundle,
+                "mobile_report": self._mobile_access_report,
+                "pair_android": lambda: self._open_pair_android(),
+                "mobile_settings": self._open_settings,
+            },
+            corner_radius=0,
+        )
+        self._vault_screens.grid(row=1, column=0, sticky="nsew")
+        self._vault_screens.grid_remove()
 
         self._preview = PreviewPanel(self, actions=self._build_actions(),
                                      corner_radius=0, fg_color=brand.SURFACE_BG)
@@ -441,10 +482,78 @@ class CacheVaultApp(ctk.CTk):
     def _vault_panel_callbacks(self) -> dict:
         return {
             "review_duplicates": self._open_duplicate_review,
-            "open_receipts": self._open_events,
+            "open_receipts": lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+            "view_editable_copies": lambda: self._navigate_screen(NAV_EDITABLE_COPIES),
+            "view_html_bundles": lambda: self._navigate_screen(NAV_HTML_BUNDLES),
             "pair_android": lambda: self._open_pair_android(),
             "export": self._export_view,
-            "mobile_settings": self._open_settings,
+            "mobile_settings": lambda: self._navigate_screen(NAV_MOBILE_ACCESS),
+        }
+
+    def _navigate_screen(self, key: str) -> None:
+        self._filters.set_active(key)
+        self._on_filter_select(key)
+
+    def _select_clip_by_id(self, clip_id: str) -> None:
+        from ..core import storage as S
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        self._filters.set_active(S.FILTER_ALL)
+        self._on_filter_select(S.FILTER_ALL)
+        self._on_clip_select(clip)
+
+    def _mobile_access_report(self) -> dict:
+        import socket
+        import urllib.error
+        import urllib.request
+
+        summary = self.vault.dashboard_summary()
+        local_ip = "—"
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except OSError:
+            pass
+        receipts = self._mobile_bridge.receipts.recent(5)
+        last_connection = receipts[0].get("timestamp") if receipts else "—"
+        pairing = (
+            f"{summary.get('paired_count', 0)} device(s) paired"
+            if summary.get("paired_count")
+            else "No devices paired"
+        )
+        routes: dict[str, bool] = {}
+        port = int(summary.get("mobile_port") or 8742)
+        if self._mobile_bridge.is_running:
+            for path in (
+                "/mobile/v1/status",
+                "/mobile/v1/clips",
+                "/mobile/v1/recently-removed",
+            ):
+                try:
+                    with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}{path}", timeout=1.5,
+                    ) as resp:
+                        routes[path] = resp.status in (200, 401)
+                except urllib.error.HTTPError as exc:
+                    routes[path] = exc.code in (200, 401)
+                except Exception:  # noqa: BLE001
+                    routes[path] = False
+        else:
+            for path in (
+                "/mobile/v1/status",
+                "/mobile/v1/clips",
+                "/mobile/v1/recently-removed",
+            ):
+                routes[path] = False
+        return {
+            "summary": summary,
+            "local_ip": local_ip,
+            "pairing_status": pairing,
+            "last_connection": last_connection,
+            "routes": routes,
         }
 
     def _navigate_filter(self, key: str) -> None:
@@ -460,10 +569,14 @@ class CacheVaultApp(ctk.CTk):
         self._toolbar.grid_remove()
         self._list.grid_remove()
         self._grid.grid_remove()
+        self._vault_screens.hide()
+        self._vault_screens.grid_remove()
         self._home.grid()
 
     def _show_clips(self) -> None:
         self._home.grid_remove()
+        self._vault_screens.hide()
+        self._vault_screens.grid_remove()
         self._toolbar.grid()
         if self._view_mode == "grid":
             self._list.grid_remove()
@@ -471,6 +584,19 @@ class CacheVaultApp(ctk.CTk):
         else:
             self._grid.grid_remove()
             self._list.grid()
+
+    def _show_vault_screen(self, key: str) -> None:
+        self._home.grid_remove()
+        self._list.grid_remove()
+        self._grid.grid_remove()
+        self._toolbar.grid_remove()
+        self._vault_screens.grid()
+        self._vault_screens.show(key)
+        if self._preview._clip is None:  # noqa: SLF001
+            self._preview.show_vault_control(
+                self.vault.dashboard_summary(),
+                self._vault_panel_callbacks(),
+            )
 
     def _open_duplicate_review(self) -> None:
         groups = self.vault.duplicate_groups()
@@ -549,6 +675,7 @@ class CacheVaultApp(ctk.CTk):
             "save_editable_revision": self._save_editable_revision,
             "reveal_editable_copy_folder": self._reveal_editable_copy_folder,
             "export_html_bundle": self._export_html_bundle,
+            "clip_inspector_context": self.vault.clip_inspector_context,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -563,10 +690,16 @@ class CacheVaultApp(ctk.CTk):
             summary = self.vault.dashboard_summary()
             counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
             counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
+            counts[NAV_EDITABLE_COPIES] = summary.get("editable_copies", 0)
+            counts[NAV_HTML_BUNDLES] = summary.get("html_bundles", 0)
+            counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
             self._filters.update_counts(counts)
             self._filters.update_collections(self.vault.list_collections())
 
-            if active == FILTER_HOME:
+            if active in NAV_SCREEN_KEYS:
+                self._show_vault_screen(active)
+                clip_count = summary.get("all", 0)
+            elif active == FILTER_HOME:
                 self._show_home()
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
@@ -659,10 +792,10 @@ class CacheVaultApp(ctk.CTk):
         return None
 
     def _on_filter_select(self, key: str) -> None:
-        if key == NAV_STAMPED_RECEIPTS:
-            self._open_events()
+        if key == NAV_QUICK_PASTE:
+            self._schedule_quick_paste()
             return
-        if key == NAV_MOBILE_ACCESS:
+        if key == NAV_SETTINGS:
             self._open_settings()
             return
         if key == FILTER_HOME and self._preview._clip is None:  # noqa: SLF001

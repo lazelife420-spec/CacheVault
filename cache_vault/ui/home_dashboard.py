@@ -46,6 +46,10 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         on_export: Callable[[], None],
         on_select_clip: Callable[[Clip], None],
         on_copy: Callable[[str], None],
+        on_quick_paste: Callable[[], None] | None = None,
+        on_view_editable_copies: Callable[[], None] | None = None,
+        on_view_html_bundles: Callable[[], None] | None = None,
+        on_settings: Callable[[], None] | None = None,
         image_assets_ready: bool = False,
         **kw,
     ):
@@ -57,6 +61,10 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._on_export = on_export
         self._on_select_clip = on_select_clip
         self._on_copy = on_copy
+        self._on_quick_paste = on_quick_paste
+        self._on_view_editable_copies = on_view_editable_copies
+        self._on_view_html_bundles = on_view_html_bundles
+        self._on_settings = on_settings
         self._image_ready = image_assets_ready
         self._body = ctk.CTkFrame(self, fg_color="transparent")
         self._body.pack(fill="both", expand=True, padx=14, pady=14)
@@ -73,16 +81,17 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             w.destroy()
 
         ctk.CTkLabel(
-            self._body, text="Home", anchor="w",
+            self._body, text=brand.TERM_COMMAND_CENTER, anchor="w",
             font=ctk.CTkFont(size=24, weight="bold"),
         ).pack(fill="x", pady=(0, 2))
         ctk.CTkLabel(
-            self._body, text="Your local saved-clips command center.",
+            self._body, text="Local vault control — capture, paste, edit safe copies, proof.",
             anchor="w", text_color=brand.MUTED_FG,
             font=theme.body_font(12),
         ).pack(fill="x", pady=(0, 14))
 
         self._vault_status_strip(summary)
+        self._quick_actions(summary)
         self._section_title("Saved Clips Overview")
         self._summary_cards(summary)
         self._section_title("Recently Saved")
@@ -135,9 +144,13 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ).pack(fill="x", padx=14, pady=(0, 4))
 
         counts = (
-            f"{summary.get('all', 0)} saved clips · "
-            f"{summary.get('receipts', 0)} receipts"
+            f"{summary.get('all', 0)} saved · "
+            f"{summary.get('receipts', 0)} receipts · "
+            f"{summary.get('editable_copies', 0)} editable copies · "
+            f"{summary.get('html_bundles', 0)} HTML bundles"
         )
+        if summary.get("recent_pasted_count", 0):
+            counts += f" · {summary['recent_pasted_count']} recent paste(s)"
         ctk.CTkLabel(
             strip, text=counts, anchor="w",
             font=ctk.CTkFont(size=11, weight="bold"),
@@ -149,6 +162,45 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             anchor="w", wraplength=560, justify="left",
             text_color=brand.MUTED_FG, font=theme.body_font(10),
         ).pack(fill="x", padx=14, pady=(0, 12))
+
+    def _quick_actions(self, summary: dict) -> None:
+        frame = ctk.CTkFrame(self._body, fg_color=brand.SURFACE_BG, corner_radius=8,
+                             border_width=1, border_color=("#C8D0D4", "#263038"))
+        frame.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(frame, text="Quick Actions", anchor="w",
+                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(10, 6))
+        row1 = ctk.CTkFrame(frame, fg_color="transparent")
+        row1.pack(fill="x", padx=10, pady=2)
+        if self._on_quick_paste:
+            ctk.CTkButton(row1, text="Open Quick Paste",
+                          command=self._on_quick_paste,
+                          **theme.primary_button()).pack(side="left", padx=2, expand=True, fill="x")
+        ctk.CTkButton(row1, text=brand.TERM_EXPORT,
+                      command=self._on_export,
+                      **theme.secondary_button()).pack(side="left", padx=2, expand=True, fill="x")
+        ctk.CTkButton(row1, text=f"View {brand.TERM_STAMPED_RECEIPTS}",
+                      command=self._on_open_receipts,
+                      **theme.secondary_button()).pack(side="left", padx=2, expand=True, fill="x")
+        row2 = ctk.CTkFrame(frame, fg_color="transparent")
+        row2.pack(fill="x", padx=10, pady=(2, 10))
+        if self._on_view_editable_copies:
+            ctk.CTkButton(
+                row2, text=brand.TERM_EDITABLE_COPIES,
+                command=self._on_view_editable_copies,
+                **theme.secondary_button(),
+            ).pack(side="left", padx=2, expand=True, fill="x")
+        if self._on_view_html_bundles:
+            ctk.CTkButton(
+                row2, text=brand.TERM_HTML_BUNDLES,
+                command=self._on_view_html_bundles,
+                **theme.secondary_button(),
+            ).pack(side="left", padx=2, expand=True, fill="x")
+        ctk.CTkButton(row2, text=brand.TERM_MOBILE_ACCESS,
+                      command=self._on_mobile_settings,
+                      **theme.secondary_button()).pack(side="left", padx=2, expand=True, fill="x")
+        ctk.CTkButton(row2, text="Settings",
+                      command=self._on_settings or self._on_mobile_settings,
+                      **theme.secondary_button()).pack(side="left", padx=2, expand=True, fill="x")
 
     def _summary_cards(self, summary: dict) -> None:
         wrap = ctk.CTkFrame(self._body, fg_color="transparent")

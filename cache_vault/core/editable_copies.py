@@ -538,6 +538,52 @@ class EditableCopyStore:
         rec._changed_files = changed  # type: ignore[attr-defined]
         return rec
 
+    def count_distinct_clips(self, *, kind: str | None = None) -> int:
+        if kind:
+            row = self.conn.execute(
+                "SELECT COUNT(DISTINCT clip_id) AS n FROM editable_copies WHERE kind = ?",
+                (kind,),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT COUNT(DISTINCT clip_id) AS n FROM editable_copies",
+            ).fetchone()
+        return int(row["n"]) if row else 0
+
+    def list_latest_records(
+        self, *, kind: str | None = None, limit: int = 500,
+    ) -> list[EditableCopyRecord]:
+        if kind:
+            rows = self.conn.execute(
+                """
+                SELECT e.* FROM editable_copies e
+                INNER JOIN (
+                    SELECT clip_id, MAX(revision) AS max_rev
+                    FROM editable_copies WHERE kind = ?
+                    GROUP BY clip_id
+                ) latest ON e.clip_id = latest.clip_id AND e.revision = latest.max_rev
+                WHERE e.kind = ?
+                ORDER BY e.updated_at DESC, e.rowid DESC
+                LIMIT ?
+                """,
+                (kind, kind, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT e.* FROM editable_copies e
+                INNER JOIN (
+                    SELECT clip_id, MAX(revision) AS max_rev
+                    FROM editable_copies
+                    GROUP BY clip_id
+                ) latest ON e.clip_id = latest.clip_id AND e.revision = latest.max_rev
+                ORDER BY e.updated_at DESC, e.rowid DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [_row_to_record(r) for r in rows]
+
     def delete_copy_record(self, copy_id: str) -> EditableCopyRecord | None:
         row = self.conn.execute(
             "SELECT * FROM editable_copies WHERE id = ?", (copy_id,),
