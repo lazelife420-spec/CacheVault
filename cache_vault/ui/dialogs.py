@@ -80,6 +80,18 @@ class SettingsDialog(ctk.CTkToplevel):
         self._startup.pack(anchor="w", padx=8, pady=6)
         self._startup.select() if startup.is_enabled() else self._startup.deselect()
 
+        ctk.CTkLabel(body, text="History limit (clips, 0 = unlimited):").pack(
+            anchor="w", padx=8, pady=(10, 0))
+        self._history_max = ctk.CTkEntry(body, width=80)
+        self._history_max.insert(0, str(settings.history_max_clips))
+        self._history_max.pack(anchor="w", padx=8, pady=4)
+        ctk.CTkLabel(
+            body,
+            text="Oldest non-favorite clips move to Recently Removed when exceeded.\n"
+                 "Favorites always survive pruning.",
+            anchor="w", justify="left", text_color=("gray45", "gray60"),
+            font=ctk.CTkFont(size=11)).pack(anchor="w", padx=8)
+
         ctk.CTkLabel(body, text="Excluded apps (one per line):").pack(
             anchor="w", padx=8, pady=(10, 0))
         self._excluded = ctk.CTkTextbox(body, height=80)
@@ -109,6 +121,10 @@ class SettingsDialog(ctk.CTkToplevel):
             self._settings.quick_paste_hotkey = hotkey
         self._settings.auto_paste = bool(self._auto_paste.get())
         self._settings.start_with_windows = bool(self._startup.get())
+        try:
+            self._settings.history_max_clips = max(0, int(self._history_max.get()))
+        except ValueError:
+            pass
         self._settings.excluded_apps = [
             line.strip() for line in self._excluded.get("1.0", "end").splitlines()
             if line.strip()

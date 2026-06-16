@@ -38,6 +38,8 @@ FILTER_EXPIRED = "expired"
 # alias for the same underlying flag.
 FILTER_FAVORITES = "favorites"
 FILTER_RECENTLY_REMOVED = "recently_removed"
+# Search box with text: live clips + Recently Removed (not Expired).
+FILTER_SEARCH_ALL = "search_all"
 # Sidebar collection entries use this prefix, e.g. "col:Work".
 COLLECTION_PREFIX = "col:"
 
@@ -212,6 +214,11 @@ class VaultStorage:
             (models.now_iso(), clip_id),
         )
 
+    def touch_clip(self, clip_id: str) -> None:
+        """Record that a clip was used (updates date_used / updated_at)."""
+        self._touch(clip_id)
+        self.conn.commit()
+
     def set_pinned(self, clip_id: str, pinned: bool) -> None:
         self.conn.execute(
             "UPDATE clips SET is_pinned = ? WHERE id = ?",
@@ -307,6 +314,35 @@ class VaultStorage:
             self.scrub_and_expire(cid)
         return ids
 
+    def prune_history(self, max_clips: int) -> list[str]:
+        """Soft-delete oldest non-favorite live clips until count <= max_clips.
+
+        Pruned clips land in Recently Removed (restorable). Favorites are never
+        pruned. Returns the ids that were removed from history.
+        """
+        if max_clips <= 0:
+            return []
+        count = self.conn.execute(
+            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL"
+        ).fetchone()[0]
+        overflow = count - max_clips
+        if overflow <= 0:
+            return []
+        rows = self.conn.execute(
+            "SELECT id FROM clips WHERE deleted_at IS NULL AND is_pinned = 0 "
+            "ORDER BY created_at ASC, rowid ASC LIMIT ?",
+            (overflow,),
+        ).fetchall()
+        ids = [r["id"] for r in rows]
+        now = models.now_iso()
+        for cid in ids:
+            self.conn.execute(
+                "UPDATE clips SET deleted_at = ? WHERE id = ?", (now, cid)
+            )
+        if ids:
+            self.conn.commit()
+        return ids
+
     # --- reads / queries ---------------------------------------------------
     def list_clips(self, query=None) -> list[Clip]:
         """Return clips matching a :class:`~cache_vault.core.search.SearchQuery`.
@@ -330,6 +366,12 @@ class VaultStorage:
         elif fn == FILTER_RECENTLY_REMOVED:
             # User-removed clips (restorable, content intact) — not auto-expired.
             where.append("deleted_at IS NOT NULL AND expires_at IS NULL")
+        elif fn == FILTER_SEARCH_ALL:
+            # Global search: live history + Recently Removed (not Expired).
+            where.append(
+                "(deleted_at IS NULL OR "
+                "(deleted_at IS NOT NULL AND expires_at IS NULL))"
+            )
         else:
             where.append("deleted_at IS NULL")
 

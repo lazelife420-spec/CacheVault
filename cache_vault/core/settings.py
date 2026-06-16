@@ -32,6 +32,10 @@ class Settings:
 
     start_with_windows: bool = False          # synced to the HKCU Run key
 
+    # History pruning: keep at most this many live (non-deleted) clips.
+    # 0 = unlimited. Favorites always survive pruning.
+    history_max_clips: int = 0
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":

@@ -70,6 +70,11 @@ class Vault:
                 "source_app": source_app,
             },
         )
+        if self.settings.history_max_clips > 0:
+            pruned = self.storage.prune_history(self.settings.history_max_clips)
+            for cid in pruned:
+                self.events.record(models.EVENT_DELETED, cid,
+                                   {"action": "history_prune"})
         return clip
 
     # --- per-clip actions --------------------------------------------------
@@ -145,6 +150,7 @@ class Vault:
         clip = self.storage.get_clip(clip_id)
         if clip is None:
             return None
+        self.storage.touch_clip(clip_id)
         self.events.record(models.EVENT_COPIED_AGAIN, clip_id)
         return clip.content
 

@@ -76,8 +76,13 @@ class PreviewPanel(ctk.CTkFrame):
             f"Type:        {clip.classification}",
             f"Source app:  {clip.source_app or '—'}",
             f"Window:      {clip.source_window or '—'}",
-            f"Created:     {clip.created_at.replace('T', ' ')[:19]}",
+            f"Added:       {clip.created_at.replace('T', ' ')[:19]}",
+            f"Last used:   {clip.updated_at.replace('T', ' ')[:19]}",
+            f"Favorite:    {'yes' if clip.is_pinned else 'no'}",
+            f"Collection:  {clip.collection or '—'}",
         ]
+        if clip.deleted_at:
+            lines.append(f"Removed:     {clip.deleted_at.replace('T', ' ')[:19]}")
         if clip.expires_at:
             lines.append(f"Expires:     {clip.expires_at.replace('T', ' ')[:19]}")
         if clip.tags:
@@ -89,6 +94,13 @@ class PreviewPanel(ctk.CTkFrame):
             ctk.CTkButton(self._buttons, text=text, height=30,
                           command=lambda: self._fire(key, clip), **kw
                           ).pack(fill="x", pady=2)
+
+        if clip.deleted_at is not None:
+            add("Copy Again", "copy_again")
+            add("Restore", "restore")
+            add("Permanently Remove", "permanently_remove",
+                fg_color=("gray60", "gray35"), hover_color=("#b04632", "#7a2f24"))
+            return
 
         add("Copy Again", "copy_again")
         if clip.is_sensitive:

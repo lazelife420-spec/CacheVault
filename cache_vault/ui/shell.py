@@ -18,6 +18,7 @@ import customtkinter as ctk
 from ..core import models, search
 from ..core.clipboard import ClipboardMonitor
 from ..core.hotkey import HotkeyListener, focus_and_paste, foreground_window
+from ..core.storage import FILTER_SEARCH_ALL
 from ..core.vault import Vault
 from .clip_list import ClipList
 from .dialogs import (
@@ -101,7 +102,7 @@ class CacheVaultApp(ctk.CTk):
         self._status = ctk.CTkLabel(top, text="", text_color=("gray45", "gray60"),
                                     font=ctk.CTkFont(size=11))
         self._status.grid(row=0, column=1, padx=6)
-        ctk.CTkButton(top, text="Export", width=70, command=self._export_view
+        ctk.CTkButton(top, text="Export / Save As", width=120, command=self._export_view
                       ).grid(row=0, column=2, padx=4)
         ctk.CTkButton(top, text="Events", width=70, command=self._open_events
                       ).grid(row=0, column=3, padx=4)
@@ -140,11 +141,13 @@ class CacheVaultApp(ctk.CTk):
             "copy_metadata": self._copy_metadata,
             "expire_now": self._expire_now,
             "remove_from_history": self._remove_from_history,
+            "restore": self._restore,
+            "permanently_remove": self._permanently_remove,
         }
 
     # --- data refresh ------------------------------------------------------
     def refresh(self) -> None:
-        query = search.parse(self._search_var.get(), self._filters.active)
+        query = self._build_query()
         clips = self.vault.list_clips(query)
         self._list.render(clips)
         self._filters.update_counts(self.vault.counts())
@@ -292,7 +295,7 @@ class CacheVaultApp(ctk.CTk):
     def _restore(self, clip_id: str) -> None:
         self.vault.restore(clip_id)
         self.refresh()
-        self._preview.show(None)
+        self._preview.show(self.vault.storage.get_clip(clip_id))
 
     def _permanently_remove(self, clip_id: str) -> None:
         from tkinter import messagebox
@@ -362,9 +365,15 @@ class CacheVaultApp(ctk.CTk):
                                  {"target": kind, "count": len(clips),
                                   "include_files": include_files})
 
+    def _build_query(self):
+        raw = self._search_var.get()
+        active = self._filters.active
+        if raw.strip():
+            return search.parse(raw, FILTER_SEARCH_ALL)
+        return search.parse(raw, active)
+
     def _current_clips(self):
-        return self.vault.list_clips(
-            search.parse(self._search_var.get(), self._filters.active))
+        return self.vault.list_clips(self._build_query())
 
     @staticmethod
     def _collection_name_for(active: str):

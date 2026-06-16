@@ -57,3 +57,16 @@ def test_search_sensitive_only(vault):
     results = vault.list_clips(search.parse("sensitive:true"))
     assert len(results) == 1
     assert results[0].is_sensitive
+
+
+def test_search_all_includes_recently_removed(vault):
+    from cache_vault.core.storage import FILTER_SEARCH_ALL
+
+    clip = vault.capture("findme anywhere")
+    vault.remove_from_history(clip.id)
+    # Normal All Clips filter hides removed items.
+    assert not vault.list_clips(search.parse("findme", "all"))
+    # Global search includes Recently Removed.
+    found = vault.list_clips(search.parse("findme", FILTER_SEARCH_ALL))
+    assert len(found) == 1
+    assert found[0].id == clip.id

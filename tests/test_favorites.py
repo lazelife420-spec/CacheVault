@@ -54,10 +54,10 @@ def test_favorites_filter_shows_only_favorites(vault):
     assert [c.id for c in favs] == [fav.id]
 
 
-def test_favorites_survive_expiry_pruning(vault):
+def test_favorites_survive_sensitive_expiry(vault):
     fav = vault.capture("important favorite")
     vault.set_favorite(fav.id, True)
-    vault.run_expiry_sweep()  # pruning pass
+    vault.run_expiry_sweep()  # no expiry on this clip — should remain
     assert fav.id in {c.id for c in vault.list_clips(FILTER_FAVORITES)}
 
 

@@ -112,6 +112,9 @@ exe directly.
 
 ### Organize & export
 
+See [docs/FEATURE_DIRECTION.md](docs/FEATURE_DIRECTION.md) for the full product
+direction (History, Favorites, Collections, Recently Removed, Export).
+
 Right-click any clip for **Copy Again**, **Add/Remove Favorites**, **Move to
 Collection…**, **Export / Save As…**, **Open** / **Reveal in Explorer** (local
 path clips only), and **Remove from History**. Sidebar sections: All Clips,
@@ -123,6 +126,9 @@ collection as an organized folder or zip (`index.html`, `manifest.json`,
 `clips/`). Path clips export a **reference + metadata only** by default; real
 files are copied into `files/` only if you tick *Include file copies*, and
 originals are never moved or deleted.
+
+Settings → **History limit** prunes oldest non-favorite clips to Recently
+Removed when exceeded (`0` = unlimited). Favorites always survive pruning.
 
 ## Tests
 
