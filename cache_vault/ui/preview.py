@@ -300,6 +300,22 @@ class PreviewPanel(ctk.CTkFrame):
                     if meta.get("width") and meta.get("height"):
                         lines.append(f"Dimensions:   {meta['width']}×{meta['height']}")
                     lines.append(f"Asset size:   {meta.get('size_bytes', 0)} bytes")
+        summary = self._actions.get("html_bundle_summary")
+        if summary:
+            info = summary(clip.id)
+            if info:
+                lines.extend([
+                    "",
+                    "Original HTML:        " + info.get("original_html", ""),
+                    "Editable HTML Copy:   " + info.get("editable_html_copy", ""),
+                    "Copied Asset Bundle:  " + str(info.get("copied_asset_count", 0)) + " file(s)",
+                    "Missing Assets:       " + str(info.get("missing_asset_count", 0)),
+                    "Remote Assets Skipped:" + str(info.get("remote_asset_count", 0)),
+                ])
+                if info.get("missing_assets"):
+                    lines.append("  missing: " + ", ".join(info["missing_assets"][:5]))
+                if info.get("remote_assets"):
+                    lines.append("  remote:  " + ", ".join(info["remote_assets"][:5]))
         return "\n".join(lines)
 
     def _usage_text(self, clip: Clip) -> str:
@@ -357,7 +373,26 @@ class PreviewPanel(ctk.CTkFrame):
             add("Open Link", "open_link", **theme.secondary_button())
         if clip.classification == models.CLASS_PATH:
             from ..core import pathutil
-            if pathutil.is_local_file(clip.content):
+            from ..core.editable_copies import is_html_path
+            if pathutil.is_local_file(clip.content) and is_html_path(clip.content):
+                section("Editable HTML Copy")
+                has_copy = bool(self._actions.get("latest_editable_copy", lambda _cid: None)(clip.id))
+                add("Preview Copy", "preview_html_copy", **theme.primary_button())
+                add("Edit Source", "edit_html_source", **theme.secondary_button())
+                if not has_copy:
+                    add("Create HTML Copy", "create_editable_copy",
+                        **theme.secondary_button())
+                else:
+                    add("Save Revision", "save_editable_revision",
+                        **theme.secondary_button())
+                    add("Reveal Copied Bundle", "reveal_editable_copy_folder",
+                        **theme.secondary_button())
+                    if self._actions.get("export_html_bundle"):
+                        add("Export HTML Bundle", "export_html_bundle",
+                            **theme.secondary_button())
+                section("Original")
+                add("Show Original", "show_original_path", **theme.secondary_button())
+            elif pathutil.is_local_file(clip.content):
                 section("Editable Copy")
                 add("Open Editable Copy", "open_editable_copy",
                     **theme.primary_button())

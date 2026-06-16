@@ -17,7 +17,7 @@
 | **1** | Windows scroll behavior | **Done** — `win_scroll.py`, `scroll_patch.py`, settings |
 | **2** | Paste-from-selection UX | **Done** — focus capture, deliver Ctrl+V, receipts, image paste, restore setting |
 | **3** | Immutable originals + editable copies | **Done** — `editable_copies.py`, vault API, preview/context menu, receipts |
-| 4 | Local HTML bundle support | Planned |
+| **4** | Local HTML bundle support | **Done** — HTML asset scan/copy, bundle revisions, zip export, receipts |
 | 5 | Receipts, manifest, export zip | Partial — export exists; receipt model expansion planned |
 | 6 | Smart folders, tags, notes, search | Planned |
 | 7 | Sensitive item handling | Partial — auto-expiry exists |
@@ -46,6 +46,16 @@
 - Preview + context menu: Open Editable Copy, Create, Save Revision, Show Original, Reveal Copy Folder.
 - File receipts under `%LOCALAPPDATA%/CacheVault/Receipts/YYYY-MM-DD/`.
 - Events: `editable_copy_created`, `editable_copy_saved`.
+
+## Phase 4 — HTML bundles
+
+- `.html` / `.htm` path clips use the same editable-copy store with `kind=html_bundle`.
+- Local assets detected from `href=`, `src=`, and CSS `url(...)`; copied with relative paths preserved.
+- Remote URLs counted and skipped — never fetched.
+- Missing local assets reported in bundle meta, preview labels, and receipts.
+- Preview actions: Create HTML Copy, Preview Copy, Edit Source, Reveal Copied Bundle, Show Original, Export HTML Bundle (zip).
+- Receipts: `editable_html_copy_created`, `editable_html_copy_saved`.
+- Smoke: `scripts/html_bundle_smoke.py`.
 
 ## Core rules (all phases)
 

@@ -40,6 +40,8 @@ ACTION_LABELS: dict[str, str] = {
     models.EVENT_USAGE_MERGED: "Usage Merged",
     models.EVENT_EDITABLE_COPY_CREATED: "Editable Copy Created",
     models.EVENT_EDITABLE_COPY_SAVED: "Editable Copy Saved",
+    models.EVENT_EDITABLE_HTML_COPY_CREATED: "HTML Copy Created",
+    models.EVENT_EDITABLE_HTML_COPY_SAVED: "HTML Copy Saved",
     "list_clips": "Mobile Access",
     "get_clip": "Mobile Access",
     "search": "Mobile Access",

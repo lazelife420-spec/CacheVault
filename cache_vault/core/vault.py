@@ -287,11 +287,15 @@ class Vault:
 
     def create_editable_copy(self, clip_id: str):
         import os
+        from pathlib import Path
 
         from .editable_copies import (
             EditableCopyRecord,
+            KIND_HTML_BUNDLE,
             file_sha256,
+            is_html_path,
             is_local_file_path,
+            scan_html_assets,
             write_file_receipt,
         )
         from .pathutil import clean_path
@@ -301,6 +305,14 @@ class Vault:
             return None
         original = clean_path(clip.content)
         before_hash = file_sha256(original)
+        asset_hashes_before: dict[str, str] = {}
+        if is_html_path(original):
+            html_root = Path(original).parent.resolve()
+            scan = scan_html_assets(Path(original))
+            for rel in scan.copied_assets:
+                src = html_root / rel
+                if src.is_file():
+                    asset_hashes_before[rel] = file_sha256(src)
         try:
             rec: EditableCopyRecord = self._editable_store().create_copy(clip_id, original)
         except (FileNotFoundError, FileExistsError, OSError):
@@ -308,6 +320,37 @@ class Vault:
         after_orig = file_sha256(original)
         if after_orig != before_hash:
             return None
+        if asset_hashes_before:
+            html_root = Path(original).parent.resolve()
+            for rel, digest in asset_hashes_before.items():
+                src = html_root / rel
+                if src.is_file() and file_sha256(src) != digest:
+                    return None
+
+        if rec.kind == KIND_HTML_BUNDLE:
+            meta = getattr(rec, "_bundle_meta", None)
+            if meta is None:
+                from .editable_copies import load_bundle_meta
+                meta = load_bundle_meta(rec.bundle_dir)
+            receipt = {
+                "clip_id": clip_id,
+                "timestamp": rec.created_at,
+                "success": True,
+                "original_path": original,
+                "copy_path": rec.copy_path,
+                "bundle_dir": rec.bundle_dir,
+                "revision": rec.revision,
+                "copied_asset_count": len(meta.copied_assets) if meta else 0,
+                "missing_asset_count": len(meta.missing_assets) if meta else 0,
+                "skipped_remote_asset_count": len(meta.remote_assets) if meta else 0,
+                "hash_before": before_hash,
+                "hash_after": rec.copy_hash,
+                "warnings": (meta.warnings if meta else [])[:8],
+            }
+            self.events.record(models.EVENT_EDITABLE_HTML_COPY_CREATED, clip_id, receipt)
+            write_file_receipt("editable_html_copy_created", receipt)
+            return rec
+
         details = {
             "original_path": original,
             "copy_path": rec.copy_path,
@@ -324,12 +367,27 @@ class Vault:
         return rec
 
     def save_editable_revision(self, clip_id: str):
-        from .editable_copies import write_file_receipt
+        from .editable_copies import KIND_HTML_BUNDLE, write_file_receipt
 
         rec = self._editable_store().save_revision(clip_id)
         if rec is None:
             return None
         previous_hash = getattr(rec, "_previous_hash", "")
+        if rec.kind == KIND_HTML_BUNDLE:
+            changed = getattr(rec, "_changed_files", [])
+            receipt = {
+                "clip_id": clip_id,
+                "timestamp": rec.updated_at,
+                "revision": rec.revision,
+                "copy_path": rec.copy_path,
+                "bundle_dir": rec.bundle_dir,
+                "previous_hash": previous_hash,
+                "new_hash": rec.copy_hash,
+                "changed_files": changed[:50],
+            }
+            self.events.record(models.EVENT_EDITABLE_HTML_COPY_SAVED, clip_id, receipt)
+            write_file_receipt("editable_html_copy_saved", receipt)
+            return rec
         details = {
             "revision": rec.revision,
             "copy_path": rec.copy_path,
@@ -352,6 +410,45 @@ class Vault:
         if rec is None:
             return False
         return open_copy_path(rec.copy_path)
+
+    def preview_html_copy(self, clip_id: str) -> bool:
+        return self.open_editable_copy(clip_id)
+
+    def edit_html_source(self, clip_id: str) -> bool:
+        from .editable_copies import edit_copy_source
+
+        rec = self.latest_editable_copy(clip_id)
+        if rec is None:
+            rec = self.create_editable_copy(clip_id)
+        if rec is None:
+            return False
+        return edit_copy_source(rec.copy_path)
+
+    def html_bundle_summary(self, clip_id: str) -> dict | None:
+        from .editable_copies import html_bundle_summary
+
+        return html_bundle_summary(clip_id, self._editable_store())
+
+    def export_html_bundle(self, clip_id: str, dest_zip: str) -> bool:
+        from pathlib import Path
+
+        from .editable_copies import export_html_bundle_zip, receipts_dir
+
+        rec = self.latest_editable_copy(clip_id)
+        if rec is None or not rec.bundle_dir:
+            rec = self.create_editable_copy(clip_id)
+        if rec is None or not rec.bundle_dir:
+            return False
+        receipt_files = sorted(receipts_dir().glob(f"editable_html_copy_*-{clip_id[:8]}-*.json"))
+        if not receipt_files:
+            receipt_files = sorted(receipts_dir().glob("editable_html_copy_created-*.json"))
+        receipt = receipt_files[-1] if receipt_files else None
+        export_html_bundle_zip(
+            Path(rec.bundle_dir),
+            Path(dest_zip),
+            receipt_path=receipt,
+        )
+        return True
 
     def delete_editable_copy(self, clip_id: str) -> bool:
         rec = self.latest_editable_copy(clip_id)

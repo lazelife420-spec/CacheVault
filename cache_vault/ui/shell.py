@@ -541,10 +541,14 @@ class CacheVaultApp(ctk.CTk):
             "save_asset_as": self._save_asset_as,
             "open_asset_folder": open_asset_folder,
             "latest_editable_copy": self.vault.latest_editable_copy,
+            "html_bundle_summary": self.vault.html_bundle_summary,
             "create_editable_copy": self._create_editable_copy,
             "open_editable_copy": self._open_editable_copy,
+            "preview_html_copy": self._preview_html_copy,
+            "edit_html_source": self._edit_html_source,
             "save_editable_revision": self._save_editable_revision,
             "reveal_editable_copy_folder": self._reveal_editable_copy_folder,
+            "export_html_bundle": self._export_html_bundle,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -800,7 +804,28 @@ class CacheVaultApp(ctk.CTk):
         from ..core import pathutil
         rec = self.vault.latest_editable_copy(clip_id)
         if rec is not None:
-            pathutil.reveal_in_explorer(rec.copy_path)
+            target = rec.bundle_dir or rec.copy_path
+            pathutil.reveal_in_explorer(target)
+
+    def _preview_html_copy(self, clip_id: str) -> None:
+        self.vault.preview_html_copy(clip_id)
+        self._refresh_editable_preview(clip_id)
+
+    def _edit_html_source(self, clip_id: str) -> None:
+        self.vault.edit_html_source(clip_id)
+        self._refresh_editable_preview(clip_id)
+
+    def _export_html_bundle(self, clip_id: str) -> None:
+        from tkinter import filedialog
+
+        dest = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export HTML Bundle",
+            defaultextension=".zip",
+            filetypes=[("Zip archive", "*.zip")],
+        )
+        if dest:
+            self.vault.export_html_bundle(clip_id, dest)
 
     def _refresh_editable_preview(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
