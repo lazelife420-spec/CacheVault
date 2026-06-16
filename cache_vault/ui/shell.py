@@ -24,7 +24,14 @@ import customtkinter as ctk
 from .. import brand
 from ..core import models, search
 from ..core.clipboard import ClipboardMonitor
-from ..core.hotkey import HotkeyListener, focus_and_paste, foreground_window
+from ..core.hotkey import HotkeyListener, normalize_hotkey
+from ..core.paste_delivery import (
+    deliver_ctrl_v,
+    foreground_window,
+    hwnd_belongs_to_widget,
+    restore_clipboard_text,
+    snapshot_clipboard_text,
+)
 from ..core.storage import FILTER_HOME, FILTER_SEARCH_ALL
 from ..core.mobile.bridge import MobileBridge
 from ..core.vault import Vault
@@ -118,7 +125,7 @@ class CacheVaultApp(ctk.CTk):
         self._quick_paste = None
         self._hotkey = HotkeyListener(
             self.vault.settings.quick_paste_hotkey,
-            on_activate=lambda: self.after(0, self._open_quick_paste),
+            on_activate=self._schedule_quick_paste,
         )
         self._hotkey.start()
 
@@ -137,7 +144,7 @@ class CacheVaultApp(ctk.CTk):
             on_resume=lambda: self._call_on_main(lambda: self._set_paused(False)),
             on_clear_sensitive=lambda: self._call_on_main(self._clear_sensitive),
             on_quit=lambda: self._call_on_main(self._quit),
-            on_quick_paste=lambda: self._call_on_main(self._open_quick_paste),
+            on_quick_paste=lambda: self._call_on_main(self._schedule_quick_paste),
         )
         self._tray.start()
 
@@ -1056,7 +1063,7 @@ class CacheVaultApp(ctk.CTk):
         if self._hotkey:
             self._hotkey.stop()
         self._hotkey = HotkeyListener(
-            spec, on_activate=lambda: self.after(0, self._open_quick_paste))
+            spec, on_activate=self._schedule_quick_paste)
         self._hotkey.start()
 
     def _open_events(self) -> None:
@@ -1071,7 +1078,12 @@ class CacheVaultApp(ctk.CTk):
         AboutDialog(self)
 
     # --- quick paste (global hotkey) ---------------------------------------
-    def _open_quick_paste(self) -> None:
+    def _schedule_quick_paste(self) -> None:
+        """Capture foreground hwnd on the hotkey thread before UI steals focus."""
+        target = foreground_window()
+        self._call_on_main(lambda t=target: self._open_quick_paste(paste_target=t))
+
+    def _open_quick_paste(self, paste_target=None) -> None:
         if not self._alive():
             return
         try:
@@ -1084,7 +1096,12 @@ class CacheVaultApp(ctk.CTk):
                         return
                 except Exception:  # noqa: BLE001
                     self._quick_paste = None
-            self._paste_target = foreground_window()
+            if paste_target is None:
+                paste_target = foreground_window()
+            if hwnd_belongs_to_widget(paste_target, self):
+                paste_target = None
+            self._paste_target = paste_target
+            self._paste_clipboard_snapshot = None
             self.vault.run_expiry_sweep()
             clips = sorted(self.vault.list_clips(), key=lambda c: c.created_at,
                            reverse=True)[: self.vault.settings.quick_paste_count]
@@ -1094,22 +1111,103 @@ class CacheVaultApp(ctk.CTk):
             raise
 
     def _do_paste(self, clip) -> None:
-        content = self.vault.copied_again(clip.id)  # logs copied_again
-        if content is None:
+        if clip is None:
             return
-        self.clipboard_clear()
-        self.clipboard_append(content)
-        self._monitor.note_local_copy(content)
-        if self.vault.settings.auto_paste:
-            target = self._paste_target
-            self.after(60, lambda: focus_and_paste(target))
-        # Confirm without revealing secrets.
+        settings = self.vault.settings
+        prior_clipboard = None
+        if settings.restore_clipboard_after_paste:
+            prior_clipboard = snapshot_clipboard_text()
+
+        pasted_text = False
+        if clip.content_type == models.CONTENT_IMAGE:
+            png = self.vault.copied_again_image(clip.id)
+            if not png:
+                self.vault.log_item_pasted(
+                    clip.id, success=False, item_type="image", reason="no_asset",
+                )
+                Toast(self, "Image not available for paste")
+                return
+            from ..core import image_assets
+            if not image_assets.write_clipboard_png(png):
+                self.vault.log_item_pasted(
+                    clip.id, success=False, item_type="image", reason="clipboard_image_failed",
+                )
+                Toast(self, "Could not put image on clipboard")
+                return
+            self._monitor.note_local_copy_image(png)
+            item_type = "image"
+        else:
+            content = self.vault.copied_again(clip.id)
+            if content is None:
+                return
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            self._monitor.note_local_copy(content)
+            pasted_text = True
+            item_type = clip.content_type or clip.classification or "text"
+
+        target = self._paste_target
+        skip_delivery = (
+            not settings.auto_paste
+            or not target
+            or hwnd_belongs_to_widget(target, self)
+        )
+        delivery_ok = False
+        reason = ""
+        target_title = ""
+        if skip_delivery:
+            if settings.auto_paste and not target:
+                reason = "no_target_window"
+            elif settings.auto_paste and hwnd_belongs_to_widget(target, self):
+                reason = "target_is_cache_vault"
+            delivery_ok = not settings.auto_paste
+        else:
+
+            def _deliver() -> None:
+                nonlocal delivery_ok, reason, target_title
+                result = deliver_ctrl_v(target)
+                delivery_ok = result.ok
+                reason = result.reason
+                target_title = result.target_title
+                if settings.restore_clipboard_after_paste and pasted_text:
+                    restore_clipboard_text(prior_clipboard)
+                self._finish_paste(
+                    clip, delivery_ok, item_type, target_title, reason,
+                    clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+                )
+
+            self.after(80, _deliver)
+            return
+
+        if settings.restore_clipboard_after_paste and pasted_text and delivery_ok:
+            restore_clipboard_text(prior_clipboard)
+        self._finish_paste(
+            clip, delivery_ok, item_type, target_title, reason,
+            clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+        )
+
+    def _finish_paste(
+        self, clip, delivery_ok: bool, item_type: str, target_title: str, reason: str,
+        *, clipboard_restored: bool,
+    ) -> None:
+        self.vault.log_item_pasted(
+            clip.id,
+            success=delivery_ok,
+            item_type=item_type,
+            target_title=target_title,
+            clipboard_restored=clipboard_restored,
+            reason=reason,
+        )
         if clip.is_sensitive:
-            Toast(self, "Pasted sensitive clip 🔒")
+            Toast(self, "Pasted sensitive clip 🔒" if delivery_ok else "Paste failed 🔒")
+        elif not delivery_ok and self.vault.settings.auto_paste and reason:
+            Toast(self, "Copied — could not paste into the previous app")
+        elif delivery_ok and self.vault.settings.auto_paste:
+            snippet = clip.preview if len(clip.preview) <= 60 else clip.preview[:59] + "…"
+            Toast(self, f"Pasted ✓   {snippet}")
         else:
             snippet = clip.preview if len(clip.preview) <= 60 else clip.preview[:59] + "…"
-            verb = "Pasted" if self.vault.settings.auto_paste else "Copied"
-            Toast(self, f"{verb} ✓   {snippet}")
+            Toast(self, f"Copied ✓   {snippet}")
 
     # --- maintenance / lifecycle -------------------------------------------
     def _expiry_tick(self) -> None:

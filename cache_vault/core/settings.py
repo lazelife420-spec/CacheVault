@@ -28,7 +28,8 @@ class Settings:
     # Quick-paste picker (global hotkey).
     quick_paste_hotkey: str = "ctrl+shift+v"  # Win+V is reserved by Windows
     quick_paste_count: int = 12               # how many recent clips to show
-    auto_paste: bool = True                   # send Ctrl+V after choosing
+    auto_paste: bool = True                   # paste selected item immediately (Ctrl+V to prior app)
+    restore_clipboard_after_paste: bool = False  # restore pre-paste clipboard text after delivery
 
     # Mouse wheel — match Windows Settings scroll lines (SPI_GETWHEELSCROLLLINES).
     use_windows_scroll_settings: bool = True
@@ -73,6 +74,7 @@ class Settings:
             s.scroll_multiplier = max(0.25, min(4.0, float(s.scroll_multiplier)))
         except (TypeError, ValueError):
             s.scroll_multiplier = 1.0
+        s.restore_clipboard_after_paste = bool(s.restore_clipboard_after_paste)
         return s
 
     def save(self, path: str | os.PathLike | None = None) -> None:

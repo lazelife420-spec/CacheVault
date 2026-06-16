@@ -151,31 +151,14 @@ class HotkeyListener:
         win32gui.PumpMessages()
 
 
-def focus_and_paste(hwnd) -> None:
+def focus_and_paste(hwnd) -> bool:
     """Restore focus to ``hwnd`` (the app the user was in) and send Ctrl+V."""
-    if not _HAS_WIN32:
-        return
-    try:
-        if hwnd:
-            win32gui.SetForegroundWindow(hwnd)
-    except Exception:  # noqa: BLE001
-        pass
-    time.sleep(0.05)
-    vk_ctrl, vk_v, keyup = 0x11, 0x56, 0x0002
-    try:
-        win32api.keybd_event(vk_ctrl, 0, 0, 0)
-        win32api.keybd_event(vk_v, 0, 0, 0)
-        win32api.keybd_event(vk_v, 0, keyup, 0)
-        win32api.keybd_event(vk_ctrl, 0, keyup, 0)
-    except Exception:  # noqa: BLE001
-        pass
+    from .paste_delivery import deliver_ctrl_v
+
+    return deliver_ctrl_v(hwnd).ok
 
 
 def foreground_window():
-    """Handle of the currently focused window, or ``None``."""
-    if not _HAS_WIN32:
-        return None
-    try:
-        return win32gui.GetForegroundWindow()
-    except Exception:  # noqa: BLE001
-        return None
+    from .paste_delivery import foreground_window as _fg
+
+    return _fg()

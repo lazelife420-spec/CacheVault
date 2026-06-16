@@ -123,9 +123,22 @@ class SettingsDialog(ctk.CTkToplevel):
         self._hotkey.insert(0, settings.quick_paste_hotkey)
         self._hotkey.pack(side="right")
 
-        self._auto_paste = ctk.CTkSwitch(body, text="Auto-paste after choosing")
+        self._auto_paste = ctk.CTkSwitch(body, text="Paste selected item immediately")
         self._auto_paste.pack(anchor="w", padx=8, pady=6)
         self._auto_paste.select() if settings.auto_paste else self._auto_paste.deselect()
+
+        self._restore_clip = ctk.CTkSwitch(
+            body, text="Restore previous clipboard after paste (text only)",
+        )
+        self._restore_clip.pack(anchor="w", padx=8, pady=(0, 6))
+        if settings.restore_clipboard_after_paste:
+            self._restore_clip.select()
+        ctk.CTkLabel(
+            body,
+            text="When off, the chosen vault item stays on the clipboard after paste.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=8, pady=(0, 4))
 
         section("Display")
         self._win_scroll = ctk.CTkSwitch(
@@ -248,6 +261,7 @@ class SettingsDialog(ctk.CTkToplevel):
         if hotkey:
             self._settings.quick_paste_hotkey = hotkey
         self._settings.auto_paste = bool(self._auto_paste.get())
+        self._settings.restore_clipboard_after_paste = bool(self._restore_clip.get())
         self._settings.use_windows_scroll_settings = bool(self._win_scroll.get())
         try:
             self._settings.scroll_multiplier = max(

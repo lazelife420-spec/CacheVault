@@ -15,7 +15,7 @@
 | Phase | Topic | Status |
 |-------|--------|--------|
 | **1** | Windows scroll behavior | **Done** — `win_scroll.py`, `scroll_patch.py`, settings |
-| 2 | Paste-from-selection UX | Partial — `quick_paste.py` + hotkey exist; needs focus/restore hardening per spec |
+| **2** | Paste-from-selection UX | **Done** — focus capture, deliver Ctrl+V, receipts, image paste, restore setting |
 | 3 | Immutable originals + editable copies | Planned |
 | 4 | Local HTML bundle support | Planned |
 | 5 | Receipts, manifest, export zip | Partial — export exists; receipt model expansion planned |

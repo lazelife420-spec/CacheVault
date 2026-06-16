@@ -255,6 +255,28 @@ class Vault:
         loaded = self.storage.load_clip_asset_bytes(clip_id)
         return loaded[0] if loaded else None
 
+    def log_item_pasted(
+        self,
+        clip_id: str,
+        *,
+        success: bool,
+        item_type: str,
+        target_title: str = "",
+        clipboard_restored: bool = False,
+        reason: str = "",
+    ) -> None:
+        self.events.record(
+            models.EVENT_ITEM_PASTED,
+            clip_id,
+            {
+                "success": success,
+                "item_type": item_type,
+                "target_title": target_title[:120] if target_title else "",
+                "clipboard_restored": clipboard_restored,
+                "reason": reason[:80] if reason else "",
+            },
+        )
+
     def clear_sensitive(self) -> int:
         ids = self.storage.clear_sensitive()
         for cid in ids:
