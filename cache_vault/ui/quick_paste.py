@@ -36,7 +36,8 @@ class QuickPaste(ctk.CTkToplevel):
         self.title("Paste from Cache Vault")
         self.attributes("-topmost", True)
         self.overrideredirect(False)
-        self.geometry(self._center_geometry(520, min(520, 120 + 46 * max(len(clips), 1))))
+        # Pop up at the mouse cursor like a right-click paste menu.
+        self.geometry(self._cursor_geometry(440, min(486, 96 + 44 * max(len(clips), 1))))
         self.resizable(False, False)
         # Close on Esc or when the popup loses focus (click elsewhere).
         self.bind("<FocusOut>", self._on_focus_out)
@@ -93,7 +94,7 @@ class QuickPaste(ctk.CTkToplevel):
                      text_color=("#b04632" if clip.is_sensitive else "gray45")
                      ).pack(side="left")
         ctk.CTkLabel(row, text=clip.preview or "(empty)", anchor="w",
-                     justify="left", wraplength=376).pack(
+                     justify="left", wraplength=300).pack(
             side="left", fill="x", expand=True, padx=4, pady=6)
         if clip.is_pinned:
             ctk.CTkLabel(row, text="📌", width=20,
@@ -155,9 +156,13 @@ class QuickPaste(ctk.CTkToplevel):
             pass
         super().destroy()
 
-    def _center_geometry(self, w: int, h: int) -> str:
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        x = (sw - w) // 2
-        y = (sh - h) // 3
+    def _cursor_geometry(self, w: int, h: int) -> str:
+        """Place the popup at the mouse cursor, clamped to the screen."""
+        px, py = self.winfo_pointerx(), self.winfo_pointery()
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        # Offset slightly down-right of the cursor (like a context menu), then
+        # clamp so the whole popup stays on screen.
+        x = min(px + 4, sw - w - 8)
+        y = min(py + 4, sh - h - 8)
+        x, y = max(8, x), max(8, y)
         return f"{w}x{h}+{x}+{y}"
