@@ -24,15 +24,13 @@ import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
 import com.prooffoundry.cachevaultmobile.connect.WifiSettingsHelper
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.PairingStore
-import com.prooffoundry.cachevaultmobile.ui.screens.ConnectionDoctorScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ClipDetailScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.DiscoverPcScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.EasyConnectScreen
-import com.prooffoundry.cachevaultmobile.ui.screens.HomeScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ManualSetupScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.PcFoundBottomSheet
 import com.prooffoundry.cachevaultmobile.ui.screens.QrScanScreen
-import com.prooffoundry.cachevaultmobile.ui.screens.SettingsScreen
+import com.prooffoundry.cachevaultmobile.ui.MainShell
 import com.prooffoundry.cachevaultmobile.ui.screens.WelcomeScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -144,16 +142,18 @@ fun CacheVaultMobileRoot(
             )
         }
         composable(Routes.Home) {
-            HomeScreen(
-                state = vm.uiState,
-                onSearch = vm::setSearchQuery,
-                onFeed = vm::setFeed,
+            MainShell(
+                vm = vm,
                 onOpenClip = { clipId ->
                     vm.openClip(clipId)
                     nav.navigate(Routes.Detail)
                 },
-                onSettings = { nav.navigate(Routes.Settings) },
-                onRefresh = vm::refreshAll,
+                onDisconnect = {
+                    vm.disconnect()
+                    nav.navigate(Routes.Welcome) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
             )
         }
         composable(Routes.Detail) {
@@ -172,30 +172,6 @@ fun CacheVaultMobileRoot(
                     onViewAsset = { vm.logAssetOpen(clip.id) },
                 )
             }
-        }
-        composable(Routes.Settings) {
-            SettingsScreen(
-                host = vm.uiState.hostLabel,
-                port = vm.uiState.port,
-                deviceId = vm.uiState.deviceId,
-                status = vm.uiState.status,
-                error = vm.uiState.error,
-                lastError = vm.uiState.lastError,
-                onDisconnect = {
-                    vm.disconnect()
-                    nav.navigate(Routes.Welcome) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
-                onConnectionDoctor = { nav.navigate(Routes.ConnectionDoctor) },
-                onBack = { nav.popBackStack() },
-            )
-        }
-        composable(Routes.ConnectionDoctor) {
-            ConnectionDoctorScreen(
-                info = vm.connectionDoctor(),
-                onBack = { nav.popBackStack() },
-            )
         }
     }
 

@@ -13,8 +13,10 @@ import com.prooffoundry.cachevaultmobile.data.ClipKinds
 import com.prooffoundry.cachevaultmobile.data.BridgeError
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
-import com.prooffoundry.cachevaultmobile.data.ClipFeed
 import com.prooffoundry.cachevaultmobile.data.ClipSummary
+import com.prooffoundry.cachevaultmobile.data.BrowseFilter
+import com.prooffoundry.cachevaultmobile.data.VaultSectionCounts
+import com.prooffoundry.cachevaultmobile.data.VaultSectionKind
 import com.prooffoundry.cachevaultmobile.data.ImageAssetState
 import com.prooffoundry.cachevaultmobile.data.PairingConfig
 import com.prooffoundry.cachevaultmobile.data.PairingStore
@@ -45,16 +47,21 @@ data class AppUiState(
     val hostLabel: String = "",
     val deviceId: String = "",
     val port: Int = PairingStore.DEFAULT_PORT,
-    val clips: List<ClipSummary> = emptyList(),
+    val allClips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary> = emptyList(),
+    val removedClips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary> = emptyList(),
+    val clips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary> = emptyList(),
+    val sectionCounts: VaultSectionCounts = VaultSectionCounts(),
     val vaultSummary: VaultSummary? = null,
     val collections: List<com.prooffoundry.cachevaultmobile.data.CollectionEntry> = emptyList(),
     val selectedCollection: String? = null,
-    val searchQuery: String = "",
-    val activeFeed: ClipFeed = ClipFeed.ALL,
+    val vaultSearchQuery: String = "",
+    val browseSearchQuery: String = "",
+    val browseFilter: BrowseFilter = BrowseFilter.ALL,
+    val mainTab: MainTab = MainTab.VAULT,
     val loading: Boolean = false,
     val error: String? = null,
     val lastError: String? = null,
-    val selectedClip: ClipSummary? = null,
+    val selectedClip: com.prooffoundry.cachevaultmobile.data.ClipSummary? = null,
     val imageAsset: ImageAssetState = ImageAssetState(),
     val thumbnailBytes: Map<String, ByteArray> = emptyMap(),
     val pcFoundOffer: PcFoundOffer? = null,
@@ -116,7 +123,7 @@ class AppViewModel(
                     pcFoundOffer = null,
                     error = null,
                 )
-                refreshClips()
+                refreshVaultData()
                 onSuccess()
             }.onFailure { err ->
                 val mode = if (ConnectionPlanner.isRepairNeeded(err)) {
@@ -160,7 +167,7 @@ class AppViewModel(
                     loading = false,
                     error = null,
                 )
-                refreshClips()
+                refreshVaultData()
                 onSuccess()
             }.onFailure { err ->
                 uiState = uiState.copy(
@@ -174,6 +181,120 @@ class AppViewModel(
     fun disconnect() {
         repository.disconnect()
         uiState = AppUiState(paired = false)
+    }
+
+    fun diagnosticsText(): String {
+        val info = connectionDoctor()
+        return buildString {
+            appendLine("Cache Vault Mobile diagnostics")
+            appendLine("Host: ${info.host}:${info.port}")
+            appendLine("Device: ${info.deviceId}")
+            appendLine("State: ${info.connectionState.label}")
+            appendLine("Status ok: ${info.statusOk}")
+            info.lastError?.let { appendLine("Last error: $it") }
+            appendLine("Suggested fix: ${info.suggestedFix}")
+        }
+    }
+
+    fun setMainTab(tab: MainTab) {
+        uiState = uiState.copy(mainTab = tab)
+        when (tab) {
+            MainTab.BROWSE -> applyBrowseList()
+            MainTab.SCREENSHOTS -> prefetchThumbnails(VaultSections.screenshotClips(uiState.allClips))
+            else -> Unit
+        }
+    }
+
+    fun setBrowseFilter(filter: BrowseFilter) {
+        uiState = uiState.copy(browseFilter = filter, browseSearchQuery = "")
+        applyBrowseList()
+    }
+
+    fun openBrowse(filter: BrowseFilter) {
+        uiState = uiState.copy(mainTab = MainTab.BROWSE, browseFilter = filter, browseSearchQuery = "")
+        applyBrowseList()
+    }
+
+    fun openVaultSection(kind: VaultSectionKind) {
+        when (kind) {
+            VaultSectionKind.TEXT -> openBrowse(BrowseFilter.TEXT)
+            VaultSectionKind.LINKS -> openBrowse(BrowseFilter.LINKS)
+            VaultSectionKind.CODE -> openBrowse(BrowseFilter.CODE)
+            VaultSectionKind.COMMANDS -> openBrowse(BrowseFilter.COMMANDS)
+            VaultSectionKind.FAVORITES -> openBrowse(BrowseFilter.FAVORITES)
+            VaultSectionKind.RECENT -> openBrowse(BrowseFilter.ALL)
+            VaultSectionKind.SENSITIVE -> openBrowse(BrowseFilter.SENSITIVE)
+            VaultSectionKind.REMOVED -> openBrowse(BrowseFilter.REMOVED)
+            VaultSectionKind.SCREENSHOTS -> setMainTab(MainTab.SCREENSHOTS)
+            VaultSectionKind.PROOF -> setMainTab(MainTab.PROOF)
+        }
+    }
+
+    fun setVaultSearchQuery(query: String) {
+        uiState = uiState.copy(vaultSearchQuery = query)
+    }
+
+    fun submitVaultSearch() {
+        val query = uiState.vaultSearchQuery.trim()
+        uiState = uiState.copy(
+            mainTab = MainTab.BROWSE,
+            browseSearchQuery = query,
+            browseFilter = BrowseFilter.ALL,
+        )
+        if (query.isBlank()) {
+            applyBrowseList()
+        } else {
+            searchBrowse(query)
+        }
+    }
+
+    fun setBrowseSearchQuery(query: String) {
+        uiState = uiState.copy(browseSearchQuery = query)
+        if (query.isBlank()) {
+            applyBrowseList()
+        } else {
+            searchBrowse(query)
+        }
+    }
+
+    fun refreshBrowseClips() {
+        if (uiState.browseSearchQuery.isNotBlank()) {
+            searchBrowse(uiState.browseSearchQuery)
+        } else {
+            applyBrowseList()
+        }
+    }
+
+    private fun searchBrowse(query: String) {
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, error = null)
+            runCatching {
+                withContext(Dispatchers.IO) { repository.client().search(query).clips }
+            }.onSuccess { clips ->
+                uiState = uiState.copy(clips = clips, loading = false)
+                prefetchThumbnails(clips)
+            }.onFailure { err ->
+                val msg = err.toUserMessage()
+                uiState = uiState.copy(loading = false, error = msg, lastError = msg)
+            }
+        }
+    }
+
+    private fun applyBrowseList() {
+        val filtered = VaultSections.filterClips(
+            uiState.allClips,
+            uiState.browseFilter,
+            uiState.removedClips,
+        )
+        uiState = uiState.copy(clips = filtered)
+        prefetchThumbnails(filtered)
+    }
+
+    private fun refreshVaultData() {
+        applyBrowseList()
+        if (uiState.mainTab == MainTab.SCREENSHOTS) {
+            prefetchThumbnails(VaultSections.screenshotClips(uiState.allClips))
+        }
     }
 
     fun connectionDoctor(): ConnectionDoctorInfo {
@@ -212,6 +333,7 @@ class AppViewModel(
                     val collections = client.listCollections().collections
                     val pairing = repository.loadPairing()
                     val all = client.listClips()
+                    val removed = client.listRecentlyRemoved()
                     val summary = VaultSummary(
                         totalClips = all.count,
                         screenshotCount = all.clips.count {
@@ -219,28 +341,34 @@ class AppViewModel(
                         },
                         favoriteCount = all.clips.count { it.isFavorite },
                     )
-                    Triple(status, collections, Triple(
-                        pairing?.host.orEmpty(),
-                        pairing?.deviceId.orEmpty(),
-                        pairing?.port ?: PairingStore.DEFAULT_PORT,
-                    ) to summary)
+                    VaultRefreshPayload(
+                        status = status,
+                        collections = collections,
+                        host = pairing?.host.orEmpty(),
+                        deviceId = pairing?.deviceId.orEmpty(),
+                        port = pairing?.port ?: PairingStore.DEFAULT_PORT,
+                        allClips = all.clips,
+                        removedClips = removed.clips,
+                        summary = summary,
+                    )
                 }
-            }.onSuccess { (status, collections, hostMeta) ->
-                val (hostTriple, summary) = hostMeta
-                val (host, deviceId, port) = hostTriple
+            }.onSuccess { payload ->
                 uiState = uiState.copy(
                     paired = true,
-                    status = status,
-                    collections = collections,
-                    hostLabel = host,
-                    deviceId = deviceId.ifBlank { status.deviceId },
-                    port = port,
-                    vaultSummary = summary,
+                    status = payload.status,
+                    collections = payload.collections,
+                    hostLabel = payload.host,
+                    deviceId = payload.deviceId.ifBlank { payload.status.deviceId },
+                    port = payload.port,
+                    allClips = payload.allClips,
+                    removedClips = payload.removedClips,
+                    sectionCounts = VaultSections.computeCounts(payload.allClips, payload.removedClips),
+                    vaultSummary = payload.summary,
                     loading = false,
                     error = null,
                     lastError = null,
                 )
-                refreshClips()
+                refreshVaultData()
             }.onFailure { err ->
                 val msg = err.toUserMessage()
                 uiState = uiState.copy(
@@ -267,28 +395,11 @@ class AppViewModel(
         }
     }
 
-    fun setSearchQuery(query: String) {
-        uiState = uiState.copy(searchQuery = query)
-        if (query.isBlank()) {
-            refreshClips()
-        } else {
-            viewModelScope.launch {
-                uiState = uiState.copy(loading = true, error = null)
-                runCatching {
-                    withContext(Dispatchers.IO) { repository.client().search(query).clips }
-                }.onSuccess { clips ->
-                    uiState = uiState.copy(clips = clips, loading = false)
-                }.onFailure { err ->
-                    val msg = err.toUserMessage()
-                    uiState = uiState.copy(loading = false, error = msg, lastError = msg)
-                }
-            }
-        }
-    }
+    fun setSearchQuery(query: String) = setBrowseSearchQuery(query)
 
-    fun setFeed(feed: ClipFeed, collection: String? = null) {
-        uiState = uiState.copy(activeFeed = feed, selectedCollection = collection, searchQuery = "")
-        refreshClips()
+    fun setFeed(@Suppress("UNUSED_PARAMETER") feed: com.prooffoundry.cachevaultmobile.data.ClipFeed, collection: String? = null) {
+        uiState = uiState.copy(selectedCollection = collection)
+        openBrowse(BrowseFilter.ALL)
     }
 
     fun openClip(clipId: String) {
@@ -395,39 +506,21 @@ class AppViewModel(
         }
     }
 
-    private fun refreshClips() {
-        viewModelScope.launch {
-            uiState = uiState.copy(loading = true, error = null)
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val client = repository.client()
-                    when (uiState.activeFeed) {
-                        ClipFeed.ALL -> client.listClips().clips
-                        ClipFeed.FAVORITES -> client.listFavorites().clips
-                        ClipFeed.SCREENSHOTS -> client.listClips().clips.filter {
-                            com.prooffoundry.cachevaultmobile.data.ClipKinds.isImageReference(it)
-                        }
-                        ClipFeed.RECENT -> client.listClips().clips.take(50)
-                        ClipFeed.COLLECTION -> {
-                            val name = uiState.selectedCollection
-                            client.listClips().clips.filter { it.collection == name }
-                        }
-                    }
-                }
-            }.onSuccess { clips ->
-                uiState = uiState.copy(clips = clips, loading = false)
-                prefetchThumbnails(clips)
-            }.onFailure { err ->
-                val msg = err.toUserMessage()
-                uiState = uiState.copy(loading = false, error = msg, lastError = msg)
-            }
-        }
-    }
-
     private fun Throwable.toUserMessage(): String = when {
         this is BridgeError -> UserMessages.forBridgeError(this)
         message?.contains("Unexpected char", ignoreCase = true) == true ->
             "Pairing token looks invalid.\nPaste only the token line, or use Copy Token on your PC."
         else -> message ?: UserMessages.PC_UNREACHABLE
     }
+
+    private data class VaultRefreshPayload(
+        val status: BridgeStatus,
+        val collections: List<com.prooffoundry.cachevaultmobile.data.CollectionEntry>,
+        val host: String,
+        val deviceId: String,
+        val port: Int,
+        val allClips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary>,
+        val removedClips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary>,
+        val summary: VaultSummary,
+    )
 }
