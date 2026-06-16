@@ -6,7 +6,39 @@ data class PairingConfig(
     val deviceId: String,
     val token: String,
     val pcLabel: String = "",
-)
+) {
+    companion object {
+        fun sanitize(
+            host: String,
+            port: Int,
+            deviceId: String,
+            token: String,
+            pcLabel: String = "",
+        ): PairingConfig = PairingConfig(
+            host = sanitizeHost(host),
+            port = port,
+            deviceId = sanitizeDeviceId(deviceId),
+            token = sanitizeToken(token),
+            pcLabel = pcLabel.trim(),
+        )
+    }
+}
+
+/** Strip paste/newline noise from pairing fields before HTTP headers are built. */
+object PairingSanitize {
+    fun sanitizeHost(host: String): String =
+        host.trim().replace(Regex("\\s+"), "")
+
+    fun sanitizeDeviceId(deviceId: String): String =
+        deviceId.trim().replace(Regex("\\s+"), "")
+
+    fun sanitizeToken(token: String): String =
+        token.trim().replace(Regex("\\s+"), "")
+}
+
+private fun sanitizeHost(host: String) = PairingSanitize.sanitizeHost(host)
+private fun sanitizeDeviceId(deviceId: String) = PairingSanitize.sanitizeDeviceId(deviceId)
+private fun sanitizeToken(token: String) = PairingSanitize.sanitizeToken(token)
 
 data class BridgeStatus(
     val product: String,

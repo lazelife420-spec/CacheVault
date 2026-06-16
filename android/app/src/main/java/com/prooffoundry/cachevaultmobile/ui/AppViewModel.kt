@@ -125,7 +125,7 @@ class AppViewModel(
         viewModelScope.launch {
             uiState = uiState.copy(loading = true, error = null)
             runCatching {
-                val config = PairingConfig(host, port, deviceId, token)
+                val config = PairingConfig.sanitize(host, port, deviceId, token)
                 val status = withContext(Dispatchers.IO) {
                     repository.verifyConnection(config)
                 }
@@ -310,7 +310,10 @@ class AppViewModel(
         }
     }
 
-    private fun Throwable.toUserMessage(): String =
-        if (this is BridgeError) UserMessages.forBridgeError(this)
-        else message ?: UserMessages.PC_UNREACHABLE
+    private fun Throwable.toUserMessage(): String = when {
+        this is BridgeError -> UserMessages.forBridgeError(this)
+        message?.contains("Unexpected char", ignoreCase = true) == true ->
+            "Pairing token looks invalid.\nPaste only the token line, or use Copy Token on your PC."
+        else -> message ?: UserMessages.PC_UNREACHABLE
+    }
 }

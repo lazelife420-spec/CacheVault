@@ -30,12 +30,15 @@ class PairingStore(context: Context) {
     }
 
     fun save(config: PairingConfig) {
+        val clean = PairingConfig.sanitize(
+            config.host, config.port, config.deviceId, config.token, config.pcLabel,
+        )
         prefs.edit()
-            .putString(KEY_HOST, config.host.trim())
-            .putInt(KEY_PORT, config.port)
-            .putString(KEY_DEVICE_ID, config.deviceId.trim())
-            .putString(KEY_TOKEN, config.token.trim())
-            .putString(KEY_PC_LABEL, config.pcLabel.trim())
+            .putString(KEY_HOST, clean.host)
+            .putInt(KEY_PORT, clean.port)
+            .putString(KEY_DEVICE_ID, clean.deviceId)
+            .putString(KEY_TOKEN, clean.token)
+            .putString(KEY_PC_LABEL, clean.pcLabel)
             .apply()
     }
 
