@@ -96,9 +96,10 @@ Future query params: `limit`, `offset`/`cursor`, `sort`, `filter`
 |---|---|
 | Auth required | Yes |
 | Mutation | **no** |
-| MVP allowed | **yes** (returns `404 asset_not_available` until desktop stores binaries) |
+| MVP allowed | **yes** (returns `404 asset_not_available` until desktop stores screenshot binaries) |
 | Receipt action | `get_asset` |
 | Scope | **one clip id only** — no bulk |
+| **Honest status** | Route + receipts ready; **binary delivery not functional** until `feature/cache-vault-screenshot-assets` |
 
 ---
 

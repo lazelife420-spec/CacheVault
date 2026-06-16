@@ -19,7 +19,7 @@
     <string name="pairing_hint">On your PC: Settings → Mobile Access → Pair Android Device</string>
     <string name="search_hint">Search saved clips…</string>
     <string name="screenshots_tab">Screenshots</string>
-    <string name="screenshots_empty">No screenshots or images from your PC yet. Image paths may appear when saved on desktop.</string>
-    <string name="image_asset_placeholder">Image preview from PC is not available yet for this clip. Path/reference shown below.</string>
+    <string name="screenshots_empty">Screenshot viewing from your PC is not available yet. This tab will list images when the desktop vault stores them.</string>
+    <string name="image_asset_placeholder">Screenshot/image preview from PC is not available yet for this clip.</string>
     <string name="no_cloud">No cloud sync. No hidden accounts. Your PC stays the source of truth.</string>
 </resources>

@@ -212,14 +212,40 @@ is **unchanged** by this document.
 
 ## Implementation status
 
-| Component | Status |
-|-----------|--------|
-| Android app | **MVP** (`android/` — Easy Connect, browse, copy, share) |
-| Screenshot/image assets | **Gap** — desktop stores text only; `/asset` + UI placeholder ready |
-| Desktop mobile server | **Bridge implemented** (read-only, OFF by default) |
-| QR pairing UI | **Placeholder** (manual credentials; QR later) |
-| Mobile access receipts | **Implemented** (`mobile_access_receipts.json`) |
+**Not a finished mobile MVP.** Foundation branch — unmerged until real-device smoke.
+
+| Lane | Status |
+|------|--------|
+| Text / link / code clips | **Near MVP** — browse, masked lists, detail, copy, share, receipts |
+| Screenshots / images | **Scaffolded only** — UI tab + `/asset` route + receipts; **not functional** (desktop does not store screenshot binaries yet) |
+| Easy Connect | **Implemented** (Manual Setup fallback always available) |
+| QR pairing | **Placeholder** |
+| Desktop mobile bridge | **Implemented** (read-only, OFF by default) |
+| Mobile access receipts | **Implemented** |
 | Release tag | **None** |
 
-When implementation begins, start with desktop bridge + read-only API behind
-Mobile Access OFF-by-default, then Android pair + browse + copy/share.
+### Do not claim
+
+```text
+"Save screenshots on PC → view them on phone" is NOT done yet.
+```
+
+### Truth gate (MVP done)
+
+```text
+I can save text, links, code, and screenshots on my PC,
+open them on my phone,
+copy/share/save them where appropriate,
+and the PC keeps the receipt.
+```
+
+**Current gap:** screenshot binaries on desktop.
+
+### Merge paths
+
+| Path | When | Merge label |
+|------|------|-------------|
+| **A** | Smoke text/link/code loop on real phone now | Mobile MVP foundation — text/link/code proven; screenshots deferred |
+| **B** | Before public release (recommended) | `feature/cache-vault-screenshot-assets` first, then full smoke |
+
+When implementation began: desktop bridge + read-only API, then Android pair + browse + copy/share.
