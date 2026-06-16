@@ -2,9 +2,8 @@
 
 > **A Proof Foundry companion app** — proof-first, local-first access to your PC vault.
 >
-> **Not implemented yet.** This document defines direction only. No Android app,
-> no desktop mobile server, and no changes to desktop storage, pruning, favorites,
-> collections, exports, or file-safety behavior in this phase.
+> **Android MVP** lives in `android/`. Desktop mobile bridge is on `master`.
+> This document remains the canonical product + API direction.
 
 ## Product
 
@@ -207,9 +206,9 @@ is **unchanged** by this document.
 
 | Component | Status |
 |-----------|--------|
-| Android app | **Not started** |
+| Android app | **MVP** (`android/` — pair, browse, search, copy, share) |
 | Desktop mobile server | **Bridge implemented** (read-only, OFF by default) |
-| QR pairing UI | **Placeholder** (credentials dialog; QR when Android ships) |
+| QR pairing UI | **Placeholder** (manual credentials; QR later) |
 | Mobile access receipts | **Implemented** (`mobile_access_receipts.json`) |
 | Release tag | **None** |
 

@@ -27,8 +27,8 @@ class PairAndroidDialog(ctk.CTkToplevel):
             anchor="w", padx=16, pady=(14, 4))
         ctk.CTkLabel(
             self,
-            text=f"{brand.MOBILE_PRODUCT_NAME} is not available yet.\n"
-                 "This prepares pairing for the future Android companion.",
+            text=f"{brand.MOBILE_PRODUCT_NAME} pairs to this PC over your local network.\n"
+                 "Generate credentials below and enter them in the Android app.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             wraplength=440, font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=16, pady=(0, 8))

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Cache Vault Mobile</string>
+    <string name="byline">A Proof Foundry companion app</string>
+    <string name="promise">Access your saved clips. Keep the receipt.</string>
+</resources>

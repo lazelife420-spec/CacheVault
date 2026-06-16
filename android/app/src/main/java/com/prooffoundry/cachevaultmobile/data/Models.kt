@@ -1,0 +1,66 @@
+package com.prooffoundry.cachevaultmobile.data
+
+data class PairingConfig(
+    val host: String,
+    val port: Int,
+    val deviceId: String,
+    val token: String,
+    val pcLabel: String = "",
+)
+
+data class BridgeStatus(
+    val product: String,
+    val byline: String,
+    val mobileAccessEnabled: Boolean,
+    val cacheVaultVersion: String,
+    val deviceId: String,
+    val readOnly: Boolean,
+)
+
+data class ClipSummary(
+    val id: String,
+    val preview: String,
+    val content: String,
+    val classification: String?,
+    val contentType: String?,
+    val sourceApp: String?,
+    val createdAt: String?,
+    val isFavorite: Boolean,
+    val isSensitive: Boolean,
+    val collection: String?,
+    val deletedAt: String?,
+)
+
+data class ClipListResponse(
+    val clips: List<ClipSummary>,
+    val count: Int,
+    val q: String? = null,
+)
+
+data class ClipDetailResponse(
+    val clip: ClipSummary,
+)
+
+data class CollectionEntry(
+    val name: String,
+    val count: Int,
+)
+
+data class CollectionsResponse(
+    val collections: List<CollectionEntry>,
+)
+
+enum class ClipFeed {
+    ALL,
+    FAVORITES,
+    RECENTLY_REMOVED,
+    COLLECTION,
+}
+
+sealed class BridgeError(message: String) : Exception(message) {
+    class Disabled : BridgeError("Mobile Access is disabled on the PC.")
+    class Unauthorized(reason: String) : BridgeError(reason)
+    class NotFound : BridgeError("Not found.")
+    class Network(cause: Throwable) : BridgeError(cause.message ?: "Network error")
+    class Unknown(code: Int, body: String) : BridgeError("HTTP $code: $body")
+}
