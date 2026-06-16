@@ -13,6 +13,7 @@ import com.prooffoundry.cachevaultmobile.data.ClipKinds
 import com.prooffoundry.cachevaultmobile.data.BridgeError
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
+import com.prooffoundry.cachevaultmobile.data.ClipListResponse
 import com.prooffoundry.cachevaultmobile.data.ClipSummary
 import com.prooffoundry.cachevaultmobile.data.BrowseFilter
 import com.prooffoundry.cachevaultmobile.data.VaultSectionCounts
@@ -87,9 +88,9 @@ class AppViewModel(
         }
     }
 
-    /** Refresh vault when app returns to foreground after initial load. */
+    /** Refresh vault when app returns to foreground (including first resume after cold start). */
     fun refreshOnResume() {
-        if (!repository.isPaired() || uiState.loading || !uiState.hasLoadedVault) return
+        if (!repository.isPaired() || uiState.loading) return
         refreshAll()
     }
 
@@ -352,7 +353,8 @@ class AppViewModel(
                     val collections = client.listCollections().collections
                     val pairing = repository.loadPairing()
                     val all = client.listClips()
-                    val removed = client.listRecentlyRemoved()
+                    val removed = runCatching { client.listRecentlyRemoved() }
+                        .getOrElse { ClipListResponse(emptyList(), 0) }
                     val summary = VaultSummary(
                         totalClips = all.count,
                         screenshotCount = all.clips.count {

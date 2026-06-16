@@ -71,6 +71,8 @@ def route_family(path: str) -> str | None:
 
 
 def is_forbidden_route(path: str) -> bool:
+    if path in READ_ONLY_ROUTES:
+        return False
     low = path.lower()
     return any(part in low for part in FORBIDDEN_ROUTE_PARTS)
 

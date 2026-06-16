@@ -186,6 +186,18 @@ def test_forbidden_routes_do_not_exist(vault, mobile_bridge):
         assert code in (401, 404)
 
 
+def test_recently_removed_route_is_allowed(vault, mobile_bridge):
+    assert not is_forbidden_route("/mobile/v1/recently-removed")
+    device, token = _pair(mobile_bridge, vault)
+    code, body = mobile_bridge.handle(
+        "GET",
+        "/mobile/v1/recently-removed",
+        _auth(device.device_id, token),
+    )
+    assert code == 200
+    assert "clips" in body
+
+
 def test_allowed_routes_only_get(vault, mobile_bridge):
     routes = MobileBridge.allowed_routes()
     assert "/mobile/v1/status" in routes
