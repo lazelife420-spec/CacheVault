@@ -4,30 +4,82 @@
 
 Paired read-only client for the desktop Cache Vault mobile bridge. No cloud sync.
 
-## Build
+## Merge gate (required before merge)
+
+Branch `android/cache-vault-mobile-mvp` merges **only** after real-device smoke **PASS** on an actual Android phone. No release tag.
+
+Do **not** merge on emulator-only or JVM tests alone.
+
+## Build & install
 
 ```powershell
 cd android
-.\gradlew.bat test assembleDebug
+.\gradlew.bat :app:assembleDebug
 ```
 
-Requires Android SDK (`ANDROID_HOME` or default `%LOCALAPPDATA%\Android\Sdk`) and JDK 17+.
+APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+
+Install (USB debugging):
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
+```
+
+Requires Android SDK, JDK 17+, and phone on same Wi‑Fi as PC.
+
+## PC prep
+
+1. Cache Vault → Settings → **Mobile Access** → **Enable**
+2. **Pair Android Device** → generate credentials (device id + token)
+3. PC LAN IP: `ipconfig` → Wi‑Fi IPv4 (not `localhost`)
+4. Default port: **8742**
+5. Allow Windows Firewall inbound on 8742 for private networks if prompted
 
 ## Pairing
 
-1. On PC: Settings → Mobile Access → Enable → Pair Android Device
-2. Note PC LAN IP, port (default 8742), device id, and token
-3. On Android: enter credentials on the Pair screen
+1. Phone and PC on the **same Wi‑Fi** (not guest/isolated VLAN)
+2. Android app → enter PC **LAN IP**, port, device id, token
+3. Tap **Pair with PC**
 
-## Manual smoke checklist
+## Hard pass/fail smoke (real phone)
 
-- [ ] Bridge OFF → app cannot connect (503)
-- [ ] Unpaired token → rejected (401)
-- [ ] Revoked device → rejected
-- [ ] Paired → browse All / Favorites / Collections / Recently Removed
-- [ ] Search returns clips
-- [ ] Clip detail shows full content (including sensitive after explicit open)
-- [ ] Copy places text on Android clipboard; PC writes copy receipt
-- [ ] Share opens Android share sheet; PC writes share receipt
-- [ ] No delete/edit UI
-- [ ] Disconnect clears pairing secrets
+### Bridge OFF
+
+- [ ] Android cannot connect
+- [ ] Android shows clean failed/offline state
+- [ ] PC does not expose clip data
+
+### Bridge ON (paired)
+
+- [ ] Connects using PC **LAN IP**, not localhost
+- [ ] Status endpoint works
+- [ ] All Clips loads **masked** previews
+- [ ] Search works with **masked** previews
+- [ ] Favorites loads
+- [ ] Collections loads
+- [ ] Recently Removed loads (read-only)
+
+### Clip detail
+
+- [ ] Valid paired device opens **full** clip content
+- [ ] Copy puts full content on Android clipboard
+- [ ] Share opens Android share sheet with full content
+
+### Receipts (PC → View Mobile Access Receipts)
+
+- [ ] List / search / detail writes receipts
+- [ ] Copy / share writes receipts
+- [ ] Rejected request writes receipt
+
+### Security
+
+- [ ] Wrong token → 401
+- [ ] Revoked device → 401
+- [ ] No delete / edit / permanent-remove UI
+- [ ] No background clipboard monitoring
+- [ ] No cloud claim in app
+
+## After smoke PASS
+
+1. Merge `android/cache-vault-mobile-mvp`
+2. Then start `feature/cache-vault-mobile-qr-pairing` (not before)
