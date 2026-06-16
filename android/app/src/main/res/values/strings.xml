@@ -2,4 +2,20 @@
     <string name="app_name">Cache Vault Mobile</string>
     <string name="byline">A Proof Foundry companion app</string>
     <string name="promise">Access your saved clips. Keep the receipt.</string>
+
+    <string name="connect_to_my_pc">Connect to My PC</string>
+    <string name="easy_connect">Easy Connect</string>
+    <string name="scan_qr_code">Scan QR Code</string>
+    <string name="find_pc_wifi">Find PC on this Wi-Fi</string>
+    <string name="manual_setup">Manual Setup</string>
+    <string name="open_wifi_settings">Open Wi-Fi Settings</string>
+    <string name="same_wifi_button">I\'m on the same Wi-Fi</string>
+    <string name="wifi_hint">Connect your phone to the same Wi-Fi as your PC.</string>
+    <string name="wifi_panel_note">Choose your Wi-Fi network in Settings. Cache Vault Mobile cannot join Wi-Fi for you.</string>
+    <string name="discover_looking">Looking for Cache Vault Desktop on this Wi-Fi…</string>
+    <string name="discover_found">Found Cache Vault Desktop at %1$s:%2$d</string>
+    <string name="discover_failed">Could not find your PC. Check same Wi-Fi, firewall, or use Manual Setup.</string>
+    <string name="qr_placeholder">QR pairing is coming soon. Use Manual Setup or Find PC on this Wi-Fi for now.</string>
+    <string name="pairing_hint">On your PC: Settings → Mobile Access → Pair Android Device</string>
+    <string name="no_cloud">No cloud sync. No hidden accounts. Your PC stays the source of truth.</string>
 </resources>

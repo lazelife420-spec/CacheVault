@@ -22,6 +22,7 @@ from .models import (
     new_device_token,
 )
 from .receipts import MobileReceiptLog
+from .discovery import MobileDiscovery
 
 if TYPE_CHECKING:
     from ..vault import Vault
@@ -32,9 +33,11 @@ _CLIP_ID_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)$")
 class MobileBridge:
     """Desktop-side read-only API for paired Android devices."""
 
-    def __init__(self, vault: Vault, *, receipt_log: MobileReceiptLog | None = None):
+    def __init__(self, vault: Vault, *, receipt_log: MobileReceiptLog | None = None,
+                 discovery: MobileDiscovery | None = None):
         self.vault = vault
         self.receipts = receipt_log or MobileReceiptLog()
+        self.discovery = discovery or MobileDiscovery()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -52,6 +55,7 @@ class MobileBridge:
             self._start(host, port)
 
     def stop(self) -> None:
+        self.discovery.stop()
         srv = self._server
         self._server = None
         if srv is not None:
@@ -110,6 +114,8 @@ class MobileBridge:
         self._thread = threading.Thread(
             target=self._server.serve_forever, name="mobile-bridge", daemon=True)
         self._thread.start()
+        import socket as _socket
+        self.discovery.start(port, pc_name=_socket.gethostname())
 
     # --- pairing (desktop-side) ------------------------------------------------
     def pair_device(self, device_id: str, device_name: str,

@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from unittest.mock import MagicMock
 
 from cache_vault.core.mobile.api import READ_ONLY_ROUTES, is_forbidden_route
 from cache_vault.core.mobile.bridge import MobileBridge
@@ -174,11 +175,24 @@ def test_revoked_device_rejected(vault, mobile_bridge):
 
 def test_bridge_starts_when_enabled(vault, mobile_bridge):
     _enable(vault)
-    mobile_bridge.sync(vault.settings)
+    discovery = MagicMock()
+    bridge = MobileBridge(vault, receipt_log=mobile_bridge.receipts, discovery=discovery)
+    bridge.sync(vault.settings)
     try:
-        assert mobile_bridge.is_running is True
+        assert bridge.is_running is True
+        discovery.start.assert_called_once()
     finally:
-        mobile_bridge.stop()
+        bridge.stop()
+
+
+def test_bridge_stops_discovery_when_disabled(vault, mobile_bridge):
+    discovery = MagicMock()
+    bridge = MobileBridge(vault, receipt_log=mobile_bridge.receipts, discovery=discovery)
+    vault.settings.mobile_access_enabled = True
+    bridge.sync(vault.settings)
+    vault.settings.mobile_access_enabled = False
+    bridge.sync(vault.settings)
+    assert discovery.stop.call_count >= 2
 
 
 def test_token_stored_as_hash_not_plaintext(vault, mobile_bridge):

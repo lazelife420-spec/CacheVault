@@ -13,12 +13,12 @@ from . import theme
 
 
 class PairAndroidDialog(ctk.CTkToplevel):
-    """Desktop pairing placeholder — Android app not shipped yet."""
+    """Desktop pairing for Cache Vault Mobile."""
 
     def __init__(self, master, on_pair: Callable[[str, str], tuple[str, str]]):
         super().__init__(master)
         self.title(f"{brand.TERM_MOBILE_ACCESS} — Pair Android Device")
-        self.geometry("480x420")
+        self.geometry("480x440")
         self.resizable(False, False)
         self._on_pair = on_pair
 
@@ -27,10 +27,16 @@ class PairAndroidDialog(ctk.CTkToplevel):
             anchor="w", padx=16, pady=(14, 4))
         ctk.CTkLabel(
             self,
-            text=f"{brand.MOBILE_PRODUCT_NAME} pairs to this PC over your local network.\n"
-                 "Generate credentials below and enter them in the Android app.",
+            text=f"Open {brand.MOBILE_PRODUCT_NAME} on your phone and choose "
+                 f"Connect to My PC.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             wraplength=440, font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=16, pady=(0, 4))
+        ctk.CTkLabel(
+            self,
+            text="Manual setup is available for this MVP. QR pairing is coming next.",
+            anchor="w", justify="left", text_color=brand.STAMP_GOLD,
+            wraplength=440, font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=16, pady=(0, 8))
 
         ctk.CTkLabel(self, text="Device name:", anchor="w").pack(
@@ -47,7 +53,7 @@ class PairAndroidDialog(ctk.CTkToplevel):
         self._out.configure(state="disabled")
 
         ctk.CTkLabel(
-            self, text="QR code will appear here when the Android app ships.\n"
+            self, text="QR code will appear here in a future update.\n"
                        "Store the token securely — it is shown once.",
             anchor="w", text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=16, pady=(0, 8))

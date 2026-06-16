@@ -4,6 +4,17 @@
 
 Paired read-only client for the desktop Cache Vault mobile bridge. No cloud sync.
 
+## Onboarding (Easy Connect)
+
+First launch shows:
+
+- **Connect to My PC** (primary)
+- Scan QR Code (placeholder — Manual Setup fallback)
+- Find PC on this Wi-Fi (mDNS `_cachevault-mobile._tcp`)
+- Manual Setup (always available)
+
+The app opens Wi-Fi Settings for you; it cannot join Wi-Fi silently.
+
 ## Merge gate (required before merge)
 
 Branch `android/cache-vault-mobile-mvp` merges **only** after real-device smoke **PASS** on an actual Android phone. No release tag.
