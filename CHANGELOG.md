@@ -1,5 +1,32 @@
 # Changelog
 
+## Cache Vault v0.1.2
+
+Released from commit `6cbb20d`.
+
+### Changed
+
+- Windows file-version and product metadata embedded in the packaged exe.
+- Version consistency across source, packaging metadata, README, and release notes.
+- Packaged-exe metadata verification added to local checks and the release workflow.
+- Clean-machine Windows smoke checklist and code-signing plan documented.
+
+### Fixed
+
+- Settings dialog action buttons no longer clip; actions stay visible.
+
+### Verification
+
+- Unit tests: 64 passing.
+- Asset verification: 12 required files present.
+- ICO sizes: 16, 24, 32, 48, 128, 256 px.
+- Primary icon: teal only, no gold/cash edition pixels.
+
+## Cache Vault v0.1.1
+
+Released from commit `4896121`. Proves the tag-driven automated release lane
+(test, package, checksum, verify, publish) with the shipped MVP intact.
+
 ## Cache Vault v0.1.0 - MVP
 
 Released from MVP baseline commit `8550a51`.
