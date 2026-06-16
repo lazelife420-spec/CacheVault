@@ -27,10 +27,17 @@ object UserMessages {
     const val IMAGE_NOT_AVAILABLE =
         "This screenshot is not available on your PC.\nIt may not have been saved as an image asset."
 
+    const val REPAIR_NEEDED =
+        "Re-pair needed\n\nYour phone reached the PC, but the pairing token was rejected.\nGenerate a fresh pairing code on the PC."
+
+    const val PC_FOUND_SECURE =
+        "Local vault detected on this Wi-Fi."
+
     fun forBridgeError(error: BridgeError): String = when (error) {
         is BridgeError.Disabled -> MOBILE_ACCESS_OFF
         is BridgeError.Unauthorized -> when {
             error.message?.contains("revoked", ignoreCase = true) == true -> DEVICE_REVOKED
+            error.message?.contains("token", ignoreCase = true) == true -> REPAIR_NEEDED
             else -> PAIRING_FAILED
         }
         is BridgeError.UnsupportedApi -> UNSUPPORTED_API

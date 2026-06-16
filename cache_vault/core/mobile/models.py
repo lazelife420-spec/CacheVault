@@ -71,11 +71,17 @@ class MobileAccessReceipt:
     device_name: str | None = None
     clip_id: str | None = None
     reason: str | None = None
+    remote_ip: str | None = None
+    suggested_fix: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def make(cls, *, action: str, route: str, result: str, **kw) -> MobileAccessReceipt:
+        reason = kw.get("reason")
+        if kw.get("suggested_fix") is None and reason:
+            from .connection_doctor import suggested_fix_for_reason
+            kw["suggested_fix"] = suggested_fix_for_reason(reason)
         return cls(timestamp=models.now_iso(), action=action, route=route,
                    result=result, **kw)

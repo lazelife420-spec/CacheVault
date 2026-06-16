@@ -41,27 +41,44 @@ def list_lan_ipv4() -> list[str]:
 
 
 def best_lan_ipv4() -> str | None:
-    ips = list_lan_ipv4()
+    return recommended_lan_ipv4()
+
+
+def recommended_lan_ipv4(ips: list[str] | None = None) -> str | None:
+    """Best Wi-Fi LAN IP for phone pairing (192.168.x / 10.x preferred)."""
+    ips = ips if ips is not None else list_lan_ipv4()
+    for ip in ips:
+        if ip.startswith("192.168.") or ip.startswith("10."):
+            return ip
     return ips[0] if ips else None
+
+
+def advanced_lan_ipv4(ips: list[str] | None = None) -> list[str]:
+    """Non-recommended adapters (Hyper-V / 172.x) for Advanced section."""
+    ips = ips if ips is not None else list_lan_ipv4()
+    rec = recommended_lan_ipv4(ips)
+    return [ip for ip in ips if ip != rec]
 
 
 def lan_ip_guidance(ips: list[str] | None, *, port: int) -> str:
     """Human pairing guidance for the Pair Android dialog."""
     ips = ips if ips is not None else list_lan_ipv4()
-    if not ips:
+    rec = recommended_lan_ipv4(ips)
+    if not rec:
         return (
             "Could not detect LAN IP.\n"
             "Use Manual Setup and run ipconfig on your PC.\n"
             f"Port: {port}\n"
             "Do not use localhost or 127.0.0.1 from the phone."
         )
-    if len(ips) == 1:
-        host_line = f"PC LAN IP: {ips[0]}"
-    else:
-        host_line = "PC LAN IP (choose one on your Wi-Fi):\n" + "\n".join(f"  • {ip}" for ip in ips)
-    return (
-        f"{host_line}\n"
-        f"Port: {port}\n"
-        "Same Wi-Fi required.\n"
-        "Do not use localhost or 127.0.0.1 from the phone."
-    )
+    adv = advanced_lan_ipv4(ips)
+    lines = [
+        "Recommended connection",
+        f"PC found on this Wi-Fi:\n{rec}",
+        f"Port: {port}",
+        "Same Wi-Fi required.",
+        "Do not use localhost or 127.0.0.1 from the phone.",
+    ]
+    if adv:
+        lines.append("Other adapters (Advanced):\n" + "\n".join(f"  • {ip}" for ip in adv))
+    return "\n".join(lines)

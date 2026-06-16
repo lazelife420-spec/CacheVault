@@ -980,8 +980,28 @@ class CacheVaultApp(ctk.CTk):
         PairAndroidDialog(
             self,
             on_pair=self._complete_mobile_pair,
+            on_revoke_all_and_pair=self._revoke_all_and_pair,
             port=self.vault.settings.mobile_access_port,
+            bridge_running=self._mobile_bridge.is_running,
+            get_doctor_report=self._mobile_doctor_report,
+            has_active_devices=bool(self._mobile_bridge.active_devices()),
         )
+
+    def _mobile_doctor_report(self) -> dict:
+        from ..core.mobile.connection_doctor import connection_doctor_report
+        from ..core.mobile.models import DEFAULT_BIND_HOST
+        s = self.vault.settings
+        return connection_doctor_report(
+            mobile_access_enabled=s.mobile_access_enabled,
+            bridge_listening=self._mobile_bridge.is_running,
+            port=int(s.mobile_access_port or 8742),
+            bind_host=(s.mobile_access_bind_host or DEFAULT_BIND_HOST),
+            receipts=self._mobile_bridge.receipts.recent(20),
+        )
+
+    def _revoke_all_and_pair(self, device_id: str, name: str) -> tuple[str, str]:
+        self._mobile_bridge.revoke_all_active()
+        return self._complete_mobile_pair(device_id, name)
 
     def _complete_mobile_pair(self, device_id: str, name: str) -> tuple[str, str]:
         _, token = self._mobile_bridge.pair_device(device_id, name)

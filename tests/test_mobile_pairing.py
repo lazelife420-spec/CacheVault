@@ -41,17 +41,19 @@ def test_lan_ip_guidance_when_no_ips(monkeypatch):
 
 def test_lan_ip_guidance_single_ip():
     text = lan_ip_guidance(["192.168.0.16"], port=8742)
-    assert "PC LAN IP: 192.168.0.16" in text
+    assert "Recommended connection" in text
+    assert "192.168.0.16" in text
     assert "Port: 8742" in text
 
 
 def test_lan_ip_guidance_multiple_ips():
-    text = lan_ip_guidance(["192.168.0.11", "192.168.0.16"], port=8742)
-    assert "choose one" in text.lower() or "192.168.0.11" in text
-    assert "192.168.0.16" in text
+    text = lan_ip_guidance(["192.168.0.11", "172.29.64.1"], port=8742)
+    assert "192.168.0.11" in text
+    assert "172.29.64.1" in text
+    assert "Advanced" in text
 
 
-def test_pairing_success_contains_credentials():
+def test_pairing_success_masks_token_by_default():
     text = pairing_success_text(
         device_id="dev-abc",
         token="tok-secret",
@@ -59,7 +61,7 @@ def test_pairing_success_contains_credentials():
         ips=["192.168.0.16"],
     )
     assert "dev-abc" in text
-    assert "tok-secret" in text
+    assert "tok-secret" not in text
     assert "8742" in text
     assert "192.168.0.16" in text
 
@@ -116,7 +118,8 @@ def test_pair_android_dialog_generate_blank_name(tmp_path, monkeypatch):
     dlg._name.delete(0, "end")
     dlg._generate()
     content = dlg._out.get("1.0", "end")
-    assert "test-token-123" in content
+    assert "Device ID:" in content
+    assert "•" in content or "Token:" in content
     assert PAIRING_ERROR not in content
     assert "NameError" not in content
     dlg.destroy()

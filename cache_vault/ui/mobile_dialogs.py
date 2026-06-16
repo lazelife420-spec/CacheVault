@@ -8,12 +8,14 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import models
-from ..core.lan_ip import lan_ip_guidance, list_lan_ipv4
+from ..core.lan_ip import advanced_lan_ipv4, lan_ip_guidance, list_lan_ipv4, recommended_lan_ipv4
+from ..core.mobile.connection_doctor import connection_doctor_text
 from ..core.mobile.models import DEFAULT_MOBILE_PORT
 from . import theme
 from .pairing_help import (
     PAIRING_ERROR,
     PAIRING_PLACEHOLDER,
+    mask_token,
     pairing_copy_all_text,
     pairing_success_text,
     normalize_device_name,
@@ -26,7 +28,7 @@ def _copy_to_clipboard(master: ctk.CTk, text: str) -> None:
 
 
 class PairAndroidDialog(ctk.CTkToplevel):
-    """Desktop pairing for Cache Vault Mobile."""
+    """Desktop pairing for Cache Vault Mobile — secure vault connection flow."""
 
     def __init__(
         self,
@@ -34,84 +36,186 @@ class PairAndroidDialog(ctk.CTkToplevel):
         on_pair: Callable[[str, str], tuple[str, str]],
         *,
         port: int = DEFAULT_MOBILE_PORT,
+        bridge_running: bool = False,
+        get_doctor_report: Callable[[], dict] | None = None,
+        on_revoke_all_and_pair: Callable[[str, str], tuple[str, str]] | None = None,
+        has_active_devices: bool = False,
     ):
         super().__init__(master)
         self.title(f"{brand.TERM_MOBILE_ACCESS} — Pair Android Device")
-        self.geometry("520x580")
+        self.geometry("540x780")
         self.resizable(False, False)
         self._on_pair = on_pair
+        self._on_revoke_all_and_pair = on_revoke_all_and_pair
+        self._get_doctor_report = get_doctor_report
         self._port = int(port or DEFAULT_MOBILE_PORT)
         self._lan_ips = list_lan_ipv4()
         self._device_id: str | None = None
         self._token: str | None = None
+        self._token_visible = False
+        self._advanced_visible = False
 
-        ctk.CTkLabel(self, text="Pair Android Device",
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=8, pady=8)
+
+        ctk.CTkLabel(scroll, text="Pair Android Device",
                      font=ctk.CTkFont(size=16, weight="bold")).pack(
-            anchor="w", padx=16, pady=(14, 4))
+            anchor="w", padx=8, pady=(6, 4))
         ctk.CTkLabel(
-            self,
-            text=f"Open {brand.MOBILE_PRODUCT_NAME} on your phone and choose "
-                 f"Connect to My PC.",
+            scroll,
+            text="Secure local connection — your phone browses clips on this PC only.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            wraplength=480, font=ctk.CTkFont(size=11),
-        ).pack(anchor="w", padx=16, pady=(0, 4))
-        ctk.CTkLabel(
-            self,
-            text="Manual setup is available for this MVP. QR pairing is coming next.",
-            anchor="w", justify="left", text_color=brand.STAMP_GOLD,
-            wraplength=480, font=ctk.CTkFont(size=10),
-        ).pack(anchor="w", padx=16, pady=(0, 8))
+            wraplength=500, font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=8, pady=(0, 8))
 
-        self._lan_label = ctk.CTkLabel(
-            self,
-            text=lan_ip_guidance(self._lan_ips, port=self._port),
+        # Connection Doctor
+        doctor_frame = ctk.CTkFrame(scroll, fg_color=brand.SURFACE_BG)
+        doctor_frame.pack(fill="x", padx=8, pady=(0, 10))
+        ctk.CTkLabel(
+            doctor_frame, text="Connection Doctor",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=brand.PROOF_TEAL,
+        ).pack(anchor="w", padx=12, pady=(10, 4))
+        self._doctor_label = ctk.CTkLabel(
+            doctor_frame,
+            text=self._doctor_text(bridge_running),
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             wraplength=480, font=ctk.CTkFont(size=10),
         )
-        self._lan_label.pack(anchor="w", padx=16, pady=(0, 8))
+        self._doctor_label.pack(anchor="w", padx=12, pady=(0, 10))
 
-        ctk.CTkLabel(self, text="Device name (optional):", anchor="w").pack(
-            anchor="w", padx=16, pady=(8, 0))
-        self._name = ctk.CTkEntry(self, placeholder_text="Android Phone")
-        self._name.pack(fill="x", padx=16, pady=4)
+        # Recommended connection
+        ctk.CTkLabel(scroll, text="Recommended connection",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(
+            anchor="w", padx=8, pady=(4, 2))
+        rec_ip = recommended_lan_ipv4(self._lan_ips)
+        self._rec_host_label = ctk.CTkLabel(
+            scroll,
+            text=self._recommended_block(rec_ip),
+            anchor="w", justify="left",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=brand.PROOF_TEAL,
+        )
+        self._rec_host_label.pack(anchor="w", padx=8, pady=(0, 8))
 
+        for step in (
+            f"Step 1 — Open {brand.MOBILE_PRODUCT_NAME} on your phone.",
+            "Step 2 — Tap Connect to My PC when your PC is found.",
+            "Step 3 — Use the pairing code below (or Manual Setup).",
+        ):
+            ctk.CTkLabel(
+                scroll, text=step, anchor="w", justify="left",
+                text_color=brand.MUTED_FG, wraplength=500,
+                font=ctk.CTkFont(size=10),
+            ).pack(anchor="w", padx=8, pady=1)
+
+        ctk.CTkLabel(scroll, text="Device name (optional):", anchor="w").pack(
+            anchor="w", padx=8, pady=(10, 0))
+        self._name = ctk.CTkEntry(scroll, placeholder_text="Android Phone")
+        self._name.pack(fill="x", padx=8, pady=4)
+
+        btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_row.pack(fill="x", padx=8, pady=8)
         self._gen_btn = ctk.CTkButton(
-            self, text="Generate pairing credentials",
+            btn_row, text="Generate Fresh Pairing Code",
             command=self._generate, **theme.primary_button(),
         )
-        self._gen_btn.pack(anchor="w", padx=16, pady=10)
+        self._gen_btn.pack(side="left", padx=(0, 8))
+        if has_active_devices and on_revoke_all_and_pair:
+            ctk.CTkButton(
+                btn_row, text="Revoke Old Phone + Fresh Pair",
+                command=self._revoke_all_generate,
+                **theme.destructive_button(),
+            ).pack(side="left")
 
-        self._out = ctk.CTkTextbox(self, height=200, wrap="word")
-        self._out.pack(fill="both", expand=True, padx=16, pady=4)
+        token_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        token_row.pack(fill="x", padx=8, pady=(0, 4))
+        self._toggle_token_btn = ctk.CTkButton(
+            token_row, text="Show Token", width=100, height=28,
+            command=self._toggle_token, state="disabled",
+            **theme.secondary_button(),
+        )
+        self._toggle_token_btn.pack(side="right")
+
+        self._out = ctk.CTkTextbox(scroll, height=180, wrap="word")
+        self._out.pack(fill="x", padx=8, pady=4)
         self._set_output(PAIRING_PLACEHOLDER)
 
-        copy_row = ctk.CTkFrame(self, fg_color="transparent")
-        copy_row.pack(fill="x", padx=16, pady=4)
+        copy_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        copy_row.pack(fill="x", padx=8, pady=4)
         self._copy_buttons: list[ctk.CTkButton] = []
         for label, cmd in (
-            ("Copy Host/IP", self._copy_host),
+            ("Copy All Setup Info", self._copy_all),
+            ("Copy Host", self._copy_host),
             ("Copy Port", self._copy_port),
             ("Copy Device ID", self._copy_device_id),
             ("Copy Token", self._copy_token),
-            ("Copy All Setup Info", self._copy_all),
         ):
             btn = ctk.CTkButton(
-                copy_row, text=label, width=120, height=28,
+                copy_row, text=label, width=118, height=28,
                 command=cmd, state="disabled", **theme.secondary_button(),
             )
-            btn.pack(side="left", padx=(0, 6), pady=2)
+            btn.pack(side="left", padx=(0, 4), pady=2)
             self._copy_buttons.append(btn)
 
-        ctk.CTkLabel(
-            self, text="QR code will appear here in a future update.\n"
-                       "Store the token securely — it is shown once.",
-            anchor="w", text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=10),
-        ).pack(anchor="w", padx=16, pady=(0, 4))
+        self._adv_btn = ctk.CTkButton(
+            scroll, text="Advanced ▼", width=100, height=26,
+            command=self._toggle_advanced, **theme.secondary_button(),
+        )
+        self._adv_btn.pack(anchor="w", padx=8, pady=(4, 0))
+        self._adv_label = ctk.CTkLabel(
+            scroll, text="", anchor="w", justify="left",
+            text_color=brand.MUTED_FG, wraplength=500,
+            font=ctk.CTkFont(size=10),
+        )
 
-        ctk.CTkButton(self, text="Close", command=self.destroy,
-                      **theme.secondary_button()).pack(anchor="e", padx=16, pady=(0, 12))
+        ctk.CTkLabel(
+            scroll,
+            text="QR pairing is coming next. Token shown once — treat as secret.",
+            anchor="w", text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=10),
+        ).pack(anchor="w", padx=8, pady=(8, 4))
+
+        ctk.CTkButton(scroll, text="Close", command=self.destroy,
+                      **theme.secondary_button()).pack(anchor="e", padx=8, pady=(0, 12))
         from .dialogs import _bring_to_front
         _bring_to_front(self, master, modal=True)
+
+    def _doctor_text(self, bridge_running: bool) -> str:
+        if self._get_doctor_report:
+            report = self._get_doctor_report()
+            report = dict(report)
+            if not bridge_running:
+                report["bridge"] = "Not listening"
+            return connection_doctor_text(report)
+        status = "Listening" if bridge_running else "Not listening"
+        rec = recommended_lan_ipv4(self._lan_ips) or "?"
+        return (
+            f"Mobile Access: On\nBridge: {status}\n"
+            f"Port: {self._port}\nRecommended IP: {rec}"
+        )
+
+    @staticmethod
+    def _recommended_block(rec_ip: str | None) -> str:
+        if not rec_ip:
+            return "PC LAN IP: (run ipconfig on your PC)"
+        return f"PC found on this Wi-Fi:\n{rec_ip}\n\nPort: {DEFAULT_MOBILE_PORT}"
+
+    def _toggle_advanced(self) -> None:
+        self._advanced_visible = not self._advanced_visible
+        if self._advanced_visible:
+            adv = advanced_lan_ipv4(self._lan_ips)
+            lines = ["Other adapters (not recommended for phone):"]
+            if adv:
+                lines.extend(f"  • {ip}" for ip in adv)
+            else:
+                lines.append("  (none detected)")
+            lines.append("127.0.0.1 is not usable from your phone.")
+            self._adv_label.configure(text="\n".join(lines))
+            self._adv_label.pack(anchor="w", padx=8, pady=(4, 8))
+            self._adv_btn.configure(text="Advanced ▲")
+        else:
+            self._adv_label.pack_forget()
+            self._adv_btn.configure(text="Advanced ▼")
 
     def _set_output(self, text: str) -> None:
         self._out.configure(state="normal")
@@ -123,23 +227,45 @@ class PairAndroidDialog(ctk.CTkToplevel):
         state = "normal" if enabled else "disabled"
         for btn in self._copy_buttons:
             btn.configure(state=state)
+        self._toggle_token_btn.configure(state=state)
+
+    def _refresh_pairing_display(self) -> None:
+        if not self._device_id or not self._token:
+            return
+        self._set_output(pairing_success_text(
+            device_id=self._device_id,
+            token=self._token,
+            port=self._port,
+            ips=self._lan_ips,
+            show_token=self._token_visible,
+        ))
+
+    def _toggle_token(self) -> None:
+        self._token_visible = not self._token_visible
+        self._toggle_token_btn.configure(
+            text="Hide Token" if self._token_visible else "Show Token")
+        self._refresh_pairing_display()
 
     def _generate(self) -> None:
         self._gen_btn.configure(state="disabled")
         self.update_idletasks()
         try:
             self._lan_ips = list_lan_ipv4()
-            self._lan_label.configure(
-                text=lan_ip_guidance(self._lan_ips, port=self._port))
+            rec = recommended_lan_ipv4(self._lan_ips)
+            self._rec_host_label.configure(text=self._recommended_block(rec))
+            if self._get_doctor_report:
+                self._doctor_label.configure(
+                    text=self._doctor_text(bridge_running=True))
             name = normalize_device_name(self._name.get())
             device_id = models.new_id()
             device_id, token = self._on_pair(device_id, name)
             self._device_id = device_id
             self._token = token
-            self._set_output(pairing_success_text(
-                device_id=device_id, token=token, port=self._port, ips=self._lan_ips))
+            self._token_visible = False
+            self._toggle_token_btn.configure(text="Show Token")
+            self._refresh_pairing_display()
             self._set_copy_enabled(True)
-        except Exception:  # noqa: BLE001 — show inline error, never crash GUI
+        except Exception:  # noqa: BLE001
             self._device_id = None
             self._token = None
             self._set_output(PAIRING_ERROR)
@@ -147,9 +273,34 @@ class PairAndroidDialog(ctk.CTkToplevel):
         finally:
             self._gen_btn.configure(state="normal")
 
+    def _revoke_all_generate(self) -> None:
+        if not self._on_revoke_all_and_pair:
+            return
+        self._gen_btn.configure(state="disabled")
+        try:
+            self._lan_ips = list_lan_ipv4()
+            name = normalize_device_name(self._name.get())
+            device_id = models.new_id()
+            device_id, token = self._on_revoke_all_and_pair(device_id, name)
+            self._device_id = device_id
+            self._token = token
+            self._token_visible = False
+            self._toggle_token_btn.configure(text="Show Token")
+            self._refresh_pairing_display()
+            self._set_copy_enabled(True)
+            if self._get_doctor_report:
+                self._doctor_label.configure(
+                    text=self._doctor_text(bridge_running=True))
+        except Exception:  # noqa: BLE001
+            self._set_output(PAIRING_ERROR)
+            self._set_copy_enabled(False)
+        finally:
+            self._gen_btn.configure(state="normal")
+
     def _copy_host(self) -> None:
-        if self._lan_ips:
-            _copy_to_clipboard(self, self._lan_ips[0])
+        host = recommended_lan_ipv4(self._lan_ips)
+        if host:
+            _copy_to_clipboard(self, host)
 
     def _copy_port(self) -> None:
         _copy_to_clipboard(self, str(self._port))
@@ -176,7 +327,7 @@ class MobileAccessReceiptsDialog(ctk.CTkToplevel):
     def __init__(self, master, receipts: list[dict]):
         super().__init__(master)
         self.title(f"{brand.TERM_MOBILE_ACCESS_RECEIPTS}")
-        self.geometry("640x460")
+        self.geometry("680x480")
         ctk.CTkLabel(
             self, text=f"{brand.TERM_MOBILE_ACCESS_RECEIPTS}",
             font=ctk.CTkFont(size=15, weight="bold"),
@@ -191,11 +342,16 @@ class MobileAccessReceiptsDialog(ctk.CTkToplevel):
             box.insert("1.0", "No mobile access receipts yet.")
         for r in receipts:
             ts = (r.get("timestamp") or "")[:19].replace("T", " ")
+            remote = r.get("remote_ip") or ""
+            fix = r.get("suggested_fix") or ""
             line = (
                 f"{ts}  {r.get('result','?'):<8}  {r.get('action','?'):<22}  "
-                f"{r.get('route','')}  {r.get('device_name') or r.get('device_id') or ''}"
-                f"  {r.get('reason') or ''}\n"
+                f"{r.get('route','')}  {r.get('device_id') or r.get('device_name') or ''}"
+                f"  {remote}  {r.get('reason') or ''}"
             )
+            if fix:
+                line += f"\n    → {fix}"
+            line += "\n"
             box.insert("end", line)
         box.configure(state="disabled")
         from .dialogs import _bring_to_front

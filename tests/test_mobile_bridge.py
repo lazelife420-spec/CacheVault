@@ -199,6 +199,22 @@ def test_receipt_written_for_rejected_unpaired(vault, mobile_bridge, tmp_path):
     assert rows[-1]["result"] == "denied"
 
 
+def test_invalid_token_receipt_includes_device_id_and_suggested_fix(vault, mobile_bridge):
+    device, token = _pair(mobile_bridge, vault)
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status",
+        {**_auth(device.device_id, "wrong-token"), "X-Device-Id": device.device_id},
+        remote_ip="192.168.0.99",
+    )
+    assert code == 401
+    assert "token" in body["message"].lower()
+    rec = mobile_bridge.receipts.recent()[-1]
+    assert rec["device_id"] == device.device_id
+    assert rec["remote_ip"] == "192.168.0.99"
+    assert rec.get("suggested_fix")
+    assert "Re-pair" in rec["suggested_fix"]
+
+
 def test_revoked_device_rejected(vault, mobile_bridge):
     device, token = _pair(mobile_bridge, vault)
     mobile_bridge.revoke_device(device.device_id)

@@ -138,8 +138,10 @@ def action_for_route(route_family: str, method: str) -> str:
 def reject_receipt(route: str, action: str, result: str, reason: str,
                    device_id: str | None = None,
                    device_name: str | None = None,
-                   clip_id: str | None = None) -> MobileAccessReceipt:
+                   clip_id: str | None = None,
+                   remote_ip: str | None = None) -> MobileAccessReceipt:
     return MobileAccessReceipt.make(
         action=action, route=route, result=result, reason=reason,
         device_id=device_id, device_name=device_name, clip_id=clip_id,
+        remote_ip=remote_ip,
     )

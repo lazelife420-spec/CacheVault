@@ -13,6 +13,6 @@ class CacheVaultMobileApp : Application() {
     override fun onCreate() {
         super.onCreate()
         pairingStore = PairingStore(this)
-        bridgeRepository = BridgeRepository(pairingStore)
+        bridgeRepository = BridgeRepository(pairingStore, appContext = this)
     }
 }

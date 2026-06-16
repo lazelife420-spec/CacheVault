@@ -5,6 +5,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.prooffoundry.cachevaultmobile.connect.ConnectionPlanner
+import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
+import com.prooffoundry.cachevaultmobile.connect.PcFoundOffer
+import com.prooffoundry.cachevaultmobile.connect.PcOfferMode
 import com.prooffoundry.cachevaultmobile.data.BridgeError
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
@@ -31,6 +35,8 @@ data class AppUiState(
     val error: String? = null,
     val selectedClip: ClipSummary? = null,
     val imageAsset: ImageAssetState = ImageAssetState(),
+    val pcFoundOffer: PcFoundOffer? = null,
+    val showNoPcFound: Boolean = false,
 )
 
 class AppViewModel(
@@ -43,6 +49,76 @@ class AppViewModel(
         if (repository.isPaired()) {
             refreshAll()
         }
+    }
+
+    fun discoverPcOnLaunch() {
+        if (repository.isPaired()) return
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, showNoPcFound = false)
+            runCatching {
+                withContext(Dispatchers.IO) { repository.discoverPc() }
+            }.onSuccess { pc ->
+                uiState = uiState.copy(loading = false)
+                if (pc != null) {
+                    uiState = uiState.copy(pcFoundOffer = buildOffer(pc, null))
+                } else {
+                    uiState = uiState.copy(showNoPcFound = true)
+                }
+            }.onFailure {
+                uiState = uiState.copy(loading = false, showNoPcFound = true)
+            }
+        }
+    }
+
+    fun dismissPcOffer() {
+        uiState = uiState.copy(pcFoundOffer = null, showNoPcFound = false)
+    }
+
+    fun connectOfferedPc(onSuccess: () -> Unit) {
+        val offer = uiState.pcFoundOffer ?: return
+        val pairing = repository.loadPairing()
+        if (pairing == null || offer.mode == PcOfferMode.NO_TOKEN) {
+            uiState = uiState.copy(pcFoundOffer = offer.copy(mode = PcOfferMode.NO_TOKEN))
+            return
+        }
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, error = null)
+            runCatching {
+                withContext(Dispatchers.IO) { repository.verifyConnection(pairing) }
+            }.onSuccess { status ->
+                uiState = uiState.copy(
+                    paired = true,
+                    status = status,
+                    hostLabel = offer.host,
+                    loading = false,
+                    pcFoundOffer = null,
+                    error = null,
+                )
+                refreshClips()
+                onSuccess()
+            }.onFailure { err ->
+                val mode = if (ConnectionPlanner.isRepairNeeded(err)) {
+                    PcOfferMode.REPAIR_NEEDED
+                } else {
+                    offer.mode
+                }
+                uiState = uiState.copy(
+                    loading = false,
+                    pcFoundOffer = offer.copy(mode = mode),
+                    error = err.toUserMessage(),
+                )
+            }
+        }
+    }
+
+    private fun buildOffer(pc: DiscoveredPc, lastError: BridgeError?): PcFoundOffer {
+        val hasPairing = repository.isPaired()
+        return PcFoundOffer(
+            displayName = pc.displayName,
+            host = pc.host,
+            port = pc.port,
+            mode = ConnectionPlanner.offerMode(hasPairing, lastError),
+        )
     }
 
     fun pair(host: String, port: Int, deviceId: String, token: String, onSuccess: () -> Unit) {
@@ -99,6 +175,19 @@ class AppViewModel(
                 refreshClips()
             }.onFailure { err ->
                 uiState = uiState.copy(loading = false, error = err.toUserMessage())
+                if (ConnectionPlanner.isRepairNeeded(err)) {
+                    val host = repository.loadPairing()?.host.orEmpty()
+                    if (host.isNotBlank()) {
+                        uiState = uiState.copy(
+                            pcFoundOffer = PcFoundOffer(
+                                displayName = "Cache Vault PC",
+                                host = host,
+                                port = repository.loadPairing()?.port ?: PairingStore.DEFAULT_PORT,
+                                mode = PcOfferMode.REPAIR_NEEDED,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }

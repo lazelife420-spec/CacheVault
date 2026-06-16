@@ -22,4 +22,17 @@
     <string name="screenshots_empty">No screenshots on your PC yet. Copy a screenshot on your PC while Cache Vault is running, then refresh.</string>
     <string name="image_asset_placeholder">Tap View to load this screenshot from your PC.</string>
     <string name="no_cloud">No cloud sync. No hidden accounts. Your PC stays the source of truth.</string>
+
+    <string name="pc_found_title">Cache Vault PC found</string>
+    <string name="pc_found_secure_local">Local vault detected on this Wi-Fi.</string>
+    <string name="pc_found_pair_body">Pair this phone to browse saved clips and screenshots.</string>
+    <string name="repair_needed_body">Your phone reached the PC, but the pairing token was rejected. Generate a fresh pairing code on the PC.</string>
+    <string name="connect">Connect</string>
+    <string name="pair_new_device">Pair New Device</string>
+    <string name="pair_this_phone">Pair This Phone</string>
+    <string name="repair_pair">Re-pair</string>
+    <string name="not_mine">Not Mine</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="no_pc_found_title">No Cache Vault PC found</string>
+    <string name="no_pc_found_body">Make sure your phone is on the same Wi-Fi, Mobile Access is enabled on PC, and Cache Vault is running.</string>
 </resources>

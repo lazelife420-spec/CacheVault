@@ -76,7 +76,9 @@ class MobileBridge:
 
             def do_GET(self) -> None:
                 code, body = bridge.handle(
-                    "GET", self.path, dict(self.headers))
+                    "GET", self.path, dict(self.headers),
+                    remote_ip=self.client_address[0],
+                )
                 if isinstance(body, BinaryResponse):
                     self.send_response(code)
                     self.send_header("Content-Type", body.content_type)
@@ -93,7 +95,9 @@ class MobileBridge:
 
             def do_POST(self) -> None:
                 code, body = bridge.handle(
-                    "POST", self.path, dict(self.headers))
+                    "POST", self.path, dict(self.headers),
+                    remote_ip=self.client_address[0],
+                )
                 self._json(code, body)
 
             def do_PUT(self) -> None:
@@ -171,6 +175,14 @@ class MobileBridge:
             settings.save()
         return changed
 
+    def revoke_all_active(self, settings: Settings | None = None) -> int:
+        """Revoke every active paired device. Returns count revoked."""
+        count = 0
+        for d in self.active_devices(settings):
+            if self.revoke_device(d.device_id, settings):
+                count += 1
+        return count
+
     def active_devices(self, settings: Settings | None = None) -> list[PairedDevice]:
         settings = settings or self.vault.settings
         out = []
@@ -181,15 +193,18 @@ class MobileBridge:
         return out
 
     # --- request handling ------------------------------------------------------
-    def handle(self, method: str, path: str, headers: dict) -> tuple[int, dict | BinaryResponse]:
+    def handle(self, method: str, path: str, headers: dict,
+               remote_ip: str | None = None) -> tuple[int, dict | BinaryResponse]:
         """Process one HTTP request. Used by the server and unit tests."""
         path_only, query = api_mod.parse_query(unquote(path))
         family = api_mod.route_family(path_only)
         action = api_mod.action_for_route(family or path_only, method)
+        header_device_id = headers.get("X-Device-Id") or headers.get("x-device-id")
 
         if not self.vault.settings.mobile_access_enabled:
             rec = api_mod.reject_receipt(
-                path_only, action, "denied", "mobile_access_disabled")
+                path_only, action, "denied", "mobile_access_disabled",
+                remote_ip=remote_ip)
             self.receipts.record(rec)
             return 503, {"error": "mobile_access_disabled",
                          "message": "Mobile Access is disabled."}
@@ -200,21 +215,24 @@ class MobileBridge:
         )
         if method != "GET" and not allowed_post:
             rec = api_mod.reject_receipt(
-                path_only, action, "denied", "method_not_allowed")
+                path_only, action, "denied", "method_not_allowed",
+                remote_ip=remote_ip)
             self.receipts.record(rec)
             return 405, {"error": "method_not_allowed",
                          "message": "Read-only API: GET only."}
 
         if api_mod.is_forbidden_route(path_only):
             rec = api_mod.reject_receipt(
-                path_only, action, "denied", "forbidden_route")
+                path_only, action, "denied", "forbidden_route",
+                remote_ip=remote_ip)
             self.receipts.record(rec)
             return 404, {"error": "not_found"}
 
         device, auth_reason = self._authenticate(headers)
         if device is None:
             rec = api_mod.reject_receipt(
-                path_only, action, "denied", auth_reason or "unpaired")
+                path_only, action, "denied", auth_reason or "unpaired",
+                device_id=header_device_id, remote_ip=remote_ip)
             self.receipts.record(rec)
             return 401, {"error": "unauthorized", "message": auth_reason}
 
@@ -235,6 +253,7 @@ class MobileBridge:
             result="ok" if status < 400 else "error",
             device_id=device.device_id, device_name=device.device_name,
             clip_id=clip_id,
+            remote_ip=remote_ip,
             reason=None if status < 400 else (
                 body.get("error") if isinstance(body, dict) else "error"
             ),

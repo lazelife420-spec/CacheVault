@@ -1,7 +1,13 @@
 package com.prooffoundry.cachevaultmobile.data
 
+import android.content.Context
+import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
+import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
+
 class BridgeRepository(
     private val pairingStore: PairingStore,
+    private val discoveryFactory: (Context) -> PcDiscovery = { PcDiscovery(it) },
+    private val appContext: Context? = null,
 ) {
     fun isPaired(): Boolean = pairingStore.isPaired()
 
@@ -25,5 +31,10 @@ class BridgeRepository(
         val status = BridgeClient(config).status()
         pairingStore.save(config.copy(pcLabel = status.product))
         return status
+    }
+
+    suspend fun discoverPc(): DiscoveredPc? {
+        val ctx = appContext ?: return null
+        return discoveryFactory(ctx.applicationContext).findDesktop()
     }
 }
