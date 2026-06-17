@@ -74,6 +74,12 @@ EVENT_CLIPBOARD_NEXT_COPY_IGNORED = "clipboard_next_copy_ignored"
 EVENT_CLIPBOARD_SENSITIVE_BLOCKED = "clipboard_sensitive_not_auto_saved"
 EVENT_ITEM_MOVED_TO_SAFE = "item_moved_to_safe"
 EVENT_SAFE_CREATED = "safe_created"
+EVENT_VAULT_MACROS_SETUP = "vault_macros_setup_completed"
+EVENT_MACRO_SAFE_CREATED = "macro_safe_created"
+EVENT_MACRO_TEMPLATE_CREATED = "macro_template_created"
+EVENT_MACRO_SMART_TYPE_ASSIGNED = "macro_smart_type_assigned"
+EVENT_MACRO_MOVED_BY_USER = "macro_moved_by_user"
+EVENT_MACRO_CONFLICT_DETECTED = "macro_conflict_detected"
 
 # Capture modes stored on each clip.
 CAPTURE_AUTO = "auto"

@@ -58,6 +58,20 @@ class Settings:
     mobile_access_bind_host: str = ""  # empty = use bridge default when enabled
     paired_devices: list[dict] = field(default_factory=list)
 
+    # Vault Macros — saved snippet/macro vault (Macro Safes are not encrypted).
+    vault_macros_enabled: bool = True
+    vault_macros_setup_completed: bool = False
+    default_macro_safe_id: str = "macro-safe"
+    macro_menu_hotkey: str = "ctrl+shift+m"
+    macro_default_output_mode: str = "clipboard_paste"
+    macro_text_shortcuts_enabled: bool = True
+    macro_hotkeys_enabled: bool = True
+    macro_restore_clipboard_after_paste: bool = False
+    macro_sensitive_confirmation: bool = True
+    macro_search_content: bool = False
+    user_macro_safes: list[dict] = field(default_factory=list)
+    macro_starter_safes_initialized: bool = False
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":
@@ -82,6 +96,20 @@ class Settings:
             s.paired_devices = []
         if not isinstance(s.user_safes, list):
             s.user_safes = []
+        if not isinstance(s.user_macro_safes, list):
+            s.user_macro_safes = []
+        s.vault_macros_enabled = bool(s.vault_macros_enabled)
+        s.vault_macros_setup_completed = bool(s.vault_macros_setup_completed)
+        s.macro_text_shortcuts_enabled = bool(s.macro_text_shortcuts_enabled)
+        s.macro_hotkeys_enabled = bool(s.macro_hotkeys_enabled)
+        s.macro_restore_clipboard_after_paste = bool(s.macro_restore_clipboard_after_paste)
+        s.macro_sensitive_confirmation = bool(s.macro_sensitive_confirmation)
+        s.macro_search_content = bool(s.macro_search_content)
+        s.macro_starter_safes_initialized = bool(getattr(s, "macro_starter_safes_initialized", False))
+        if not (s.default_macro_safe_id or "").strip():
+            s.default_macro_safe_id = "macro-safe"
+        if s.macro_default_output_mode not in ("clipboard_paste", "keystroke"):
+            s.macro_default_output_mode = "clipboard_paste"
         try:
             s.max_auto_capture_bytes = max(0, int(s.max_auto_capture_bytes))
         except (TypeError, ValueError):

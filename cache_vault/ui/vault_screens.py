@@ -49,6 +49,7 @@ class VaultScreenHost(ctk.CTkFrame):
             "nav_editable_copies": self._build_editable_copies,
             "nav_html_bundles": self._build_html_bundles,
             "nav_mobile_access": self._build_mobile_access,
+            "nav_vault_macros": self._build_vault_macros,
         }
         for key, builder in builders.items():
             frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -210,6 +211,110 @@ class VaultScreenHost(ctk.CTkFrame):
                         **theme.secondary_button(),
                     ).pack(anchor="w", padx=12, pady=(0, 8))
 
+        parent._refresh = reload  # type: ignore[attr-defined]
+
+    def _build_vault_macros(self, parent: ctk.CTkScrollableFrame) -> None:
+        from ..core.vault_macros import (
+            CORE_MACRO_FILTERS,
+            CONTENT_MACRO_FILTERS,
+            MACRO_FILTER_ALL,
+            SAFETY_MACRO_FILTERS,
+            SMART_TYPE_LABELS,
+        )
+
+        ctk.CTkLabel(
+            parent, text=brand.TERM_VAULT_MACROS,
+            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
+        ).pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(
+            parent,
+            text="Saved macros with Macro Safes and smart filters — not encrypted.",
+            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
+        ).pack(fill="x", pady=(0, 8))
+
+        tools = ctk.CTkFrame(parent, fg_color="transparent")
+        tools.pack(fill="x", pady=(0, 8))
+        search = ctk.CTkEntry(tools, placeholder_text="Search macros…", width=220)
+        search.pack(side="left", padx=(0, 8))
+        filt = ctk.CTkOptionMenu(
+            tools,
+            values=[label for _k, label in CORE_MACRO_FILTERS],
+            width=200,
+        )
+        filt.set("All Macros")
+        filt.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            tools, text="New from template", width=130,
+            command=self._callbacks.get("macro_new_template", lambda: None),
+            **theme.secondary_button(),
+        ).pack(side="right", padx=2)
+        ctk.CTkButton(
+            tools, text="Setup wizard", width=110,
+            command=self._callbacks.get("macro_setup", lambda: None),
+            **theme.secondary_button(),
+        ).pack(side="right", padx=2)
+
+        self._macro_list = ctk.CTkFrame(parent, fg_color="transparent")
+        self._macro_list.pack(fill="both", expand=True)
+        self._macro_inspector = ctk.CTkTextbox(parent, height=120, wrap="word", font=theme.body_font(11))
+        self._macro_inspector.pack(fill="x", pady=(8, 0))
+        self._macro_inspector.configure(state="disabled")
+
+        filter_map = {label: key for key, label in (
+            CORE_MACRO_FILTERS + CONTENT_MACRO_FILTERS + SAFETY_MACRO_FILTERS
+        )}
+
+        def reload() -> None:
+            for w in self._macro_list.winfo_children():
+                w.destroy()
+            macros_cb = self._callbacks.get("macro_list")
+            if not callable(macros_cb):
+                _empty(self._macro_list, "Vault Macros not wired.")
+                return
+            fk = filter_map.get(filt.get(), MACRO_FILTER_ALL)
+            rows = macros_cb(fk, search.get())
+            if not rows:
+                _empty(self._macro_list, "No macros match this filter.")
+                return
+            for row in rows[:60]:
+                m = row["macro"]
+                warns = row.get("warnings") or []
+                warn = f" ⚠ {len(warns)}" if warns else ""
+                card = ctk.CTkFrame(
+                    self._macro_list, fg_color=brand.SURFACE_BG, corner_radius=8,
+                )
+                card.pack(fill="x", pady=4)
+                title = f"{m.name}{warn} · {SMART_TYPE_LABELS.get(m.smart_type, m.smart_type)}"
+                ctk.CTkLabel(
+                    card, text=title, anchor="w", font=theme.body_font(11),
+                ).pack(fill="x", padx=12, pady=(8, 2))
+                ctk.CTkLabel(
+                    card,
+                    text=row.get("subtitle", ""),
+                    anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(10),
+                ).pack(fill="x", padx=12, pady=(0, 8))
+                btns = ctk.CTkFrame(card, fg_color="transparent")
+                btns.pack(fill="x", padx=10, pady=(0, 8))
+                mid = m.id
+                ctk.CTkButton(
+                    btns, text="Inspect", width=80, height=26,
+                    command=lambda i=row: _show_inspector(i),
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="Edit", width=70, height=26,
+                    command=lambda x=mid: self._callbacks.get("macro_edit", lambda _: None)(x),
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=2)
+
+        def _show_inspector(row: dict) -> None:
+            self._macro_inspector.configure(state="normal")
+            self._macro_inspector.delete("1.0", "end")
+            self._macro_inspector.insert("1.0", row.get("inspector", ""))
+            self._macro_inspector.configure(state="disabled")
+
+        filt.configure(command=lambda _v: reload())
+        search.bind("<KeyRelease>", lambda _e: reload())
         parent._refresh = reload  # type: ignore[attr-defined]
 
     def _build_editable_copies(self, parent: ctk.CTkScrollableFrame) -> None:

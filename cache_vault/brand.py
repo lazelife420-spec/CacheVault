@@ -54,6 +54,7 @@ TERM_COMMAND_CENTER = "Command Center"
 TERM_EDITABLE_COPIES = "Editable Copies / Revisions"
 TERM_HTML_BUNDLES = "HTML Bundles"
 TERM_EXPORTS = "Exports"
+TERM_VAULT_MACROS = "Vault Macros"
 
 # Vault / proof language (subtle, businesslike)
 LABEL_ORIGINAL_PROTECTED = "Original protected"

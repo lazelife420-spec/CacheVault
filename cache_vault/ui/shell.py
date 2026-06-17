@@ -54,6 +54,7 @@ from .filters import (
     NAV_SCREEN_KEYS,
     NAV_SETTINGS,
     NAV_STAMPED_RECEIPTS,
+    NAV_VAULT_MACROS,
 )
 from .home_dashboard import HomeDashboard
 from .duplicate_dialog import DuplicateReviewDialog
@@ -121,6 +122,10 @@ class CacheVaultApp(ctk.CTk):
         self._sensitive_only = False
 
         self._mobile_bridge = MobileBridge(self.vault)
+
+        from ..core.vault_macros import MacroSafeRegistry, MacroStore
+        self._macro_store = MacroStore()
+        self._macro_registry = MacroSafeRegistry(self.vault.settings)
 
         install_windows_scroll_patch(
             lambda: scroll_config_from_settings(self.vault.settings),
@@ -316,6 +321,10 @@ class CacheVaultApp(ctk.CTk):
                 "mobile_report": self._mobile_access_report,
                 "pair_android": lambda: self._open_pair_android(),
                 "mobile_settings": self._open_settings,
+                "macro_list": self._macro_list_rows,
+                "macro_edit": self._macro_edit,
+                "macro_new_template": self._macro_new_template,
+                "macro_setup": self._open_macro_setup,
             },
             corner_radius=0,
         )
@@ -707,6 +716,7 @@ class CacheVaultApp(ctk.CTk):
             counts[NAV_EDITABLE_COPIES] = summary.get("editable_copies", 0)
             counts[NAV_HTML_BUNDLES] = summary.get("html_bundles", 0)
             counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
+            counts[NAV_VAULT_MACROS] = len(self._macro_store.load_all())
             self._filters.update_counts(counts)
             self._filters.update_collections(self.vault.list_collections())
             self._filters.update_safes(self.vault.list_safes())
@@ -955,6 +965,12 @@ class CacheVaultApp(ctk.CTk):
         if key == NAV_SETTINGS:
             self._open_settings()
             return
+        if key == NAV_VAULT_MACROS:
+            if (
+                self.vault.settings.vault_macros_enabled
+                and not self.vault.settings.vault_macros_setup_completed
+            ):
+                self._open_macro_setup()
         if key == FILTER_HOME and self._preview._clip is None:  # noqa: SLF001
             self._preview.show_vault_control(
                 self.vault.dashboard_summary(),
@@ -1627,6 +1643,136 @@ class CacheVaultApp(ctk.CTk):
         finally:
             if self._alive():
                 self._expiry_job = self._safe_after(EXPIRY_SWEEP_MS, self._expiry_tick)
+
+    # --- Vault Macros -------------------------------------------------------
+    def _macro_record_receipt(self, action: str, payload: dict) -> None:
+        from ..core import models
+        from ..core.macro_receipts import record_macro_receipt
+        event_map = {
+            "vault_macros_setup_completed": models.EVENT_VAULT_MACROS_SETUP,
+            "macro_safe_created": models.EVENT_MACRO_SAFE_CREATED,
+            "macro_template_created": models.EVENT_MACRO_TEMPLATE_CREATED,
+            "macro_smart_type_assigned": models.EVENT_MACRO_SMART_TYPE_ASSIGNED,
+            "macro_moved_by_user": models.EVENT_MACRO_MOVED_BY_USER,
+            "macro_conflict_detected": models.EVENT_MACRO_CONFLICT_DETECTED,
+        }
+        record_macro_receipt(
+            self.vault.events,
+            action=action,
+            event_type=event_map.get(action, action),
+            success=bool(payload.get("success", True)),
+            macro_id=payload.get("macro_id"),
+            safe_id=payload.get("safe_id"),
+            safe_name=payload.get("safe_name"),
+            smart_type=payload.get("smart_type"),
+            template_id=payload.get("template_id"),
+        )
+
+    def _open_macro_setup(self) -> None:
+        from .macro_dialogs import VaultMacrosSetupDialog
+        VaultMacrosSetupDialog(
+            self,
+            self.vault.settings,
+            on_complete=self.refresh,
+            record_receipt=self._macro_record_receipt,
+        )
+
+    def _macro_list_rows(self, filter_key: str, query: str) -> list[dict]:
+        from ..core.vault_macros import (
+            MacroSafeRegistry,
+            SMART_TYPE_LABELS,
+            apply_macro_filter,
+            inspector_warnings,
+            search_macros,
+        )
+        settings = self.vault.settings
+        registry = MacroSafeRegistry(settings)
+        macros = self._macro_store.load_all()
+        ctx = {"registry": registry, "all_macros": macros, "settings": settings}
+        filtered = apply_macro_filter(macros, filter_key, registry=registry, settings=settings)
+        if query:
+            filtered = search_macros(
+                filtered, query, registry=registry,
+                search_content=settings.macro_search_content,
+            )
+        rows: list[dict] = []
+        for m in filtered:
+            safe = registry.resolve(m.safe_id)
+            warns = inspector_warnings(m, **ctx)
+            rows.append({
+                "macro": m,
+                "warnings": warns,
+                "subtitle": (
+                    f"{safe.name if safe else 'Missing Safe'} · "
+                    f"{m.trigger_type} · {m.output_mode} · "
+                    f"{'enabled' if m.enabled else 'disabled'}"
+                ),
+                "inspector": self._macro_inspector_text(m, warns, safe),
+            })
+        return rows
+
+    def _macro_inspector_text(self, macro, warnings, safe) -> str:
+        from ..core.vault_macros import SMART_TYPE_LABELS
+        lines = [
+            f"Name: {macro.name}",
+            f"Safe: {safe.name if safe else '—'}",
+            f"Smart type: {SMART_TYPE_LABELS.get(macro.smart_type, macro.smart_type)}",
+            f"Trigger: {macro.trigger_type} {macro.trigger_value or '(none)'}",
+            f"Output: {macro.output_mode}",
+            f"Enabled: {'yes' if macro.enabled else 'no'} · Favorite: {'yes' if macro.favorite else 'no'}",
+            f"Runs: {macro.run_count} · Receipts: {macro.receipt_count}",
+            f"Last used: {macro.last_used_at or 'never'}",
+        ]
+        if warnings:
+            lines.append("Warnings: " + "; ".join(warnings))
+        return "\n".join(lines)
+
+    def _macro_edit(self, macro_id: str) -> None:
+        from .macro_dialogs import MacroEditDialog
+        from ..core import models
+        from ..core.vault_macros import MacroSafeRegistry
+        macro = self._macro_store.get(macro_id)
+        if macro is None:
+            return
+        old_type = macro.smart_type
+
+        def on_save(updated) -> None:
+            self._macro_store.upsert(updated)
+            if updated.smart_type != old_type:
+                self._macro_record_receipt("macro_smart_type_assigned", {
+                    "macro_id": updated.id,
+                    "smart_type": updated.smart_type,
+                    "success": True,
+                })
+            self.refresh()
+
+        MacroEditDialog(
+            self, macro=macro, registry=MacroSafeRegistry(self.vault.settings), on_save=on_save,
+        )
+
+    def _macro_new_template(self) -> None:
+        from .macro_dialogs import MacroEditDialog, MacroTemplatePicker
+        from ..core.vault_macros import MacroSafeRegistry, create_from_template
+
+        def on_pick(template_id: str) -> None:
+            registry = MacroSafeRegistry(self.vault.settings)
+            macro = create_from_template(template_id, registry=registry)
+            self._macro_store.upsert(macro)
+            self._macro_record_receipt("macro_template_created", {
+                "macro_id": macro.id,
+                "template_id": template_id,
+                "safe_id": macro.safe_id,
+                "smart_type": macro.smart_type,
+                "success": True,
+            })
+
+            def on_save(updated) -> None:
+                self._macro_store.upsert(updated)
+                self.refresh()
+
+            MacroEditDialog(self, macro=macro, registry=registry, on_save=on_save)
+
+        MacroTemplatePicker(self, on_pick=on_pick)
 
     def _show_window(self) -> None:
         if not self._alive():

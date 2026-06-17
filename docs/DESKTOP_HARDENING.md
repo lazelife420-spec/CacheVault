@@ -21,7 +21,8 @@
 | **4.5** | UI information architecture | **Done** — Command/Vault/Proof/Access nav, vault screens, inspector |
 | **5** | Proof export zip + manifest + SHA256SUMS | **Done** — finalized; see `CROSS_APP_INTEGRATION.md` |
 | **5.5** | Capture rules + Safes + hotkey capture | **Done** — `safes.py`, `capture_rules.py`, settings, receipts |
-| 6 | Smart folders, tags, notes, search | Planned |
+| **6** | Vault Macros setup + smart filters | **Done** — `vault_macros.py`, setup wizard, Macro Safes, filters; see `VAULT_MACROS.md` |
+| 6.1 | Smart folders, user tags, notes, search | Planned |
 | 7 | Sensitive item handling | Partial — auto-expiry exists |
 | 8 | Delete/archive/revision model | Partial — Recently Removed exists |
 | 9 | Mobile boundaries | Enforced — read-only bridge; regression gate in `scripts/rc_gate.py` |
@@ -92,6 +93,19 @@
 - Sensitive best-effort auto-block with manual override via hotkey.
 - Proof manifest item entries include Safe + capture metadata.
 - Docs: `docs/CAPTURE_RULES.md`.
+
+## Phase 6 — Vault Macros
+
+- Setup wizard: **Set up Vault Macros** on first open.
+- Macro Safes (starter set + user Safes) — **not encrypted**.
+- Smart filters: core, content/type, safety/proof views.
+- Smart classification suggestions (user override).
+- Macro templates (blank, signature, reply, code, command, clipboard wrapper, etc.).
+- Vault Macros screen with search, filter, inspector.
+- Receipts: setup, template, smart type, move, conflict (metadata only).
+- Macro proof manifest export via `export_macros_proof_pack()`.
+- Docs: `docs/VAULT_MACROS.md`.
+- Tests: `tests/test_vault_macros.py`.
 
 ## Core rules (all phases)
 
