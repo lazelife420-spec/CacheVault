@@ -93,6 +93,11 @@ class CacheVaultApp(ctk.CTk):
                 sys.stderr.write(msg)
             except Exception:  # noqa: BLE001
                 pass
+        # CTk sometimes fires resize callbacks after widgets are destroyed — log only.
+        if exc is not None and getattr(exc, "__name__", "") == "TclError":
+            err_text = str(val or "")
+            if "invalid command name" in err_text:
+                return
         try:
             from tkinter import messagebox
             messagebox.showerror(
@@ -2019,8 +2024,24 @@ class CacheVaultApp(ctk.CTk):
                 shortcut_backspaces=shortcut_backspaces,
             )
         if self._alive():
-            self.refresh()
+            self._refresh_after_macro()
         return result
+
+    def _refresh_after_macro(self) -> None:
+        """Refresh macro list/counts without a full shell rebuild (avoids CTk races)."""
+        if not self._alive():
+            return
+        try:
+            counts = self.vault.counts()
+            counts[NAV_VAULT_MACROS] = len(self._macro_store.load_all())
+            self._filters.update_counts(counts)
+            if self._filters.active == NAV_VAULT_MACROS:
+                frame = self._vault_screens._screens.get(NAV_VAULT_MACROS)  # noqa: SLF001
+                refresh = getattr(frame, "_refresh", None)
+                if callable(refresh):
+                    refresh()
+        except Exception as exc:  # noqa: BLE001
+            write_crash("macro refresh", exc)
 
     def _macro_run(self, macro_id: str) -> None:
         macro = self._macro_store.get(macro_id)
