@@ -69,8 +69,9 @@ def test_sidebar_proof_items():
 
 
 def test_sidebar_access_items():
-    from cache_vault.ui.filters import NAV_SETTINGS
+    from cache_vault.ui.filters import NAV_MOBILE_INBOX, NAV_SETTINGS
     keys = [k for _h, items in filters_ui.FILTER_GROUPS for k, _l in items]
+    assert NAV_MOBILE_INBOX in keys
     assert NAV_MOBILE_ACCESS in keys
     assert NAV_SETTINGS in keys
 
@@ -320,7 +321,7 @@ class TestHomeVaultUI:
 
         labels = _labels(dashboard._body)
         assert brand.VAULT_STATUS_ACTIVE in labels
-        assert any("Local-only" in t for t in labels)
+        assert any(brand.LABEL_LOCAL_ONLY in t for t in labels)
         assert any("Mobile Access off" in t for t in labels)
 
         dashboard.destroy()
@@ -341,7 +342,7 @@ class TestHomeVaultUI:
             "mobile_settings": lambda: None,
         })
         panel.update_idletasks()
-        assert panel._title.cget("text") == "Vault Control"
+        assert panel._title.cget("text") == brand.TERM_VAULT_STATUS
 
         def _button_texts(widget):
             texts = []

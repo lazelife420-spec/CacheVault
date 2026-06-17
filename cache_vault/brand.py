@@ -19,10 +19,16 @@ PRODUCT_POSITIONING = (
     "A modern clipboard vault from The Proof Foundry."
 )
 PRODUCT_PROMISE = (
-    "Capture everything. Keep what matters. Export with receipts."
+    "Everything you copy. Secured. Proved."
 )
-VAULT_TAGLINE = "Local saved-clips vault"
+VAULT_TAGLINE = "Your data. Your vault. Your proof."
+VAULT_HERO = VAULT_TAGLINE
 VAULT_STATUS_ACTIVE = "Local Vault Active"
+LABEL_VAULT_SEALED = "Vault sealed"
+LABEL_CAPTURE_ACTIVE = "Capture Active"
+LABEL_RECEIPTS_AVAILABLE = "Receipts Available"
+LABEL_READY_EXPORT = "Ready to export proof"
+LABEL_SAFE_ASSIGNED = "Safe assigned"
 VAULT_STATUS_NOTE = (
     "Your saved clips stay on this PC unless you export or enable Mobile Access."
 )
@@ -55,6 +61,14 @@ TERM_EDITABLE_COPIES = "Editable Copies / Revisions"
 TERM_HTML_BUNDLES = "HTML Bundles"
 TERM_EXPORTS = "Exports"
 TERM_VAULT_MACROS = "Vault Macros"
+TERM_VAULT_STATUS = "Vault Status"
+TERM_CUSTODY_SUMMARY = "Custody Summary"
+TERM_RECENT_ACTIVITY = "Recent Activity"
+TERM_QUICK_ACTIONS = "Quick Actions"
+TERM_MOBILE_INBOX = "Mobile Inbox"
+TERM_INCOMING_FROM_PHONE = "Incoming from Phone"
+TERM_VAULT_ITEM = "Vault Item"
+TERM_INSPECTOR_SEAL = "Item seal / status"
 
 # Vault / proof language (subtle, businesslike)
 LABEL_ORIGINAL_PROTECTED = "Original protected"
@@ -71,19 +85,25 @@ LABEL_SHA256SUMS_INCLUDED = "Included in proof export zip"
 RECEIPT_NOTE = "If it matters, keep the receipt."
 
 # --- Palette ----------------------------------------------------------------
-FOUNDRY_BLACK = "#0B0F14"
-IRON_GRAY = "#1C232B"
-PROOF_TEAL = "#00D1B2"
-PROOF_TEAL_HOVER = "#00B89C"
-RECEIPT_WHITE = "#F4F7F8"
-STAMP_GOLD = "#D6A84F"
-WARNING_RED = "#E5484D"
-WARNING_RED_HOVER = "#C93D42"
-MUTED_TEXT = "#8A939C"
+# Dark graphite / black-metal with restrained teal accents.
+FOUNDRY_BLACK = "#06080A"
+GRAPHITE = "#12161C"
+IRON_GRAY = "#1A1F26"
+BLACK_METAL = "#0E1218"
+PROOF_TEAL = "#1A9E8C"
+PROOF_TEAL_HOVER = "#147A6C"
+PROOF_TEAL_DIM = "#0F5C52"
+RECEIPT_WHITE = "#E8ECED"
+STAMP_GOLD = "#C9A24D"
+WARNING_RED = "#C93D42"
+WARNING_RED_HOVER = "#A83238"
+MUTED_TEXT = "#7A848E"
+VAULT_BORDER = "#2A323C"
 
 # CustomTkinter tuples: (light_mode, dark_mode) — app defaults to dark.
-PANEL_BG = (RECEIPT_WHITE, FOUNDRY_BLACK)
-SURFACE_BG = ("#E8ECED", IRON_GRAY)
-ROW_BG = ("#E0E4E6", IRON_GRAY)
-ROW_SELECTED_BG = ("#D0D8DA", "#263038")
+PANEL_BG = (RECEIPT_WHITE, GRAPHITE)
+SURFACE_BG = ("#D8DEE2", IRON_GRAY)
+ROW_BG = ("#D0D6DA", BLACK_METAL)
+ROW_SELECTED_BG = ("#C0C8CE", "#222830")
 MUTED_FG = ("#5C6670", MUTED_TEXT)
+VAULT_CARD_BORDER = ("#B8C0C6", VAULT_BORDER)

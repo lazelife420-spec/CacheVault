@@ -17,6 +17,7 @@ NAV_EXPORTS = "nav_exports"
 NAV_EDITABLE_COPIES = "nav_editable_copies"
 NAV_HTML_BUNDLES = "nav_html_bundles"
 NAV_MOBILE_ACCESS = "nav_mobile_access"
+NAV_MOBILE_INBOX = "nav_mobile_inbox"
 NAV_VAULT_MACROS = "nav_vault_macros"
 NAV_SETTINGS = "nav_settings"
 
@@ -27,6 +28,7 @@ NAV_SCREEN_KEYS = frozenset({
     NAV_EDITABLE_COPIES,
     NAV_HTML_BUNDLES,
     NAV_MOBILE_ACCESS,
+    NAV_MOBILE_INBOX,
     NAV_VAULT_MACROS,
 })
 
@@ -42,7 +44,8 @@ _NAV_ICONS: dict[str, str] = {
     NAV_EXPORTS: "↗ ",
     NAV_EDITABLE_COPIES: "⎘ ",
     NAV_HTML_BUNDLES: "🌐 ",
-    NAV_MOBILE_ACCESS: "◉ ",
+    NAV_MOBILE_ACCESS: "◈ ",
+    NAV_MOBILE_INBOX: "↓ ",
     NAV_VAULT_MACROS: "⚡ ",
     NAV_SETTINGS: "⚙ ",
 }
@@ -77,6 +80,7 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (NAV_HTML_BUNDLES, brand.TERM_HTML_BUNDLES),
     ]),
     ("ACCESS", [
+        (NAV_MOBILE_INBOX, brand.TERM_MOBILE_INBOX),
         (NAV_MOBILE_ACCESS, brand.TERM_MOBILE_ACCESS),
         (NAV_SETTINGS, "Settings"),
     ]),
@@ -100,23 +104,20 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._collection_rows: dict[str, ctk.CTkFrame] = {}
         self._safe_rows: dict[str, ctk.CTkFrame] = {}
 
-        title = ctk.CTkLabel(self, text=brand.PRODUCT_NAME, anchor="w",
+        title = ctk.CTkLabel(self, text="◈ Cache Vault", anchor="w",
                              font=ctk.CTkFont(size=18, weight="bold"))
         title.pack(fill="x", padx=8, pady=(6, 0))
-        byline = ctk.CTkLabel(self, text=brand.PRODUCT_BYLINE, anchor="w",
-                              text_color=brand.PROOF_TEAL,
-                              font=ctk.CTkFont(size=11))
+        byline = ctk.CTkLabel(self, text=brand.VAULT_TAGLINE, anchor="w",
+                              text_color=brand.MUTED_FG,
+                              font=ctk.CTkFont(size=10), wraplength=200,
+                              justify="left")
         byline.pack(fill="x", padx=8, pady=(0, 2))
-        tagline = ctk.CTkLabel(self, text=brand.VAULT_TAGLINE,
-                               anchor="w", text_color=brand.MUTED_FG,
-                               font=ctk.CTkFont(size=10), wraplength=200,
-                               justify="left")
-        tagline.pack(fill="x", padx=8, pady=(0, 2))
-        promise = ctk.CTkLabel(self, text=brand.PRODUCT_PROMISE,
-                               anchor="w", text_color=brand.MUTED_FG,
-                               font=ctk.CTkFont(size=10), wraplength=200,
-                               justify="left")
-        promise.pack(fill="x", padx=8, pady=(0, 10))
+        seal = ctk.CTkLabel(
+            self, text=f"{brand.LABEL_VAULT_SEALED} · {brand.LABEL_LOCAL_ONLY}",
+            anchor="w", text_color=brand.STAMP_GOLD,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        )
+        seal.pack(fill="x", padx=8, pady=(0, 10))
 
         for heading, items in FILTER_GROUPS:
             if heading:

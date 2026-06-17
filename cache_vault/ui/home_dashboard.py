@@ -30,8 +30,8 @@ _CARD_ICONS = {
 }
 
 _CARD_HEIGHT = 108
-_CARD_BORDER = ("#C8D0D4", "#263038")
-_CARD_BORDER_HOVER = (brand.PROOF_TEAL, brand.PROOF_TEAL)
+_CARD_BORDER = brand.VAULT_CARD_BORDER
+_CARD_BORDER_HOVER = (brand.PROOF_TEAL, brand.PROOF_TEAL_DIM)
 
 
 class HomeDashboard(ctk.CTkScrollableFrame):
@@ -85,16 +85,16 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             font=ctk.CTkFont(size=24, weight="bold"),
         ).pack(fill="x", pady=(0, 2))
         ctk.CTkLabel(
-            self._body, text="Local vault control — capture, paste, edit safe copies, proof.",
-            anchor="w", text_color=brand.MUTED_FG,
+            self._body, text=brand.VAULT_HERO, anchor="w",
+            text_color=brand.MUTED_FG,
             font=theme.body_font(12),
         ).pack(fill="x", pady=(0, 14))
 
         self._vault_status_strip(summary)
         self._quick_actions(summary)
-        self._section_title("Saved Clips Overview")
+        self._section_title(brand.TERM_CUSTODY_SUMMARY)
         self._summary_cards(summary)
-        self._section_title("Recently Saved")
+        self._section_title(brand.TERM_RECENT_ACTIVITY)
         self._recent_section(recent)
         if images:
             self._section_title("Recent Screenshots")
@@ -113,30 +113,34 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._proof_access_section(summary)
 
     def _vault_status_strip(self, summary: dict) -> None:
-        strip = ctk.CTkFrame(
-            self._body, fg_color=brand.SURFACE_BG, corner_radius=8,
-            border_width=1, border_color=("#C8D0D4", "#263038"),
-        )
+        strip = ctk.CTkFrame(self._body, **theme.vault_card())
         strip.pack(fill="x", pady=(0, 18))
 
         top = ctk.CTkFrame(strip, fg_color="transparent")
         top.pack(fill="x", padx=14, pady=(12, 4))
         ctk.CTkLabel(
-            top, text="⬢", font=ctk.CTkFont(size=14),
+            top, text="◈", font=ctk.CTkFont(size=14),
             text_color=brand.STAMP_GOLD,
         ).pack(side="left", padx=(0, 8))
         ctk.CTkLabel(
             top, text=brand.VAULT_STATUS_ACTIVE,
             font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=brand.PROOF_TEAL,
+            text_color=brand.RECEIPT_WHITE,
         ).pack(side="left")
 
-        capture = "Capture paused" if summary.get("capture_paused") else "Capture active"
+        capture = (
+            brand.LABEL_CAPTURE_ACTIVE
+            if not summary.get("capture_paused")
+            else "Capture paused"
+        )
         mobile = (
-            "Mobile Access on" if summary.get("mobile_enabled") else "Mobile Access off"
+            f"Mobile Access · {summary.get('paired_count', 0)} paired"
+            if summary.get("mobile_enabled")
+            else "Mobile Access off"
         )
         detail = (
-            f"Local-only · {capture} · Receipts on · {mobile}"
+            f"{brand.LABEL_LOCAL_ONLY} · {capture} · "
+            f"{brand.LABEL_RECEIPTS_AVAILABLE} · {mobile}"
         )
         ctk.CTkLabel(
             strip, text=detail, anchor="w",
@@ -145,9 +149,12 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
         counts = (
             f"{summary.get('all', 0)} saved · "
+            f"{summary.get('safe_count', 0)} safes · "
             f"{summary.get('receipts', 0)} receipts · "
+            f"{summary.get('exports', 0)} exports · "
             f"{summary.get('editable_copies', 0)} editable copies · "
-            f"{summary.get('html_bundles', 0)} HTML bundles"
+            f"{summary.get('html_bundles', 0)} HTML bundles · "
+            f"{summary.get('mobile_inbox', 0)} mobile inbox"
         )
         if summary.get("recent_pasted_count", 0):
             counts += f" · {summary['recent_pasted_count']} recent paste(s)"
@@ -164,10 +171,9 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ).pack(fill="x", padx=14, pady=(0, 12))
 
     def _quick_actions(self, summary: dict) -> None:
-        frame = ctk.CTkFrame(self._body, fg_color=brand.SURFACE_BG, corner_radius=8,
-                             border_width=1, border_color=("#C8D0D4", "#263038"))
+        frame = ctk.CTkFrame(self._body, **theme.vault_card())
         frame.pack(fill="x", pady=(0, 16))
-        ctk.CTkLabel(frame, text="Quick Actions", anchor="w",
+        ctk.CTkLabel(frame, text=brand.TERM_QUICK_ACTIONS, anchor="w",
                      **theme.section_heading()).pack(anchor="w", padx=12, pady=(10, 6))
         row1 = ctk.CTkFrame(frame, fg_color="transparent")
         row1.pack(fill="x", padx=10, pady=2)

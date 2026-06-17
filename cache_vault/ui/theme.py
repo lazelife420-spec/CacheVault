@@ -40,7 +40,9 @@ def secondary_button(**extra) -> dict:
     """Iron Gray — neutral chrome actions."""
     return {
         "fg_color": ("#C8D0D4", brand.IRON_GRAY),
-        "hover_color": ("#B0B8BC", "#263038"),
+        "hover_color": ("#B0B8BC", brand.VAULT_BORDER),
+        "border_width": 1,
+        "border_color": brand.VAULT_CARD_BORDER,
         "text_color": (brand.FOUNDRY_BLACK, brand.RECEIPT_WHITE),
         **extra,
     }
@@ -62,19 +64,34 @@ def proof_badge_fg() -> str:
 
 
 def nav_active_bg() -> tuple[str, str]:
-    return ("#9FE8DC", "#1E4A44")
+    return ("#B8D4CE", "#1A2E2A")
 
 
 def nav_hover_bg() -> tuple[str, str]:
-    return ("#D8ECE8", "#2A343C")
+    return ("#D0D8DA", "#222830")
 
 
 def section_heading(**extra) -> dict:
     return {
-        "text_color": brand.PROOF_TEAL,
+        "text_color": brand.STAMP_GOLD,
         "font": ctk.CTkFont(size=12, weight="bold"),
         **extra,
     }
+
+
+def vault_card(**extra) -> dict:
+    """Sealed vault panel — subtle border, graphite surface."""
+    return {
+        "fg_color": brand.SURFACE_BG,
+        "corner_radius": 8,
+        "border_width": 1,
+        "border_color": brand.VAULT_CARD_BORDER,
+        **extra,
+    }
+
+
+def status_badge_fg(verified: bool = False) -> str:
+    return brand.PROOF_TEAL if verified else brand.STAMP_GOLD
 
 
 def body_font(size: int = 12) -> ctk.CTkFont:

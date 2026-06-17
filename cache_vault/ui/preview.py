@@ -26,9 +26,12 @@ class PreviewPanel(ctk.CTkFrame):
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
-        self._title = ctk.CTkLabel(self._scroll, text="Clip Details", anchor="w",
+        self._title = ctk.CTkLabel(self._scroll, text=brand.TERM_VAULT_ITEM, anchor="w",
                                    font=ctk.CTkFont(size=16, weight="bold"))
         self._title.pack(fill="x", padx=10, pady=(8, 2))
+
+        self._seal_frame = ctk.CTkFrame(self._scroll, **theme.vault_card())
+        self._seal_labels: list[ctk.CTkLabel] = []
 
         self._subtitle = ctk.CTkLabel(self._scroll, text="", anchor="w",
                                       text_color=brand.MUTED_FG,
@@ -51,7 +54,7 @@ class PreviewPanel(ctk.CTkFrame):
         )
         self._image_hint.pack(fill="x", padx=10, pady=(0, 8))
 
-        self._meta_title = ctk.CTkLabel(self._scroll, text="Metadata", anchor="w",
+        self._meta_title = ctk.CTkLabel(self._scroll, text="Custody metadata", anchor="w",
                                         **theme.section_heading())
         self._meta_title.pack(fill="x", padx=10, pady=(4, 2))
         self._meta = ctk.CTkLabel(self._scroll, text="", anchor="w", justify="left",
@@ -84,8 +87,9 @@ class PreviewPanel(ctk.CTkFrame):
             w.destroy()
         self._hide_clip_sections()
         self._vault_frame.pack_forget()
-        self._title.configure(text="Clip Details")
+        self._title.configure(text=brand.TERM_VAULT_ITEM)
         self._subtitle.configure(text="")
+        self._seal_frame.pack_forget()
         self._set_body(
             "Select a clip to see details.\n\n"
             "Tip:\n"
@@ -103,8 +107,9 @@ class PreviewPanel(ctk.CTkFrame):
         for w in self._buttons.winfo_children():
             w.destroy()
         self._hide_clip_sections()
-        self._title.configure(text="Vault Control")
+        self._title.configure(text=brand.TERM_VAULT_STATUS)
         self._subtitle.configure(text=f"{brand.VAULT_TAGLINE} · {brand.LABEL_LOCAL_ONLY}")
+        self._seal_frame.pack_forget()
         self._set_body("")
         self._body.pack_forget()
 
@@ -112,19 +117,23 @@ class PreviewPanel(ctk.CTkFrame):
         for w in self._vault_frame.winfo_children():
             w.destroy()
 
-        ctk.CTkLabel(self._vault_frame, text="Status", anchor="w",
+        ctk.CTkLabel(self._vault_frame, text=brand.TERM_VAULT_STATUS, anchor="w",
                      **theme.section_heading()).pack(anchor="w", padx=12, pady=(10, 4))
 
-        capture = "Capture paused" if summary.get("capture_paused") else "Capture active"
+        capture = (
+            brand.LABEL_CAPTURE_ACTIVE
+            if not summary.get("capture_paused")
+            else "Capture paused"
+        )
         mobile = (
-            "Mobile Access on" if summary.get("mobile_enabled")
+            "Mobile Access active" if summary.get("mobile_enabled")
             else "Mobile Access off"
         )
         status_lines = [
-            ("Local vault active", brand.PROOF_TEAL),
-            (capture, brand.PROOF_TEAL if not summary.get("capture_paused") else brand.STAMP_GOLD),
+            (brand.VAULT_STATUS_ACTIVE, brand.STAMP_GOLD),
+            (capture, brand.PROOF_TEAL if not summary.get("capture_paused") else brand.MUTED_FG),
+            (brand.LABEL_RECEIPTS_AVAILABLE, brand.STAMP_GOLD),
             (mobile, brand.PROOF_TEAL if summary.get("mobile_enabled") else brand.MUTED_FG),
-            ("Receipts available", brand.STAMP_GOLD),
         ]
         for line, color in status_lines:
             row = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
@@ -140,16 +149,17 @@ class PreviewPanel(ctk.CTkFrame):
             text_color=brand.MUTED_FG, font=theme.body_font(10),
         ).pack(anchor="w", padx=12, pady=(6, 4))
 
-        ctk.CTkLabel(self._vault_frame, text="Counts", anchor="w",
+        ctk.CTkLabel(self._vault_frame, text=brand.TERM_CUSTODY_SUMMARY, anchor="w",
                      **theme.section_heading()).pack(anchor="w", padx=12, pady=(12, 4))
         lines = [
-            ("Saved clips", summary.get("all", 0)),
-            ("Favorites", summary.get("favorites", 0)),
-            ("Duplicates", summary.get("duplicates", 0)),
-            ("Recently removed", summary.get("recently_removed", 0)),
+            ("Saved", summary.get("all", 0)),
+            ("Safes", summary.get("safe_count", 0)),
             ("Receipts", summary.get("receipts", 0)),
+            ("Exports", summary.get("exports", 0)),
             ("Editable copies", summary.get("editable_copies", 0)),
             ("HTML bundles", summary.get("html_bundles", 0)),
+            ("Vault macros", summary.get("vault_macros", 0)),
+            ("Mobile inbox", summary.get("mobile_inbox", 0)),
         ]
         for label, count in lines:
             row = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
@@ -158,11 +168,11 @@ class PreviewPanel(ctk.CTkFrame):
             ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(12)).grid(
                 row=0, column=0, sticky="w")
             ctk.CTkLabel(row, text=str(count), anchor="e",
-                         text_color=brand.PROOF_TEAL,
+                         text_color=brand.STAMP_GOLD,
                          font=ctk.CTkFont(size=13, weight="bold")).grid(
                 row=0, column=1, sticky="e")
 
-        ctk.CTkLabel(self._vault_frame, text="Quick Actions", anchor="w",
+        ctk.CTkLabel(self._vault_frame, text=brand.TERM_QUICK_ACTIONS, anchor="w",
                      **theme.section_heading()).pack(anchor="w", padx=12, pady=(12, 4))
         actions = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
         actions.pack(fill="x", padx=10, pady=(0, 12))
@@ -200,6 +210,7 @@ class PreviewPanel(ctk.CTkFrame):
                           **theme.secondary_button()).pack(fill="x", pady=2)
 
     def _hide_clip_sections(self) -> None:
+        self._seal_frame.pack_forget()
         self._body.pack(fill="x", padx=10, pady=6)
         self._image_frame.pack_forget()
         self._meta_title.pack_forget()
@@ -251,6 +262,7 @@ class PreviewPanel(ctk.CTkFrame):
         if badges:
             sub += " · " + " · ".join(badges)
         self._subtitle.configure(text=sub)
+        self._render_seal(clip, ctx)
 
         is_image = clip.content_type == models.CONTENT_IMAGE
         self._show_clip_sections(image=is_image)
@@ -264,6 +276,43 @@ class PreviewPanel(ctk.CTkFrame):
         self._meta.configure(text=self._meta_text(clip))
         self._set_usage(self._usage_text(clip))
         self._render_buttons(clip)
+
+    def _render_seal(self, clip: Clip, ctx: dict | None) -> None:
+        for w in self._seal_frame.winfo_children():
+            w.destroy()
+        self._seal_frame.pack(fill="x", padx=10, pady=(4, 6))
+        ctk.CTkLabel(
+            self._seal_frame, text=brand.TERM_INSPECTOR_SEAL, anchor="w",
+            **theme.section_heading(),
+        ).pack(anchor="w", padx=10, pady=(8, 4))
+        badges: list[tuple[str, str]] = [
+            (brand.LABEL_LOCAL_ONLY, brand.MUTED_FG),
+        ]
+        if ctx and ctx.get("original_protected"):
+            badges.append((brand.LABEL_ORIGINAL_PROTECTED, brand.STAMP_GOLD))
+        if ctx and ctx.get("receipt_count", 0):
+            badges.append((brand.LABEL_RECEIPT_STAMPED, brand.STAMP_GOLD))
+        if clip.content_hash:
+            badges.append((brand.LABEL_HASH_VERIFIED, brand.PROOF_TEAL))
+        if clip.safe_name:
+            badges.append((f"{brand.LABEL_SAFE_ASSIGNED}: {clip.safe_name}", brand.STAMP_GOLD))
+        if clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
+            badges.append(("Sent from phone", brand.PROOF_TEAL))
+        if ctx and ctx.get("editable_copy"):
+            if ctx.get("is_html"):
+                badges.append((brand.LABEL_HTML_BUNDLE_COPY, brand.MUTED_FG))
+            else:
+                badges.append((brand.LABEL_EDITABLE_COPY, brand.MUTED_FG))
+        if ctx and ctx.get("export_ready"):
+            badges.append((brand.LABEL_READY_EXPORT, brand.PROOF_TEAL))
+        for text, color in badges:
+            row = ctk.CTkFrame(self._seal_frame, fg_color="transparent")
+            row.pack(fill="x", padx=10, pady=1)
+            ctk.CTkLabel(row, text="◈", text_color=color,
+                         font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 6))
+            ctk.CTkLabel(row, text=text, anchor="w",
+                         font=theme.body_font(11)).pack(side="left")
+        ctk.CTkLabel(self._seal_frame, text="").pack(pady=2)
 
     def _render_image_preview(self, clip: Clip) -> None:
         loader = self._actions.get("load_asset")
