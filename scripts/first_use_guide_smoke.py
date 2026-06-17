@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import tempfile
 import time
 from pathlib import Path
@@ -70,11 +71,15 @@ def main() -> int:
     app.after(300, step1)
     app.mainloop()
 
-    print({
+    result = {
         "pass": done["ok"] and len(shots) == 3,
         "screenshots": shots,
         "dismissed": vault.settings.first_use_guide_dismissed,
-    })
+        "guide_title": "Welcome to Cache Vault",
+    }
+    out = OUT / "first_use_guide_smoke.json"
+    out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    print(result)
     return 0 if done["ok"] else 1
 
 

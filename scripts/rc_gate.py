@@ -23,6 +23,7 @@ from scripts.android_asset_smoke import (  # noqa: E402
 )
 
 TAG = "v0.1.3-rc4"
+SOURCE_COMMIT = "aa3c07e860d3d63081112c0f496b066eaec4668e"
 RELEASE_DIR = ROOT / "dist" / "release" / TAG
 ZIP_NAME = f"CacheVault-{TAG}-windows.zip"
 ZIP_PATH = RELEASE_DIR / ZIP_NAME
@@ -146,7 +147,7 @@ def start_packaged_bridge() -> None:
 
 def main() -> int:
     source_commit = subprocess.run(
-        ["git", "rev-parse", "610fb38d6a5f19895b0afb9ff6c6551ec4ba5372"],
+        ["git", "rev-parse", SOURCE_COMMIT],
         capture_output=True, text=True, cwd=ROOT,
     ).stdout.strip()
     package_commit = subprocess.run(
@@ -355,10 +356,19 @@ def main() -> int:
 
     manual_smoke = ROOT / "visual_smoke" / "android_manual_pairing_smoke.json"
     share_smoke = ROOT / "visual_smoke" / "android_share_inbox_smoke.json"
+    guide_smoke = ROOT / "visual_smoke" / "first_use_guide_smoke.json"
     if manual_smoke.is_file():
         results["manual_setup_smoke"] = json.loads(manual_smoke.read_text(encoding="utf-8"))
     if share_smoke.is_file():
         results["share_sheet_smoke"] = json.loads(share_smoke.read_text(encoding="utf-8"))
+    if guide_smoke.is_file():
+        results["first_use_guide_smoke"] = json.loads(guide_smoke.read_text(encoding="utf-8"))
+    else:
+        from cache_vault.ui.guide_copy import guide_copy_has_no_forbidden_claims
+        results["first_use_guide_smoke"] = {
+            "pass": guide_copy_has_no_forbidden_claims(),
+            "note": "copy gate only; run scripts/first_use_guide_smoke.py for UI proof",
+        }
 
     results["overall_pass"] = (
         results["desktop_selftest"].get("pass")

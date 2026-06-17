@@ -17,6 +17,7 @@ Everything in **v0.1.3-rc3**, plus:
 - **Mobile Inbox** — receive items sent from a paired Android phone
 - **Send-to-PC endpoint** — `POST /mobile/v1/inbox/send` with receipt stamping
 - **Default Safe** assignment for mobile-sent items
+- **First-use guide** — Welcome briefing; tooltips for receipts, Safes, Mobile Inbox, exports
 - Vault Macros live execution (hotkeys, text shortcuts, picker) from rc3
 
 **Safes are not encrypted.** Whole-Safe export UI is deferred.
@@ -50,6 +51,7 @@ This APK is a **debug/internal proof artifact**, not a signed production release
 | Desktop | Luxury UI + Mobile Inbox receiver |
 | Mobile bridge | Inbox send API + receipts |
 | Android | Share Sheet Simple Mode + Manual Setup pairing fix |
+| User guidance | First-use guide, hover tips, empty-state help |
 | Version | `0.1.3-rc4` (RC only — not final) |
 
 ## Artifacts (this RC)
