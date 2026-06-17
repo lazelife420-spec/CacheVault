@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import inspect
 
 from cache_vault import brand
 from cache_vault.ui.clip_grid import ClipGrid
@@ -13,6 +14,15 @@ class FakeWidget:
 
     def configure(self, **kwargs) -> None:
         self.configured.append(kwargs)
+
+    def winfo_rootx(self) -> int:
+        return 10
+
+    def winfo_rooty(self) -> int:
+        return 20
+
+    def winfo_height(self) -> int:
+        return 32
 
 
 def _clip(clip_id: str):
@@ -79,3 +89,38 @@ def test_clip_grid_right_click_selects_before_opening_context_menu():
 
     assert calls == [("select", "clip-1"), ("context", "clip-1", 30, 40)]
     assert view._row_by_id["clip-1"].configured[-1]["fg_color"] == brand.ROW_SELECTED_BG
+
+
+def test_clip_list_keyboard_context_opens_for_selected_row():
+    calls = []
+    view = object.__new__(ClipList)
+    view._row_by_id = {"clip-1": FakeWidget()}
+    view._on_context = lambda clip, x, y: calls.append((clip.id, x, y))
+
+    view.open_context_for_selected(_clip("clip-1"))
+
+    assert calls == [("clip-1", 34, 36)]
+
+
+def test_clip_grid_keyboard_context_opens_for_selected_row():
+    calls = []
+    view = object.__new__(ClipGrid)
+    view._row_by_id = {"clip-1": FakeWidget()}
+    view._on_context = lambda clip, x, y: calls.append((clip.id, x, y))
+
+    view.open_context_for_selected(_clip("clip-1"))
+
+    assert calls == [("clip-1", 34, 36)]
+
+
+def test_shell_selection_keyboard_and_lock_guards_are_wired():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = inspect.getsource(CacheVaultApp)
+
+    assert "_bind_selection_keys" in source
+    assert "<Shift-F10>" in source
+    assert "_keyboard_open_context_menu" in source
+    assert "_keyboard_focus_is_text_input" in source
+    assert "_selected_clip_id = None" in source
+    assert "_update_selected_action_strip(None)" in source

@@ -87,6 +87,10 @@ class Settings:
     vault_lock_on_startup: bool = False
     vault_lock_when_minimized: bool = False
     vault_lock_auto_minutes: int = 0  # 0 = disabled
+    vault_lock_style: str = "teal_classic"
+    vault_lock_accent: str = "#1A9E8C"
+    vault_lock_reduced_motion: bool = True
+    vault_lock_show_local_only: bool = True
     sidebar_collapsed_sections: list[str] = field(default_factory=list)
 
     # --- persistence ---
@@ -168,6 +172,18 @@ class Settings:
                 0, min(1440, int(getattr(s, "vault_lock_auto_minutes", 0))))
         except (TypeError, ValueError):
             s.vault_lock_auto_minutes = 0
+        if getattr(s, "vault_lock_style", "teal_classic") not in (
+            "vault_door",
+            "minimal_seal",
+            "keypad",
+            "passphrase",
+            "graphite",
+            "teal_classic",
+        ):
+            s.vault_lock_style = "teal_classic"
+        s.vault_lock_accent = str(getattr(s, "vault_lock_accent", "#1A9E8C") or "#1A9E8C")
+        s.vault_lock_reduced_motion = bool(getattr(s, "vault_lock_reduced_motion", True))
+        s.vault_lock_show_local_only = bool(getattr(s, "vault_lock_show_local_only", True))
         if not isinstance(getattr(s, "sidebar_collapsed_sections", []), list):
             s.sidebar_collapsed_sections = []
         s._persist_path = path

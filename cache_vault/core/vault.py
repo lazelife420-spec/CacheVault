@@ -484,6 +484,14 @@ class Vault:
                 "name": safe.name,
                 "count": row.get("count", 0),
                 "builtin": safe.builtin,
+                "icon": safe.icon,
+                "accent": safe.accent,
+                "description": safe.description,
+                "default_capture": safe.default_capture,
+                "show_in_sidebar": safe.show_in_sidebar,
+                "favorite": safe.favorite,
+                "receipt_label": safe.receipt_label,
+                "visual_style": safe.visual_style,
             })
         return out
 

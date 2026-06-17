@@ -11,6 +11,7 @@ from ..core import startup, vault_lock
 from ..core.settings import Settings
 from . import theme
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
+from .vault_lock import LOCK_STYLES
 
 
 def _bring_to_front(win: ctk.CTkToplevel, master, *, modal: bool) -> None:
@@ -307,10 +308,37 @@ class SettingsDialog(ctk.CTkToplevel):
         self._vault_lock_auto = ctk.CTkEntry(auto_row, width=60)
         self._vault_lock_auto.insert(0, str(settings.vault_lock_auto_minutes))
         self._vault_lock_auto.pack(side="right")
+        style_by_label = {v["label"]: k for k, v in LOCK_STYLES.items()}
+        self._vault_lock_style_map = style_by_label
+        current_style = LOCK_STYLES.get(
+            settings.vault_lock_style, LOCK_STYLES["teal_classic"],
+        )["label"]
+        self._vault_lock_style = ctk.StringVar(value=current_style)
+        ctk.CTkOptionMenu(
+            body,
+            variable=self._vault_lock_style,
+            values=list(style_by_label),
+            width=180,
+        ).pack(anchor="w", padx=8, pady=(8, 4))
+        accent_row = ctk.CTkFrame(body, fg_color="transparent")
+        accent_row.pack(fill="x", padx=8, pady=(4, 0))
+        ctk.CTkLabel(accent_row, text="Lock accent color:").pack(side="left")
+        self._vault_lock_accent = ctk.CTkEntry(accent_row, width=110)
+        self._vault_lock_accent.insert(0, settings.vault_lock_accent)
+        self._vault_lock_accent.pack(side="right")
+        self._vault_lock_reduced_motion = ctk.CTkSwitch(body, text="Reduced motion")
+        self._vault_lock_reduced_motion.pack(anchor="w", padx=8, pady=4)
+        if settings.vault_lock_reduced_motion:
+            self._vault_lock_reduced_motion.select()
+        self._vault_lock_local_only = ctk.CTkSwitch(body, text="Show 'Vault sealed · Local only'")
+        self._vault_lock_local_only.pack(anchor="w", padx=8, pady=4)
+        if settings.vault_lock_show_local_only:
+            self._vault_lock_local_only.select()
         ctk.CTkLabel(
             body,
             text="Vault Lock hides the app surface. Safes organize your items. "
-                 "They are not encryption unless encryption is added later.",
+                 "They are not encryption unless encryption is added later. "
+                 "Lock style is visual; it does not change the security model.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             font=ctk.CTkFont(size=11), wraplength=460,
         ).pack(anchor="w", padx=8, pady=(4, 8))
@@ -499,6 +527,14 @@ class SettingsDialog(ctk.CTkToplevel):
             )
         except ValueError:
             pass
+        self._settings.vault_lock_style = self._vault_lock_style_map.get(
+            self._vault_lock_style.get(), "teal_classic",
+        )
+        accent = self._vault_lock_accent.get().strip()
+        if accent:
+            self._settings.vault_lock_accent = accent
+        self._settings.vault_lock_reduced_motion = bool(self._vault_lock_reduced_motion.get())
+        self._settings.vault_lock_show_local_only = bool(self._vault_lock_local_only.get())
         self._settings.mobile_access_enabled = bool(self._mobile_on.get())
         try:
             self._settings.mobile_access_port = max(

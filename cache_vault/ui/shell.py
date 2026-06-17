@@ -18,6 +18,7 @@ import sys
 import threading
 import traceback
 from pathlib import Path
+from typing import Callable
 
 import customtkinter as ctk
 
@@ -125,6 +126,8 @@ class CacheVaultApp(ctk.CTk):
         self._shutting_down = False
         self._main_thread_calls: queue.SimpleQueue = queue.SimpleQueue()
         self._view_mode = "cards"
+        self._selected_clip_id: str | None = None
+        self._visible_clip_ids: list[str] = []
         self._sort_key = models.SORT_NEWEST_ADDED
         self._date_added_preset: str | None = None
         self._date_used_preset: str | None = None
@@ -232,6 +235,7 @@ class CacheVaultApp(ctk.CTk):
         self._show_window()
         self.after(50, self._pump_main_thread)
         self.after(150, self._maybe_show_first_use_guide)
+        self._bind_selection_keys()
 
     def _alive(self) -> bool:
         if self._shutting_down:
@@ -253,6 +257,24 @@ class CacheVaultApp(ctk.CTk):
             "<Unmap>",
         ):
             self.bind_all(event, lambda _e: tooltip.hide_tooltip(), add="+")
+
+    def _bind_selection_keys(self) -> None:
+        keymap = {
+            "<Up>": lambda e: self._keyboard_move_selection(-1, e),
+            "<Down>": lambda e: self._keyboard_move_selection(1, e),
+            "<Home>": lambda e: self._keyboard_select_edge(first=True, event=e),
+            "<End>": lambda e: self._keyboard_select_edge(first=False, event=e),
+            "<Return>": lambda e: self._keyboard_primary_action(e),
+            "<Control-c>": lambda e: self._keyboard_copy_selected(e),
+            "<Control-C>": lambda e: self._keyboard_copy_selected(e),
+            "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
+            "<Delete>": lambda e: self._keyboard_remove_selected(e),
+            "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
+            "<Menu>": lambda e: self._keyboard_open_context_menu(e),
+            "<Escape>": lambda e: tooltip.hide_tooltip(),
+        }
+        for sequence, callback in keymap.items():
+            self.bind_all(sequence, callback, add="+")
 
     def _safe_after(self, ms: int, fn):
         if not self._alive():
@@ -422,6 +444,9 @@ class CacheVaultApp(ctk.CTk):
             on_unlock=self._unlock_vault,
             on_quit=self._quit,
             mode=self.vault.settings.vault_lock_mode,
+            style=self.vault.settings.vault_lock_style,
+            accent=self.vault.settings.vault_lock_accent,
+            show_local_only=self.vault.settings.vault_lock_show_local_only,
         )
         self._lock_screen.grid(row=0, column=0, columnspan=3, rowspan=3, sticky="nsew")
         if self._vault_locked:
@@ -499,11 +524,17 @@ class CacheVaultApp(ctk.CTk):
             command=self._open_duplicate_review, **theme.secondary_button(),
         )
         self._dup_btn.pack(side="left", padx=8)
-        ctk.CTkLabel(
-            self._toolbar_row3,
-            text="Extras go to Recently Removed — nothing is permanently deleted.",
-            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
-        ).pack(side="left", padx=4)
+        self._selected_action_frame = ctk.CTkFrame(self._toolbar_row3, fg_color="transparent")
+        self._selected_action_frame.pack(side="left", padx=(8, 4))
+        self._selected_action_label = ctk.CTkLabel(
+            self._selected_action_frame,
+            text="No item selected",
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=10),
+        )
+        self._selected_action_label.pack(side="left", padx=(0, 4))
+        self._selected_action_buttons: list[ctk.CTkButton] = []
+        self._update_selected_action_strip(None)
 
     def _control_strip_callbacks(self) -> dict:
         return {
@@ -526,6 +557,142 @@ class CacheVaultApp(ctk.CTk):
             "lock_now": self._lock_now,
         }
 
+    def _selected_clip(self):
+        if not self._selected_clip_id:
+            return None
+        return self.vault.storage.get_clip(self._selected_clip_id)
+
+    def _update_selected_action_strip(self, clip) -> None:
+        if not hasattr(self, "_selected_action_frame"):
+            return
+        for btn in getattr(self, "_selected_action_buttons", []):
+            btn.destroy()
+        self._selected_action_buttons = []
+        if self._locked() or clip is None:
+            self._selected_action_label.configure(text="No item selected")
+            return
+        label = (clip.title or clip.preview or "Selected item").splitlines()[0][:28]
+        self._selected_action_label.configure(text=f"Selected: {label}")
+        actions: list[tuple[str, Callable[[], None]]] = []
+        if clip.classification == models.CLASS_LINK:
+            actions = [
+                ("Open", lambda c=clip: self._open_clip_link(c.id)),
+                ("Copy Link", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_LINK_ONLY)),
+                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        elif clip.content_type == models.CONTENT_IMAGE:
+            actions = [
+                ("Copy Image", lambda c=clip: self._copy_again(c.id)),
+                ("Open", lambda c=clip: self._open_asset_folder(c.id)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        elif clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
+            actions = [
+                ("Copy", lambda c=clip: self._copy_again(c.id)),
+                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        else:
+            actions = [
+                ("Copy", lambda c=clip: self._copy_again(c.id)),
+                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT)),
+                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        actions.append(("More", self._keyboard_open_context_menu))
+        for text, command in actions[:5]:
+            btn = ctk.CTkButton(
+                self._selected_action_frame,
+                text=text,
+                width=82,
+                height=24,
+                command=command,
+                **theme.secondary_button(),
+            )
+            btn.pack(side="left", padx=2)
+            self._selected_action_buttons.append(btn)
+
+    def _keyboard_focus_is_text_input(self, event=None) -> bool:
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            return False
+        cls = widget.winfo_class()
+        return cls in {"Entry", "Text"} or "Entry" in cls or "Textbox" in cls
+
+    def _keyboard_move_selection(self, delta: int, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        if not self._visible_clip_ids:
+            return "break"
+        current = self._selected_clip_id
+        idx = self._visible_clip_ids.index(current) if current in self._visible_clip_ids else 0
+        idx = max(0, min(len(self._visible_clip_ids) - 1, idx + delta))
+        self._select_visible_clip_by_id(self._visible_clip_ids[idx])
+        return "break"
+
+    def _keyboard_select_edge(self, *, first: bool, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        if self._visible_clip_ids:
+            self._select_visible_clip_by_id(self._visible_clip_ids[0 if first else -1])
+        return "break"
+
+    def _keyboard_primary_action(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is None:
+            return "break"
+        if clip.classification == models.CLASS_LINK:
+            self._open_clip_link(clip.id)
+        else:
+            self._copy_again(clip.id)
+        return "break"
+
+    def _keyboard_copy_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._copy_again(clip.id)
+        return "break"
+
+    def _keyboard_copy_clean_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._copy_clean(clip.id, copy_clean.COPY_PLAIN_TEXT)
+        return "break"
+
+    def _keyboard_remove_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            from tkinter import messagebox
+            ok = messagebox.askyesno(
+                "Remove from History",
+                "Remove the selected clip from Cache Vault history? It can be restored from Recently Removed.",
+                parent=self,
+            )
+            if ok:
+                self._remove_from_history(clip.id)
+        return "break"
+
+    def _keyboard_open_context_menu(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is None:
+            return "break"
+        if self._view_mode == "grid":
+            self._grid.open_context_for_selected(clip)
+        else:
+            self._list.open_context_for_selected(clip)
+        return "break"
+
     def _locked(self) -> bool:
         return bool(getattr(self, "_vault_locked", False))
 
@@ -537,8 +704,16 @@ class CacheVaultApp(ctk.CTk):
             return
         tooltip.set_tooltips_locked(True)
         self._vault_locked = True
+        self._selected_clip_id = None
+        self._visible_clip_ids = []
         self._preview.show(None)
+        self._update_selected_action_strip(None)
         self._lock_screen.set_mode(self.vault.settings.vault_lock_mode)
+        self._lock_screen.set_style(
+            self.vault.settings.vault_lock_style,
+            accent=self.vault.settings.vault_lock_accent,
+            show_local_only=self.vault.settings.vault_lock_show_local_only,
+        )
         self._lock_screen.grid()
         self._lock_screen.lift()
         self._lock_screen.focus_unlock()
@@ -716,6 +891,11 @@ class CacheVaultApp(ctk.CTk):
         self._filters.set_active(S.FILTER_ALL)
         self._on_filter_select(S.FILTER_ALL)
         self._on_clip_select(clip)
+
+    def _select_visible_clip_by_id(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is not None:
+            self._on_clip_select(clip)
 
     def _mobile_access_report(self) -> dict:
         import socket
@@ -942,11 +1122,22 @@ class CacheVaultApp(ctk.CTk):
                 self._show_clips()
                 query = self._build_query()
                 clips = self.vault.list_clips(query)
+                self._visible_clip_ids = [c.id for c in clips]
+                if self._selected_clip_id not in self._visible_clip_ids:
+                    self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
                 empty_msg = self._empty_message(active, clips, query)
                 if self._view_mode == "grid":
+                    self._grid.set_selected(self._selected_clip_id)
                     self._grid.render(clips, empty_message=empty_msg)
+                    self._grid.set_selected(self._selected_clip_id)
                 else:
+                    self._list.set_selected(self._selected_clip_id)
                     self._list.render(clips, empty_message=empty_msg)
+                    self._list.set_selected(self._selected_clip_id)
+                self._update_selected_action_strip(
+                    self.vault.storage.get_clip(self._selected_clip_id)
+                    if self._selected_clip_id else None,
+                )
                 clip_count = len(clips)
 
             summary["shown"] = clip_count
@@ -1185,6 +1376,10 @@ class CacheVaultApp(ctk.CTk):
     def _on_clip_select(self, clip) -> None:
         if not self._guard_unlocked():
             return
+        self._selected_clip_id = getattr(clip, "id", None)
+        self._list.set_selected(self._selected_clip_id)
+        self._grid.set_selected(self._selected_clip_id)
+        self._update_selected_action_strip(clip)
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
@@ -1340,6 +1535,9 @@ class CacheVaultApp(ctk.CTk):
             "export_proof_zip": lambda: self._export_clip_proof(clip.id),
             "view_receipts": self._open_events,
             "view_mobile_receipt": self._open_events,
+            "copy_metadata": lambda: self._copy_metadata(clip.id),
+            "copy_item_id": lambda: self._copy_text(clip.id, "Copied item ID."),
+            "copy_source_summary": lambda: self._copy_clean(clip.id, copy_clean.COPY_SOURCE_SUMMARY),
             "open": lambda: self._open_clip_path(clip.id),
             "reveal": lambda: self._reveal_clip_path(clip.id),
             "remove": lambda: self._remove_from_history(clip.id),
@@ -1451,6 +1649,7 @@ class CacheVaultApp(ctk.CTk):
                 tooltip.after_menu_close()
             return
         safe_id = str(safe.get("id") or "")
+        builtin = bool(safe.get("builtin"))
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(
             label="Set as Default Safe",
@@ -1461,11 +1660,29 @@ class CacheVaultApp(ctk.CTk):
             command=lambda: self._copy_safe_summary(safe),
         )
         menu.add_separator()
-        menu.add_command(label="Rename Safe", state="disabled")
+        menu.add_command(
+            label="Rename Safe",
+            state=("disabled" if builtin else "normal"),
+            command=lambda: self._rename_safe(safe),
+        )
+        menu.add_command(
+            label="Change Icon",
+            state=("disabled" if builtin else "normal"),
+            command=lambda: self._customize_safe_text(safe, "icon", "Safe icon"),
+        )
+        menu.add_command(
+            label="Change Color",
+            state=("disabled" if builtin else "normal"),
+            command=lambda: self._customize_safe_text(safe, "accent", "Safe accent color"),
+        )
         menu.add_command(label="Export Safe Proof Zip", state="disabled")
         menu.add_command(
             label="Collapse/Expand Safes",
             command=lambda: self._filters._toggle_section("SAFES"),  # noqa: SLF001
+        )
+        menu.add_command(
+            label="Delete Safe",
+            state="disabled",
         )
         try:
             menu.tk_popup(x_root, y_root)
@@ -1485,10 +1702,45 @@ class CacheVaultApp(ctk.CTk):
         text = (
             f"Safe: {safe.get('name', 'Safe')}\n"
             f"Safe ID: {safe.get('id', 'unknown')}\n"
+            f"Icon: {safe.get('icon', 'unavailable')}\n"
+            f"Accent: {safe.get('accent', 'unavailable')}\n"
+            f"Style: {safe.get('visual_style', 'default')}\n"
             f"Items: {safe.get('count', 0)}\n"
             "Safes organize items. They are not encryption unless encryption is added later."
         )
         self._copy_text(text, "Copied Safe summary.")
+
+    def _rename_safe(self, safe: dict) -> None:
+        from tkinter import simpledialog
+
+        safe_id = str(safe.get("id") or "")
+        name = simpledialog.askstring(
+            "Rename Safe",
+            "Safe name:",
+            initialvalue=str(safe.get("name") or ""),
+            parent=self,
+        )
+        if name:
+            updated = self.vault.safes.rename(safe_id, name)
+            if updated:
+                self.vault.settings.save()
+                self.refresh()
+
+    def _customize_safe_text(self, safe: dict, field: str, label: str) -> None:
+        from tkinter import simpledialog
+
+        safe_id = str(safe.get("id") or "")
+        value = simpledialog.askstring(
+            label,
+            f"{label}:",
+            initialvalue=str(safe.get(field) or ""),
+            parent=self,
+        )
+        if value:
+            updated = self.vault.safes.update_customization(safe_id, **{field: value})
+            if updated:
+                self.vault.settings.save()
+                self.refresh()
 
     def _copy_text(self, text: str, notice: str = "Copied.") -> None:
         if not self._guard_unlocked():

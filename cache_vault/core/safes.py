@@ -15,6 +15,19 @@ SAFE_TEMPORARY = "temporary"
 SAFE_IGNORE = "ignore"
 
 SAFE_PREFIX = "safe:"
+SAFE_WORDING = "Safes organize your vault items. They are not encryption unless encryption is added later."
+
+SAFE_STYLES: dict[str, dict[str, str]] = {
+    SAFE_DEFAULT: {"name": "Default Safe", "icon": "◈", "accent": "#1A9E8C", "visual_style": "default"},
+    "temporary": {"name": "Temporary Safe", "icon": "◇", "accent": "#C9A24D", "visual_style": "temporary"},
+    "receipts": {"name": "Receipts Safe", "icon": "⬢", "accent": "#C9A24D", "visual_style": "receipts"},
+    "phone": {"name": "Phone Inbox Safe", "icon": "▣", "accent": "#1A9E8C", "visual_style": "phone"},
+    "work": {"name": "Work Safe", "icon": "▤", "accent": "#7A848E", "visual_style": "work"},
+    "personal": {"name": "Personal Safe", "icon": "◆", "accent": "#9B7BC9", "visual_style": "personal"},
+    "code": {"name": "Code Safe", "icon": "</>", "accent": "#5CB85C", "visual_style": "code"},
+    "screenshots": {"name": "Screenshots Safe", "icon": "▦", "accent": "#4DA3C9", "visual_style": "screenshots"},
+    "links": {"name": "Links Safe", "icon": "🔗", "accent": "#1A9E8C", "visual_style": "links"},
+}
 
 _BUILTIN: dict[str, str] = {
     SAFE_DEFAULT: "Default Safe",
@@ -29,6 +42,14 @@ class Safe:
     name: str
     builtin: bool = False
     created_at: str = field(default_factory=models.now_iso)
+    icon: str = "◈"
+    accent: str = "#1A9E8C"
+    description: str = ""
+    default_capture: str = models.CAPTURE_AUTO
+    show_in_sidebar: bool = True
+    favorite: bool = False
+    receipt_label: str = ""
+    visual_style: str = "default"
 
     def to_dict(self) -> dict:
         return {
@@ -36,15 +57,32 @@ class Safe:
             "name": self.name,
             "builtin": self.builtin,
             "created_at": self.created_at,
+            "icon": self.icon,
+            "accent": self.accent,
+            "description": self.description,
+            "default_capture": self.default_capture,
+            "show_in_sidebar": self.show_in_sidebar,
+            "favorite": self.favorite,
+            "receipt_label": self.receipt_label,
+            "visual_style": self.visual_style,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> Safe:
+        style = SAFE_STYLES.get(str(data.get("visual_style") or "default"), SAFE_STYLES[SAFE_DEFAULT])
         return cls(
             id=data["id"],
             name=data["name"],
             builtin=bool(data.get("builtin", False)),
             created_at=data.get("created_at") or models.now_iso(),
+            icon=str(data.get("icon") or style["icon"]),
+            accent=str(data.get("accent") or style["accent"]),
+            description=str(data.get("description") or ""),
+            default_capture=str(data.get("default_capture") or models.CAPTURE_AUTO),
+            show_in_sidebar=bool(data.get("show_in_sidebar", True)),
+            favorite=bool(data.get("favorite", False)),
+            receipt_label=str(data.get("receipt_label") or ""),
+            visual_style=str(data.get("visual_style") or style["visual_style"]),
         )
 
 
@@ -67,18 +105,29 @@ class SafeRegistry:
 
     def builtin_safes(self) -> list[Safe]:
         return [
-            Safe(id=sid, name=name, builtin=True)
+            self._builtin_safe(sid, name)
             for sid, name in _BUILTIN.items()
             if sid != SAFE_IGNORE
         ]
 
+    def _builtin_safe(self, sid: str, name: str) -> Safe:
+        style = SAFE_STYLES.get(sid, SAFE_STYLES[SAFE_DEFAULT])
+        return Safe(
+            id=sid,
+            name=name,
+            builtin=True,
+            icon=style["icon"],
+            accent=style["accent"],
+            visual_style=style["visual_style"],
+        )
+
     def list_all(self, *, include_ignore: bool = False) -> list[Safe]:
         builtins = [
-            Safe(id=sid, name=name, builtin=True)
+            self._builtin_safe(sid, name)
             for sid, name in _BUILTIN.items()
             if include_ignore or sid != SAFE_IGNORE
         ]
-        user = self._user_safes()
+        user = [s for s in self._user_safes() if s.show_in_sidebar or include_ignore]
         return builtins + user
 
     def list_destinations(self) -> list[Safe]:
@@ -88,7 +137,7 @@ class SafeRegistry:
     def resolve(self, safe_id: str | None) -> Safe | None:
         sid = (safe_id or "").strip() or SAFE_DEFAULT
         if sid in _BUILTIN:
-            return Safe(id=sid, name=_BUILTIN[sid], builtin=True)
+            return self._builtin_safe(sid, _BUILTIN[sid])
         for s in self._user_safes():
             if s.id == sid:
                 return s
@@ -114,6 +163,33 @@ class SafeRegistry:
         user.append(safe)
         self._persist_user(user)
         return safe
+
+    def update_customization(self, safe_id: str, **changes) -> Safe | None:
+        if safe_id in _BUILTIN:
+            return None
+        user = self._user_safes()
+        for i, safe in enumerate(user):
+            if safe.id != safe_id:
+                continue
+            data = safe.to_dict()
+            for key in (
+                "name",
+                "icon",
+                "accent",
+                "description",
+                "default_capture",
+                "show_in_sidebar",
+                "favorite",
+                "receipt_label",
+                "visual_style",
+            ):
+                if key in changes:
+                    data[key] = changes[key]
+            updated = Safe.from_dict(data)
+            user[i] = updated
+            self._persist_user(user)
+            return updated
+        return None
 
     def rename(self, safe_id: str, name: str) -> Safe | None:
         name = (name or "").strip()

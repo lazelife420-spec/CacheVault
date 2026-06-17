@@ -147,10 +147,33 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._apply_selection(previous_id, clip.id)
         self._on_select(clip)
 
+    def set_selected(self, clip_id: str | None) -> None:
+        previous_id = self._selected_id
+        self._selected_id = clip_id
+        if clip_id is not None:
+            self._apply_selection(previous_id, clip_id)
+        elif previous_id:
+            row = self._row_by_id.get(previous_id)
+            if row is not None:
+                row.configure(fg_color=brand.ROW_BG)
+            name_label = self._name_label_by_id.get(previous_id)
+            if name_label is not None:
+                name_label.configure(text_color=brand.MUTED_FG)
+
     def _context(self, event, clip: Clip) -> None:
         self._select(clip)
         if self._on_context is not None:
             self._on_context(clip, event.x_root, event.y_root)
+
+    def open_context_for_selected(self, clip: Clip) -> None:
+        row = self._row_by_id.get(clip.id)
+        if row is None or self._on_context is None:
+            return
+        self._on_context(
+            clip,
+            row.winfo_rootx() + 24,
+            row.winfo_rooty() + max(12, row.winfo_height() // 2),
+        )
 
     def _apply_selection(self, previous_id: str | None, selected_id: str) -> None:
         for clip_id in {previous_id, selected_id}:
