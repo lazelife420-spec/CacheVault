@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from cache_vault import __version__  # noqa: E402
 from scripts.android_asset_smoke import (  # noqa: E402
     ADB,
     APP_APK,
@@ -36,6 +37,7 @@ from scripts.android_asset_smoke import (  # noqa: E402
     wake_and_unlock,
     wait_text,
 )
+from scripts.pairing_hot_reload_smoke import ensure_bridge_running  # noqa: E402
 
 
 def start_source_bridge() -> None:
@@ -72,6 +74,14 @@ SHARE_ACTIVITY = f"{PKG}/.ShareAssistantActivity"
 OUT = SHOT_DIR / "android_share_inbox_smoke.json"
 TEST_URL = "https://example.com/post-rc3-share-gate"
 TEST_TEXT = f"Cache Vault post-RC3 gate — {TEST_URL}"
+RELEASE_APK = (
+    ROOT / "dist" / "release" / f"v{__version__}" /
+    f"CacheVault-Mobile-v{__version__}-debug.apk"
+)
+
+
+def app_apk_path() -> Path:
+    return RELEASE_APK if RELEASE_APK.is_file() else APP_APK
 
 
 def mobile_inbox_count() -> int:
@@ -132,7 +142,7 @@ def push_pairing_to_phone(host: str, port: int, device_id: str, token: str) -> N
         cwd=str(ROOT / "android"),
         check=True,
     )
-    adb("install", "-r", str(APP_APK), check=False)
+    adb("install", "-r", str(app_apk_path()), check=False)
     adb("install", "-r", str(TEST_APK), check=False)
     proc = adb(
         "shell", "am", "instrument", "-w", "-r",
@@ -240,10 +250,8 @@ def main() -> int:
         return 1
 
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    host, port = ensure_bridge_running()
     device_id, token = fresh_pair(device_id="share-gate-phone", device_name="Samsung Gate Phone")
-    start_source_bridge()
-    host, port = bridge_host_port()
-    host = "192.168.0.11"
     code, _ = curl_status(device_id, token, host=host)
     if code != 200:
         host = "192.168.0.16"

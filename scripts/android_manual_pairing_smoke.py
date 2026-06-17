@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from cache_vault import __version__  # noqa: E402
 from scripts.android_asset_smoke import (  # noqa: E402
     ADB,
     APP_APK,
@@ -28,10 +29,10 @@ from scripts.android_asset_smoke import (  # noqa: E402
     dismiss_share_sheet,
     fresh_pair,
     screencap,
-    start_source_bridge,
     tap_text,
     wait_text,
 )
+from scripts.pairing_hot_reload_smoke import ensure_bridge_running  # noqa: E402
 
 OUT = SHOT_DIR / "android_manual_pairing_smoke.json"
 SHARE_ACTIVITY = f"{PKG}/.ShareAssistantActivity"
@@ -39,6 +40,14 @@ TEST_URL = "https://example.com/manual-pairing-gate"
 TEST_TEXT = f"Cache Vault manual pairing gate — {TEST_URL}"
 INVALID_TOKEN = "00000000000000000000000000000000"
 MANUAL_SETUP_TEST = "com.prooffoundry.cachevaultmobile.ManualSetupFlowInstrumentedTest"
+RELEASE_APK = (
+    ROOT / "dist" / "release" / f"v{__version__}" /
+    f"CacheVault-Mobile-v{__version__}-debug.apk"
+)
+
+
+def app_apk_path() -> Path:
+    return RELEASE_APK if RELEASE_APK.is_file() else APP_APK
 
 
 def build_and_install() -> None:
@@ -48,7 +57,7 @@ def build_and_install() -> None:
         cwd=str(ROOT / "android"),
         check=True,
     )
-    adb("install", "-r", str(APP_APK), check=False)
+    adb("install", "-r", str(app_apk_path()), check=False)
     adb("install", "-r", str(TEST_APK), check=False)
     adb("shell", "am", "force-stop", PKG, check=False)
     time.sleep(1.0)
@@ -203,10 +212,8 @@ def main() -> int:
         return 1
 
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    host, port = ensure_bridge_running()
     device_id, token = fresh_pair(device_id="manual-pair-gate", device_name="Samsung Manual Gate")
-    start_source_bridge()
-    host, port = bridge_host_port()
-    host = "192.168.0.11"
     code, _ = curl_status(device_id, token, host=host)
     if code != 200:
         host = "192.168.0.16"
