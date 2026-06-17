@@ -58,6 +58,29 @@ class BridgeClient(
         post("/mobile/v1/clips/$clipId/save")
     }
 
+    fun sendToPc(
+        content: String,
+        itemType: String = "text",
+        sourceApp: String? = null,
+        sourceDeviceName: String? = null,
+        sourceUrl: String? = null,
+        safeId: String? = null,
+    ): InboxSendResponse {
+        val payload = InboxSendRequest(
+            itemType = itemType,
+            content = content,
+            sourceApp = sourceApp,
+            sourceDeviceName = sourceDeviceName,
+            sourceUrl = sourceUrl,
+            safeId = safeId,
+            userAction = "send_to_pc",
+        )
+        val json = moshi.adapter(InboxSendRequest::class.java).toJson(payload)
+        val body = json.toRequestBody("application/json".toMediaType())
+        val request = baseRequest("/mobile/v1/inbox/send").post(body).build()
+        return execute(request, InboxSendResponseJson::class.java).toModel()
+    }
+
     fun fetchImageAsset(clipId: String): ImageAssetResult {
         val request = baseRequest("/mobile/v1/clips/$clipId/asset").get().build()
         try {
@@ -217,4 +240,27 @@ class BridgeClient(
         val message: String? = null,
     )
     private data class OkJson(val ok: Boolean? = null)
+
+    private data class InboxSendRequest(
+        @Json(name = "item_type") val itemType: String,
+        val content: String,
+        @Json(name = "source_app") val sourceApp: String? = null,
+        @Json(name = "source_device_name") val sourceDeviceName: String? = null,
+        @Json(name = "source_url") val sourceUrl: String? = null,
+        @Json(name = "safe_id") val safeId: String? = null,
+        @Json(name = "user_action") val userAction: String = "send_to_pc",
+    )
+
+    private data class InboxSendResponseJson(
+        val success: Boolean,
+        @Json(name = "desktop_item_id") val desktopItemId: String? = null,
+        @Json(name = "safe_id") val safeId: String? = null,
+        @Json(name = "safe_name") val safeName: String? = null,
+        val warning: String? = null,
+        val error: String? = null,
+    ) {
+        fun toModel() = InboxSendResponse(
+            success, desktopItemId, safeId, safeName, warning, error,
+        )
+    }
 }

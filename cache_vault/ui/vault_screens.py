@@ -49,6 +49,7 @@ class VaultScreenHost(ctk.CTkFrame):
             "nav_editable_copies": self._build_editable_copies,
             "nav_html_bundles": self._build_html_bundles,
             "nav_mobile_access": self._build_mobile_access,
+            "nav_mobile_inbox": self._build_mobile_inbox,
             "nav_vault_macros": self._build_vault_macros,
         }
         for key, builder in builders.items():
@@ -210,6 +211,98 @@ class VaultScreenHost(ctk.CTkFrame):
                         command=lambda p=path: self._callbacks["reveal_export"](p),
                         **theme.secondary_button(),
                     ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        parent._refresh = reload  # type: ignore[attr-defined]
+
+    def _build_mobile_inbox(self, parent: ctk.CTkScrollableFrame) -> None:
+        ctk.CTkLabel(
+            parent, text=brand.TERM_MOBILE_INBOX,
+            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
+        ).pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(
+            parent,
+            text=f"{brand.TERM_INCOMING_FROM_PHONE} · paired Send-to-PC · {brand.LABEL_LOCAL_ONLY}",
+            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
+            wraplength=640, justify="left",
+        ).pack(fill="x", pady=(0, 12))
+        self._inbox_list = ctk.CTkFrame(parent, fg_color="transparent")
+        self._inbox_list.pack(fill="x")
+
+        def reload() -> None:
+            for w in self._inbox_list.winfo_children():
+                w.destroy()
+            vault = self._callbacks["vault"]()
+            items = vault.list_mobile_inbox()
+            if not items:
+                _empty(
+                    self._inbox_list,
+                    "No items from your phone yet.\n\n"
+                    "Use Cache Vault Mobile Share Assistant → Send to PC "
+                    "while paired with this desktop.",
+                )
+                return
+            for clip in items[:50]:
+                card = ctk.CTkFrame(self._inbox_list, **theme.vault_card())
+                card.pack(fill="x", pady=6)
+                title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
+                ctk.CTkLabel(
+                    card, text=title, anchor="w",
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                ).pack(fill="x", padx=12, pady=(10, 2))
+                preview = (clip.preview or "")[:160]
+                ctk.CTkLabel(
+                    card, text=preview or "(empty)", anchor="w", justify="left",
+                    text_color=brand.MUTED_FG, font=theme.body_font(11),
+                    wraplength=620,
+                ).pack(fill="x", padx=12)
+                meta_lines = [
+                    f"Sent from phone · Source: {clip_metadata.display(clip.source_app)}",
+                    f"Safe: {clip_metadata.display(clip.safe_name)} · {brand.LABEL_RECEIPT_STAMPED}",
+                ]
+                if clip.source_url:
+                    meta_lines.append(f"URL: {clip_metadata.display(clip.source_url)}")
+                meta_lines.append(
+                    f"Received: {(clip.created_at or '')[:19].replace('T', ' ')}"
+                )
+                for line in meta_lines:
+                    ctk.CTkLabel(
+                        card, text=line, anchor="w", text_color=brand.MUTED_FG,
+                        font=theme.body_font(10),
+                    ).pack(fill="x", padx=12)
+                btns = ctk.CTkFrame(card, fg_color="transparent")
+                btns.pack(fill="x", padx=10, pady=(6, 10))
+                cid = clip.id
+                ctk.CTkButton(
+                    btns, text="Open on PC", width=100, height=28,
+                    command=lambda c=cid: self._callbacks["select_clip"](c),
+                    **theme.primary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="Copy to PC Clipboard", width=150, height=28,
+                    command=lambda c=cid: self._callbacks["copy_clip"](c),
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=2)
+                if clip.classification == models.CLASS_LINK:
+                    ctk.CTkButton(
+                        btns, text="Open Link", width=90, height=28,
+                        command=lambda c=cid: self._callbacks["open_link"](c),
+                        **theme.secondary_button(),
+                    ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="Export Proof Zip", width=120, height=28,
+                    command=lambda c=cid: self._callbacks["export_proof"](c),
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="View Receipt", width=100, height=28,
+                    command=self._callbacks["open_receipts_dialog"],
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="Remove from History", width=140, height=28,
+                    command=lambda c=cid: self._callbacks["remove_clip"](c),
+                    **theme.destructive_button(),
+                ).pack(side="left", padx=2)
 
         parent._refresh = reload  # type: ignore[attr-defined]
 

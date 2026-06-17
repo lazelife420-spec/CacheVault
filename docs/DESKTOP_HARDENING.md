@@ -127,3 +127,16 @@
 - Every important action gets a receipt (Phases 3–5).
 - No fake cloud/sync claims.
 - Mobile bridge must not regress.
+
+## Post-RC3 lane — luxury UI + Mobile Inbox
+
+**Branch:** `feature/cache-vault-luxury-ui-mobile-inbox`  
+**Starts from:** RC3 package commit (`755f693`) — does **not** mutate RC3 artifact.
+
+| Slice | Topic | Status |
+|-------|--------|--------|
+| A | Luxury vault UI / brand polish | **Done** — graphite palette, vault seal language, custody counters |
+| B | Mobile-to-PC Inbox API | **Done** — `POST /mobile/v1/inbox/send`, `GET /mobile/v1/inbox`, receipts |
+| C | Mobile Inbox UI + Simple Mode docs | **Done** — desktop screen, `MOBILE_SHARE_ASSISTANT.md`, Android Share entry |
+
+Capture mode for phone sends: `mobile_share`. Receipt actions: `mobile_sent_to_pc`, `mobile_inbox_received`.

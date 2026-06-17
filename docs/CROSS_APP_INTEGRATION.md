@@ -77,7 +77,7 @@ Each object in `items[]` includes, where available:
 | `source_window` | Window title when captured |
 | `source_app_version` | `null` (not tracked today) |
 | `safe_id`, `safe_name` | Local Safe destination |
-| `capture_mode` | `auto`, `manual_save_hotkey`, `armed_next_copy`, … |
+| `capture_mode` | `auto`, `manual_save_hotkey`, `armed_next_copy`, `mobile_share`, … |
 | `auto_saved` | Boolean |
 | `content_hash` | Clip content SHA-256 |
 | `files` | Exported relative paths in zip |

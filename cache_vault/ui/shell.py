@@ -50,6 +50,7 @@ from .filters import (
     NAV_EXPORTS,
     NAV_HTML_BUNDLES,
     NAV_MOBILE_ACCESS,
+    NAV_MOBILE_INBOX,
     NAV_QUICK_PASTE,
     NAV_SCREEN_KEYS,
     NAV_SETTINGS,
@@ -362,6 +363,10 @@ class CacheVaultApp(ctk.CTk):
                 "macro_new_template": self._macro_new_template,
                 "macro_setup": self._open_macro_setup,
                 "macro_run": self._macro_run,
+                "copy_clip": self._copy_again,
+                "open_link": self._open_clip_link,
+                "export_proof": self._export_clip_proof,
+                "remove_clip": self._remove_from_history,
             },
             corner_radius=0,
         )
@@ -750,6 +755,7 @@ class CacheVaultApp(ctk.CTk):
             summary = self.vault.dashboard_summary()
             counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
             counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
+            counts[NAV_MOBILE_INBOX] = summary.get("mobile_inbox", 0)
             counts[NAV_EDITABLE_COPIES] = summary.get("editable_copies", 0)
             counts[NAV_HTML_BUNDLES] = summary.get("html_bundles", 0)
             counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
@@ -1020,7 +1026,6 @@ class CacheVaultApp(ctk.CTk):
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
 
-    # --- per-clip actions --------------------------------------------------
     def _copy_again(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
         if clip is None:
@@ -1039,6 +1044,15 @@ class CacheVaultApp(ctk.CTk):
         self.clipboard_clear()
         self.clipboard_append(content)
         self._monitor.note_local_copy(content)
+
+    def _open_clip_link(self, clip_id: str) -> None:
+        import webbrowser
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        url = (clip.source_url or clip.content or "").strip()
+        if url.startswith(("http://", "https://")):
+            webbrowser.open(url)
 
     def _copy_metadata(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)

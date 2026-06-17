@@ -84,6 +84,15 @@ data class CollectionsResponse(
     val collections: List<CollectionEntry>,
 )
 
+data class InboxSendResponse(
+    val success: Boolean,
+    val desktopItemId: String? = null,
+    val safeId: String? = null,
+    val safeName: String? = null,
+    val warning: String? = null,
+    val error: String? = null,
+)
+
 enum class ClipFeed {
     ALL,
     FAVORITES,
