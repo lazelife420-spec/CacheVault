@@ -22,7 +22,7 @@
 | **5** | Proof export zip + manifest + SHA256SUMS | **Done** — finalized; see `CROSS_APP_INTEGRATION.md` |
 | **5.5** | Capture rules + Safes + hotkey capture | **Done** — `safes.py`, `capture_rules.py`, settings, receipts |
 | **6** | Vault Macros setup + smart filters | **Done** — `vault_macros.py`, setup wizard, Macro Safes, filters; see `VAULT_MACROS.md` |
-| 6.1 | Smart folders, user tags, notes, search | Planned |
+| **6.1** | Live macro execution | **Done** — hotkeys, text shortcuts, picker, paste/type engine, receipts; see `VAULT_MACROS.md` |
 | 7 | Sensitive item handling | Partial — auto-expiry exists |
 | 8 | Delete/archive/revision model | Partial — Recently Removed exists |
 | 9 | Mobile boundaries | Enforced — read-only bridge; regression gate in `scripts/rc_gate.py` |
@@ -106,6 +106,20 @@
 - Macro proof manifest export via `export_macros_proof_pack()`.
 - Docs: `docs/VAULT_MACROS.md`.
 - Tests: `tests/test_vault_macros.py`.
+
+## Phase 6.1 — Live macro execution
+
+- Core engine: `cache_vault/core/macro_execute.py` (no UI imports).
+- Variable expansion: `macro_variables.py` (`{date}`, `{clipboard}`, etc.).
+- Global macro menu hotkey (`Ctrl+Shift+M` default) → picker at cursor.
+- Per-macro hotkeys with conflict → filtered picker.
+- Text shortcut expansion via low-level keyboard hook (backspace + paste).
+- Output modes: clipboard paste (default) and keystroke (Settings-gated).
+- Foreground target capture/restoration (same pattern as Quick Paste).
+- Execution receipts: `macro_executed`, `macro_failed`, `text_shortcut_expanded`, etc. — metadata only.
+- Settings toggles wired live (enable macros, shortcuts, hotkeys, clipboard restore, sensitive confirm, keystroke delay).
+- **Not included:** recorder, mouse automation, admin/registry automation, Perfect Keyboard import.
+- Tests: `tests/test_macro_execute.py`.
 
 ## Core rules (all phases)
 

@@ -297,6 +297,11 @@ class VaultScreenHost(ctk.CTkFrame):
                 btns.pack(fill="x", padx=10, pady=(0, 8))
                 mid = m.id
                 ctk.CTkButton(
+                    btns, text="Run", width=70, height=26,
+                    command=lambda x=mid: self._callbacks.get("macro_run", lambda _: None)(x),
+                    **theme.primary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
                     btns, text="Inspect", width=80, height=26,
                     command=lambda i=row: _show_inspector(i),
                     **theme.secondary_button(),

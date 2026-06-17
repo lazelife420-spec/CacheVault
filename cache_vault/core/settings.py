@@ -71,6 +71,9 @@ class Settings:
     macro_search_content: bool = False
     user_macro_safes: list[dict] = field(default_factory=list)
     macro_starter_safes_initialized: bool = False
+    macro_keystroke_enabled: bool = True
+    macro_keystroke_delay_ms: int = 10
+    macro_keystroke_max_chars: int = 2000
 
     # --- persistence ---
     @classmethod
@@ -106,6 +109,15 @@ class Settings:
         s.macro_sensitive_confirmation = bool(s.macro_sensitive_confirmation)
         s.macro_search_content = bool(s.macro_search_content)
         s.macro_starter_safes_initialized = bool(getattr(s, "macro_starter_safes_initialized", False))
+        s.macro_keystroke_enabled = bool(getattr(s, "macro_keystroke_enabled", True))
+        try:
+            s.macro_keystroke_delay_ms = max(1, min(100, int(getattr(s, "macro_keystroke_delay_ms", 10))))
+        except (TypeError, ValueError):
+            s.macro_keystroke_delay_ms = 10
+        try:
+            s.macro_keystroke_max_chars = max(100, min(10000, int(getattr(s, "macro_keystroke_max_chars", 2000))))
+        except (TypeError, ValueError):
+            s.macro_keystroke_max_chars = 2000
         if not (s.default_macro_safe_id or "").strip():
             s.default_macro_safe_id = "macro-safe"
         if s.macro_default_output_mode not in ("clipboard_paste", "keystroke"):

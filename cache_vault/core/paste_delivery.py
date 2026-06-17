@@ -144,6 +144,109 @@ def deliver_ctrl_v(hwnd, *, delay_s: float = 0.08) -> PasteResult:
     return PasteResult(True, "ok", title)
 
 
+def set_clipboard_text(text: str) -> bool:
+    if not _HAS_WIN32:
+        return False
+    try:
+        import win32clipboard  # type: ignore
+
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+        finally:
+            win32clipboard.CloseClipboard()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def send_backspaces(hwnd, count: int, *, delay_s: float = 0.02) -> bool:
+    """Send Backspace key events to remove typed shortcut text."""
+    if not _HAS_WIN32 or count <= 0:
+        return False
+    if hwnd:
+        _force_foreground(hwnd)
+        time.sleep(delay_s)
+    vk_back = 0x08
+    keyup = 0x0002
+    try:
+        for _ in range(count):
+            win32api.keybd_event(vk_back, 0, 0, 0)
+            win32api.keybd_event(vk_back, 0, keyup, 0)
+            time.sleep(delay_s)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _vk_for_char(ch: str) -> tuple[int, int] | None:
+    if not _HAS_WIN32 or not ch:
+        return None
+    if ch == "\n":
+        return 0x0D, 0
+    if ch == "\t":
+        return 0x09, 0
+    if ch == "\r":
+        return None
+    result = win32api.VkKeyScan(ch)
+    if result == -1:
+        return None
+    vk = result & 0xFF
+    shift = (result >> 8) & 0xFF
+    return vk, shift
+
+
+def deliver_text_keystrokes(
+    hwnd,
+    text: str,
+    *,
+    delay_s: float = 0.01,
+) -> PasteResult:
+    """Type ``text`` via simulated keystrokes (ASCII-focused, Windows only)."""
+    title = window_title(hwnd)
+    if not _HAS_WIN32:
+        return PasteResult(False, "keystroke_unavailable", title)
+    if not hwnd:
+        return PasteResult(False, "no_target_window", title)
+    if not _force_foreground(hwnd):
+        return PasteResult(False, "focus_restore_failed", title)
+    time.sleep(delay_s)
+    keyup = 0x0002
+    vk_shift = 0x10
+    try:
+        for ch in text:
+            if ch == "\r":
+                continue
+            mapped = _vk_for_char(ch)
+            if mapped is None:
+                return PasteResult(False, "unsupported_character", title)
+            vk, shift = mapped
+            if shift:
+                win32api.keybd_event(vk_shift, 0, 0, 0)
+            win32api.keybd_event(vk, 0, 0, 0)
+            win32api.keybd_event(vk, 0, keyup, 0)
+            if shift:
+                win32api.keybd_event(vk_shift, 0, keyup, 0)
+            time.sleep(delay_s)
+        return PasteResult(True, "ok", title)
+    except Exception:  # noqa: BLE001
+        return PasteResult(False, "send_keys_failed", title)
+
+
+def is_password_field(hwnd) -> bool:
+    """Best-effort: focused control uses ES_PASSWORD style."""
+    if not _HAS_WIN32 or not hwnd:
+        return False
+    try:
+        ES_PASSWORD = 0x0020
+        GWL_STYLE = -16
+        style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
+        return bool(style & ES_PASSWORD)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def foreground_window():
     if not _HAS_WIN32:
         return None

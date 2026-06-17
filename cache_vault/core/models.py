@@ -80,6 +80,13 @@ EVENT_MACRO_TEMPLATE_CREATED = "macro_template_created"
 EVENT_MACRO_SMART_TYPE_ASSIGNED = "macro_smart_type_assigned"
 EVENT_MACRO_MOVED_BY_USER = "macro_moved_by_user"
 EVENT_MACRO_CONFLICT_DETECTED = "macro_conflict_detected"
+EVENT_MACRO_EXECUTED = "macro_executed"
+EVENT_MACRO_FAILED = "macro_failed"
+EVENT_TEXT_SHORTCUT_EXPANDED = "text_shortcut_expanded"
+EVENT_MACRO_HOTKEY_EXECUTED = "macro_hotkey_executed"
+EVENT_MACRO_PICKER_EXECUTED = "macro_picker_executed"
+EVENT_MACRO_BLOCKED_SENSITIVE = "macro_blocked_sensitive"
+EVENT_MACRO_DISABLED_SKIPPED = "macro_disabled_skipped"
 
 # Capture modes stored on each clip.
 CAPTURE_AUTO = "auto"

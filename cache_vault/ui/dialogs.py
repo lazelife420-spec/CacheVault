@@ -204,6 +204,52 @@ class SettingsDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
+        section("Vault Macros")
+        ctk.CTkLabel(
+            body,
+            text="Live macro hotkeys, text shortcuts, and paste/type delivery.\n"
+                 "No recorder or admin automation — Macro Safes are not encrypted.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=8, pady=(0, 4))
+        self._vault_macros_on = ctk.CTkSwitch(body, text="Enable Vault Macros")
+        self._vault_macros_on.pack(anchor="w", padx=8, pady=4)
+        if settings.vault_macros_enabled:
+            self._vault_macros_on.select()
+        self._macro_text_sc = ctk.CTkSwitch(body, text="Enable text shortcuts")
+        self._macro_text_sc.pack(anchor="w", padx=8, pady=4)
+        if settings.macro_text_shortcuts_enabled:
+            self._macro_text_sc.select()
+        self._macro_hk_on = ctk.CTkSwitch(body, text="Enable macro hotkeys")
+        self._macro_hk_on.pack(anchor="w", padx=8, pady=4)
+        if settings.macro_hotkeys_enabled:
+            self._macro_hk_on.select()
+        self._macro_menu_hk = _hk_row("Macro menu hotkey:", settings.macro_menu_hotkey)
+        self._macro_restore = ctk.CTkSwitch(
+            body, text="Restore clipboard after macro paste (text only)",
+        )
+        self._macro_restore.pack(anchor="w", padx=8, pady=4)
+        if settings.macro_restore_clipboard_after_paste:
+            self._macro_restore.select()
+        self._macro_sensitive = ctk.CTkSwitch(
+            body, text="Require confirmation for sensitive-looking macros",
+        )
+        self._macro_sensitive.pack(anchor="w", padx=8, pady=4)
+        if settings.macro_sensitive_confirmation:
+            self._macro_sensitive.select()
+        self._macro_keystroke_on = ctk.CTkSwitch(
+            body, text="Allow keystroke output mode (slower, ASCII-focused)",
+        )
+        self._macro_keystroke_on.pack(anchor="w", padx=8, pady=4)
+        if settings.macro_keystroke_enabled:
+            self._macro_keystroke_on.select()
+        ks_row = ctk.CTkFrame(body, fg_color="transparent")
+        ks_row.pack(fill="x", padx=8, pady=(4, 0))
+        ctk.CTkLabel(ks_row, text="Keystroke delay (ms):").pack(side="left")
+        self._macro_keystroke_delay = ctk.CTkEntry(ks_row, width=60)
+        self._macro_keystroke_delay.insert(0, str(settings.macro_keystroke_delay_ms))
+        self._macro_keystroke_delay.pack(side="right")
+
         section("Display")
         self._win_scroll = ctk.CTkSwitch(
             body, text="Use Windows scroll settings (recommended)",
@@ -358,6 +404,21 @@ class SettingsDialog(ctk.CTkToplevel):
             line.strip() for line in self._excluded.get("1.0", "end").splitlines()
             if line.strip()
         ]
+        self._settings.vault_macros_enabled = bool(self._vault_macros_on.get())
+        self._settings.macro_text_shortcuts_enabled = bool(self._macro_text_sc.get())
+        self._settings.macro_hotkeys_enabled = bool(self._macro_hk_on.get())
+        menu_hk = self._macro_menu_hk.get().strip()
+        if menu_hk:
+            self._settings.macro_menu_hotkey = menu_hk
+        self._settings.macro_restore_clipboard_after_paste = bool(self._macro_restore.get())
+        self._settings.macro_sensitive_confirmation = bool(self._macro_sensitive.get())
+        self._settings.macro_keystroke_enabled = bool(self._macro_keystroke_on.get())
+        try:
+            self._settings.macro_keystroke_delay_ms = max(
+                1, min(100, int(self._macro_keystroke_delay.get())),
+            )
+        except ValueError:
+            pass
         self._settings.mobile_access_enabled = bool(self._mobile_on.get())
         try:
             self._settings.mobile_access_port = max(

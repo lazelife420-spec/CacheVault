@@ -62,7 +62,49 @@ The Vault Macros screen inspector shows name, Safe, smart type, trigger, output 
 
 A macro appears in **Broken / Needs Attention** when it has hotkey conflicts, empty trigger/body, invalid output mode, missing Safe, last run failed, or unsafe sensitive settings.
 
-## Receipts
+## Live execution (Phase 6.1)
+
+Vault Macros now run in daily use:
+
+- **Macro menu hotkey** (default `Ctrl+Shift+M`) opens a picker at the cursor. `1`–`9`, Enter, or click runs a macro; Esc closes without changing the clipboard.
+- **Per-macro hotkeys** run directly when unique; duplicate hotkeys open the picker filtered to those macros.
+- **Text shortcuts** (e.g. `;sig`, `;email`) expand in the foreground app via backspace + clipboard paste by default.
+- **Run** on the Vault Macros screen executes the selected macro into the last focused app (not Cache Vault itself).
+
+### Output modes
+
+| Mode | Behavior |
+|------|----------|
+| `clipboard_paste` (default) | Put expanded text on clipboard, restore focus, send Ctrl+V. Optional clipboard restore after paste. |
+| `keystroke` | Type expanded text as simulated keystrokes (ASCII-focused, configurable delay). Large content is blocked; enable in Settings. |
+
+### Variables (live)
+
+`{date}`, `{time}`, `{datetime}`, `{clipboard}`, `{safe_name}`, `{item_id}`, `{newline}`, `{tab}`
+
+Receipts and UI never store full expanded output or macro bodies.
+
+### Settings toggles (live)
+
+- Enable Vault Macros
+- Enable text shortcuts
+- Enable macro hotkeys
+- Restore clipboard after macro paste
+- Sensitive confirmation
+- Keystroke mode + delay
+
+### Execution receipts (metadata only)
+
+- `macro_executed` / `macro_failed`
+- `text_shortcut_expanded`
+- `macro_hotkey_executed`
+- `macro_picker_executed`
+- `macro_blocked_sensitive`
+- `macro_disabled_skipped`
+
+Fields include macro id/name, Safe, trigger type/value, output mode, target window title (when detectable), content hash, clipboard restored flag — **not** full macro body or expanded secrets.
+
+## Receipts (setup)
 
 Event + file receipts (metadata only — no full macro body):
 
@@ -83,8 +125,11 @@ Search matches macro name, description, Safe, trigger value, smart type, and tag
 
 ## Known limitations
 
-- Macro hotkey execution and text-shortcut expansion are **settings + data model only** in this phase; live global trigger dispatch is not fully wired.
-- Keystroke output mode is declared but not executed against foreground apps yet.
+- **No macro recorder** — capture is manual (create/edit macros in the UI).
+- **No mouse automation**, registry/admin commands, web automation, OCR, or Perfect Keyboard import.
+- **Text shortcuts** use a best-effort keyboard hook; they may not fire inside Cache Vault fields or password controls (ES_PASSWORD style).
+- **Keystroke mode** is ASCII-focused and slower; non-ASCII characters may fail.
+- **`{selected_text}`** is not implemented yet.
 - Macro Safes are not encrypted and must not be described as secure containers.
 - Smart classification is heuristic, not ML — expect occasional mis-suggestions.
 

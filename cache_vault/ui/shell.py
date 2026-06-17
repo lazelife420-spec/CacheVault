@@ -75,6 +75,8 @@ EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
 HK_MANUAL_SAVE = 10
 HK_ARM_NEXT = 11
 HK_IGNORE_NEXT = 12
+HK_MACRO_MENU = 13
+HK_MACRO_ID_BASE = 100
 
 
 class CacheVaultApp(ctk.CTk):
@@ -155,6 +157,34 @@ class CacheVaultApp(ctk.CTk):
         self._capture_hotkeys = MultiHotkeyListener()
         self._bind_capture_hotkeys()
         self._capture_hotkeys.start()
+
+        from ..core.macro_execute import MacroExecutor, system_reserved_hotkeys
+        from ..core.macro_shortcut_listener import TextShortcutListener
+        from ..core.vault_macros import TRIGGER_HOTKEY, TRIGGER_MENU_ONLY, TRIGGER_TEXT_SHORTCUT
+
+        self._macro_picker = None
+        self._macro_executor = MacroExecutor(
+            self.vault.settings,
+            self._macro_store,
+            self._macro_registry,
+            self.vault.events,
+            on_notice=lambda msg: self._call_on_main(lambda m=msg: self._show_toast(m)),
+            confirm_sensitive=self._confirm_sensitive_macro,
+        )
+        self._macro_hotkeys = MultiHotkeyListener()
+        self._macro_hotkey_bindings: dict[int, tuple[str, list]] = {}
+        self._bind_macro_hotkeys()
+        self._macro_hotkeys.start()
+        self._text_shortcut_listener = TextShortcutListener(
+            on_match=self._on_text_shortcut_match,
+            should_skip=lambda hwnd: hwnd_belongs_to_widget(hwnd, self),
+        )
+        self._sync_text_shortcut_listener()
+        self._text_shortcut_listener.start()
+        self._TRIGGER_HOTKEY = TRIGGER_HOTKEY
+        self._TRIGGER_MENU_ONLY = TRIGGER_MENU_ONLY
+        self._TRIGGER_TEXT_SHORTCUT = TRIGGER_TEXT_SHORTCUT
+        self._system_reserved_hotkeys = system_reserved_hotkeys
 
         # Closing the window hides to tray (if available) rather than quitting.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -325,6 +355,7 @@ class CacheVaultApp(ctk.CTk):
                 "macro_edit": self._macro_edit,
                 "macro_new_template": self._macro_new_template,
                 "macro_setup": self._open_macro_setup,
+                "macro_run": self._macro_run,
             },
             corner_radius=0,
         )
@@ -1457,6 +1488,8 @@ class CacheVaultApp(ctk.CTk):
         self._monitor.pause() if settings.capture_paused else self._monitor.resume()
         self._rebind_hotkey(settings.quick_paste_hotkey)
         self._rebind_capture_hotkeys()
+        self._rebind_macro_hotkeys()
+        self._sync_text_shortcut_listener()
         self.vault.safes = SafeRegistry(settings)
         from ..core import startup
         startup.sync(settings.start_with_windows)
@@ -1670,10 +1703,15 @@ class CacheVaultApp(ctk.CTk):
 
     def _open_macro_setup(self) -> None:
         from .macro_dialogs import VaultMacrosSetupDialog
+
+        def _done() -> None:
+            self.refresh()
+            self._sync_macro_triggers()
+
         VaultMacrosSetupDialog(
             self,
             self.vault.settings,
-            on_complete=self.refresh,
+            on_complete=_done,
             record_receipt=self._macro_record_receipt,
         )
 
@@ -1705,7 +1743,9 @@ class CacheVaultApp(ctk.CTk):
                 "subtitle": (
                     f"{safe.name if safe else 'Missing Safe'} · "
                     f"{m.trigger_type} · {m.output_mode} · "
+                    f"runs {m.run_count} · "
                     f"{'enabled' if m.enabled else 'disabled'}"
+                    + (" · last run failed" if m.last_run_failed else "")
                 ),
                 "inspector": self._macro_inspector_text(m, warns, safe),
             })
@@ -1725,6 +1765,8 @@ class CacheVaultApp(ctk.CTk):
         ]
         if warnings:
             lines.append("Warnings: " + "; ".join(warnings))
+        if macro.last_run_failed:
+            lines.append("Last run: FAILED")
         return "\n".join(lines)
 
     def _macro_edit(self, macro_id: str) -> None:
@@ -1744,6 +1786,7 @@ class CacheVaultApp(ctk.CTk):
                     "smart_type": updated.smart_type,
                     "success": True,
                 })
+            self._sync_macro_triggers()
             self.refresh()
 
         MacroEditDialog(
@@ -1768,11 +1811,218 @@ class CacheVaultApp(ctk.CTk):
 
             def on_save(updated) -> None:
                 self._macro_store.upsert(updated)
+                self._sync_macro_triggers()
                 self.refresh()
 
             MacroEditDialog(self, macro=macro, registry=registry, on_save=on_save)
 
         MacroTemplatePicker(self, on_pick=on_pick)
+
+    # --- vault macro execution ---------------------------------------------
+    def _confirm_sensitive_macro(self, label: str) -> bool:
+        result = [False]
+        done = threading.Event()
+
+        def _ask() -> None:
+            from tkinter import messagebox
+            try:
+                result[0] = messagebox.askyesno(
+                    "Sensitive macro",
+                    f"'{label}' looks sensitive.\nRun anyway?",
+                    parent=self,
+                )
+            except Exception:  # noqa: BLE001
+                result[0] = False
+            done.set()
+
+        self._call_on_main(_ask)
+        done.wait(timeout=30)
+        return result[0]
+
+    def _sync_text_shortcut_listener(self) -> None:
+        s = self.vault.settings
+        enabled = bool(
+            s.vault_macros_enabled
+            and s.vault_macros_setup_completed
+            and s.macro_text_shortcuts_enabled
+        )
+        self._text_shortcut_listener.update(
+            self._macro_store.load_all(), enabled=enabled,
+        )
+
+    def _bind_macro_hotkeys(self) -> None:
+        s = self.vault.settings
+        reserved = self._system_reserved_hotkeys(s)
+        self._macro_hotkeys.set_binding(
+            HK_MACRO_MENU,
+            s.macro_menu_hotkey or "ctrl+shift+m",
+            self._schedule_macro_menu,
+        )
+        hotkey_map: dict[str, list] = {}
+        if s.vault_macros_enabled and s.macro_hotkeys_enabled and s.vault_macros_setup_completed:
+            for m in self._macro_store.load_all():
+                if not m.enabled or m.trigger_type != self._TRIGGER_HOTKEY:
+                    continue
+                raw = (m.trigger_value or "").strip()
+                if not raw:
+                    continue
+                spec = normalize_hotkey(raw).lower()
+                if spec in {normalize_hotkey(r).lower() for r in reserved}:
+                    continue
+                hotkey_map.setdefault(spec, []).append(m)
+        self._macro_hotkey_bindings.clear()
+        hid = HK_MACRO_ID_BASE
+        for _spec, macros in hotkey_map.items():
+            raw = macros[0].trigger_value.strip()
+
+            def _activate(ms=macros, hk=raw) -> None:
+                self._schedule_macro_hotkey(ms, hk)
+
+            self._macro_hotkeys.set_binding(hid, raw, _activate)
+            self._macro_hotkey_bindings[hid] = (raw, macros)
+            hid += 1
+
+    def _rebind_macro_hotkeys(self) -> None:
+        if getattr(self, "_macro_hotkeys", None):
+            self._macro_hotkeys.stop()
+        self._macro_hotkeys = MultiHotkeyListener()
+        self._bind_macro_hotkeys()
+        self._macro_hotkeys.start()
+
+    def _sync_macro_triggers(self) -> None:
+        self._rebind_macro_hotkeys()
+        self._sync_text_shortcut_listener()
+
+    def _schedule_macro_menu(self) -> None:
+        target = foreground_window()
+        self._call_on_main(lambda t=target: self._open_macro_picker(paste_target=t))
+
+    def _schedule_macro_hotkey(self, macros: list, hotkey_spec: str) -> None:
+        target = foreground_window()
+        self._call_on_main(
+            lambda t=target, ms=macros, hk=hotkey_spec: self._handle_macro_hotkey(ms, hk, t),
+        )
+
+    def _handle_macro_hotkey(self, macros: list, hotkey_spec: str, target) -> None:
+        ok, _reason = self._macro_executor.execution_allowed()
+        if not ok or not self.vault.settings.macro_hotkeys_enabled:
+            return
+        enabled = [m for m in macros if m.enabled]
+        if not enabled:
+            return
+        if len(enabled) == 1:
+            self._run_macro(enabled[0], self._TRIGGER_HOTKEY, hotkey_spec, target)
+        else:
+            self._open_macro_picker(
+                paste_target=target,
+                filter_macros=enabled,
+                title="Vault Macros — choose hotkey match",
+            )
+
+    def _on_text_shortcut_match(self, macro, shortcut: str, backspace_count: int, hwnd) -> None:
+        ok, _reason = self._macro_executor.execution_allowed()
+        if not ok or not self.vault.settings.macro_text_shortcuts_enabled:
+            return
+        self._call_on_main(
+            lambda: self._run_macro(
+                macro,
+                self._TRIGGER_TEXT_SHORTCUT,
+                shortcut,
+                hwnd,
+                shortcut_backspaces=backspace_count,
+            ),
+        )
+
+    def _open_macro_picker(
+        self,
+        *,
+        paste_target=None,
+        filter_macros=None,
+        title: str = "Vault Macros",
+    ) -> None:
+        if not self._alive():
+            return
+        ok, _reason = self._macro_executor.execution_allowed()
+        if not ok:
+            self._show_toast("Vault Macros are disabled or setup is incomplete.")
+            return
+        try:
+            existing = getattr(self, "_macro_picker", None)
+            if existing is not None:
+                try:
+                    if existing.winfo_exists():
+                        existing.focus_popup()
+                        return
+                except Exception:  # noqa: BLE001
+                    self._macro_picker = None
+            if paste_target is None:
+                paste_target = foreground_window()
+            if hwnd_belongs_to_widget(paste_target, self):
+                paste_target = None
+            macros = filter_macros or [
+                m for m in self._macro_store.load_all() if m.enabled
+            ]
+            from .macro_picker import MacroPicker
+
+            def _choose(chosen) -> None:
+                self._run_macro(
+                    chosen, self._TRIGGER_MENU_ONLY, "", paste_target,
+                )
+
+            self._macro_picker = MacroPicker(
+                self, macros, on_choose=_choose, title=title,
+            )
+        except Exception as exc:  # noqa: BLE001
+            write_crash("macro picker", exc)
+
+    def _resolve_macro_target(self, target_hwnd):
+        if target_hwnd and hwnd_belongs_to_widget(target_hwnd, self):
+            target_hwnd = None
+        if not target_hwnd:
+            target_hwnd = foreground_window()
+            if hwnd_belongs_to_widget(target_hwnd, self):
+                target_hwnd = None
+        return target_hwnd
+
+    def _run_macro(
+        self,
+        macro,
+        trigger_type: str,
+        trigger_value: str = "",
+        target_hwnd=None,
+        *,
+        shortcut_backspaces: int = 0,
+    ):
+        target_hwnd = self._resolve_macro_target(target_hwnd)
+        if not target_hwnd:
+            self._show_toast("No target window — focus an app and try again.")
+            result = self._macro_executor.execute(
+                macro,
+                trigger_type=trigger_type,
+                trigger_value=trigger_value,
+                target_hwnd=None,
+                shortcut_backspaces=shortcut_backspaces,
+            )
+        else:
+            result = self._macro_executor.execute(
+                macro,
+                trigger_type=trigger_type,
+                trigger_value=trigger_value,
+                target_hwnd=target_hwnd,
+                shortcut_backspaces=shortcut_backspaces,
+            )
+        if self._alive():
+            self.refresh()
+        return result
+
+    def _macro_run(self, macro_id: str) -> None:
+        macro = self._macro_store.get(macro_id)
+        if macro is None:
+            return
+        target = foreground_window()
+        if hwnd_belongs_to_widget(target, self):
+            target = None
+        self._run_macro(macro, self._TRIGGER_MENU_ONLY, "run_button", target)
 
     def _show_window(self) -> None:
         if not self._alive():
@@ -1807,6 +2057,10 @@ class CacheVaultApp(ctk.CTk):
             self._hotkey.stop()
             if getattr(self, "_capture_hotkeys", None):
                 self._capture_hotkeys.stop()
+            if getattr(self, "_macro_hotkeys", None):
+                self._macro_hotkeys.stop()
+            if getattr(self, "_text_shortcut_listener", None):
+                self._text_shortcut_listener.stop()
             self._tray.stop()
             self._mobile_bridge.stop()
             self.vault.close()
