@@ -1,4 +1,4 @@
-"""Cache Vault v0.1.3-rc4 release-candidate gate — desktop + mobile + artifacts."""
+"""Cache Vault v0.1.3-rc5 release-candidate gate — desktop + mobile + artifacts."""
 from __future__ import annotations
 
 import hashlib
@@ -17,13 +17,12 @@ sys.path.insert(0, str(ROOT))
 from cache_vault import __version__  # noqa: E402
 from scripts.android_asset_smoke import (  # noqa: E402
     fresh_pair,
-    restart_cache_vault,
     bridge_host_port,
     curl_status,
 )
 
-TAG = "v0.1.3-rc4"
-SOURCE_COMMIT = "aa3c07e860d3d63081112c0f496b066eaec4668e"
+TAG = "v0.1.3-rc5"
+SOURCE_COMMIT = "66cf359"
 RELEASE_DIR = ROOT / "dist" / "release" / TAG
 ZIP_NAME = f"CacheVault-{TAG}-windows.zip"
 ZIP_PATH = RELEASE_DIR / ZIP_NAME
@@ -33,6 +32,7 @@ SHA_PATH = RELEASE_DIR / "SHA256SUMS.txt"
 RECEIPT_PATH = RELEASE_DIR / "RC_RECEIPT.json"
 NOTES_PATH = ROOT / "docs" / "releases" / f"{TAG}.md"
 GRADLE_APK = ROOT / "android" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+RC4_ZIP = ROOT / "dist" / "release" / "v0.1.3-rc4" / "CacheVault-v0.1.3-rc4-windows.zip"
 
 
 def sha256_file(path: Path) -> str:
@@ -98,7 +98,7 @@ def verify_zip_structure() -> dict:
     checks["zip_exists"] = True
     checks["contains_exe"] = "CacheVault.exe" in names
     checks["contains_notes"] = "RELEASE_NOTES.md" in names
-    checks["notes_version_rc4"] = "v0.1.3-rc4" in notes_text
+    checks["notes_version_rc5"] = "v0.1.3-rc5" in notes_text
     checks["no_source_junk"] = not any(n.endswith(".py") for n in names)
     return checks
 
@@ -180,6 +180,7 @@ def main() -> int:
         "no_cloud_claim": True,
         "no_encryption_claim": True,
         "rc3_untouched": True,
+        "rc4_untouched": RC4_ZIP.is_file(),
         "v012_untouched": True,
     }
 
@@ -199,16 +200,16 @@ def main() -> int:
     )
     meta_out = meta.stdout or ""
     exe_meta_pass = (
-        "ProductVersion=0.1.3-rc4" in meta_out
-        and "FileVersion=0.1.3-rc4" in meta_out
+        "ProductVersion=0.1.3-rc5" in meta_out
+        and "FileVersion=0.1.3-rc5" in meta_out
         and "fixed file/product version matches: (0, 1, 3, 0)" in meta_out
-        and "PASS  source versions agree: 0.1.3-rc4" in meta_out
+        and "PASS  source versions agree: 0.1.3-rc5" in meta_out
     )
     results["exe_metadata"] = {
         "pass": exe_meta_pass,
         "note": (
             "Root README/RELEASE_NOTES.md remain v0.1.2 (shipped desktop); "
-            "RC notes are in zip only. Exe file/product version is the RC4 gate."
+            "RC notes are in zip only. Exe file/product version is the RC5 gate."
         ),
         "output": meta_out,
     }
@@ -234,13 +235,22 @@ def main() -> int:
     sha_info = write_sha256sums()
     results.update(sha_info)
 
-    device_id, token = fresh_pair(device_id="rc4-gate-phone", device_name="RC4 Gate Phone")
     start_packaged_bridge()
     _, port = bridge_host_port()
     time.sleep(4.0)
-    code, status_body = curl_status(device_id, token, host="127.0.0.1")
-    results["bridge_auth_local"] = code == 200
     results["bridge_port_listening"] = wait_port(port)
+
+    device_id, token = fresh_pair(device_id="rc5-gate-phone", device_name="RC5 Gate Phone")
+    time.sleep(0.5)
+    code, status_body = curl_status(device_id, token, host="127.0.0.1")
+    bad_code, _ = curl_status(device_id, "definitely-wrong-token-rc5", host="127.0.0.1")
+    results["pairing_hot_reload"] = {
+        "pass": code == 200 and bad_code == 401,
+        "status_code": code,
+        "invalid_token_401": bad_code == 401,
+        "exe_restarted": False,
+    }
+    results["bridge_auth_local"] = code == 200
 
     routes = {}
     safe_meta: dict = {"pass": False}
@@ -267,7 +277,6 @@ def main() -> int:
             else:
                 safe_meta = {"pass": True, "note": "no clips yet; metadata gate deferred"}
 
-    inbox_before = routes.get("/mobile/v1/clips", {}).get("status")
     send_status, send_body = mobile_request(
         "POST",
         "/mobile/v1/inbox/send",
@@ -277,9 +286,9 @@ def main() -> int:
         port,
         body={
             "item_type": "url",
-            "content": "https://example.com/rc4-gate-send",
-            "source_app": "RC4 Gate",
-            "source_device_name": "RC4 Gate Phone",
+            "content": "https://example.com/rc5-gate-send",
+            "source_app": "RC5 Gate",
+            "source_device_name": "RC5 Gate Phone",
             "safe_id": "default",
             "user_action": "send_to_pc",
         },
@@ -357,6 +366,7 @@ def main() -> int:
     manual_smoke = ROOT / "visual_smoke" / "android_manual_pairing_smoke.json"
     share_smoke = ROOT / "visual_smoke" / "android_share_inbox_smoke.json"
     guide_smoke = ROOT / "visual_smoke" / "first_use_guide_smoke.json"
+    hot_reload_smoke = ROOT / "visual_smoke" / "pairing_hot_reload_smoke.json"
     if manual_smoke.is_file():
         results["manual_setup_smoke"] = json.loads(manual_smoke.read_text(encoding="utf-8"))
     if share_smoke.is_file():
@@ -369,6 +379,9 @@ def main() -> int:
             "pass": guide_copy_has_no_forbidden_claims(),
             "note": "copy gate only; run scripts/first_use_guide_smoke.py for UI proof",
         }
+    if hot_reload_smoke.is_file():
+        results["pairing_hot_reload_smoke"] = json.loads(
+            hot_reload_smoke.read_text(encoding="utf-8"))
 
     results["overall_pass"] = (
         results["desktop_selftest"].get("pass")
@@ -376,6 +389,7 @@ def main() -> int:
         and results["packaged_app_launch"].get("pass")
         and results["bridge_port_listening"]
         and results["bridge_auth_local"]
+        and results["pairing_hot_reload"].get("pass")
         and all_route_pass
         and results["mobile_safe_metadata"].get("pass")
         and results["unauthenticated_send_rejected"]

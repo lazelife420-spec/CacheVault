@@ -69,4 +69,4 @@ def test_horizontal_canvas_units():
 def test_build_meta_rc_tuple_still_pads():
     from cache_vault.build_meta import windows_version_tuple as wvt
 
-    assert wvt("0.1.3-rc4") == (0, 1, 3, 0)
+    assert wvt("0.1.3-rc5") == (0, 1, 3, 0)

@@ -11,8 +11,8 @@ android {
         applicationId = "com.prooffoundry.cachevaultmobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.1.3-rc4"
+        versionCode = 5
+        versionName = "0.1.3-rc5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
