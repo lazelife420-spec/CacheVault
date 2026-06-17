@@ -1,4 +1,5 @@
 from cache_vault.core import models
+from cache_vault.core import search
 from cache_vault.core.models import Clip
 from cache_vault.core.storage import (
     VaultStorage, FILTER_PINNED, FILTER_LINKS, FILTER_DUPLICATES, FILTER_ALL,
@@ -26,9 +27,9 @@ def test_consecutive_duplicate_collapse(storage):
     b = storage.add_clip(_clip("same text"))
     # b is linked to a as a duplicate
     assert b.duplicate_of == a.id
-    # the duplicates filter surfaces b
+    # duplicates filter surfaces clips sharing content_hash
     dups = storage.list_clips(FILTER_DUPLICATES)
-    assert [d.id for d in dups] == [b.id]
+    assert {d.id for d in dups} == {a.id, b.id}
 
 
 def test_non_consecutive_not_duplicate(storage):
@@ -42,10 +43,10 @@ def test_pin_unpin_and_ordering(storage):
     storage.add_clip(_clip("first"))
     second = storage.add_clip(_clip("second"))
     storage.set_pinned(second.id, True)
-    listed = storage.list_clips(FILTER_ALL)
-    assert listed[0].id == second.id  # pinned floats to the top
     pinned = storage.list_clips(FILTER_PINNED)
     assert [c.id for c in pinned] == [second.id]
+    fav_first = storage.list_clips(search.SearchQuery(sort=models.SORT_FAVORITES_FIRST))
+    assert fav_first[0].id == second.id
     storage.set_pinned(second.id, False)
     assert storage.list_clips(FILTER_PINNED) == []
 

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="foundry_black">#0B0F14</color>
+    <color name="iron_gray">#1C232B</color>
+    <color name="proof_teal">#00D1B2</color>
+    <color name="receipt_white">#F4F7F8</color>
+    <color name="stamp_gold">#D6A84F</color>
+    <color name="muted_text">#8A939C</color>
+</resources>

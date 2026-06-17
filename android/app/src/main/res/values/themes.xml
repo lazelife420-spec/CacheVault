@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CacheVaultMobile" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/foundry_black</item>
+        <item name="android:navigationBarColor">@color/foundry_black</item>
+        <item name="android:windowBackground">@color/foundry_black</item>
+    </style>
+</resources>

@@ -30,7 +30,7 @@ except Exception:  # noqa: BLE001
     _HAS_WIN32 = False
 
 
-ClipCallback = Callable[[str, dict], None]
+ClipCallback = Callable[[dict], None]
 
 
 def _read_clipboard_text() -> Optional[str]:
@@ -46,6 +46,24 @@ def _read_clipboard_text() -> Optional[str]:
     except Exception:  # noqa: BLE001 - clipboard can be transiently locked
         return None
     return None
+
+
+def _read_clipboard_image() -> tuple[bytes, int, int] | None:
+    """Read clipboard image as PNG bytes (CF_DIB). Returns None if no image."""
+    if not _HAS_WIN32:
+        return None
+    try:
+        from . import image_assets
+        win32clipboard.OpenClipboard()
+        try:
+            if not win32clipboard.IsClipboardFormatAvailable(win32con.CF_DIB):
+                return None
+            dib = win32clipboard.GetClipboardData(win32con.CF_DIB)
+        finally:
+            win32clipboard.CloseClipboard()
+        return image_assets.dib_to_png(dib)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _foreground_source() -> dict:
@@ -68,8 +86,24 @@ def _foreground_source() -> dict:
     return info
 
 
+def read_clipboard_payload() -> dict | None:
+    """Read current clipboard as a capture payload (text or image)."""
+    source = _foreground_source()
+    image = _read_clipboard_image()
+    if image is not None:
+        png, width, height = image
+        return {"image_png": png, "width": width, "height": height, **source}
+    text = _read_clipboard_text()
+    if text and text.strip():
+        return {"text": text, **source}
+    return None
+
+
 class ClipboardMonitor:
-    """Watches the clipboard and calls ``on_clip(text, source_info)``.
+    """Watches the clipboard and calls ``on_clip(payload)``.
+
+    Payload keys: ``text``, ``image_png``, ``width``, ``height``,
+    ``source_app``, ``source_window``.
 
     The callback runs on the monitor's own thread; UI code should marshal back
     to the main thread (the shell uses ``after`` for this).
@@ -83,6 +117,7 @@ class ClipboardMonitor:
         self._thread: Optional[threading.Thread] = None
         self._hwnd = None
         self._last_text: Optional[str] = None
+        self._last_image_hash: Optional[str] = None
 
     # --- lifecycle ---------------------------------------------------------
     @property
@@ -125,17 +160,41 @@ class ClipboardMonitor:
         so the resulting change event isn't re-captured as a new clip."""
         self._last_text = text
 
+    def note_local_copy_image(self, png_bytes: bytes) -> None:
+        """Suppress re-capture after Copy Again puts an image on the clipboard."""
+        from . import models
+        self._last_image_hash = models.bytes_hash(png_bytes)
+
     # --- internals ---------------------------------------------------------
     def _emit(self) -> None:
         if self._paused or not self._running:
+            return
+        source = _foreground_source()
+        image = _read_clipboard_image()
+        if image is not None:
+            png, width, height = image
+            from . import models
+            ih = models.bytes_hash(png)
+            if ih != self._last_image_hash:
+                self._last_image_hash = ih
+                payload = {
+                    "image_png": png,
+                    "width": width,
+                    "height": height,
+                    **source,
+                }
+                try:
+                    self._on_clip(payload)
+                except Exception:  # noqa: BLE001
+                    pass
             return
         text = _read_clipboard_text()
         if not text or text == self._last_text:
             return
         self._last_text = text
-        source = _foreground_source()
+        payload = {"text": text, **source}
         try:
-            self._on_clip(text, source)
+            self._on_clip(payload)
         except Exception:  # noqa: BLE001 - never let a UI error kill the monitor
             pass
 
@@ -164,7 +223,6 @@ class ClipboardMonitor:
         except Exception:  # noqa: BLE001 - fall back to polling
             self._run_poll_loop()
             return
-        # Seed last_text so the current clipboard isn't captured on launch.
         self._last_text = _read_clipboard_text()
         win32gui.PumpMessages()
 

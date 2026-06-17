@@ -1,4 +1,4 @@
-"""Left-hand filter navigation."""
+"""Left-hand filter navigation with grouped headings."""
 
 from __future__ import annotations
 
@@ -6,27 +6,91 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from .. import brand
 from ..core import storage as S
+from . import theme
+from .guide_copy import EMPTY_SAFES, NAV_TOOLTIPS, TOOLTIP_SAFES
+from .tooltip import bind_tooltip
 
+# Sidebar screens and actions
+NAV_QUICK_PASTE = "nav_quick_paste"
+NAV_STAMPED_RECEIPTS = "nav_stamped_receipts"
+NAV_EXPORTS = "nav_exports"
+NAV_EDITABLE_COPIES = "nav_editable_copies"
+NAV_HTML_BUNDLES = "nav_html_bundles"
+NAV_MOBILE_ACCESS = "nav_mobile_access"
+NAV_MOBILE_INBOX = "nav_mobile_inbox"
+NAV_VAULT_MACROS = "nav_vault_macros"
+NAV_SETTINGS = "nav_settings"
 
-# (filter constant, label) in display order. A None entry renders a separator.
-FILTER_ITEMS = [
-    (S.FILTER_ALL, "All"),
-    (S.FILTER_PINNED, "Pinned"),
-    (None, None),
-    (S.FILTER_LINKS, "Links"),
-    (S.FILTER_FILES, "Files / Paths"),
-    (S.FILTER_CODE, "Code"),
-    (S.FILTER_COMMANDS, "Commands"),
-    (S.FILTER_EMAILS, "Emails"),
-    (S.FILTER_PHONES, "Phone numbers"),
-    (None, None),
-    (S.FILTER_SENSITIVE, "Sensitive"),
-    (S.FILTER_DUPLICATES, "Duplicates"),
-    (None, None),
-    (S.FILTER_TODAY, "Today"),
-    (S.FILTER_WEEK, "This Week"),
-    (S.FILTER_EXPIRED, "Expired"),
+NAV_DIALOG_ONLY = frozenset({NAV_QUICK_PASTE})
+NAV_SCREEN_KEYS = frozenset({
+    NAV_STAMPED_RECEIPTS,
+    NAV_EXPORTS,
+    NAV_EDITABLE_COPIES,
+    NAV_HTML_BUNDLES,
+    NAV_MOBILE_ACCESS,
+    NAV_MOBILE_INBOX,
+    NAV_VAULT_MACROS,
+})
+
+_NAV_ICONS: dict[str, str] = {
+    S.FILTER_HOME: "⌂ ",
+    S.FILTER_ALL: "▣ ",
+    S.FILTER_FAVORITES: "★ ",
+    S.FILTER_SCREENSHOTS: "▦ ",
+    S.FILTER_SENSITIVE: "⚠ ",
+    S.FILTER_DUPLICATES: "≡ ",
+    NAV_QUICK_PASTE: "⎘ ",
+    NAV_STAMPED_RECEIPTS: "⬢ ",
+    NAV_EXPORTS: "↗ ",
+    NAV_EDITABLE_COPIES: "⎘ ",
+    NAV_HTML_BUNDLES: "🌐 ",
+    NAV_MOBILE_ACCESS: "◈ ",
+    NAV_MOBILE_INBOX: "↓ ",
+    NAV_VAULT_MACROS: "⚡ ",
+    NAV_SETTINGS: "⚙ ",
+}
+
+FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
+    ("COMMAND", [
+        (S.FILTER_HOME, brand.TERM_COMMAND_CENTER),
+        (NAV_QUICK_PASTE, "Quick Paste"),
+        (NAV_VAULT_MACROS, brand.TERM_VAULT_MACROS),
+    ]),
+    ("VAULT", [
+        (S.FILTER_ALL, "All Clips"),
+        (S.FILTER_FAVORITES, "Favorites"),
+        (S.FILTER_SCREENSHOTS, "Screenshots / Images"),
+        (S.FILTER_LINKS, "Links"),
+        (S.FILTER_FILES, "Files / Paths"),
+        (S.FILTER_CODE, "Code"),
+        (S.FILTER_COMMANDS, "Commands"),
+        (S.FILTER_EMAILS, "Emails"),
+        (S.FILTER_PHONES, "Phone Numbers"),
+    ]),
+    ("REVIEW", [
+        (S.FILTER_SENSITIVE, "Sensitive"),
+        (S.FILTER_DUPLICATES, "Duplicates"),
+        (S.FILTER_RECENTLY_REMOVED, "Recently Removed"),
+        (S.FILTER_EXPIRED, "Expired"),
+    ]),
+    ("PROOF", [
+        (NAV_STAMPED_RECEIPTS, brand.TERM_STAMPED_RECEIPTS),
+        (NAV_EXPORTS, brand.TERM_EXPORTS),
+        (NAV_EDITABLE_COPIES, brand.TERM_EDITABLE_COPIES),
+        (NAV_HTML_BUNDLES, brand.TERM_HTML_BUNDLES),
+    ]),
+    ("ACCESS", [
+        (NAV_MOBILE_INBOX, brand.TERM_MOBILE_INBOX),
+        (NAV_MOBILE_ACCESS, brand.TERM_MOBILE_ACCESS),
+        (NAV_SETTINGS, "Settings"),
+    ]),
+    ("TIME", [
+        (S.FILTER_TODAY, "Today"),
+        (S.FILTER_WEEK, "This Week"),
+        (S.FILTER_OLDER, "Older"),
+    ]),
 ]
 
 
@@ -34,35 +98,110 @@ class FilterNav(ctk.CTkScrollableFrame):
     def __init__(self, master, on_select: Callable[[str], None], **kw):
         super().__init__(master, **kw)
         self._on_select = on_select
-        self._active = S.FILTER_ALL
-        self._buttons: dict[str, ctk.CTkButton] = {}
-        self._labels: dict[str, str] = {}
+        self._active = S.FILTER_HOME
+        self._rows: dict[str, ctk.CTkFrame] = {}
+        self._labels: dict[str, ctk.CTkLabel] = {}
+        self._counts: dict[str, ctk.CTkLabel] = {}
+        self._labels_text: dict[str, str] = {}
+        self._collection_rows: dict[str, ctk.CTkFrame] = {}
+        self._safe_rows: dict[str, ctk.CTkFrame] = {}
 
-        title = ctk.CTkLabel(self, text="Cache Vault", anchor="w",
+        title = ctk.CTkLabel(self, text="◈ Cache Vault", anchor="w",
                              font=ctk.CTkFont(size=18, weight="bold"))
-        title.pack(fill="x", padx=8, pady=(6, 2))
-        tagline = ctk.CTkLabel(self, text="Keep the cache worth keeping.",
-                               anchor="w", text_color=("gray40", "gray60"),
-                               font=ctk.CTkFont(size=11))
-        tagline.pack(fill="x", padx=8, pady=(0, 10))
+        title.pack(fill="x", padx=8, pady=(6, 0))
+        byline = ctk.CTkLabel(self, text=brand.VAULT_TAGLINE, anchor="w",
+                              text_color=brand.MUTED_FG,
+                              font=ctk.CTkFont(size=10), wraplength=200,
+                              justify="left")
+        byline.pack(fill="x", padx=8, pady=(0, 2))
+        seal = ctk.CTkLabel(
+            self, text=f"{brand.LABEL_VAULT_SEALED} · {brand.LABEL_LOCAL_ONLY}",
+            anchor="w", text_color=brand.STAMP_GOLD,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        )
+        seal.pack(fill="x", padx=8, pady=(0, 10))
 
-        for key, label in FILTER_ITEMS:
-            if key is None:
-                ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
-                    fill="x", padx=10, pady=6)
-                continue
-            self._labels[key] = label
-            btn = ctk.CTkButton(
-                self, text=label, anchor="w", corner_radius=6,
-                fg_color="transparent", text_color=("gray10", "gray90"),
-                hover_color=("gray85", "gray25"),
-                command=lambda k=key: self._select(k),
-            )
-            btn.pack(fill="x", padx=6, pady=1)
-            self._buttons[key] = btn
+        for heading, items in FILTER_GROUPS:
+            if heading:
+                ctk.CTkLabel(self, text=heading, anchor="w",
+                             text_color=brand.STAMP_GOLD,
+                             font=ctk.CTkFont(size=10, weight="bold")
+                             ).pack(fill="x", padx=10, pady=(8, 4))
+            for key, label in items:
+                self._labels_text[key] = label
+                display = _NAV_ICONS.get(key, "") + label
+                self._rows[key] = self._nav_row(self, key, display)
+
+        self._separator()
+        ctk.CTkLabel(self, text="COLLECTIONS", anchor="w",
+                     text_color=brand.STAMP_GOLD,
+                     font=ctk.CTkFont(size=10, weight="bold")
+                     ).pack(fill="x", padx=10, pady=(2, 4))
+        self._collections_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._collections_frame.pack(fill="x")
+        self._collections_empty = ctk.CTkLabel(
+            self._collections_frame, text="(none yet)", anchor="w",
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11))
+        self._collections_empty.pack(fill="x", padx=14, pady=2)
+
+        self._separator()
+        safes_heading = ctk.CTkLabel(self, text="SAFES", anchor="w",
+                     text_color=brand.STAMP_GOLD,
+                     font=ctk.CTkFont(size=10, weight="bold")
+                     )
+        safes_heading.pack(fill="x", padx=10, pady=(2, 4))
+        bind_tooltip(safes_heading, TOOLTIP_SAFES)
+        self._safes_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._safes_frame.pack(fill="x")
+        self._safes_empty = ctk.CTkLabel(
+            self._safes_frame, text=EMPTY_SAFES, anchor="w",
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
+            wraplength=200, justify="left",
+        )
+        self._safes_empty.pack(fill="x", padx=14, pady=2)
+
         self._highlight()
 
+    def _separator(self) -> None:
+        ctk.CTkFrame(self, height=1, fg_color=("#C8D0D4", "#263038")).pack(
+            fill="x", padx=10, pady=6)
+
+    def _nav_row(self, parent, key: str, label: str) -> ctk.CTkFrame:
+        row = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=6)
+        row.pack(fill="x", padx=4, pady=1)
+        row.grid_columnconfigure(0, weight=1)
+        lbl = ctk.CTkLabel(row, text=label, anchor="w",
+                           font=ctk.CTkFont(size=12))
+        lbl.grid(row=0, column=0, sticky="w", padx=(8, 4), pady=6)
+        cnt = ctk.CTkLabel(row, text="", anchor="e", width=36,
+                           font=ctk.CTkFont(size=11),
+                           text_color=brand.MUTED_FG)
+        cnt.grid(row=0, column=1, sticky="e", padx=(0, 8))
+        self._labels[key] = lbl
+        self._counts[key] = cnt
+        tip = NAV_TOOLTIPS.get(key)
+        if tip:
+            bind_tooltip(row, tip)
+            bind_tooltip(lbl, tip)
+        for w in (row, lbl, cnt):
+            w.bind("<Button-1>", lambda _e, k=key: self._select(k))
+            w.configure(cursor="hand2")
+        row.bind("<Enter>", lambda _e, r=row: self._hover_row(r, key, True))
+        row.bind("<Leave>", lambda _e, r=row: self._hover_row(r, key, False))
+        return row
+
+    def _hover_row(self, row: ctk.CTkFrame, key: str, inside: bool) -> None:
+        if key == self._active:
+            return
+        if inside:
+            row.configure(fg_color=theme.nav_hover_bg())
+        else:
+            row.configure(fg_color="transparent")
+
     def _select(self, key: str) -> None:
+        if key in NAV_DIALOG_ONLY:
+            self._on_select(key)
+            return
         self._active = key
         self._highlight()
         self._on_select(key)
@@ -71,15 +210,72 @@ class FilterNav(ctk.CTkScrollableFrame):
     def active(self) -> str:
         return self._active
 
+    def set_active(self, key: str) -> None:
+        if key in NAV_DIALOG_ONLY:
+            return
+        self._active = key
+        self._highlight()
+
     def _highlight(self) -> None:
-        for key, btn in self._buttons.items():
-            if key == self._active:
-                btn.configure(fg_color=("gray75", "gray30"))
-            else:
-                btn.configure(fg_color="transparent")
+        all_keys = {**self._rows, **self._collection_rows, **self._safe_rows}
+        for key, row in all_keys.items():
+            active = key == self._active
+            row.configure(fg_color=theme.nav_active_bg() if active else "transparent")
+            lbl = self._labels.get(key)
+            if lbl:
+                lbl.configure(
+                    text_color=(brand.FOUNDRY_BLACK, brand.PROOF_TEAL) if active else brand.MUTED_FG,
+                    font=ctk.CTkFont(size=12, weight="bold" if active else "normal"),
+                )
+            cnt = self._counts.get(key)
+            if cnt:
+                cnt.configure(
+                    text_color=(brand.FOUNDRY_BLACK, brand.STAMP_GOLD) if active else brand.MUTED_FG,
+                )
 
     def update_counts(self, counts: dict[str, int]) -> None:
-        for key, btn in self._buttons.items():
+        for key, label in self._labels_text.items():
+            if key == S.FILTER_HOME:
+                self._counts[key].configure(text="")
+                continue
             n = counts.get(key, 0)
-            label = self._labels[key]
-            btn.configure(text=f"{label}   ({n})" if n else label)
+            self._counts[key].configure(text=str(n) if n else "")
+
+    def update_collections(self, collections: list[dict]) -> None:
+        for row in self._collection_rows.values():
+            row.destroy()
+        self._collection_rows.clear()
+        for key in list(self._labels):
+            if key.startswith(S.COLLECTION_PREFIX):
+                del self._labels[key]
+                del self._counts[key]
+        if not collections:
+            self._collections_empty.pack(fill="x", padx=14, pady=2)
+        else:
+            self._collections_empty.pack_forget()
+            for col in collections:
+                key = S.COLLECTION_PREFIX + col["name"]
+                row = self._nav_row(self._collections_frame, key, f"  {col['name']}")
+                self._collection_rows[key] = row
+                self._counts[key].configure(text=str(col["count"]))
+        self._highlight()
+
+    def update_safes(self, safes: list[dict]) -> None:
+        for row in self._safe_rows.values():
+            row.destroy()
+        self._safe_rows.clear()
+        for key in list(self._labels):
+            if key.startswith(S.SAFE_PREFIX):
+                del self._labels[key]
+                del self._counts[key]
+        shown = [s for s in safes if s.get("count", 0) > 0 or s.get("builtin")]
+        if not shown:
+            self._safes_empty.pack(fill="x", padx=14, pady=2)
+        else:
+            self._safes_empty.pack_forget()
+            for safe in shown:
+                key = S.SAFE_PREFIX + safe["id"]
+                row = self._nav_row(self._safes_frame, key, f"  {safe['name']}")
+                self._safe_rows[key] = row
+                self._counts[key].configure(text=str(safe.get("count", 0)))
+        self._highlight()

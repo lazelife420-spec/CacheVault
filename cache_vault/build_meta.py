@@ -15,7 +15,8 @@ ORIGINAL_FILENAME = "CacheVault.exe"
 
 
 def windows_version_tuple(version: str = __version__) -> tuple[int, int, int, int]:
-    parts = version.split(".")
+    base = version.split("-", 1)[0]
+    parts = base.split(".")
     if not 1 <= len(parts) <= 4:
         raise ValueError(f"Unsupported version format: {version!r}")
     try:

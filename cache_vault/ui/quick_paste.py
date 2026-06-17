@@ -64,7 +64,8 @@ class QuickPaste(ctk.CTkToplevel):
         self.bind("<Up>", lambda _e: self._move(-1))
         self.bind("<Down>", lambda _e: self._move(1))
         self.bind("<Return>", lambda _e: self._choose(self._index))
-        self.bind("<Escape>", lambda _e: self.destroy())
+        self.bind("<KP_Enter>", lambda _e: self._choose(self._index))
+        self.bind("<Escape>", lambda _e: self._cancel())
         for n in range(1, 10):
             self.bind(str(n), lambda _e, k=n - 1: self._choose(k))
 
@@ -97,8 +98,8 @@ class QuickPaste(ctk.CTkToplevel):
                      justify="left", wraplength=300).pack(
             side="left", fill="x", expand=True, padx=4, pady=6)
         if clip.is_pinned:
-            ctk.CTkLabel(row, text="📌", width=20,
-                         font=ctk.CTkFont(size=11)).pack(side="right", padx=(0, 8))
+            ctk.CTkLabel(row, text="★", width=20, text_color="#f5b301",
+                         font=ctk.CTkFont(size=12)).pack(side="right", padx=(0, 8))
         for w in (row, *row.winfo_children()):
             w.bind("<Button-1>", lambda _e, k=i: self._choose(k))
             w.bind("<Enter>", lambda _e, k=i: self._set_index(k))
@@ -119,9 +120,17 @@ class QuickPaste(ctk.CTkToplevel):
             row.configure(fg_color=("gray80", "gray30") if i == self._index
                           else ("gray92", "gray20"))
 
+    def _cancel(self) -> None:
+        """Close without choosing — clipboard unchanged."""
+        self._closing = True
+        self.destroy()
+
     def _choose(self, i: int) -> None:
+        if self._closing:
+            return
         if 0 <= i < len(self._clips):
             clip = self._clips[i]
+            self._closing = True
             self.destroy()
             self._on_choose(clip)
 
@@ -144,7 +153,7 @@ class QuickPaste(ctk.CTkToplevel):
             return
         try:
             if self.focus_get() is None:
-                self.destroy()
+                self._cancel()
         except Exception:  # noqa: BLE001
             pass
 

@@ -151,31 +151,88 @@ class HotkeyListener:
         win32gui.PumpMessages()
 
 
-def focus_and_paste(hwnd) -> None:
+class MultiHotkeyListener:
+    """Registers multiple global hotkeys on one message loop."""
+
+    _next_class_id = 0
+
+    def __init__(self):
+        MultiHotkeyListener._next_class_id += 1
+        self._wnd_class = f"CacheVaultMultiHotkey{MultiHotkeyListener._next_class_id}"
+        self._bindings: dict[int, tuple[str, Callable[[], None]]] = {}
+        self._thread: Optional[threading.Thread] = None
+        self._hwnd = None
+        self._registered: set[int] = set()
+
+    @property
+    def available(self) -> bool:
+        return _HAS_WIN32
+
+    def set_binding(self, hotkey_id: int, spec: str, on_activate: Callable[[], None]) -> None:
+        self._bindings[hotkey_id] = (spec, on_activate)
+
+    def start(self) -> None:
+        if not _HAS_WIN32 or self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._run, name="multi-hotkey-listener", daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        if not _HAS_WIN32 or not self._hwnd:
+            return
+        try:
+            for hid in list(self._registered):
+                win32gui.UnregisterHotKey(self._hwnd, hid)
+            win32gui.PostMessage(self._hwnd, win32con.WM_CLOSE, 0, 0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _run(self) -> None:  # pragma: no cover - needs Windows desktop
+        def wndproc(hwnd, msg, wparam, lparam):
+            if msg == _WM_HOTKEY:
+                hid = int(wparam)
+                binding = self._bindings.get(hid)
+                if binding:
+                    try:
+                        binding[1]()
+                    except Exception:  # noqa: BLE001
+                        pass
+                return 0
+            if msg == win32con.WM_DESTROY:
+                win32gui.PostQuitMessage(0)
+                return 0
+            return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+
+        wc = win32gui.WNDCLASS()
+        wc.lpszClassName = self._wnd_class
+        wc.lpfnWndProc = wndproc
+        atom = win32gui.RegisterClass(wc)
+        self._hwnd = win32gui.CreateWindow(
+            atom, self._wnd_class, 0, 0, 0, 0, 0, 0, 0, 0, None)
+
+        self._registered.clear()
+        for hid, (spec, _cb) in self._bindings.items():
+            mods, vk = parse_hotkey(spec)
+            if vk is None:
+                continue
+            try:
+                win32gui.RegisterHotKey(self._hwnd, hid, mods | _MOD_NOREPEAT, vk)
+                self._registered.add(hid)
+            except Exception:  # noqa: BLE001
+                pass
+        win32gui.PumpMessages()
+
+
+def focus_and_paste(hwnd) -> bool:
     """Restore focus to ``hwnd`` (the app the user was in) and send Ctrl+V."""
-    if not _HAS_WIN32:
-        return
-    try:
-        if hwnd:
-            win32gui.SetForegroundWindow(hwnd)
-    except Exception:  # noqa: BLE001
-        pass
-    time.sleep(0.05)
-    vk_ctrl, vk_v, keyup = 0x11, 0x56, 0x0002
-    try:
-        win32api.keybd_event(vk_ctrl, 0, 0, 0)
-        win32api.keybd_event(vk_v, 0, 0, 0)
-        win32api.keybd_event(vk_v, 0, keyup, 0)
-        win32api.keybd_event(vk_ctrl, 0, keyup, 0)
-    except Exception:  # noqa: BLE001
-        pass
+    from .paste_delivery import deliver_ctrl_v
+
+    return deliver_ctrl_v(hwnd).ok
 
 
 def foreground_window():
-    """Handle of the currently focused window, or ``None``."""
-    if not _HAS_WIN32:
-        return None
-    try:
-        return win32gui.GetForegroundWindow()
-    except Exception:  # noqa: BLE001
-        return None
+    from .paste_delivery import foreground_window as _fg
+
+    return _fg()
