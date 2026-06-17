@@ -172,12 +172,13 @@ def _index_html(metas: list[dict], clips: list[Clip], collection_name: str | Non
         if m["is_reference"]:
             state = "exists" if m["reference_exists"] else "missing"
             ref = f"<p><em>File reference ({state})</em></p>"
+        favorite = " · <span class=\"fav\">★ favorite</span>" if m["is_favorite"] else ""
         rows.append(
             "<div class='clip'>"
             f"<h2>{html.escape(m['name'] or m['id'])}</h2>"
             f"<p class='meta'>{html.escape(m['type'])} · {html.escape(m['date_added'])}"
             f" · {html.escape(m['source_app'] or '—')}"
-            f"{' · <span class=\"fav\">★ favorite</span>' if m['is_favorite'] else ''}"
+            f"{favorite}"
             f"{(' · ' + html.escape(m['collection'])) if m['collection'] else ''}</p>"
             f"{ref}"
             f"<pre>{html.escape(clip.content or '')}</pre>"

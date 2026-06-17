@@ -117,8 +117,18 @@ def test_date_added_filter_today(storage):
 
 
 def test_date_used_sort(storage):
-    a = storage.add_clip(_clip("aaa"))
-    b = storage.add_clip(_clip("bbb"))
+    a = storage.add_clip(_clip(
+        "aaa",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        last_used_at="2026-01-01T00:00:00+00:00",
+    ))
+    b = storage.add_clip(_clip(
+        "bbb",
+        created_at="2026-01-01T00:00:01+00:00",
+        updated_at="2026-01-01T00:00:01+00:00",
+        last_used_at="2026-01-01T00:00:01+00:00",
+    ))
     storage.touch_clip(a.id)
     q = search.SearchQuery(sort=models.SORT_RECENTLY_USED)
     listed = storage.list_clips(q)
