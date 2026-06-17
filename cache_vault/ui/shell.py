@@ -215,6 +215,7 @@ class CacheVaultApp(ctk.CTk):
         self._center_on_screen()
         self._show_window()
         self.after(50, self._pump_main_thread)
+        self.after(150, self._maybe_show_first_use_guide)
 
     def _alive(self) -> bool:
         if self._shutting_down:
@@ -1428,6 +1429,34 @@ class CacheVaultApp(ctk.CTk):
                 "devices": self._open_paired_devices,
                 "receipts": self._open_mobile_receipts,
             },
+            help={"show_guide": self._open_first_use_guide_from_settings},
+        )
+
+    def _maybe_show_first_use_guide(self) -> None:
+        if self._shutting_down or self.vault.settings.first_use_guide_dismissed:
+            return
+        try:
+            self._open_first_use_guide(from_settings=False)
+        except Exception:  # noqa: BLE001 — guide must not block startup
+            pass
+
+    def _open_first_use_guide_from_settings(self) -> None:
+        self._open_first_use_guide(from_settings=True)
+
+    def _open_first_use_guide(self, *, from_settings: bool) -> None:
+        from .first_use_guide import FirstUseGuideDialog, GuideAction
+
+        def on_action(action: GuideAction) -> None:
+            if action == "dismiss" or not from_settings:
+                self.vault.settings.first_use_guide_dismissed = True
+                self.vault.settings.save()
+            if action == "receipts":
+                self._navigate_screen(NAV_STAMPED_RECEIPTS)
+
+        FirstUseGuideDialog(
+            self,
+            from_settings=from_settings,
+            on_action=on_action,
         )
 
     def _open_pair_android(self, pending_mobile: bool | None = None) -> None:

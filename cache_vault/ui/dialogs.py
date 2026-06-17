@@ -10,6 +10,7 @@ from .. import brand
 from ..core import startup
 from ..core.settings import Settings
 from . import theme
+from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
 
 
 def _bring_to_front(win: ctk.CTkToplevel, master, *, modal: bool) -> None:
@@ -75,7 +76,7 @@ class AboutDialog(ctk.CTkToplevel):
 
 class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None],
-                 *, mobile: dict | None = None):
+                 *, mobile: dict | None = None, help: dict | None = None):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
         self.geometry("520x720")
@@ -84,6 +85,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._settings = settings
         self._on_save = on_save
         self._mobile = mobile or {}
+        self._help = help or {}
 
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
@@ -275,6 +277,21 @@ class SettingsDialog(ctk.CTkToplevel):
         self._startup = ctk.CTkSwitch(body, text="Start Cache Vault with Windows")
         self._startup.pack(anchor="w", padx=8, pady=6)
         self._startup.select() if startup.is_enabled() else self._startup.deselect()
+
+        section("Help")
+        if self._help.get("show_guide"):
+            ctk.CTkButton(
+                body,
+                text=SETTINGS_SHOW_GUIDE_AGAIN,
+                command=self._help["show_guide"],
+                **theme.secondary_button(),
+            ).pack(anchor="w", padx=8, pady=4)
+        ctk.CTkLabel(
+            body,
+            text="Reopen the vault briefing that explains receipts, Safes, Mobile Inbox, and exports.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11), wraplength=460,
+        ).pack(anchor="w", padx=8, pady=(0, 4))
 
         section("History")
         ctk.CTkLabel(body, text="History limit (clips, 0 = unlimited):").pack(
@@ -727,9 +744,8 @@ class EventLogDialog(ctk.CTkToplevel):
         if not shown:
             ctk.CTkLabel(
                 self._list,
-                text="No stamped receipts yet.\n"
-                     "Capture, reuse, export, or access clips to create proof history.",
-                text_color=brand.MUTED_FG, justify="left",
+                text=EMPTY_STAMPED_RECEIPTS,
+                text_color=brand.MUTED_FG, justify="left", wraplength=520,
             ).pack(anchor="w", padx=8, pady=16)
             self._selected = None
             self._detail.configure(state="normal")

@@ -10,6 +10,12 @@ from .. import brand
 from ..core import clip_metadata, storage as S
 from ..core.models import Clip
 from . import theme
+from .guide_copy import (
+    TOOLTIP_CAPTURE_ACTIVE,
+    TOOLTIP_HASH_PROOF,
+    TOOLTIP_LOCAL_VAULT_ACTIVE,
+)
+from .tooltip import bind_tooltip
 
 _CARD_META = {
     "All Clips": "Saved items in your vault",
@@ -118,15 +124,18 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
         top = ctk.CTkFrame(strip, fg_color="transparent")
         top.pack(fill="x", padx=14, pady=(12, 4))
-        ctk.CTkLabel(
+        seal_icon = ctk.CTkLabel(
             top, text="◈", font=ctk.CTkFont(size=14),
             text_color=brand.STAMP_GOLD,
-        ).pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(
+        )
+        seal_icon.pack(side="left", padx=(0, 8))
+        vault_lbl = ctk.CTkLabel(
             top, text=brand.VAULT_STATUS_ACTIVE,
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color=brand.RECEIPT_WHITE,
-        ).pack(side="left")
+        )
+        vault_lbl.pack(side="left")
+        bind_tooltip(vault_lbl, TOOLTIP_LOCAL_VAULT_ACTIVE)
 
         capture = (
             brand.LABEL_CAPTURE_ACTIVE
@@ -142,10 +151,15 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             f"{brand.LABEL_LOCAL_ONLY} · {capture} · "
             f"{brand.LABEL_RECEIPTS_AVAILABLE} · {mobile}"
         )
-        ctk.CTkLabel(
+        detail_lbl = ctk.CTkLabel(
             strip, text=detail, anchor="w",
             font=theme.body_font(11), text_color=brand.MUTED_FG,
-        ).pack(fill="x", padx=14, pady=(0, 4))
+        )
+        detail_lbl.pack(fill="x", padx=14, pady=(0, 4))
+        if not summary.get("capture_paused"):
+            bind_tooltip(detail_lbl, TOOLTIP_CAPTURE_ACTIVE)
+        else:
+            bind_tooltip(detail_lbl, TOOLTIP_LOCAL_VAULT_ACTIVE)
 
         counts = (
             f"{summary.get('all', 0)} saved · "
@@ -380,7 +394,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             proof = ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=11),
                                  text_color=brand.STAMP_GOLD, cursor="question_arrow")
             proof.pack(side="left", padx=3)
-            self._bind_tooltip(proof, "Proof receipt available")
+            self._bind_tooltip(proof, TOOLTIP_HASH_PROOF)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
         ctk.CTkLabel(card, text=title, anchor="w",
@@ -409,28 +423,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
     @staticmethod
     def _bind_tooltip(widget, text: str) -> None:
-        tip: ctk.CTkToplevel | None = None
-
-        def show(_e=None) -> None:
-            nonlocal tip
-            tip = ctk.CTkToplevel(widget)
-            tip.wm_overrideredirect(True)
-            tip.attributes("-topmost", True)
-            ctk.CTkLabel(tip, text=text, fg_color=brand.IRON_GRAY,
-                         text_color=brand.RECEIPT_WHITE,
-                         corner_radius=4, padx=8, pady=4).pack()
-            x = widget.winfo_rootx()
-            y = widget.winfo_rooty() + widget.winfo_height() + 4
-            tip.geometry(f"+{x}+{y}")
-
-        def hide(_e=None) -> None:
-            nonlocal tip
-            if tip:
-                tip.destroy()
-                tip = None
-
-        widget.bind("<Enter>", show)
-        widget.bind("<Leave>", hide)
+        bind_tooltip(widget, text)
 
 
 def _short(iso: str) -> str:

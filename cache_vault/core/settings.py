@@ -75,6 +75,9 @@ class Settings:
     macro_keystroke_delay_ms: int = 10
     macro_keystroke_max_chars: int = 2000
 
+    # First-use guide — shown once until dismissed (Settings can reopen).
+    first_use_guide_dismissed: bool = False
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":
@@ -136,6 +139,7 @@ class Settings:
         except (TypeError, ValueError):
             s.scroll_multiplier = 1.0
         s.restore_clipboard_after_paste = bool(s.restore_clipboard_after_paste)
+        s.first_use_guide_dismissed = bool(getattr(s, "first_use_guide_dismissed", False))
         return s
 
     def save(self, path: str | os.PathLike | None = None) -> None:

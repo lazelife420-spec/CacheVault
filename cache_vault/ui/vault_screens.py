@@ -10,6 +10,16 @@ from .. import brand
 from ..core import clip_metadata, models
 from ..core.editable_copies import KIND_HTML_BUNDLE, load_bundle_meta
 from . import theme
+from .guide_copy import (
+    EMPTY_EXPORTS,
+    EMPTY_MOBILE_INBOX,
+    EMPTY_STAMPED_RECEIPTS,
+    TOOLTIP_EXPORT_PROOF,
+    TOOLTIP_MOBILE_INBOX,
+    TOOLTIP_STAMPED_RECEIPTS,
+    TOOLTIP_VAULT_MACROS,
+)
+from .tooltip import bind_tooltip
 from .receipt_ledger import (
     FILTER_ALL,
     FILTERS,
@@ -74,10 +84,14 @@ class VaultScreenHost(ctk.CTkFrame):
         self._active = None
 
     def _build_receipts(self, parent: ctk.CTkScrollableFrame) -> None:
-        ctk.CTkLabel(
-            parent, text=brand.TERM_STAMPED_RECEIPTS,
+        title_row = ctk.CTkFrame(parent, fg_color="transparent")
+        title_row.pack(fill="x", pady=(4, 2))
+        title_lbl = ctk.CTkLabel(
+            title_row, text=brand.TERM_STAMPED_RECEIPTS,
             font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(fill="x", pady=(4, 2))
+        )
+        title_lbl.pack(side="left")
+        bind_tooltip(title_lbl, TOOLTIP_STAMPED_RECEIPTS)
         ctk.CTkLabel(
             parent, text="Local proof ledger — actions, hashes, and outcomes.",
             anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
@@ -106,7 +120,10 @@ class VaultScreenHost(ctk.CTkFrame):
             rows = rows_from_events(events, get_clip=get_clip)
             rows = filter_rows(rows, flt=filt.get(), query=search.get())
             if not rows:
-                _empty(list_frame, "No receipts match this filter yet.")
+                if not events:
+                    _empty(list_frame, EMPTY_STAMPED_RECEIPTS)
+                else:
+                    _empty(list_frame, "No receipts match this filter yet.")
                 return
             selected = {"row": None}
 
@@ -137,10 +154,14 @@ class VaultScreenHost(ctk.CTkFrame):
         ).pack(anchor="w", pady=(8, 0))
 
     def _build_exports(self, parent: ctk.CTkScrollableFrame) -> None:
-        ctk.CTkLabel(
-            parent, text=brand.TERM_EXPORTS,
+        title_row = ctk.CTkFrame(parent, fg_color="transparent")
+        title_row.pack(fill="x", pady=(4, 2))
+        exp_title = ctk.CTkLabel(
+            title_row, text=brand.TERM_EXPORTS,
             font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(fill="x", pady=(4, 2))
+        )
+        exp_title.pack(side="left")
+        bind_tooltip(exp_title, TOOLTIP_EXPORT_PROOF)
         ctk.CTkLabel(
             parent,
             text="Export saved clips with honest capability labels.",
@@ -169,11 +190,13 @@ class VaultScreenHost(ctk.CTkFrame):
                 font=theme.body_font(10),
             ).pack(side="right")
 
-        ctk.CTkButton(
+        export_btn = ctk.CTkButton(
             parent, text=brand.TERM_EXPORT,
             command=self._callbacks["export_view"],
             **theme.primary_button(),
-        ).pack(anchor="w", pady=(0, 12))
+        )
+        export_btn.pack(anchor="w", pady=(0, 12))
+        bind_tooltip(export_btn, TOOLTIP_EXPORT_PROOF)
 
         _section(parent, "Recent exports")
         self._exports_list = ctk.CTkFrame(parent, fg_color="transparent")
@@ -185,10 +208,7 @@ class VaultScreenHost(ctk.CTkFrame):
             vault = self._callbacks["vault"]()
             exports = vault.list_export_events(30)
             if not exports:
-                _empty(
-                    self._exports_list,
-                    "No exports recorded yet.\nUse Export / Save As from the top bar or Home.",
-                )
+                _empty(self._exports_list, EMPTY_EXPORTS)
                 return
             for ev in exports:
                 path = ev.get("details", {}).get("path", "")
@@ -215,10 +235,14 @@ class VaultScreenHost(ctk.CTkFrame):
         parent._refresh = reload  # type: ignore[attr-defined]
 
     def _build_mobile_inbox(self, parent: ctk.CTkScrollableFrame) -> None:
-        ctk.CTkLabel(
-            parent, text=brand.TERM_MOBILE_INBOX,
+        inbox_title_row = ctk.CTkFrame(parent, fg_color="transparent")
+        inbox_title_row.pack(fill="x", pady=(4, 2))
+        inbox_title = ctk.CTkLabel(
+            inbox_title_row, text=brand.TERM_MOBILE_INBOX,
             font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(fill="x", pady=(4, 2))
+        )
+        inbox_title.pack(side="left")
+        bind_tooltip(inbox_title, TOOLTIP_MOBILE_INBOX)
         ctk.CTkLabel(
             parent,
             text=f"{brand.TERM_INCOMING_FROM_PHONE} · paired Send-to-PC · {brand.LABEL_LOCAL_ONLY}",
@@ -234,12 +258,7 @@ class VaultScreenHost(ctk.CTkFrame):
             vault = self._callbacks["vault"]()
             items = vault.list_mobile_inbox()
             if not items:
-                _empty(
-                    self._inbox_list,
-                    "No items from your phone yet.\n\n"
-                    "Use Cache Vault Mobile Share Assistant → Send to PC "
-                    "while paired with this desktop.",
-                )
+                _empty(self._inbox_list, EMPTY_MOBILE_INBOX)
                 return
             for clip in items[:50]:
                 card = ctk.CTkFrame(self._inbox_list, **theme.vault_card())
@@ -315,10 +334,14 @@ class VaultScreenHost(ctk.CTkFrame):
             SMART_TYPE_LABELS,
         )
 
-        ctk.CTkLabel(
-            parent, text=brand.TERM_VAULT_MACROS,
+        macro_title_row = ctk.CTkFrame(parent, fg_color="transparent")
+        macro_title_row.pack(fill="x", pady=(4, 2))
+        macro_title = ctk.CTkLabel(
+            macro_title_row, text=brand.TERM_VAULT_MACROS,
             font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(fill="x", pady=(4, 2))
+        )
+        macro_title.pack(side="left")
+        bind_tooltip(macro_title, TOOLTIP_VAULT_MACROS)
         ctk.CTkLabel(
             parent,
             text="Saved macros with Macro Safes and smart filters — not encrypted.",

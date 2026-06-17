@@ -9,6 +9,8 @@ import customtkinter as ctk
 from .. import brand
 from ..core import storage as S
 from . import theme
+from .guide_copy import EMPTY_SAFES, NAV_TOOLTIPS, TOOLTIP_SAFES
+from .tooltip import bind_tooltip
 
 # Sidebar screens and actions
 NAV_QUICK_PASTE = "nav_quick_paste"
@@ -143,15 +145,19 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._collections_empty.pack(fill="x", padx=14, pady=2)
 
         self._separator()
-        ctk.CTkLabel(self, text="SAFES", anchor="w",
+        safes_heading = ctk.CTkLabel(self, text="SAFES", anchor="w",
                      text_color=brand.STAMP_GOLD,
                      font=ctk.CTkFont(size=10, weight="bold")
-                     ).pack(fill="x", padx=10, pady=(2, 4))
+                     )
+        safes_heading.pack(fill="x", padx=10, pady=(2, 4))
+        bind_tooltip(safes_heading, TOOLTIP_SAFES)
         self._safes_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._safes_frame.pack(fill="x")
         self._safes_empty = ctk.CTkLabel(
-            self._safes_frame, text="(default only)", anchor="w",
-            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11))
+            self._safes_frame, text=EMPTY_SAFES, anchor="w",
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
+            wraplength=200, justify="left",
+        )
         self._safes_empty.pack(fill="x", padx=14, pady=2)
 
         self._highlight()
@@ -173,6 +179,10 @@ class FilterNav(ctk.CTkScrollableFrame):
         cnt.grid(row=0, column=1, sticky="e", padx=(0, 8))
         self._labels[key] = lbl
         self._counts[key] = cnt
+        tip = NAV_TOOLTIPS.get(key)
+        if tip:
+            bind_tooltip(row, tip)
+            bind_tooltip(lbl, tip)
         for w in (row, lbl, cnt):
             w.bind("<Button-1>", lambda _e, k=key: self._select(k))
             w.configure(cursor="hand2")
