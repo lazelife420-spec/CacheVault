@@ -154,6 +154,11 @@ def main() -> int:
         capture_output=True, text=True, cwd=ROOT, check=True,
     ).stdout.strip()
 
+    pytest_proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:xonsh"],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+
     results: dict = {
         "tag": TAG,
         "version": __version__,
@@ -163,6 +168,11 @@ def main() -> int:
         ).stdout.strip(),
         "source_commit": source_commit,
         "package_metadata_commit": package_commit,
+        "gate_script_commit": package_commit,
+        "desktop_pytest": {
+            "pass": pytest_proc.returncode == 0,
+            "returncode": pytest_proc.returncode,
+        },
         "no_tag": True,
         "no_github_release": True,
         "no_final_release_claim": True,
