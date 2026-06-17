@@ -114,6 +114,17 @@ def receipt_actions_since(since: int) -> list[str]:
     return [r.get("action", "") for r in data[since:]]
 
 
+def wait_receipt_actions_since(since: int, timeout: float = 8.0) -> list[str]:
+    deadline = time.time() + timeout
+    actions: list[str] = []
+    while time.time() < deadline:
+        actions = receipt_actions_since(since)
+        if any(a in actions for a in ("mobile_sent_to_pc", "mobile_inbox_list")):
+            return actions
+        time.sleep(0.5)
+    return actions
+
+
 def push_pairing_to_phone(host: str, port: int, device_id: str, token: str) -> None:
     gradlew = ROOT / "android" / "gradlew.bat"
     subprocess.run(
@@ -178,7 +189,7 @@ def run_share_flow() -> dict:
 
     inbox_after = mobile_inbox_count()
     clip = latest_mobile_share()
-    rec_actions = receipt_actions_since(rec_before)
+    rec_actions = wait_receipt_actions_since(rec_before)
 
     checks["inbox_item_created"] = inbox_after > inbox_before
     checks["capture_mode_mobile_share"] = clip and clip.get("capture_mode") == "mobile_share"
@@ -197,6 +208,7 @@ def run_share_flow() -> dict:
     if server_confirmed and not checks["status_sent"]:
         checks["status_sent"] = True
         checks["status_sent_via_server"] = True
+        checks["status_sent_ui_non_blocking"] = True
 
     dismiss_share_sheet()
     return {
@@ -214,6 +226,7 @@ def run_share_flow() -> dict:
             and checks["capture_mode_mobile_share"]
             and checks["safe_assigned"]
             and checks["content_has_url"]
+            and checks["receipt_logged"]
         ),
     }
 

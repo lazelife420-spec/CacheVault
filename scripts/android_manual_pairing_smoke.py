@@ -119,6 +119,17 @@ def receipt_actions_since(since: int) -> list[str]:
     return [r.get("action", "") for r in data[since:]]
 
 
+def wait_receipt_actions_since(since: int, timeout: float = 8.0) -> list[str]:
+    deadline = time.time() + timeout
+    actions: list[str] = []
+    while time.time() < deadline:
+        actions = receipt_actions_since(since)
+        if "mobile_sent_to_pc" in actions:
+            return actions
+        time.sleep(0.5)
+    return actions
+
+
 def launch_share_sheet() -> None:
     text = TEST_TEXT.replace("\\", "\\\\").replace('"', '\\"')
     cmd = (
@@ -140,7 +151,7 @@ def run_share_flow(inbox_before: int, rec_before: int) -> dict:
     screencap("share_smoke_02_after_send")
     inbox_after = mobile_inbox_count()
     clip = latest_mobile_share()
-    rec_actions = receipt_actions_since(rec_before)
+    rec_actions = wait_receipt_actions_since(rec_before)
     server_confirmed = inbox_after > inbox_before and "mobile_sent_to_pc" in rec_actions
     dismiss_share_sheet()
     return {
