@@ -7,7 +7,8 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$Tag
+    [string]$Tag,
+    [string]$NotesPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +22,11 @@ if ($tagName.StartsWith("refs/tags/")) {
 }
 
 $exePath = Join-Path $root "dist\CacheVault.exe"
-$notesPath = Join-Path $root "RELEASE_NOTES.md"
+if ($NotesPath) {
+    $notesPath = if ([System.IO.Path]::IsPathRooted($NotesPath)) { $NotesPath } else { Join-Path $root $NotesPath }
+} else {
+    $notesPath = Join-Path $root "RELEASE_NOTES.md"
+}
 if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Missing built executable: $exePath"
 }

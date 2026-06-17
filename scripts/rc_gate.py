@@ -1,4 +1,4 @@
-"""Cache Vault v0.1.3-rc1 release-candidate gate — desktop + mobile route proof."""
+"""Cache Vault release-candidate gate — desktop + mobile route proof."""
 from __future__ import annotations
 
 import hashlib
@@ -16,19 +16,19 @@ sys.path.insert(0, str(ROOT))
 
 from cache_vault import __version__  # noqa: E402
 from scripts.android_asset_smoke import (  # noqa: E402
-    EXE as DEFAULT_EXE,
     fresh_pair,
     restart_cache_vault,
     bridge_host_port,
     curl_status,
 )
 
-TAG = "v0.1.3-rc1"
+TAG = "v0.1.3-rc2"
 RELEASE_DIR = ROOT / "dist" / "release" / TAG
 ZIP_NAME = f"CacheVault-{TAG}-windows.zip"
 ZIP_PATH = RELEASE_DIR / ZIP_NAME
 SHA_PATH = RELEASE_DIR / "SHA256SUMS.txt"
 RECEIPT_PATH = RELEASE_DIR / "RC_RECEIPT.json"
+NOTES_PATH = ROOT / "docs" / "releases" / f"{TAG}.md"
 
 
 def sha256_file(path: Path) -> str:
@@ -49,17 +49,22 @@ def wait_port(port: int = 8742, timeout: float = 45.0) -> bool:
     return False
 
 
-def mobile_get(path: str, device_id: str, token: str, host: str, port: int) -> tuple[int, int]:
+def mobile_get(path: str, device_id: str, token: str, host: str, port: int) -> tuple[int, dict | None]:
     req = urllib.request.Request(
         f"http://{host}:{port}{path}",
         headers={"X-Device-Id": device_id, "Authorization": f"Bearer {token}"},
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            body = resp.read()
-            return resp.status, len(body)
+            body = json.loads(resp.read().decode("utf-8"))
+            return resp.status, body
     except urllib.error.HTTPError as e:
-        return e.code, len(e.read())
+        raw = e.read()
+        try:
+            body = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            body = None
+        return e.code, body
 
 
 def verify_zip_structure() -> dict:
@@ -68,12 +73,17 @@ def verify_zip_structure() -> dict:
         return {"zip_exists": False}
     with zipfile.ZipFile(ZIP_PATH) as zf:
         names = zf.namelist()
+        notes_text = zf.read("RELEASE_NOTES.md").decode("utf-8", errors="replace")
     checks["zip_exists"] = True
     checks["contains_exe"] = "CacheVault.exe" in names
     checks["contains_notes"] = "RELEASE_NOTES.md" in names
+    checks["notes_version_rc2"] = "v0.1.3-rc2" in notes_text
     checks["no_source_junk"] = not any(n.endswith(".py") for n in names)
-    notes = (ROOT / "docs" / "releases" / "v0.1.3-rc1.md").read_text(encoding="utf-8")
-    checks["notes_not_v012_final"] = "v0.1.2" not in notes.split("Explicit non-actions")[0] or "Do not replace" in notes
+    if NOTES_PATH.is_file():
+        notes = NOTES_PATH.read_text(encoding="utf-8")
+        checks["notes_not_v012_final"] = (
+            "Do not replace" in notes or "v0.1.2" not in notes.split("Explicit non-actions")[0]
+        )
     return checks
 
 
@@ -94,7 +104,6 @@ def main() -> int:
         "no_v012_mutation": True,
     }
 
-    # Desktop: selftest on packaged exe inside zip extract OR dist exe
     exe = ROOT / "dist" / "CacheVault.exe"
     if exe.is_file():
         proc = subprocess.run([str(exe), "--selftest"], capture_output=True, text=True, cwd=ROOT)
@@ -111,8 +120,8 @@ def main() -> int:
     )
     meta_out = meta.stdout or ""
     exe_meta_pass = (
-        "ProductVersion=0.1.3-rc1" in meta_out
-        and "FileVersion=0.1.3-rc1" in meta_out
+        "ProductVersion=0.1.3-rc2" in meta_out
+        and "FileVersion=0.1.3-rc2" in meta_out
         and "fixed file/product version matches: (0, 1, 3, 0)" in meta_out
     )
     results["exe_metadata"] = {
@@ -121,31 +130,63 @@ def main() -> int:
         "output": meta_out,
     }
 
-    # Mobile routes against running bridge
     device_id, token = fresh_pair()
     restart_cache_vault()
-    lan_host, port = bridge_host_port()
-    code, _ = curl_status(device_id, token, host="127.0.0.1")
+    _, port = bridge_host_port()
+    time.sleep(3.0)
+    code, status_body = curl_status(device_id, token, host="127.0.0.1")
     results["bridge_auth_local"] = code == 200
     results["bridge_port_listening"] = wait_port(port)
 
     routes = {}
+    safe_meta: dict = {"pass": False}
     for path in (
         "/mobile/v1/status",
         "/mobile/v1/clips",
         "/mobile/v1/recently-removed",
     ):
-        status, nbytes = mobile_get(path, device_id, token, "127.0.0.1", port)
-        routes[path] = {"status": status, "bytes": nbytes, "pass": status == 200}
+        status, body = mobile_get(path, device_id, token, "127.0.0.1", port)
+        routes[path] = {
+            "status": status,
+            "pass": status == 200,
+            "read_only": body.get("read_only") if path.endswith("/status") and body else None,
+        }
+        if path == "/mobile/v1/clips" and status == 200 and body:
+            clips = body.get("clips") or []
+            if clips:
+                first = clips[0]
+                safe_meta = {
+                    "pass": "safe_id" in first and "safe_name" in first,
+                    "sample_safe_id": first.get("safe_id"),
+                    "sample_safe_name": first.get("safe_name"),
+                }
     results["mobile_routes"] = routes
-    results["mobile_routes_note"] = (
-        "No /mobile/v1/recent endpoint; /mobile/v1/clips serves vault list including recent activity."
+    results["mobile_safe_metadata"] = safe_meta
+
+    artifact = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools" / "verify_release_artifact.py"),
+            "--zip", str(ZIP_PATH),
+            "--sha256", str(SHA_PATH),
+            "--tag", TAG,
+        ],
+        capture_output=True, text=True, cwd=ROOT,
     )
+    results["artifact_verifier"] = {
+        "pass": artifact.returncode == 0,
+        "output": (artifact.stdout or "").strip(),
+    }
 
     if ZIP_PATH.is_file():
         results["zip_path"] = str(ZIP_PATH)
         results["sha256"] = sha256_file(ZIP_PATH)
-        results["artifact_files"] = [ZIP_NAME, "SHA256SUMS.txt", "RC_RECEIPT.json", "docs/releases/v0.1.3-rc1.md"]
+        results["artifact_files"] = [
+            ZIP_NAME,
+            "SHA256SUMS.txt",
+            "RC_RECEIPT.json",
+            f"docs/releases/{TAG}.md",
+        ]
         results["zip_checks"] = verify_zip_structure()
         if SHA_PATH.is_file():
             line = SHA_PATH.read_text(encoding="ascii").strip()
@@ -154,21 +195,33 @@ def main() -> int:
         results["zip_path"] = None
         results["zip_checks"] = {"zip_exists": False}
 
-    results["proof_screenshots"] = [
-        str(ROOT / "visual_smoke" / "09_vault_connected.png"),
-        str(ROOT / "visual_smoke" / "09_images_grid.png"),
-    ]
-    for p in results["proof_screenshots"]:
-        path = Path(p)
-        results.setdefault("screenshot_sizes", {})[p] = path.stat().st_size if path.is_file() else 0
-
     all_route_pass = all(r["pass"] for r in routes.values())
+
+    if exe.is_file():
+        subprocess.run(["taskkill", "/IM", "CacheVault.exe", "/F"], capture_output=True)
+        time.sleep(1.5)
+        launch = subprocess.Popen([str(exe)], cwd=ROOT)
+        time.sleep(4.0)
+        alive = launch.poll() is None
+        if alive:
+            launch.terminate()
+            try:
+                launch.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                subprocess.run(["taskkill", "/IM", "CacheVault.exe", "/F"], capture_output=True)
+        results["packaged_app_launch"] = {"pass": alive}
+    else:
+        results["packaged_app_launch"] = {"pass": False, "error": "missing exe"}
+
     results["overall_pass"] = (
         results["desktop_selftest"].get("pass")
         and results["exe_metadata"].get("pass")
+        and results["packaged_app_launch"].get("pass")
         and results["bridge_port_listening"]
         and results["bridge_auth_local"]
         and all_route_pass
+        and results["mobile_safe_metadata"].get("pass")
+        and results["artifact_verifier"].get("pass")
         and results.get("zip_checks", {}).get("zip_exists", False)
     )
 
