@@ -109,11 +109,17 @@ Receipts store metadata only — **never full sensitive clipboard content**.
 
 ## Exports & manifest
 
-Proof export `manifest.json` item entries include:
+Proof-pack zip structure and verification: `docs/CROSS_APP_INTEGRATION.md`.
+
+Each `manifest.json` item entry includes:
 
 - `safe_id`, `safe_name`, `capture_mode`, `auto_saved`
+- `source_app`, `content_hash`, `file_hashes`, `receipt_references`
+- `editable_copy` / `html_bundle` blocks when applicable
 
-Export-by-whole-Safe from the UI may be a follow-up; the manifest schema is ready for Safe-scoped proof packs.
+Top-level manifest includes `safes[]`, `receipts_included`, `sha256sums_included`, and `limitations.export_by_safe`.
+
+Export-by-whole-Safe from the UI is **deferred**; schema is ready for Safe-scoped proof packs.
 
 ## Mobile boundary
 

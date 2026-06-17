@@ -19,7 +19,7 @@
 | **3** | Immutable originals + editable copies | **Done** — `editable_copies.py`, vault API, preview/context menu, receipts |
 | **4** | Local HTML bundle support | **Done** — HTML asset scan/copy, bundle revisions, zip export, receipts |
 | **4.5** | UI information architecture | **Done** — Command/Vault/Proof/Access nav, vault screens, inspector |
-| **5** | Proof export zip + manifest + SHA256SUMS | **Done** — `exports.py`, proof zip, receipts |
+| **5** | Proof export zip + manifest + SHA256SUMS | **Done** — finalized; see `CROSS_APP_INTEGRATION.md` |
 | **5.5** | Capture rules + Safes + hotkey capture | **Done** — `safes.py`, `capture_rules.py`, settings, receipts |
 | 6 | Smart folders, tags, notes, search | Planned |
 | 7 | Sensitive item handling | Partial — auto-expiry exists |
@@ -65,16 +65,21 @@
 - Center screens: Stamped Receipts, Exports, Editable Copies, HTML Bundles, Mobile Access.
 - Command Center home with editable-copy and HTML-bundle counts.
 - Inspector panel shows proof status, receipts, editable-copy metadata.
-- Exports screen is honest about Phase 5 manifest/SHA256SUMS.
+- Exports screen shows honest Phase 5 capability labels (manifest, SHA256SUMS, receipts, Safe metadata).
 - Smoke: `scripts/ui_ia_smoke.py`.
 
-## Phase 5 — proof exports
+## Phase 5 — proof exports (finalized)
 
-- `cache_vault/core/exports.py` — proof zip with `manifest.json`, `SHA256SUMS.txt`, `receipts/`, `items/`, `editable_copies/`, `html_bundles/`.
-- Never mutates originals; editable/HTML exports use managed copies.
-- Events: `export_zip_created`, `item_exported`; file receipt `export_zip_created`.
-- Legacy folder export via `export.py` unchanged; zip exports use proof pack.
-- Smoke: `scripts/export_manifest_smoke.py`.
+- `cache_vault/core/exports.py` — core proof-pack service (no UI imports).
+- Zip includes: `manifest.json`, `SHA256SUMS.txt`, `README.txt`, `EXPORT_RECEIPT.txt`, `receipts/`, `items/`, `editable_copies/`, `html_bundles/`.
+- Public core API: `create_export_pack`, `verify_export_pack`, `validate_manifest`, `hash_file`, `write_export_receipt`.
+- Manifest item entries: Safe metadata, capture mode, source app, file hashes, receipt references, editable-copy + HTML-bundle blocks.
+- SHA256SUMS hashes all staged files except itself; manifest hashes synced after final write.
+- Export receipt: `export_zip_created` with manifest/SHA256/receipt flags + Safe summary.
+- Never mutates originals; HTML remote assets never fetched.
+- Whole-Safe export deferred — manifest schema ready (`limitations.export_by_safe`).
+- Docs: `docs/CROSS_APP_INTEGRATION.md`.
+- Smoke: `scripts/export_manifest_smoke.py` → `visual_smoke/export_manifest_smoke.json` (not committed).
 
 ## Phase 5.5 — capture rules & Safes
 

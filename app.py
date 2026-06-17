@@ -21,6 +21,7 @@ def _selftest() -> int:
     from cache_vault.core.vault import Vault
 
     vault = Vault(storage=VaultStorage(":memory:"), settings=Settings())
+    vault.settings.block_sensitive_auto_capture = False
     vault.capture("https://example.com", source_app="test")
     vault.capture("git status", source_app="test")
     secret = vault.capture("sk-abc123DEF456ghi789JKL0", source_app="test")

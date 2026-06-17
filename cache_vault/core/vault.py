@@ -720,7 +720,9 @@ class Vault:
                 "receipt_count": result.receipt_count,
                 "sha256sums_included": True,
                 "manifest_included": True,
+                "receipts_included": True,
                 "mode": mode,
+                "safes": result.manifest.get("safes", []),
                 "warnings": result.warnings[:20],
             }
             self.events.record(

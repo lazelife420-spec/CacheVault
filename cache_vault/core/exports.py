@@ -1,8 +1,12 @@
-"""Proof-backed exports — manifest, SHA256SUMS, receipts, staged copies."""
+"""Proof-backed exports — manifest, SHA256SUMS, receipts, staged copies.
+
+Core-only module: no UI imports. Desktop UI calls :func:`create_export_pack`.
+"""
 
 from __future__ import annotations
 
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -26,6 +30,11 @@ from .editable_copies import (
     write_file_receipt,
 )
 from .models import Clip
+
+# Public aliases for modular proof-pack services.
+hash_file = file_sha256
+create_export_pack = None  # defined after create_proof_zip
+verify_export_pack = None  # defined after verify_zip_hashes
 
 
 @dataclass
@@ -76,6 +85,44 @@ def _write_sha256sums(root: Path, hashes: dict[str, str]) -> None:
     (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _item_file_hashes(stage: Path, rel_paths: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for rel in rel_paths:
+        path = stage / rel
+        if path.is_file():
+            out[rel] = file_sha256(path)
+    return out
+
+
+def validate_manifest(manifest: dict) -> list[str]:
+    """Return validation errors for a proof-pack manifest (empty = valid)."""
+    errors: list[str] = []
+    if manifest.get("document_type") != "cache_vault_proof_export":
+        errors.append("invalid or missing document_type")
+    for key in ("export_id", "export_timestamp", "app_version", "items"):
+        if not manifest.get(key):
+            errors.append(f"missing top-level field: {key}")
+    if manifest.get("manifest_included") is not True:
+        errors.append("manifest_included should be true")
+    if manifest.get("sha256sums_included") is not True:
+        errors.append("sha256sums_included should be true")
+    for i, item in enumerate(manifest.get("items") or []):
+        prefix = f"items[{i}]"
+        for key in (
+            "clip_id", "type", "safe_id", "safe_name",
+            "capture_mode", "auto_saved", "files",
+        ):
+            if key not in item:
+                errors.append(f"{prefix} missing {key}")
+    return errors
+
+
+def write_export_receipt(payload: dict) -> Path:
+    """Write a file receipt for proof-pack export (metadata only)."""
+    action = payload.get("action", "export_zip_created")
+    return write_file_receipt(action, payload)
+
+
 def _copy_file_receipts(stage: Path, clip_ids: set[str]) -> int:
     count = 0
     dest = stage / "receipts"
@@ -111,6 +158,71 @@ def _copy_event_receipts(
     return count
 
 
+def _attach_receipt_references(stage: Path, items: list[dict]) -> None:
+    dest = stage / "receipts"
+    if not dest.is_dir():
+        for item in items:
+            item.setdefault("receipt_references", [])
+        return
+    by_clip: dict[str, list[str]] = {item["clip_id"]: [] for item in items}
+    for path in sorted(dest.glob("*.json")):
+        try:
+            body = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        cid = body.get("clip_id") or ""
+        if cid in by_clip:
+            by_clip[cid].append(f"receipts/{path.name}")
+        elif body.get("action") == "export_zip_created":
+            for item in items:
+                by_clip[item["clip_id"]].append(f"receipts/{path.name}")
+    for item in items:
+        item["receipt_references"] = sorted(set(by_clip.get(item["clip_id"], [])))
+
+
+def _base_item_entry(clip: Clip) -> dict:
+    return {
+        "clip_id": clip.id,
+        "item_id": clip.id,
+        "type": clip.classification,
+        "item_type": clip.classification,
+        "content_type": clip.content_type,
+        "source_app": clip.source_app,
+        "source_window": clip.source_window,
+        "source_app_version": None,
+        "content_hash": clip.content_hash,
+        "export_source": "clip_content",
+        "export_used": "clip_content",
+        "used_editable_copy": False,
+        "safe_id": clip.safe_id,
+        "safe_name": clip.safe_name,
+        "capture_mode": clip.capture_mode,
+        "auto_saved": clip.capture_mode == models.CAPTURE_AUTO,
+        "files": [],
+        "file_hashes": {},
+        "receipt_references": [],
+        "warnings": [],
+    }
+
+
+def build_manifest_item(
+    clip: Clip,
+    stage: Path,
+    *,
+    mode: str,
+    editable: EditableCopyRecord | None,
+    include_original_file: bool,
+    load_asset_bytes: Callable[[str], bytes | None] | None,
+    warnings: list[str],
+) -> dict:
+    """Stage one clip and return a manifest item entry."""
+    return _stage_clip(
+        clip, stage, mode=mode, editable=editable,
+        include_original_file=include_original_file,
+        load_asset_bytes=load_asset_bytes, warnings=warnings,
+    )
+
+
 def _stage_clip(
     clip: Clip,
     stage: Path,
@@ -122,17 +234,7 @@ def _stage_clip(
     warnings: list[str],
 ) -> dict:
     """Stage one clip; return manifest item entry."""
-    entry: dict = {
-        "clip_id": clip.id,
-        "type": clip.classification,
-        "content_type": clip.content_type,
-        "export_source": "clip_content",
-        "safe_id": clip.safe_id,
-        "safe_name": clip.safe_name,
-        "capture_mode": clip.capture_mode,
-        "auto_saved": clip.capture_mode == models.CAPTURE_AUTO,
-        "files": [],
-    }
+    entry = _base_item_entry(clip)
     items_dir = stage / "items"
     items_dir.mkdir(parents=True, exist_ok=True)
     text_path = items_dir / f"{clip.id}.txt"
@@ -146,7 +248,9 @@ def _stage_clip(
             img.write_bytes(data)
             entry["files"].append(img.relative_to(stage).as_posix())
         else:
-            warnings.append(f"Image asset missing for clip {clip.id[:8]}")
+            msg = f"Image asset missing for clip {clip.id[:8]}"
+            warnings.append(msg)
+            entry["warnings"].append(msg)
 
     if editable and editable.kind == KIND_HTML_BUNDLE and mode in ("auto", "html_bundle"):
         bundle_src = Path(editable.bundle_dir)
@@ -156,20 +260,36 @@ def _stage_clip(
                 shutil.rmtree(bundle_dest)
             shutil.copytree(bundle_src, bundle_dest)
             meta = load_bundle_meta(bundle_src)
+            html_rel = None
+            copy_name = Path(editable.copy_path).name
+            for p in bundle_dest.rglob("*"):
+                if p.is_file() and p.name == copy_name:
+                    html_rel = p.relative_to(stage).as_posix()
+                    break
             entry["export_source"] = "html_bundle_copy"
+            entry["export_used"] = "html_bundle_copy"
+            entry["used_editable_copy"] = True
             entry["html_bundle"] = {
+                "original_clip_id": clip.id,
                 "revision": editable.revision,
+                "bundle_dir": f"html_bundles/{clip.id}",
                 "bundle_dir_in_zip": f"html_bundles/{clip.id}",
+                "exported_html_path": html_rel,
                 "copied_asset_count": len(meta.copied_assets) if meta else 0,
                 "missing_asset_count": len(meta.missing_assets) if meta else 0,
                 "remote_assets_skipped": len(meta.remote_assets) if meta else 0,
                 "original_path_metadata": editable.original_path,
+                "original_assets_not_fetched": True,
+                "original_assets_not_mutated": True,
             }
             for p in sorted(bundle_dest.rglob("*")):
                 if p.is_file():
                     entry["files"].append(p.relative_to(stage).as_posix())
+            entry["file_hashes"] = _item_file_hashes(stage, entry["files"])
             return entry
-        warnings.append(f"HTML bundle folder missing for clip {clip.id[:8]}")
+        msg = f"HTML bundle folder missing for clip {clip.id[:8]}"
+        warnings.append(msg)
+        entry["warnings"].append(msg)
 
     if editable and mode in ("auto", "editable_copy"):
         copy_src = Path(editable.copy_path)
@@ -178,15 +298,24 @@ def _stage_clip(
             ed_dir.mkdir(parents=True, exist_ok=True)
             dest = ed_dir / copy_src.name
             shutil.copy2(copy_src, dest)
+            copy_rel = dest.relative_to(stage).as_posix()
             entry["export_source"] = "editable_copy"
+            entry["export_used"] = "editable_copy"
+            entry["used_editable_copy"] = True
             entry["editable_copy"] = {
+                "original_clip_id": clip.id,
                 "revision": editable.revision,
                 "original_path_metadata": editable.original_path,
-                "copy_path_in_zip": dest.relative_to(stage).as_posix(),
+                "copy_path_in_zip": copy_rel,
+                "export_used": "editable_copy",
+                "used_editable_copy": True,
             }
-            entry["files"].append(dest.relative_to(stage).as_posix())
+            entry["files"].append(copy_rel)
+            entry["file_hashes"] = _item_file_hashes(stage, entry["files"])
             return entry
-        warnings.append(f"Editable copy file missing for clip {clip.id[:8]}")
+        msg = f"Editable copy file missing for clip {clip.id[:8]}"
+        warnings.append(msg)
+        entry["warnings"].append(msg)
 
     if include_original_file and pathutil.is_local_file(clip.content):
         src = Path(pathutil.clean_path(clip.content))
@@ -196,13 +325,18 @@ def _stage_clip(
         if src.is_file():
             shutil.copy2(src, dest)
             entry["export_source"] = "original_file_copy"
+            entry["export_used"] = "original_file_copy"
             entry["original_path_metadata"] = str(src)
             entry["files"].append(dest.relative_to(stage).as_posix())
         else:
-            warnings.append(f"Original file missing: {clip.content[:80]}")
+            msg = f"Original file missing: {clip.content[:80]}"
+            warnings.append(msg)
+            entry["warnings"].append(msg)
             entry["unsupported"] = "original_file_missing"
     elif pathutil.is_local_path(clip.content) and not pathutil.target_exists(clip.content):
-        warnings.append(f"Original file missing: {clip.content[:80]}")
+        msg = f"Original file missing: {clip.content[:80]}"
+        warnings.append(msg)
+        entry["warnings"].append(msg)
         entry["original_path_metadata"] = pathutil.clean_path(clip.content)
         entry["reference_only"] = True
         entry["unsupported"] = "original_file_missing"
@@ -210,7 +344,64 @@ def _stage_clip(
         entry["original_path_metadata"] = pathutil.clean_path(clip.content)
         entry["reference_only"] = True
 
+    entry["file_hashes"] = _item_file_hashes(stage, entry["files"])
     return entry
+
+
+def _write_readme(stage: Path, export_id: str, export_ts: str) -> None:
+    text = (
+        f"{brand.PRODUCT_NAME} — Proof Export Package\n"
+        f"Export ID: {export_id}\n"
+        f"Exported: {export_ts}\n"
+        f"App version: {__version__}\n\n"
+        "Contents:\n"
+        "  manifest.json      — export manifest (items, Safes, capture modes)\n"
+        "  SHA256SUMS.txt     — SHA-256 hashes of staged files (not the zip itself)\n"
+        "  EXPORT_RECEIPT.txt — human-readable export summary\n"
+        "  receipts/          — stamped event + file receipts (metadata only)\n"
+        "  items/             — clip text/image payloads\n"
+        "  editable_copies/   — managed editable copies (when applicable)\n"
+        "  html_bundles/      — copied HTML bundles (when applicable)\n\n"
+        f"{brand.RECEIPT_NOTE}\n"
+        "Safes are local vault sections — not encrypted containers.\n"
+    )
+    (stage / "README.txt").write_text(text, encoding="utf-8")
+
+
+def _finalize_manifest_hashes(stage: Path, manifest: dict) -> dict[str, str]:
+    """Write SHA256SUMS.txt and sync manifest hashes/file_list."""
+    staged = {
+        k: v for k, v in _hash_tree(stage).items() if k != "SHA256SUMS.txt"
+    }
+    _write_sha256sums(stage, staged)
+    final = {
+        k: v for k, v in _hash_tree(stage).items() if k != "SHA256SUMS.txt"
+    }
+    manifest["file_list"] = sorted(final.keys())
+    manifest["hashes"] = final
+    (stage / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8",
+    )
+    _write_sha256sums(stage, {
+        k: v for k, v in _hash_tree(stage).items() if k != "SHA256SUMS.txt"
+    })
+    return _hash_tree(stage)
+
+
+def _safe_summary(clips: list[Clip]) -> list[dict]:
+    seen: set[tuple[str, str, str]] = set()
+    out: list[dict] = []
+    for clip in clips:
+        key = (clip.safe_id, clip.safe_name, clip.capture_mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "safe_id": clip.safe_id,
+            "safe_name": clip.safe_name,
+            "capture_mode": clip.capture_mode,
+        })
+    return out
 
 
 def create_proof_zip(
@@ -221,6 +412,8 @@ def create_proof_zip(
     include_original_files: bool = False,
     include_receipts: bool = True,
     collection_name: str | None = None,
+    safe_id: str | None = None,
+    safe_name: str | None = None,
     get_editable_copy: Callable[[str], EditableCopyRecord | None] | None = None,
     events_for_clips: Callable[[list[str]], list[dict]] | None = None,
     load_asset_bytes: Callable[[str], bytes | None] | None = None,
@@ -256,6 +449,15 @@ def create_proof_zip(
                     stage, clip_ids, events_for_clips(list(clip_ids)),
                 )
                 receipt_count += _copy_file_receipts(stage, clip_ids)
+                receipts_dir_path = stage / "receipts"
+                receipts_dir_path.mkdir(parents=True, exist_ok=True)
+                if not any(receipts_dir_path.iterdir()):
+                    (receipts_dir_path / "README.txt").write_text(
+                        "No matching receipts for exported clip ids.\n",
+                        encoding="utf-8",
+                    )
+
+            _attach_receipt_references(stage, item_entries)
 
             readme = (
                 f"{brand.PRODUCT_NAME} — Proof Export\n"
@@ -263,13 +465,13 @@ def create_proof_zip(
                 f"Exported: {export_ts}\n"
                 f"Version: {__version__}\n\n"
                 f"This package contains exported items, receipts, manifest.json, "
-                f"and SHA256SUMS.txt.\n"
+                f"SHA256SUMS.txt, and README.txt.\n"
                 f"{brand.RECEIPT_NOTE}\n"
             )
             (stage / "EXPORT_RECEIPT.txt").write_text(readme, encoding="utf-8")
+            _write_readme(stage, export_id, export_ts)
 
-            content_hashes = _hash_tree(stage)
-            file_list = sorted(content_hashes.keys()) + ["manifest.json", "SHA256SUMS.txt"]
+            safes = _safe_summary(clips)
             manifest = {
                 "document_type": "cache_vault_proof_export",
                 "export_id": export_id,
@@ -280,12 +482,15 @@ def create_proof_zip(
                 "studio": brand.STUDIO_NAME,
                 "export_type": "multi_clip" if len(clips) > 1 else "single_item",
                 "collection": collection_name,
+                "safe_id": safe_id or (clips[0].safe_id if len(clips) == 1 else None),
+                "safe_name": safe_name or (clips[0].safe_name if len(clips) == 1 else None),
+                "safes": safes,
                 "item_count": len(clips),
                 "item_ids": [c.id for c in clips],
                 "item_types": [c.classification for c in clips],
                 "items": item_entries,
-                "file_list": file_list,
-                "hashes": content_hashes,
+                "file_list": [],
+                "hashes": {},
                 "receipt_count": receipt_count,
                 "receipts_included": include_receipts,
                 "sha256sums_included": True,
@@ -294,36 +499,47 @@ def create_proof_zip(
                 "unsupported_items": [
                     e.get("unsupported") for e in item_entries if e.get("unsupported")
                 ],
+                "limitations": {
+                    "export_by_safe": "deferred — schema supports safe_id/safes fields",
+                    "encryption": "none — Safes are local sections, not encrypted vaults",
+                    "remote_html_assets": "never fetched — copied local assets only",
+                },
             }
             (stage / "manifest.json").write_text(
                 json.dumps(manifest, indent=2), encoding="utf-8",
             )
 
-            all_hashes = _hash_tree(stage)
-            _write_sha256sums(stage, all_hashes)
-            all_hashes = _hash_tree(stage)
+            all_hashes = _finalize_manifest_hashes(stage, manifest)
 
             with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
                 for path in sorted(stage.rglob("*")):
                     if path.is_file():
                         zf.write(path, path.relative_to(stage).as_posix())
 
+            primary = clips[0]
             receipt_payload = {
                 "action": "export_zip_created",
                 "export_id": export_id,
-                "clip_id": clips[0].id if len(clips) == 1 else None,
+                "clip_id": primary.id if len(clips) == 1 else None,
                 "clip_ids": [c.id for c in clips],
                 "timestamp": export_ts,
                 "output_zip_path": str(dest),
                 "manifest_path_in_zip": "manifest.json",
+                "manifest_included": True,
                 "sha256sums_included": True,
+                "receipts_included": include_receipts,
+                "sha256sums_path_in_zip": "SHA256SUMS.txt",
                 "receipt_count": receipt_count,
                 "file_count": len(all_hashes),
                 "success": True,
                 "app_version": __version__,
+                "safe_id": primary.safe_id if len(clips) == 1 else None,
+                "safe_name": primary.safe_name if len(clips) == 1 else None,
+                "capture_mode": primary.capture_mode if len(clips) == 1 else None,
+                "safes": safes,
                 "warnings": warnings[:20],
             }
-            write_file_receipt("export_zip_created", receipt_payload)
+            write_export_receipt(receipt_payload)
 
             return ProofExportResult(
                 export_id=export_id,
@@ -342,8 +558,11 @@ def create_proof_zip(
             "success": False,
             "error": str(exc)[:200],
             "app_version": __version__,
+            "manifest_included": False,
+            "sha256sums_included": False,
+            "receipts_included": include_receipts,
         }
-        write_file_receipt("export_zip_created", fail_payload)
+        write_export_receipt(fail_payload)
         return ProofExportResult(
             export_id=export_id,
             success=False,
@@ -352,9 +571,13 @@ def create_proof_zip(
         )
 
 
-def verify_zip_hashes(zip_path: Path) -> tuple[bool, list[str]]:
+create_export_pack = create_proof_zip
+
+
+def verify_zip_hashes(zip_path: Path | os.PathLike) -> tuple[bool, list[str]]:
     """Verify SHA256SUMS.txt inside an export zip matches file contents."""
     errors: list[str] = []
+    zip_path = Path(zip_path)
     with zipfile.ZipFile(zip_path) as zf:
         if "SHA256SUMS.txt" not in zf.namelist():
             return False, ["SHA256SUMS.txt missing"]
@@ -372,8 +595,35 @@ def verify_zip_hashes(zip_path: Path) -> tuple[bool, list[str]]:
                 errors.append(f"missing file: {rel}")
                 continue
             data = zf.read(rel)
-            import hashlib
             actual = hashlib.sha256(data).hexdigest()
             if actual != expected:
                 errors.append(f"hash mismatch: {rel}")
+        if "manifest.json" in zf.namelist() and "manifest.json" not in sums:
+            errors.append("manifest.json missing from SHA256SUMS.txt")
+    return not errors, errors
+
+
+def verify_export_pack(zip_path: Path | os.PathLike) -> tuple[bool, list[str]]:
+    """Verify proof-pack zip: SHA256SUMS + manifest structure."""
+    errors: list[str] = []
+    ok, hash_errors = verify_zip_hashes(zip_path)
+    if not ok:
+        errors.extend(hash_errors)
+    zip_path = Path(zip_path)
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+        for required in ("manifest.json", "SHA256SUMS.txt", "EXPORT_RECEIPT.txt"):
+            if required not in names:
+                errors.append(f"{required} missing from zip")
+        manifest: dict | None = None
+        if "manifest.json" in names:
+            try:
+                manifest = json.loads(zf.read("manifest.json"))
+            except json.JSONDecodeError:
+                errors.append("manifest.json is not valid JSON")
+            else:
+                errors.extend(validate_manifest(manifest))
+        if manifest and manifest.get("receipts_included"):
+            if not any(n.startswith("receipts/") for n in names):
+                errors.append("receipts/ expected but missing from zip")
     return not errors, errors

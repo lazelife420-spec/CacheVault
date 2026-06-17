@@ -149,11 +149,13 @@ class VaultScreenHost(ctk.CTkFrame):
         cap.pack(fill="x", pady=(0, 12))
         for label, value in (
             ("Basic export / Save As", "Available now"),
-            ("Proof export zip", "Available — manifest + SHA256SUMS"),
+            ("Proof export zip", "Available — manifest + SHA256SUMS + README"),
             ("HTML bundle export", "Uses copied HTML bundle, not originals"),
-            ("Proof manifest in export", brand.LABEL_MANIFEST_INCLUDED),
-            ("SHA256SUMS in export", brand.LABEL_SHA256SUMS_INCLUDED),
-            ("Receipts in export", "Included when found"),
+            ("Proof manifest in export", "Yes — included"),
+            ("SHA256SUMS in export", "Yes — included"),
+            ("Receipts in export", "Yes — event + file receipts when available"),
+            ("Safe metadata in manifest", "Yes — safe_id, safe_name, capture_mode"),
+            ("Export by Safe (whole Safe)", "Deferred — manifest schema ready"),
         ):
             row = ctk.CTkFrame(cap, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=4)
