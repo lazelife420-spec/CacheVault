@@ -279,29 +279,21 @@ def test_asset_storage_ready_true_with_table(storage):
 
 try:
     import customtkinter as ctk
-    _HAS_DISPLAY = True
+    from tests.tk_support import probe_tk_ui
+
+    _TK_OK, _TK_REASON = probe_tk_ui()
 except Exception:
-    _HAS_DISPLAY = False
+    _TK_OK, _TK_REASON = False, "customtkinter unavailable"
 
-if _HAS_DISPLAY:
-    try:
-        _root = ctk.CTk()
-        _root.destroy()
-    except Exception:
-        _HAS_DISPLAY = False
-
-
-_ui_mark = pytest.mark.skipif(not _HAS_DISPLAY, reason="requires a display")
+_ui_mark = pytest.mark.skipif(not _TK_OK, reason=_TK_REASON or "Tk UI unavailable")
 
 
 @_ui_mark
 class TestHomeVaultUI:
-    def test_home_vault_status_header_renders(self):
-        root = ctk.CTk()
-        root.withdraw()
+    def test_home_vault_status_header_renders(self, tk_root):
         receipts: list[str] = []
         dashboard = HomeDashboard(
-            root,
+            tk_root,
             on_filter=lambda _k: None,
             on_open_receipts=lambda: receipts.append("receipts"),
             on_mobile_settings=lambda: None,
@@ -332,14 +324,11 @@ class TestHomeVaultUI:
         assert any("Mobile Access off" in t for t in labels)
 
         dashboard.destroy()
-        root.destroy()
 
-    def test_vault_control_panel_renders(self):
+    def test_vault_control_panel_renders(self, tk_root):
         from cache_vault.ui.preview import PreviewPanel
 
-        root = ctk.CTk()
-        root.withdraw()
-        panel = PreviewPanel(root, actions={})
+        panel = PreviewPanel(tk_root, actions={})
         summary = {
             "all": 5, "favorites": 1, "duplicates": 0, "recently_removed": 0,
             "receipts": 3, "capture_paused": False, "mobile_enabled": False,
@@ -369,15 +358,12 @@ class TestHomeVaultUI:
         assert brand.TERM_EXPORT in buttons
 
         panel.destroy()
-        root.destroy()
 
-    def test_summary_cards_clickable(self):
-        root = ctk.CTk()
-        root.withdraw()
+    def test_summary_cards_clickable(self, tk_root):
         navigated: list[str] = []
         receipts: list[str] = []
         dashboard = HomeDashboard(
-            root,
+            tk_root,
             on_filter=lambda k: navigated.append(k),
             on_open_receipts=lambda: receipts.append("yes"),
             on_mobile_settings=lambda: None,
@@ -414,4 +400,3 @@ class TestHomeVaultUI:
         assert receipts == ["yes"]
 
         dashboard.destroy()
-        root.destroy()

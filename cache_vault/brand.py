@@ -63,7 +63,7 @@ LABEL_RECEIPT_STAMPED = "Receipt stamped"
 LABEL_HASH_VERIFIED = "Hash verified"
 LABEL_LOCAL_ONLY = "Local only"
 LABEL_MOBILE_PAIRED = "Mobile paired"
-LABEL_PHASE5_MANIFEST = "Manifest / SHA export — Phase 5"
+LABEL_PHASE5_MANIFEST = "Included in proof export zip"
 LABEL_MANIFEST_INCLUDED = "Included in proof export zip"
 LABEL_SHA256SUMS_INCLUDED = "Included in proof export zip"
 
