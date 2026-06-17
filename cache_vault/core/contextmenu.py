@@ -7,8 +7,10 @@ into a native ``tkinter.Menu``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 
-from . import pathutil
+from . import copy_clean, pathutil
+from . import models
 from .models import Clip
 
 
@@ -18,6 +20,49 @@ class MenuItem:
     label: str         # menu text
     enabled: bool = True
     separator_before: bool = False
+    children: list["MenuItem"] = field(default_factory=list)
+
+
+_COPY_LABELS = {
+    copy_clean.COPY_TEXT: "Copy Text",
+    copy_clean.COPY_PLAIN_TEXT: "Copy Plain Text",
+    copy_clean.COPY_TITLE_LINK: "Copy Title + Link",
+    copy_clean.COPY_LINK_ONLY: "Copy Link Only",
+    copy_clean.COPY_MARKDOWN: "Copy as Markdown",
+    copy_clean.COPY_SMS: "Copy for Text Message",
+    copy_clean.COPY_EMAIL: "Copy for Email",
+    copy_clean.COPY_PHONE: "Copy Phone Number",
+    copy_clean.COPY_EMAIL_ADDRESS: "Copy Email Address",
+    copy_clean.COPY_ADDRESS: "Copy Address",
+    copy_clean.COPY_FILE_PATH: "Copy File Path",
+    copy_clean.COPY_HASH: "Copy Hash",
+    copy_clean.COPY_METADATA_SUMMARY: "Copy Metadata Summary",
+    copy_clean.COPY_SOURCE_SUMMARY: "Copy Source Summary",
+}
+
+
+def copy_clean_menu_items(clip: Clip) -> list[MenuItem]:
+    available = set(copy_clean.available_clip_actions(clip))
+    ordered = [
+        copy_clean.COPY_TEXT,
+        copy_clean.COPY_PLAIN_TEXT,
+        copy_clean.COPY_TITLE_LINK,
+        copy_clean.COPY_LINK_ONLY,
+        copy_clean.COPY_MARKDOWN,
+        copy_clean.COPY_SMS,
+        copy_clean.COPY_EMAIL,
+        copy_clean.COPY_PHONE,
+        copy_clean.COPY_EMAIL_ADDRESS,
+        copy_clean.COPY_ADDRESS,
+        copy_clean.COPY_FILE_PATH,
+        copy_clean.COPY_HASH,
+        copy_clean.COPY_METADATA_SUMMARY,
+        copy_clean.COPY_SOURCE_SUMMARY,
+    ]
+    return [
+        MenuItem(f"copy_clean:{key}", _COPY_LABELS[key], enabled=key in available)
+        for key in ordered
+    ]
 
 
 def clip_menu_items(clip: Clip) -> list[MenuItem]:
@@ -35,22 +80,44 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
             MenuItem("permanently_remove", "Permanently Remove"),
         ]
 
+    primary = "Copy Image" if clip.content_type == models.CONTENT_IMAGE else "Paste / Copy"
     items = [
-        MenuItem("copy_again", "Copy Again"),
+        MenuItem("copy_again", primary),
+        MenuItem("copy_clean", "Copy Clean", children=copy_clean_menu_items(clip)),
         MenuItem(
             "toggle_favorite",
             "Remove from Favorites" if clip.is_pinned else "Add to Favorites",
         ),
-        MenuItem("move_collection", "Move to Collection…"),
         MenuItem("move_safe", "Move to Safe…"),
-        MenuItem("export", "Export / Save As…"),
+        MenuItem(
+            "create_editable_copy",
+            "Create Editable Copy",
+            enabled=pathutil.is_local_path(clip.content),
+        ),
+        MenuItem(
+            "proof",
+            "Proof",
+            children=[
+                MenuItem("export_proof_zip", "Export Proof Zip"),
+                MenuItem("view_receipts", "View Receipts"),
+            ],
+        ),
     ]
+
+    if clip.classification == models.CLASS_LINK:
+        items.insert(1, MenuItem("open_link", "Open Link"))
+    if clip.content_type == models.CONTENT_IMAGE:
+        items.insert(1, MenuItem("open_asset_folder", "Open Asset Folder"))
+    if clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
+        items.insert(2, MenuItem("view_mobile_receipt", "View Mobile Receipt"))
 
     if pathutil.is_local_path(clip.content):
         exists = pathutil.target_exists(clip.content)
         parent = pathutil.parent_exists(clip.content)
         is_file = pathutil.is_local_file(clip.content)
-        open_label = "Open Editable Copy" if is_file else "Open Folder"
+        open_label = "Open Asset Folder" if clip.content_type == models.CONTENT_IMAGE else (
+            "Open Editable Copy" if is_file else "Open Folder"
+        )
         items.append(MenuItem("open", open_label, enabled=exists,
                               separator_before=True))
         items.append(MenuItem("reveal", "Reveal in Explorer",

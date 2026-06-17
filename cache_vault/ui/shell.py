@@ -22,7 +22,7 @@ from pathlib import Path
 import customtkinter as ctk
 
 from .. import brand
-from ..core import models, search, vault_lock
+from ..core import copy_clean, models, search, vault_lock
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -301,6 +301,7 @@ class CacheVaultApp(ctk.CTk):
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
                                   settings=self.vault.settings,
+                                  on_safe_context=self._open_safe_menu,
                                   width=210, corner_radius=0)
         self._filters.grid(row=1, column=0, sticky="nsew")
 
@@ -344,6 +345,7 @@ class CacheVaultApp(ctk.CTk):
         self._grid = ClipGrid(
             self._center, on_select=self._on_clip_select,
             on_sort=self._set_sort,
+            on_context=self._open_clip_menu,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._home.grid(row=1, column=0, sticky="nsew")
@@ -379,6 +381,8 @@ class CacheVaultApp(ctk.CTk):
                 "open_link": self._open_clip_link,
                 "export_proof": self._export_clip_proof,
                 "remove_clip": self._remove_from_history,
+                "open_clip_menu": self._open_clip_menu,
+                "open_receipt_menu": self._open_receipt_menu,
             },
             corner_radius=0,
         )
@@ -1195,6 +1199,8 @@ class CacheVaultApp(ctk.CTk):
             webbrowser.open(url)
 
     def _copy_metadata(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
         clip = self.vault.storage.get_clip(clip_id)
         if not clip:
             return
@@ -1205,6 +1211,51 @@ class CacheVaultApp(ctk.CTk):
         self.clipboard_clear()
         self.clipboard_append(meta)
         self._monitor.note_local_copy(meta)
+
+    def _copy_clean(self, clip_id: str, action: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        text = copy_clean.format_clip(clip, action)
+        if text is None:
+            self._show_toast("That Copy Clean format is not available for this item.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self.vault.events.record(
+            copy_clean.EVENT_ITEM_COPIED_CLEAN,
+            clip_id,
+            {
+                "format": action,
+                "classification": clip.classification,
+                "content_type": clip.content_type,
+                "capture_mode": clip.capture_mode,
+                "safe_id": clip.safe_id,
+                "safe_name": clip.safe_name,
+            },
+        )
+        self._show_toast("Copied clean format.")
+
+    def _copy_receipt_summary(self, row) -> None:
+        if not self._guard_unlocked():
+            return
+        text = copy_clean.receipt_summary(row)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self.vault.events.record(
+            copy_clean.EVENT_RECEIPT_SUMMARY_COPIED,
+            getattr(row, "clip_id", None),
+            {
+                "receipt_id": getattr(row, "receipt_id", ""),
+                "action": getattr(row, "action_raw", ""),
+                "has_hash": bool(getattr(row, "proof_hash", "")),
+            },
+        )
+        self._show_toast("Copied receipt summary.")
 
     def _toggle_favorite(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
@@ -1250,31 +1301,164 @@ class CacheVaultApp(ctk.CTk):
 
         from ..core.contextmenu import clip_menu_items
 
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
         menu = tk.Menu(self, tearoff=0)
         dispatch = {
             "copy_again": lambda: self._copy_again(clip.id),
+            "open_link": lambda: self._open_clip_link(clip.id),
+            "open_asset_folder": lambda: self._open_asset_folder(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
-            "move_collection": lambda: self._move_to_collection(clip.id),
             "move_safe": lambda: self._move_to_safe(clip.id),
-            "export": lambda: self._export_clip(clip.id),
+            "create_editable_copy": lambda: self._create_editable_copy(clip.id),
+            "export_proof_zip": lambda: self._export_clip_proof(clip.id),
+            "view_receipts": self._open_events,
+            "view_mobile_receipt": self._open_events,
             "open": lambda: self._open_clip_path(clip.id),
             "reveal": lambda: self._reveal_clip_path(clip.id),
             "remove": lambda: self._remove_from_history(clip.id),
             "restore": lambda: self._restore(clip.id),
             "permanently_remove": lambda: self._permanently_remove(clip.id),
         }
-        for item in clip_menu_items(clip):
-            if item.separator_before:
-                menu.add_separator()
-            menu.add_command(
-                label=item.label,
-                state=("normal" if item.enabled else "disabled"),
-                command=dispatch[item.key],
-            )
+        self._add_menu_items(menu, clip_menu_items(clip), dispatch, clip.id)
+        self.vault.events.record(
+            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
+            clip.id,
+            {"surface": "clip", "classification": clip.classification},
+        )
         try:
             menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
         finally:
             menu.grab_release()
+
+    def _add_menu_items(self, menu, items, dispatch: dict, clip_id: str) -> None:
+        import tkinter as tk
+
+        for item in items:
+            if item.separator_before:
+                menu.add_separator()
+            if item.children:
+                sub = tk.Menu(menu, tearoff=0)
+                self._add_menu_items(sub, item.children, dispatch, clip_id)
+                menu.add_cascade(label=item.label, menu=sub, state="normal")
+                continue
+            if item.key.startswith("copy_clean:"):
+                action = item.key.split(":", 1)[1]
+                command = lambda a=action, cid=clip_id: self._copy_clean(cid, a)
+            else:
+                command = dispatch[item.key]
+            menu.add_command(
+                label=item.label,
+                state=("normal" if item.enabled else "disabled"),
+                command=command,
+            )
+
+    def _open_locked_menu(self, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Unlock Vault", command=self._lock_screen.focus_unlock)
+        menu.add_command(label="Quit", command=self._quit)
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+
+    def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        clip_id = getattr(row, "clip_id", None)
+        proof_hash = getattr(row, "proof_hash", "") or ""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="Copy Receipt Summary",
+            command=lambda: self._copy_receipt_summary(row),
+        )
+        menu.add_command(
+            label="Copy Receipt Path",
+            state="disabled",
+        )
+        menu.add_command(
+            label="Copy Item ID",
+            state=("normal" if clip_id else "disabled"),
+            command=lambda: self._copy_text(str(clip_id), "Copied item ID."),
+        )
+        menu.add_command(
+            label="Copy Hash",
+            state=("normal" if proof_hash else "disabled"),
+            command=lambda: self._copy_text(proof_hash, "Copied hash."),
+        )
+        menu.add_separator()
+        menu.add_command(
+            label="Open Receipt File / Folder",
+            state="disabled",
+        )
+        menu.add_command(
+            label="Export Proof Zip",
+            state=("normal" if clip_id else "disabled"),
+            command=lambda: self._export_clip_proof(str(clip_id)),
+        )
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+
+    def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        safe_id = str(safe.get("id") or "")
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="Set as Default Safe",
+            command=lambda: self._set_default_safe(safe_id),
+        )
+        menu.add_command(
+            label="Copy Safe Summary",
+            command=lambda: self._copy_safe_summary(safe),
+        )
+        menu.add_separator()
+        menu.add_command(label="Rename Safe", state="disabled")
+        menu.add_command(label="Export Safe Proof Zip", state="disabled")
+        menu.add_command(
+            label="Collapse/Expand Safes",
+            command=lambda: self._filters._toggle_section("SAFES"),  # noqa: SLF001
+        )
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+
+    def _set_default_safe(self, safe_id: str) -> None:
+        if not safe_id:
+            return
+        self.vault.settings.default_safe_id = safe_id
+        self.vault.settings.save()
+        self.refresh()
+        self._show_toast("Default Safe updated.")
+
+    def _copy_safe_summary(self, safe: dict) -> None:
+        text = (
+            f"Safe: {safe.get('name', 'Safe')}\n"
+            f"Safe ID: {safe.get('id', 'unknown')}\n"
+            f"Items: {safe.get('count', 0)}\n"
+            "Safes organize items. They are not encryption unless encryption is added later."
+        )
+        self._copy_text(text, "Copied Safe summary.")
+
+    def _copy_text(self, text: str, notice: str = "Copied.") -> None:
+        if not self._guard_unlocked():
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self._show_toast(notice)
 
     def _open_clip_path(self, clip_id: str) -> None:
         from ..core import pathutil
@@ -1285,6 +1469,14 @@ class CacheVaultApp(ctk.CTk):
             self._open_editable_copy(clip_id)
         else:
             pathutil.open_path(clip.content)
+
+    def _open_asset_folder(self, clip_id: str) -> None:
+        from ..core import image_assets, pathutil
+        rec = self.vault.storage.get_asset_record(clip_id)
+        if rec is None:
+            return
+        path = image_assets.assets_dir() / rec.storage_name
+        pathutil.reveal_in_explorer(str(path))
 
     def _create_editable_copy(self, clip_id: str) -> None:
         self.vault.create_editable_copy(clip_id)

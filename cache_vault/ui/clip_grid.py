@@ -29,11 +29,13 @@ class ClipGrid(ctk.CTkScrollableFrame):
         master,
         on_select: Callable[[Clip], None],
         on_sort: Callable[[str], None] | None = None,
+        on_context: Callable[[Clip, int, int], None] | None = None,
         **kw,
     ):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._on_sort = on_sort
+        self._on_context = on_context
         self._selected_id: str | None = None
         self._sort_key = models.SORT_NEWEST_ADDED
         self._header = ctk.CTkFrame(self, fg_color=brand.SURFACE_BG, corner_radius=6)
@@ -108,7 +110,9 @@ class ClipGrid(ctk.CTkScrollableFrame):
             )
             lbl.grid(row=0, column=col, sticky="ew", padx=6, pady=6)
             lbl.bind("<Button-1>", lambda _e, c=clip: self._select(c))
+            lbl.bind("<Button-3>", lambda e, c=clip: self._context(e, c))
         row.bind("<Button-1>", lambda _e, c=clip: self._select(c))
+        row.bind("<Button-3>", lambda e, c=clip: self._context(e, c))
 
     def _row_values(self, clip: Clip) -> dict[str, str]:
         name = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
@@ -130,6 +134,11 @@ class ClipGrid(ctk.CTkScrollableFrame):
     def _select(self, clip: Clip) -> None:
         self._selected_id = clip.id
         self._on_select(clip)
+
+    def _context(self, event, clip: Clip) -> None:
+        self._select(clip)
+        if self._on_context is not None:
+            self._on_context(clip, event.x_root, event.y_root)
 
 
 def _short(iso: str) -> str:
