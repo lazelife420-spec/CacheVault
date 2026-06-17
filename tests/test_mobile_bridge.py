@@ -98,6 +98,7 @@ def test_get_clip_by_id(vault, mobile_bridge):
 
 
 def test_sensitive_clip_masks_content_on_list_not_detail(vault, mobile_bridge):
+    vault.settings.block_sensitive_auto_capture = False
     secret = vault.capture("sk-abc123DEF456ghi789JKL0")
     device, token = _pair(mobile_bridge, vault)
     headers = _auth(device.device_id, token)

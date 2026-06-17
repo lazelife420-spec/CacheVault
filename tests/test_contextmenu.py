@@ -15,7 +15,7 @@ def test_text_clip_has_no_file_actions():
     items = clip_menu_items(_clip("just some text", classification=models.CLASS_PLAIN))
     keys = _keys(items)
     assert keys == ["copy_again", "toggle_favorite", "move_collection",
-                    "export", "remove"]
+                    "move_safe", "export", "remove"]
     assert "open" not in keys and "reveal" not in keys
 
 

@@ -46,6 +46,8 @@ FILTER_SEARCH_ALL = "search_all"
 FILTER_SCREENSHOTS = "screenshots"
 # Sidebar collection entries use this prefix, e.g. "col:Work".
 COLLECTION_PREFIX = "col:"
+# Sidebar Safe entries use this prefix, e.g. "safe:default".
+SAFE_PREFIX = "safe:"
 
 _CLASS_BY_FILTER = {
     FILTER_LINKS: models.CLASS_LINK,
@@ -154,6 +156,9 @@ class VaultStorage:
         "last_used_at": "TEXT",
         "use_count": "INTEGER DEFAULT 0",
         "copied_count": "INTEGER DEFAULT 0",
+        "safe_id": "TEXT DEFAULT 'default'",
+        "safe_name": "TEXT DEFAULT 'Default Safe'",
+        "capture_mode": "TEXT DEFAULT 'auto'",
     }
 
     def _migrate(self) -> None:
@@ -177,6 +182,14 @@ class VaultStorage:
         self.conn.execute(
             "UPDATE clips SET use_count = 1 "
             "WHERE (use_count IS NULL OR use_count = 0) AND deleted_at IS NULL"
+        )
+        self.conn.execute(
+            "UPDATE clips SET safe_id = 'default', safe_name = 'Default Safe' "
+            "WHERE safe_id IS NULL OR safe_id = ''"
+        )
+        self.conn.execute(
+            "UPDATE clips SET capture_mode = 'auto' "
+            "WHERE capture_mode IS NULL OR capture_mode = ''"
         )
         from .editable_copies import EditableCopyStore
         EditableCopyStore(self.conn).ensure_schema()
@@ -213,6 +226,9 @@ class VaultStorage:
             last_used_at=row["last_used_at"] if "last_used_at" in row.keys() else None,
             use_count=int(row["use_count"] or 0) if "use_count" in row.keys() else 0,
             copied_count=int(row["copied_count"] or 0) if "copied_count" in row.keys() else 0,
+            safe_id=row["safe_id"] if "safe_id" in row.keys() and row["safe_id"] else "default",
+            safe_name=row["safe_name"] if "safe_name" in row.keys() and row["safe_name"] else "Default Safe",
+            capture_mode=row["capture_mode"] if "capture_mode" in row.keys() and row["capture_mode"] else models.CAPTURE_AUTO,
         )
 
     # --- writes ------------------------------------------------------------
@@ -229,8 +245,9 @@ class VaultStorage:
                 content, preview, source_app, source_window, classification,
                 tags, is_pinned, is_kept, is_sensitive, expires_at,
                 deleted_at, duplicate_of, collection, title, source_url,
-                normalized_hash, size_bytes, last_used_at, use_count, copied_count
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                normalized_hash, size_bytes, last_used_at, use_count, copied_count,
+                safe_id, safe_name, capture_mode
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 clip.id, clip.created_at, clip.updated_at, clip.content_hash,
                 clip.content_type, clip.content, clip.preview, clip.source_app,
@@ -240,6 +257,9 @@ class VaultStorage:
                 clip.title, clip.source_url, clip.normalized_hash, clip.size_bytes,
                 clip.last_used_at or clip.created_at,
                 max(clip.use_count, 1), clip.copied_count,
+                clip.safe_id or "default",
+                clip.safe_name or "Default Safe",
+                clip.capture_mode or models.CAPTURE_AUTO,
             ),
         )
         self.conn.commit()
@@ -305,6 +325,26 @@ class VaultStorage:
         )
         self._touch(clip_id)
         self.conn.commit()
+
+    def set_safe(
+        self, clip_id: str, safe_id: str, safe_name: str, capture_mode: str | None = None,
+    ) -> None:
+        self.conn.execute(
+            "UPDATE clips SET safe_id = ?, safe_name = ?, capture_mode = COALESCE(?, capture_mode) "
+            "WHERE id = ?",
+            (safe_id, safe_name, capture_mode, clip_id),
+        )
+        self._touch(clip_id)
+        self.conn.commit()
+
+    def list_safes(self) -> list[dict]:
+        """Distinct Safe ids (live clips) with counts."""
+        rows = self.conn.execute(
+            "SELECT safe_id AS id, MAX(safe_name) AS name, COUNT(*) AS n FROM clips "
+            "WHERE deleted_at IS NULL AND safe_id IS NOT NULL AND safe_id <> '' "
+            "AND safe_id <> 'ignore' GROUP BY safe_id ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+        return [{"id": r["id"], "name": r["name"], "count": r["n"]} for r in rows]
 
     def soft_delete(self, clip_id: str) -> None:
         self.conn.execute(
@@ -515,6 +555,9 @@ class VaultStorage:
         elif fn.startswith(COLLECTION_PREFIX):
             where.append("collection = ?")
             params.append(fn[len(COLLECTION_PREFIX):])
+        elif fn.startswith(SAFE_PREFIX):
+            where.append("safe_id = ?")
+            params.append(fn[len(SAFE_PREFIX):])
 
         # Structured search tokens (type:, source:, sensitive:, pinned:).
         if query.type_filter:

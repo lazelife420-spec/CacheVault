@@ -86,6 +86,19 @@ def _foreground_source() -> dict:
     return info
 
 
+def read_clipboard_payload() -> dict | None:
+    """Read current clipboard as a capture payload (text or image)."""
+    source = _foreground_source()
+    image = _read_clipboard_image()
+    if image is not None:
+        png, width, height = image
+        return {"image_png": png, "width": width, "height": height, **source}
+    text = _read_clipboard_text()
+    if text and text.strip():
+        return {"text": text, **source}
+    return None
+
+
 class ClipboardMonitor:
     """Watches the clipboard and calls ``on_clip(payload)``.
 

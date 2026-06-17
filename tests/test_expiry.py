@@ -3,6 +3,7 @@ from cache_vault.core.storage import FILTER_EXPIRED, FILTER_SENSITIVE
 
 
 def test_sensitive_clip_is_masked_and_gets_expiry(vault):
+    vault.settings.block_sensitive_auto_capture = False
     clip = vault.capture("sk-abc123DEF456ghi789JKL0")
     assert clip is not None
     assert clip.is_sensitive
@@ -13,6 +14,7 @@ def test_sensitive_clip_is_masked_and_gets_expiry(vault):
 
 
 def test_expiry_scrubs_content_and_logs_without_secret(vault):
+    vault.settings.block_sensitive_auto_capture = False
     secret = "sk-abc123DEF456ghi789JKL0"
     clip = vault.capture(secret)
     # Force expiry into the past, then sweep.
@@ -46,6 +48,7 @@ def test_manual_expire_now(vault):
 
 
 def test_clear_sensitive_removes_all_live_secrets(vault):
+    vault.settings.block_sensitive_auto_capture = False
     vault.capture("sk-aaa111BBB222ccc333DDD4")
     vault.capture("plain harmless text")
     vault.capture("password=supersecretvalue")

@@ -127,6 +127,10 @@ def _stage_clip(
         "type": clip.classification,
         "content_type": clip.content_type,
         "export_source": "clip_content",
+        "safe_id": clip.safe_id,
+        "safe_name": clip.safe_name,
+        "capture_mode": clip.capture_mode,
+        "auto_saved": clip.capture_mode == models.CAPTURE_AUTO,
         "files": [],
     }
     items_dir = stage / "items"

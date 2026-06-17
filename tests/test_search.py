@@ -2,6 +2,7 @@ from cache_vault.core import models, search
 
 
 def _seed(vault):
+    vault.settings.block_sensitive_auto_capture = False
     vault.capture("https://github.com/anthropics", source_app="chrome.exe")
     vault.capture("def hello():\n    return 'hi'", source_app="cursor.exe")
     vault.capture("git status", source_app="WindowsTerminal.exe")

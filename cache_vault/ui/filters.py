@@ -94,6 +94,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._counts: dict[str, ctk.CTkLabel] = {}
         self._labels_text: dict[str, str] = {}
         self._collection_rows: dict[str, ctk.CTkFrame] = {}
+        self._safe_rows: dict[str, ctk.CTkFrame] = {}
 
         title = ctk.CTkLabel(self, text=brand.PRODUCT_NAME, anchor="w",
                              font=ctk.CTkFont(size=18, weight="bold"))
@@ -135,6 +136,18 @@ class FilterNav(ctk.CTkScrollableFrame):
             self._collections_frame, text="(none yet)", anchor="w",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11))
         self._collections_empty.pack(fill="x", padx=14, pady=2)
+
+        self._separator()
+        ctk.CTkLabel(self, text="SAFES", anchor="w",
+                     text_color=brand.STAMP_GOLD,
+                     font=ctk.CTkFont(size=10, weight="bold")
+                     ).pack(fill="x", padx=10, pady=(2, 4))
+        self._safes_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._safes_frame.pack(fill="x")
+        self._safes_empty = ctk.CTkLabel(
+            self._safes_frame, text="(default only)", anchor="w",
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11))
+        self._safes_empty.pack(fill="x", padx=14, pady=2)
 
         self._highlight()
 
@@ -189,7 +202,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._highlight()
 
     def _highlight(self) -> None:
-        all_keys = {**self._rows, **self._collection_rows}
+        all_keys = {**self._rows, **self._collection_rows, **self._safe_rows}
         for key, row in all_keys.items():
             active = key == self._active
             row.configure(fg_color=theme.nav_active_bg() if active else "transparent")
@@ -230,4 +243,24 @@ class FilterNav(ctk.CTkScrollableFrame):
                 row = self._nav_row(self._collections_frame, key, f"  {col['name']}")
                 self._collection_rows[key] = row
                 self._counts[key].configure(text=str(col["count"]))
+        self._highlight()
+
+    def update_safes(self, safes: list[dict]) -> None:
+        for row in self._safe_rows.values():
+            row.destroy()
+        self._safe_rows.clear()
+        for key in list(self._labels):
+            if key.startswith(S.SAFE_PREFIX):
+                del self._labels[key]
+                del self._counts[key]
+        shown = [s for s in safes if s.get("count", 0) > 0 or s.get("builtin")]
+        if not shown:
+            self._safes_empty.pack(fill="x", padx=14, pady=2)
+        else:
+            self._safes_empty.pack_forget()
+            for safe in shown:
+                key = S.SAFE_PREFIX + safe["id"]
+                row = self._nav_row(self._safes_frame, key, f"  {safe['name']}")
+                self._safe_rows[key] = row
+                self._counts[key].configure(text=str(safe.get("count", 0)))
         self._highlight()

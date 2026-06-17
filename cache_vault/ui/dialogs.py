@@ -106,6 +106,70 @@ class SettingsDialog(ctk.CTkToplevel):
         self._pause.pack(anchor="w", padx=8, pady=6)
         self._pause.select() if settings.capture_paused else self._pause.deselect()
 
+        section("Capture Rules")
+        self._auto_capture = ctk.CTkSwitch(
+            body, text="Save normal clipboard copies automatically",
+        )
+        self._auto_capture.pack(anchor="w", padx=8, pady=6)
+        if settings.auto_capture_enabled:
+            self._auto_capture.select()
+
+        safe_row = ctk.CTkFrame(body, fg_color="transparent")
+        safe_row.pack(fill="x", padx=8, pady=(4, 0))
+        ctk.CTkLabel(safe_row, text="Default Safe ID:").pack(side="left")
+        self._default_safe = ctk.CTkEntry(safe_row, width=140)
+        self._default_safe.insert(0, settings.default_safe_id)
+        self._default_safe.pack(side="right")
+
+        def _hk_row(label: str, value: str) -> ctk.CTkEntry:
+            row = ctk.CTkFrame(body, fg_color="transparent")
+            row.pack(fill="x", padx=8, pady=(6, 0))
+            ctk.CTkLabel(row, text=label).pack(side="left")
+            entry = ctk.CTkEntry(row, width=140)
+            entry.insert(0, value)
+            entry.pack(side="right")
+            return entry
+
+        self._manual_hk = _hk_row("Manual save hotkey:", settings.manual_save_hotkey)
+        self._arm_hk = _hk_row("Save next copy hotkey:", settings.arm_next_copy_hotkey)
+        self._ignore_hk = _hk_row("Ignore next copy hotkey:", settings.ignore_next_copy_hotkey)
+
+        self._picker_on_manual = ctk.CTkSwitch(
+            body, text="Show Safe picker when saving manually",
+        )
+        self._picker_on_manual.pack(anchor="w", padx=8, pady=6)
+        if settings.show_safe_picker_on_manual_save:
+            self._picker_on_manual.select()
+
+        self._block_sensitive = ctk.CTkSwitch(
+            body, text="Do not auto-capture sensitive-looking clips (best-effort)",
+        )
+        self._block_sensitive.pack(anchor="w", padx=8, pady=6)
+        if settings.block_sensitive_auto_capture:
+            self._block_sensitive.select()
+
+        ctk.CTkLabel(body, text="Max auto-capture size (bytes, 0 = unlimited):").pack(
+            anchor="w", padx=8, pady=(6, 0))
+        self._max_bytes = ctk.CTkEntry(body, width=120)
+        self._max_bytes.insert(0, str(settings.max_auto_capture_bytes))
+        self._max_bytes.pack(anchor="w", padx=8, pady=4)
+
+        ctk.CTkButton(
+            body, text="Manage Safes…",
+            command=lambda: SafePickerDialog(
+                master, settings, on_create=None, picker_mode=False,
+            ),
+            **theme.secondary_button(),
+        ).pack(anchor="w", padx=8, pady=(4, 8))
+
+        ctk.CTkLabel(
+            body,
+            text="Safes are local vault sections — not encrypted containers.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=8, pady=(0, 6))
+
+        section("Sensitive Clips")
         self._sens = ctk.CTkSwitch(body, text="Auto-expire sensitive clips")
         self._sens.pack(anchor="w", padx=8, pady=6)
         self._sens.select() if settings.sensitive_expiry_enabled else self._sens.deselect()
@@ -252,6 +316,23 @@ class SettingsDialog(ctk.CTkToplevel):
 
     def _save(self) -> None:
         self._settings.capture_paused = bool(self._pause.get())
+        self._settings.auto_capture_enabled = bool(self._auto_capture.get())
+        self._settings.default_safe_id = self._default_safe.get().strip() or "default"
+        manual = self._manual_hk.get().strip()
+        if manual:
+            self._settings.manual_save_hotkey = manual
+        arm = self._arm_hk.get().strip()
+        if arm:
+            self._settings.arm_next_copy_hotkey = arm
+        ignore = self._ignore_hk.get().strip()
+        if ignore:
+            self._settings.ignore_next_copy_hotkey = ignore
+        self._settings.show_safe_picker_on_manual_save = bool(self._picker_on_manual.get())
+        self._settings.block_sensitive_auto_capture = bool(self._block_sensitive.get())
+        try:
+            self._settings.max_auto_capture_bytes = max(0, int(self._max_bytes.get()))
+        except ValueError:
+            pass
         self._settings.sensitive_expiry_enabled = bool(self._sens.get())
         try:
             self._settings.sensitive_expiry_minutes = max(1, int(self._minutes.get()))
@@ -285,6 +366,81 @@ class SettingsDialog(ctk.CTkToplevel):
             pass
         self._on_save(self._settings)
         self.destroy()
+
+
+class SafePickerDialog(ctk.CTkToplevel):
+    """Pick a Safe destination or create a new user Safe."""
+
+    def __init__(
+        self,
+        master,
+        settings: Settings,
+        *,
+        on_pick: Callable[[str, str], None] | None = None,
+        on_create: Callable[[str], None] | None = None,
+        picker_mode: bool = True,
+        title: str = "Choose Safe",
+    ):
+        from ..core.safes import SafeRegistry
+
+        super().__init__(master)
+        self.title(title)
+        self.geometry("380x360")
+        self._settings = settings
+        self._on_pick = on_pick
+        self._on_create = on_create
+        self._picker_mode = picker_mode
+        self._registry = SafeRegistry(settings)
+
+        ctk.CTkLabel(self, text=title, font=ctk.CTkFont(size=15, weight="bold")
+                     ).pack(anchor="w", padx=16, pady=(14, 6))
+
+        scroll = ctk.CTkScrollableFrame(self, height=200)
+        scroll.pack(fill="both", expand=True, padx=12, pady=4)
+        for safe in self._registry.list_destinations():
+            ctk.CTkButton(
+                scroll, text=safe.name, anchor="w",
+                command=lambda s=safe: self._choose(s.id, s.name),
+                **theme.secondary_button(),
+            ).pack(fill="x", pady=2)
+
+        create_row = ctk.CTkFrame(self, fg_color="transparent")
+        create_row.pack(fill="x", padx=16, pady=8)
+        self._new_name = ctk.CTkEntry(create_row, placeholder_text="New Safe name")
+        self._new_name.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(create_row, text="Create", command=self._create_new,
+                      **theme.primary_button()).pack(side="right")
+
+        if picker_mode:
+            ctk.CTkButton(self, text="Cancel", command=self.destroy,
+                          **theme.secondary_button()).pack(anchor="e", padx=16, pady=(0, 12))
+        else:
+            ctk.CTkLabel(
+                self, text="Create Safes here; pick them when saving clips.",
+                anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
+            ).pack(anchor="w", padx=16, pady=(0, 4))
+            ctk.CTkButton(self, text="Close", command=self.destroy,
+                          **theme.secondary_button()).pack(anchor="e", padx=16, pady=(0, 12))
+
+        _bring_to_front(self, master, modal=picker_mode)
+
+    def _choose(self, safe_id: str, safe_name: str) -> None:
+        if self._picker_mode and self._on_pick:
+            self._on_pick(safe_id, safe_name)
+        self.destroy()
+
+    def _create_new(self) -> None:
+        name = self._new_name.get().strip()
+        if not name:
+            return
+        safe = self._registry.create(name)
+        if self._on_create:
+            self._on_create(name)
+        if self._picker_mode and self._on_pick:
+            self._on_pick(safe.id, safe.name)
+            self.destroy()
+        else:
+            self._new_name.delete(0, "end")
 
 
 class MoveToCollectionDialog(ctk.CTkToplevel):

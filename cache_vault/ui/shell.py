@@ -23,8 +23,11 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import models, search
-from ..core.clipboard import ClipboardMonitor
-from ..core.hotkey import HotkeyListener, normalize_hotkey
+from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
+from ..core.capture_rules import CaptureController
+from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
+from ..core.safes import SafeRegistry
+from ..core.hotkey import HotkeyListener, MultiHotkeyListener, normalize_hotkey
 from ..core.paste_delivery import (
     deliver_ctrl_v,
     foreground_window,
@@ -39,7 +42,7 @@ from .clip_grid import ClipGrid
 from .clip_list import ClipList
 from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
-    SettingsDialog,
+    SafePickerDialog, SettingsDialog,
 )
 from .filters import (
     FilterNav,
@@ -68,6 +71,9 @@ from .scroll_patch import install_windows_scroll_patch, scroll_config_from_setti
 from .win_scroll import refresh_windows_scroll_cache
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
+HK_MANUAL_SAVE = 10
+HK_ARM_NEXT = 11
+HK_IGNORE_NEXT = 12
 
 
 class CacheVaultApp(ctk.CTk):
@@ -139,6 +145,11 @@ class CacheVaultApp(ctk.CTk):
             on_activate=self._schedule_quick_paste,
         )
         self._hotkey.start()
+
+        self._capture_ctrl = CaptureController(lambda: self.vault.settings)
+        self._capture_hotkeys = MultiHotkeyListener()
+        self._bind_capture_hotkeys()
+        self._capture_hotkeys.start()
 
         # Closing the window hides to tray (if available) rather than quitting.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -698,6 +709,7 @@ class CacheVaultApp(ctk.CTk):
             counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
             self._filters.update_counts(counts)
             self._filters.update_collections(self.vault.list_collections())
+            self._filters.update_safes(self.vault.list_safes())
 
             if active in NAV_SCREEN_KEYS:
                 self._show_vault_screen(active)
@@ -751,26 +763,168 @@ class CacheVaultApp(ctk.CTk):
         if not self._alive():
             return
         try:
-            if payload.get("image_png"):
-                self.vault.capture_image(
-                    payload["image_png"],
-                    width=payload.get("width") or 0,
-                    height=payload.get("height") or 0,
+            if self._capture_ctrl.consume_ignore():
+                chash = None
+                item_type = models.CONTENT_TEXT
+                if payload.get("text"):
+                    chash = models.content_hash(payload["text"])
+                elif payload.get("image_png"):
+                    chash = models.bytes_hash(payload["image_png"])
+                    item_type = models.CONTENT_IMAGE
+                record_ignored_receipt(
+                    self.vault.events,
                     source_app=payload.get("source_app"),
-                    source_window=payload.get("source_window"),
+                    content_hash=chash,
+                    item_type=item_type,
                 )
-            elif payload.get("text"):
-                self.vault.capture(
-                    payload["text"],
-                    source_app=payload.get("source_app"),
-                    source_window=payload.get("source_window"),
-                )
-            else:
+                self._show_toast("Next copy was not saved.")
                 return
-            self.refresh()
+
+            armed = self._capture_ctrl.consume_armed()
+            if armed:
+                safe_id, _safe_name = armed
+                self._save_payload(
+                    payload,
+                    safe_id=safe_id,
+                    capture_mode=models.CAPTURE_ARMED_NEXT_COPY,
+                    force=True,
+                )
+                return
+
+            if not self._capture_ctrl.should_auto_capture():
+                return
+
+            safe_id, _safe_name = self._capture_ctrl.resolve_safe_for_auto()
+            self._save_payload(
+                payload,
+                safe_id=safe_id,
+                capture_mode=models.CAPTURE_AUTO,
+            )
         except Exception as exc:  # noqa: BLE001
             write_crash("clipboard ingest", exc)
             raise
+
+    def _save_payload(
+        self,
+        payload: dict,
+        *,
+        safe_id: str,
+        capture_mode: str,
+        force: bool = False,
+    ) -> None:
+        clip = None
+        if payload.get("image_png"):
+            clip = self.vault.capture_image(
+                payload["image_png"],
+                width=payload.get("width") or 0,
+                height=payload.get("height") or 0,
+                source_app=payload.get("source_app"),
+                source_window=payload.get("source_window"),
+                capture_mode=capture_mode,
+                safe_id=safe_id,
+                force=force,
+            )
+        elif payload.get("text"):
+            clip = self.vault.capture(
+                payload["text"],
+                source_app=payload.get("source_app"),
+                source_window=payload.get("source_window"),
+                capture_mode=capture_mode,
+                safe_id=safe_id,
+                force=force,
+            )
+            if (
+                clip is None
+                and capture_mode == models.CAPTURE_AUTO
+                and self.vault.settings.block_sensitive_auto_capture
+            ):
+                from ..core import sensitive
+                if sensitive.detect(payload["text"]).is_sensitive:
+                    self._show_toast(
+                        "Sensitive-looking clipboard item was not auto-saved."
+                    )
+        else:
+            return
+        if clip is not None:
+            self.refresh()
+
+    def _show_toast(self, text: str) -> None:
+        if self._alive():
+            Toast(self, text)
+
+    def _bind_capture_hotkeys(self) -> None:
+        s = self.vault.settings
+        self._capture_hotkeys.set_binding(
+            HK_MANUAL_SAVE, s.manual_save_hotkey,
+            on_activate=self._schedule_manual_save,
+        )
+        self._capture_hotkeys.set_binding(
+            HK_ARM_NEXT, s.arm_next_copy_hotkey,
+            on_activate=self._schedule_arm_next_copy,
+        )
+        self._capture_hotkeys.set_binding(
+            HK_IGNORE_NEXT, s.ignore_next_copy_hotkey,
+            on_activate=self._schedule_ignore_next_copy,
+        )
+
+    def _rebind_capture_hotkeys(self) -> None:
+        if self._capture_hotkeys:
+            self._capture_hotkeys.stop()
+        self._capture_hotkeys = MultiHotkeyListener()
+        self._bind_capture_hotkeys()
+        self._capture_hotkeys.start()
+
+    def _schedule_manual_save(self) -> None:
+        self._call_on_main(self._manual_save_clipboard)
+
+    def _schedule_arm_next_copy(self) -> None:
+        self._call_on_main(self._arm_next_copy)
+
+    def _schedule_ignore_next_copy(self) -> None:
+        self._call_on_main(self._ignore_next_copy)
+
+    def _manual_save_clipboard(self) -> None:
+        payload = read_clipboard_payload()
+        if payload is None:
+            self._show_toast("Clipboard is empty — nothing to save.")
+            return
+        picked = self._capture_ctrl.pick_safe_for_manual()
+        if picked is None:
+            SafePickerDialog(
+                self, self.vault.settings,
+                on_pick=lambda sid, _name: self._manual_save_to_safe(payload, sid),
+                on_create=lambda name: self.vault.create_safe(name),
+            )
+            return
+        self._manual_save_to_safe(payload, picked[0])
+
+    def _manual_save_to_safe(self, payload: dict, safe_id: str) -> None:
+        self._save_payload(
+            payload,
+            safe_id=safe_id,
+            capture_mode=models.CAPTURE_MANUAL_SAVE_HOTKEY,
+            force=True,
+        )
+        self._show_toast("Clipboard saved to Safe.")
+
+    def _arm_next_copy(self) -> None:
+        def _apply(safe_id: str, safe_name: str) -> None:
+            self._capture_ctrl.arm_next_copy(safe_id, safe_name)
+            record_armed_receipt(
+                self.vault.events, safe_id=safe_id, safe_name=safe_name,
+            )
+            self._show_toast(f"Save next copy to: {safe_name}")
+
+        SafePickerDialog(
+            self, self.vault.settings,
+            title="Save next copy to",
+            on_pick=_apply,
+            on_create=lambda name: self.vault.create_safe(name),
+        )
+
+    def _ignore_next_copy(self) -> None:
+        self._capture_ctrl.arm_ignore_next()
+        self._show_toast("Next copy will not be saved.")
 
     def _on_search_changed(self, *_):
         if not self._alive():
@@ -894,6 +1048,7 @@ class CacheVaultApp(ctk.CTk):
             "copy_again": lambda: self._copy_again(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
             "move_collection": lambda: self._move_to_collection(clip.id),
+            "move_safe": lambda: self._move_to_safe(clip.id),
             "export": lambda: self._export_clip(clip.id),
             "open": lambda: self._open_clip_path(clip.id),
             "reveal": lambda: self._reveal_clip_path(clip.id),
@@ -1016,6 +1171,25 @@ class CacheVaultApp(ctk.CTk):
             self._preview.show(self.vault.storage.get_clip(clip_id))
 
         MoveToCollectionDialog(self, clip.collection, existing, on_save=save)
+
+    def _move_to_safe(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+
+        def pick(safe_id: str, safe_name: str) -> None:
+            updated = self.vault.move_to_safe(clip_id, safe_id)
+            if updated:
+                self.refresh()
+                self._preview.show(updated)
+                self._show_toast(f"Moved to {safe_name}.")
+
+        SafePickerDialog(
+            self, self.vault.settings,
+            title="Move to Safe",
+            on_pick=pick,
+            on_create=lambda name: self.vault.create_safe(name),
+        )
 
     def _restore(self, clip_id: str) -> None:
         self.vault.restore(clip_id)
@@ -1266,6 +1440,8 @@ class CacheVaultApp(ctk.CTk):
         refresh_windows_scroll_cache()
         self._monitor.pause() if settings.capture_paused else self._monitor.resume()
         self._rebind_hotkey(settings.quick_paste_hotkey)
+        self._rebind_capture_hotkeys()
+        self.vault.safes = SafeRegistry(settings)
         from ..core import startup
         startup.sync(settings.start_with_windows)
         self.refresh()
@@ -1483,6 +1659,8 @@ class CacheVaultApp(ctk.CTk):
         try:
             self._monitor.stop()
             self._hotkey.stop()
+            if getattr(self, "_capture_hotkeys", None):
+                self._capture_hotkeys.stop()
             self._tray.stop()
             self._mobile_bridge.stop()
             self.vault.close()

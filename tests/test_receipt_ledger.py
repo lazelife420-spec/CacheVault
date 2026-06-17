@@ -66,6 +66,7 @@ def test_event_rows_from_vault():
 
 def test_receipt_details_no_sensitive_content():
     vault = Vault(storage=VaultStorage(":memory:"), settings=Settings())
+    vault.settings.block_sensitive_auto_capture = False
     secret = vault.capture("sk-abc123DEF456ghi789JKL0", source_app="test")
     rows = rows_from_events(
         vault.events.recent(), get_clip=vault.storage.get_clip)

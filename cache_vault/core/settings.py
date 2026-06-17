@@ -20,6 +20,16 @@ def default_settings_path() -> Path:
 @dataclass
 class Settings:
     capture_paused: bool = False
+    # When ON, normal Ctrl+C clipboard changes are saved (unless excluded/blocked).
+    auto_capture_enabled: bool = True
+    default_safe_id: str = "default"
+    manual_save_hotkey: str = "ctrl+shift+c"
+    arm_next_copy_hotkey: str = "ctrl+alt+c"
+    ignore_next_copy_hotkey: str = "ctrl+shift+x"
+    show_safe_picker_on_manual_save: bool = False
+    block_sensitive_auto_capture: bool = True
+    max_auto_capture_bytes: int = 0  # 0 = unlimited
+    user_safes: list[dict] = field(default_factory=list)
     sensitive_expiry_enabled: bool = True   # default ON per doctrine
     sensitive_expiry_minutes: int = 10      # within the doc's 5–15 range
     excluded_apps: list[str] = field(default_factory=list)
@@ -70,6 +80,17 @@ class Settings:
             s.mobile_access_port = 8742
         if not isinstance(s.paired_devices, list):
             s.paired_devices = []
+        if not isinstance(s.user_safes, list):
+            s.user_safes = []
+        try:
+            s.max_auto_capture_bytes = max(0, int(s.max_auto_capture_bytes))
+        except (TypeError, ValueError):
+            s.max_auto_capture_bytes = 0
+        s.auto_capture_enabled = bool(s.auto_capture_enabled)
+        s.block_sensitive_auto_capture = bool(s.block_sensitive_auto_capture)
+        s.show_safe_picker_on_manual_save = bool(s.show_safe_picker_on_manual_save)
+        if not (s.default_safe_id or "").strip():
+            s.default_safe_id = "default"
         try:
             s.scroll_multiplier = max(0.25, min(4.0, float(s.scroll_multiplier)))
         except (TypeError, ValueError):

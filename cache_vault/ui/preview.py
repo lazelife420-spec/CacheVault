@@ -319,6 +319,8 @@ class PreviewPanel(ctk.CTkFrame):
             f"Source URL:   {clip_metadata.display(clip.source_url)}",
             f"Favorite:     {'yes' if clip.is_pinned else 'no'}",
             f"Collection:   {clip_metadata.display(clip.collection)}",
+            f"Safe:         {clip_metadata.display(clip.safe_name)} ({clip.safe_id})",
+            f"Capture Mode: {clip.capture_mode or models.CAPTURE_AUTO}",
             f"Proof Hash:   {clip_metadata.shorten_hash(clip.content_hash)}",
         ]
         if ctx:

@@ -66,6 +66,42 @@ EVENT_CLEARED_SENSITIVE = "cleared_sensitive"
 EVENT_ASSET_PERSISTED = "asset_persisted"
 EVENT_DUPLICATE_REVIEW = "duplicate_review"
 EVENT_USAGE_MERGED = "usage_merged"
+EVENT_CLIPBOARD_AUTO_SAVED = "clipboard_auto_saved"
+EVENT_CLIPBOARD_MANUAL_SAVED = "clipboard_manual_saved"
+EVENT_CLIPBOARD_NEXT_COPY_ARMED = "clipboard_next_copy_armed"
+EVENT_CLIPBOARD_NEXT_COPY_SAVED = "clipboard_next_copy_saved"
+EVENT_CLIPBOARD_NEXT_COPY_IGNORED = "clipboard_next_copy_ignored"
+EVENT_CLIPBOARD_SENSITIVE_BLOCKED = "clipboard_sensitive_not_auto_saved"
+EVENT_ITEM_MOVED_TO_SAFE = "item_moved_to_safe"
+EVENT_SAFE_CREATED = "safe_created"
+
+# Capture modes stored on each clip.
+CAPTURE_AUTO = "auto"
+CAPTURE_MANUAL_SAVE_HOTKEY = "manual_save_hotkey"
+CAPTURE_ARMED_NEXT_COPY = "armed_next_copy"
+CAPTURE_MOVED_TO_SAFE = "moved_to_safe"
+CAPTURE_IMPORTED = "imported"
+CAPTURE_MOBILE = "mobile"
+CAPTURE_EXTERNAL_APP = "external_app"
+
+CAPTURE_MODES = (
+    CAPTURE_AUTO,
+    CAPTURE_MANUAL_SAVE_HOTKEY,
+    CAPTURE_ARMED_NEXT_COPY,
+    CAPTURE_MOVED_TO_SAFE,
+    CAPTURE_IMPORTED,
+    CAPTURE_MOBILE,
+    CAPTURE_EXTERNAL_APP,
+)
+
+# Receipt action names (file receipts under Receipts/).
+ACTION_CLIPBOARD_AUTO_SAVED = "clipboard_auto_saved"
+ACTION_CLIPBOARD_MANUAL_SAVED = "clipboard_manual_saved"
+ACTION_CLIPBOARD_NEXT_COPY_ARMED = "clipboard_next_copy_armed"
+ACTION_CLIPBOARD_NEXT_COPY_SAVED = "clipboard_next_copy_saved"
+ACTION_CLIPBOARD_NEXT_COPY_IGNORED = "clipboard_next_copy_ignored"
+ACTION_ITEM_MOVED_TO_SAFE = "item_moved_to_safe"
+ACTION_SAFE_CREATED = "safe_created"
 
 PREVIEW_MAX_CHARS = 200
 
@@ -154,6 +190,9 @@ class Clip:
     last_used_at: str | None = None
     use_count: int = 0
     copied_count: int = 0
+    safe_id: str = "default"
+    safe_name: str = "Default Safe"
+    capture_mode: str = CAPTURE_AUTO
 
     @property
     def first_saved_at(self) -> str:

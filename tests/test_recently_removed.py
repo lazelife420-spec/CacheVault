@@ -40,6 +40,7 @@ def test_permanently_remove_does_not_touch_disk(tmp_path, vault):
 
 def test_expired_clip_not_in_recently_removed(vault):
     # Sensitive auto-expiry is a different bucket (Expired), not Recently Removed.
+    vault.settings.block_sensitive_auto_capture = False
     secret = vault.capture("sk-abc123DEF456ghi789JKL0")
     from cache_vault.core import sensitive
     vault.storage.set_expiry(secret.id, sensitive.compute_expiry(-1))

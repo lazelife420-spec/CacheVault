@@ -20,6 +20,7 @@
 | **4** | Local HTML bundle support | **Done** — HTML asset scan/copy, bundle revisions, zip export, receipts |
 | **4.5** | UI information architecture | **Done** — Command/Vault/Proof/Access nav, vault screens, inspector |
 | **5** | Proof export zip + manifest + SHA256SUMS | **Done** — `exports.py`, proof zip, receipts |
+| **5.5** | Capture rules + Safes + hotkey capture | **Done** — `safes.py`, `capture_rules.py`, settings, receipts |
 | 6 | Smart folders, tags, notes, search | Planned |
 | 7 | Sensitive item handling | Partial — auto-expiry exists |
 | 8 | Delete/archive/revision model | Partial — Recently Removed exists |
@@ -74,6 +75,18 @@
 - Events: `export_zip_created`, `item_exported`; file receipt `export_zip_created`.
 - Legacy folder export via `export.py` unchanged; zip exports use proof pack.
 - Smoke: `scripts/export_manifest_smoke.py`.
+
+## Phase 5.5 — capture rules & Safes
+
+- User-controlled auto-capture ON/OFF (normal Ctrl+C may skip vault save).
+- Safes: local vault sections (`default`, `temporary`, user-created) — **not encrypted**.
+- Hotkeys: manual save (`Ctrl+Shift+C`), arm next copy (`Ctrl+Alt+C`), ignore next copy (`Ctrl+Shift+X`).
+- Safe picker: settings, hotkeys, context menu **Move to Safe…**, inspector metadata.
+- Clip fields: `safe_id`, `safe_name`, `capture_mode`.
+- Receipts: `clipboard_auto_saved`, `clipboard_manual_saved`, armed/ignored/moved/safe_created.
+- Sensitive best-effort auto-block with manual override via hotkey.
+- Proof manifest item entries include Safe + capture metadata.
+- Docs: `docs/CAPTURE_RULES.md`.
 
 ## Core rules (all phases)
 

@@ -42,6 +42,7 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
             "Remove from Favorites" if clip.is_pinned else "Add to Favorites",
         ),
         MenuItem("move_collection", "Move to Collection…"),
+        MenuItem("move_safe", "Move to Safe…"),
         MenuItem("export", "Export / Save As…"),
     ]
 

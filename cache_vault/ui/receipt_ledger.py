@@ -47,6 +47,22 @@ ACTION_LABELS: dict[str, str] = {
     "editable_html_copy_created": "HTML Bundle Copy Created",
     models.EVENT_EXPORT_ZIP_CREATED: "Export Zip Created",
     models.EVENT_ITEM_EXPORTED: "Item Exported",
+    models.EVENT_CLIPBOARD_AUTO_SAVED: "Clipboard Auto Saved",
+    models.EVENT_CLIPBOARD_MANUAL_SAVED: "Clipboard Manual Saved",
+    models.EVENT_CLIPBOARD_NEXT_COPY_ARMED: "Next Copy Armed",
+    models.EVENT_CLIPBOARD_NEXT_COPY_SAVED: "Next Copy Saved",
+    models.EVENT_CLIPBOARD_NEXT_COPY_IGNORED: "Next Copy Ignored",
+    models.EVENT_CLIPBOARD_SENSITIVE_BLOCKED: "Sensitive Not Auto-Saved",
+    models.EVENT_ITEM_MOVED_TO_SAFE: "Moved to Safe",
+    models.EVENT_SAFE_CREATED: "Safe Created",
+    "clipboard_auto_saved": "Clipboard Auto Saved",
+    "clipboard_manual_saved": "Clipboard Manual Saved",
+    "clipboard_next_copy_armed": "Next Copy Armed",
+    "clipboard_next_copy_saved": "Next Copy Saved",
+    "clipboard_next_copy_ignored": "Next Copy Ignored",
+    "clipboard_sensitive_not_auto_saved": "Sensitive Not Auto-Saved",
+    "item_moved_to_safe": "Moved to Safe",
+    "safe_created": "Safe Created",
     "export_zip_created": "Export Zip Created",
     "list_clips": "Mobile Access",
     "get_clip": "Mobile Access",
@@ -67,11 +83,14 @@ FILTER_ASSETS = "Assets"
 FILTER_DUPLICATE = "Duplicate Review"
 FILTER_ERRORS = "Errors"
 
+FILTER_CAPTURE_RULES = "Capture Rules"
+
 FILTERS = (
     FILTER_ALL,
     FILTER_TODAY,
     FILTER_WEEK,
     FILTER_CAPTURED,
+    FILTER_CAPTURE_RULES,
     FILTER_COPIED,
     FILTER_EXPORTS,
     FILTER_MOBILE,
@@ -282,6 +301,25 @@ def _matches_filter(row: ReceiptRow, flt: str, now: datetime | None = None) -> b
         return ts >= now - timedelta(days=7)
     if flt == FILTER_CAPTURED:
         return row.action_raw == models.EVENT_CAPTURED
+    if flt == FILTER_CAPTURE_RULES:
+        return row.action_raw in {
+            models.EVENT_CLIPBOARD_AUTO_SAVED,
+            models.EVENT_CLIPBOARD_MANUAL_SAVED,
+            models.EVENT_CLIPBOARD_NEXT_COPY_ARMED,
+            models.EVENT_CLIPBOARD_NEXT_COPY_SAVED,
+            models.EVENT_CLIPBOARD_NEXT_COPY_IGNORED,
+            models.EVENT_CLIPBOARD_SENSITIVE_BLOCKED,
+            models.EVENT_ITEM_MOVED_TO_SAFE,
+            models.EVENT_SAFE_CREATED,
+            "clipboard_auto_saved",
+            "clipboard_manual_saved",
+            "clipboard_next_copy_armed",
+            "clipboard_next_copy_saved",
+            "clipboard_next_copy_ignored",
+            "clipboard_sensitive_not_auto_saved",
+            "item_moved_to_safe",
+            "safe_created",
+        }
     if flt == FILTER_COPIED:
         return row.action_raw == models.EVENT_COPIED_AGAIN
     if flt == FILTER_EXPORTS:

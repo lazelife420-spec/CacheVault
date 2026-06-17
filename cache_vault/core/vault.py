@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from . import classify, models, sensitive
 from . import clip_metadata
+from .capture_receipts import record_capture_receipt, record_sensitive_blocked
+from .safes import SafeRegistry
 from .duplicates import (
     DuplicateGroup,
     apply_duplicate_review,
@@ -26,27 +28,111 @@ class Vault:
         self.storage = storage or VaultStorage()
         self.settings = settings or Settings.load()
         self.events = EventLog(self.storage)
+        self.safes = SafeRegistry(self.settings)
 
     # --- capture -----------------------------------------------------------
-    def capture(self, content: str, *, source_app: str | None = None,
-                source_window: str | None = None) -> Clip | None:
-        """Classify and store a new clip. Returns ``None`` when the clip is
-        ignored (capture paused, empty, excluded app, or a consecutive dup)."""
-        if self.settings.capture_paused:
+    def _capture_blocked(
+        self,
+        *,
+        capture_mode: str,
+        source_app: str | None,
+        content_hash: str,
+        size_bytes: int,
+        sens,
+        force: bool,
+    ) -> str | None:
+        """Return a block reason string, or None if capture may proceed."""
+        if self.settings.capture_paused and not force:
+            return "capture_paused"
+        if self.settings.is_app_excluded(source_app):
+            return "excluded_app"
+        if (
+            capture_mode == models.CAPTURE_AUTO
+            and self.settings.max_auto_capture_bytes > 0
+            and size_bytes > self.settings.max_auto_capture_bytes
+        ):
+            return "max_size_exceeded"
+        if (
+            capture_mode == models.CAPTURE_AUTO
+            and self.settings.block_sensitive_auto_capture
+            and sens.is_sensitive
+            and not force
+        ):
+            record_sensitive_blocked(
+                self.events,
+                source_app=source_app,
+                content_hash=content_hash,
+                reason=sens.reason,
+            )
+            return "sensitive_blocked"
+        return None
+
+    def _resolve_safe(self, safe_id: str | None) -> tuple[str, str] | None:
+        safe = self.safes.resolve(safe_id)
+        if safe is None:
+            safe = self.safes.default_safe()
+        if self.safes.is_ignore(safe.id):
             return None
+        return safe.id, safe.name
+
+    def _capture_event_for_mode(self, capture_mode: str) -> tuple[str, str]:
+        if capture_mode == models.CAPTURE_MANUAL_SAVE_HOTKEY:
+            return (
+                models.ACTION_CLIPBOARD_MANUAL_SAVED,
+                models.EVENT_CLIPBOARD_MANUAL_SAVED,
+            )
+        if capture_mode == models.CAPTURE_ARMED_NEXT_COPY:
+            return (
+                models.ACTION_CLIPBOARD_NEXT_COPY_SAVED,
+                models.EVENT_CLIPBOARD_NEXT_COPY_SAVED,
+            )
+        return (
+            models.ACTION_CLIPBOARD_AUTO_SAVED,
+            models.EVENT_CLIPBOARD_AUTO_SAVED,
+        )
+
+    def capture(
+        self,
+        content: str,
+        *,
+        source_app: str | None = None,
+        source_window: str | None = None,
+        capture_mode: str = models.CAPTURE_AUTO,
+        safe_id: str | None = None,
+        force: bool = False,
+    ) -> Clip | None:
+        """Classify and store a new clip. Returns ``None`` when ignored."""
         if content is None or not content.strip():
             return None
-        if self.settings.is_app_excluded(source_app):
+
+        resolved = self._resolve_safe(safe_id)
+        if resolved is None:
             return None
+        sid, sname = resolved
+
+        if capture_mode == models.CAPTURE_AUTO and not force:
+            if not self.settings.auto_capture_enabled:
+                return None
 
         chash = models.content_hash(content)
         prev = self.storage.latest_clip()
         if prev is not None and prev.content_hash == chash:
-            # Consecutive identical copy — don't spam the list.
             return None
 
         result = classify.classify(content)
         sens = sensitive.detect(content)
+        size_bytes = clip_metadata.size_bytes_for(content)
+
+        blocked = self._capture_blocked(
+            capture_mode=capture_mode,
+            source_app=source_app,
+            content_hash=chash,
+            size_bytes=size_bytes,
+            sens=sens,
+            force=force,
+        )
+        if blocked:
+            return None
 
         clip = Clip(
             content_hash=chash,
@@ -56,6 +142,9 @@ class Vault:
             classification=result.classification,
             tags=result.tags,
             is_sensitive=sens.is_sensitive,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=capture_mode,
         )
 
         if sens.is_sensitive:
@@ -70,11 +159,25 @@ class Vault:
         clip.title = clip_metadata.clip_title(content, clip.preview)
         clip.source_url = clip_metadata.extract_source_url(content, clip.classification)
         clip.normalized_hash = clip_metadata.normalized_hash(content)
-        clip.size_bytes = clip_metadata.size_bytes_for(content)
+        clip.size_bytes = size_bytes
         clip.use_count = 1
         clip.last_used_at = clip.created_at
 
         self.storage.add_clip(clip)
+        action, event_type = self._capture_event_for_mode(capture_mode)
+        record_capture_receipt(
+            self.events,
+            action=action,
+            event_type=event_type,
+            success=True,
+            clip_id=clip.id,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=capture_mode,
+            source_app=source_app,
+            content_hash=chash,
+            item_type=clip.classification,
+        )
         self.events.record(
             models.EVENT_CAPTURED, clip.id,
             {
@@ -82,6 +185,9 @@ class Vault:
                 "is_sensitive": clip.is_sensitive,
                 "reason": sens.reason or None,
                 "source_app": source_app,
+                "safe_id": sid,
+                "safe_name": sname,
+                "capture_mode": capture_mode,
             },
         )
         if self.settings.history_max_clips > 0:
@@ -91,23 +197,65 @@ class Vault:
                                    {"action": "history_prune"})
         return clip
 
-    def capture_image(self, png_bytes: bytes, *, width: int, height: int,
-                      source_app: str | None = None,
-                      source_window: str | None = None,
-                      original_name: str | None = None) -> Clip | None:
+    def capture_manual(
+        self,
+        content: str,
+        *,
+        safe_id: str | None = None,
+        source_app: str | None = None,
+        source_window: str | None = None,
+    ) -> Clip | None:
+        return self.capture(
+            content,
+            source_app=source_app,
+            source_window=source_window,
+            capture_mode=models.CAPTURE_MANUAL_SAVE_HOTKEY,
+            safe_id=safe_id,
+            force=True,
+        )
+
+    def capture_image(
+        self,
+        png_bytes: bytes,
+        *,
+        width: int,
+        height: int,
+        source_app: str | None = None,
+        source_window: str | None = None,
+        original_name: str | None = None,
+        capture_mode: str = models.CAPTURE_AUTO,
+        safe_id: str | None = None,
+        force: bool = False,
+    ) -> Clip | None:
         """Persist a screenshot/image from the clipboard as a vault clip + asset."""
         from . import image_assets
 
-        if self.settings.capture_paused:
-            return None
         if not png_bytes:
             return None
-        if self.settings.is_app_excluded(source_app):
+
+        resolved = self._resolve_safe(safe_id)
+        if resolved is None:
             return None
+        sid, sname = resolved
+
+        if capture_mode == models.CAPTURE_AUTO and not force:
+            if not self.settings.auto_capture_enabled:
+                return None
 
         chash = models.bytes_hash(png_bytes)
         prev = self.storage.latest_clip()
         if prev is not None and prev.content_hash == chash:
+            return None
+
+        blocked = self._capture_blocked(
+            capture_mode=capture_mode,
+            source_app=source_app,
+            content_hash=chash,
+            size_bytes=len(png_bytes),
+            sens=sensitive.SensitiveResult(),
+            force=force,
+        )
+        if blocked:
             return None
 
         preview = image_assets.image_preview_label(width, height)
@@ -124,6 +272,9 @@ class Vault:
             title=original_name or "Screenshot",
             size_bytes=len(png_bytes),
             use_count=1,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=capture_mode,
         )
         clip.last_used_at = clip.created_at
         self.storage.add_clip(clip)
@@ -143,6 +294,20 @@ class Vault:
         )
         self.storage.save_clip_asset(record, png_bytes)
 
+        action, event_type = self._capture_event_for_mode(capture_mode)
+        record_capture_receipt(
+            self.events,
+            action=action,
+            event_type=event_type,
+            success=True,
+            clip_id=clip.id,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=capture_mode,
+            source_app=source_app,
+            content_hash=chash,
+            item_type=models.CLASS_IMAGE,
+        )
         self.events.record(
             models.EVENT_CAPTURED, clip.id,
             {
@@ -153,6 +318,9 @@ class Vault:
                 "width": width,
                 "height": height,
                 "source_app": source_app,
+                "safe_id": sid,
+                "safe_name": sname,
+                "capture_mode": capture_mode,
             },
         )
         self.events.record(
@@ -165,6 +333,55 @@ class Vault:
                 self.events.record(models.EVENT_DELETED, cid,
                                    {"action": "history_prune"})
         return clip
+
+    def move_to_safe(self, clip_id: str, safe_id: str) -> Clip | None:
+        safe = self.safes.resolve(safe_id)
+        if safe is None or self.safes.is_ignore(safe.id):
+            return None
+        clip = self.storage.get_clip(clip_id)
+        if clip is None:
+            return None
+        self.storage.set_safe(
+            clip_id, safe.id, safe.name, models.CAPTURE_MOVED_TO_SAFE,
+        )
+        record_capture_receipt(
+            self.events,
+            action=models.ACTION_ITEM_MOVED_TO_SAFE,
+            event_type=models.EVENT_ITEM_MOVED_TO_SAFE,
+            success=True,
+            clip_id=clip_id,
+            safe_id=safe.id,
+            safe_name=safe.name,
+            capture_mode=models.CAPTURE_MOVED_TO_SAFE,
+            content_hash=clip.content_hash,
+            item_type=clip.classification,
+        )
+        return self.storage.get_clip(clip_id)
+
+    def create_safe(self, name: str):
+        safe = self.safes.create(name)
+        record_capture_receipt(
+            self.events,
+            action=models.ACTION_SAFE_CREATED,
+            event_type=models.EVENT_SAFE_CREATED,
+            success=True,
+            safe_id=safe.id,
+            safe_name=safe.name,
+        )
+        return safe
+
+    def list_safes(self) -> list[dict]:
+        counts = {s["id"]: s for s in self.storage.list_safes()}
+        out = []
+        for safe in self.safes.list_destinations():
+            row = counts.get(safe.id, {})
+            out.append({
+                "id": safe.id,
+                "name": safe.name,
+                "count": row.get("count", 0),
+                "builtin": safe.builtin,
+            })
+        return out
 
     # --- per-clip actions --------------------------------------------------
     def set_pinned(self, clip_id: str, pinned: bool) -> None:
