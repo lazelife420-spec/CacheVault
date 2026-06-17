@@ -149,10 +149,11 @@ class VaultScreenHost(ctk.CTkFrame):
         cap.pack(fill="x", pady=(0, 12))
         for label, value in (
             ("Basic export / Save As", "Available now"),
-            ("HTML bundle zip export", "Available for copied HTML bundles"),
-            ("Receipt in HTML zip", "Included when receipt file exists"),
-            ("Proof manifest in export", brand.LABEL_PHASE5_MANIFEST),
-            ("SHA256SUMS in export", brand.LABEL_PHASE5_MANIFEST),
+            ("Proof export zip", "Available — manifest + SHA256SUMS"),
+            ("HTML bundle export", "Uses copied HTML bundle, not originals"),
+            ("Proof manifest in export", brand.LABEL_MANIFEST_INCLUDED),
+            ("SHA256SUMS in export", brand.LABEL_SHA256SUMS_INCLUDED),
+            ("Receipts in export", "Included when found"),
         ):
             row = ctk.CTkFrame(cap, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=4)
@@ -187,6 +188,7 @@ class VaultScreenHost(ctk.CTkFrame):
                 return
             for ev in exports:
                 path = ev.get("details", {}).get("path", "")
+                eid = ev.get("details", {}).get("export_id", "")
                 ts = (ev.get("created_at") or "")[:19].replace("T", " ")
                 cid = ev.get("clip_id") or "—"
                 card = ctk.CTkFrame(
@@ -195,9 +197,16 @@ class VaultScreenHost(ctk.CTkFrame):
                 card.pack(fill="x", pady=4)
                 ctk.CTkLabel(
                     card,
-                    text=f"{ts} · clip {shorten_hash(cid)} · {path or '(path not recorded)'}",
+                    text=f"{ts} · {ev.get('event_type', 'export')} · "
+                         f"clip {shorten_hash(str(cid))} · {path or eid or '(path not recorded)'}",
                     anchor="w", font=theme.body_font(11), wraplength=600,
                 ).pack(fill="x", padx=12, pady=8)
+                if path:
+                    ctk.CTkButton(
+                        card, text="Reveal export folder", height=26,
+                        command=lambda p=path: self._callbacks["reveal_export"](p),
+                        **theme.secondary_button(),
+                    ).pack(anchor="w", padx=12, pady=(0, 8))
 
         parent._refresh = reload  # type: ignore[attr-defined]
 

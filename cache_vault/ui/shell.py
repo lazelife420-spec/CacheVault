@@ -301,6 +301,7 @@ class CacheVaultApp(ctk.CTk):
                 "preview_html": self._preview_html_copy,
                 "edit_html": self._edit_html_source,
                 "export_html": self._export_html_bundle,
+                "reveal_export": self._reveal_export_path,
                 "mobile_report": self._mobile_access_report,
                 "pair_android": lambda: self._open_pair_android(),
                 "mobile_settings": self._open_settings,
@@ -675,6 +676,8 @@ class CacheVaultApp(ctk.CTk):
             "save_editable_revision": self._save_editable_revision,
             "reveal_editable_copy_folder": self._reveal_editable_copy_folder,
             "export_html_bundle": self._export_html_bundle,
+            "export_proof_zip": self._export_clip_proof,
+            "export_editable_copy": lambda cid: self._export_clip_proof_mode(cid, "editable_copy"),
             "clip_inspector_context": self.vault.clip_inspector_context,
         }
 
@@ -951,14 +954,44 @@ class CacheVaultApp(ctk.CTk):
     def _export_html_bundle(self, clip_id: str) -> None:
         from tkinter import filedialog
 
+        from ..core.exports import export_zip_basename
+
+        rec = self.vault.latest_editable_copy(clip_id)
+        if rec is None:
+            self.vault.create_editable_copy(clip_id)
         dest = filedialog.asksaveasfilename(
             parent=self,
             title="Export HTML Bundle",
             defaultextension=".zip",
+            initialfile=export_zip_basename(),
             filetypes=[("Zip archive", "*.zip")],
         )
         if dest:
-            self.vault.export_html_bundle(clip_id, dest)
+            self.vault.export_proof_zip([clip_id], dest, mode="html_bundle")
+            self.refresh()
+
+    def _export_clip_proof(self, clip_id: str) -> None:
+        self._export_clip_proof_mode(clip_id, "auto")
+
+    def _export_clip_proof_mode(self, clip_id: str, mode: str) -> None:
+        from tkinter import filedialog
+
+        from ..core.exports import export_zip_basename
+
+        dest = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export proof zip",
+            defaultextension=".zip",
+            initialfile=export_zip_basename(),
+            filetypes=[("Zip archive", "*.zip")],
+        )
+        if dest:
+            self.vault.export_proof_zip([clip_id], dest, mode=mode)
+            self.refresh()
+
+    def _reveal_export_path(self, path: str) -> None:
+        from ..core import pathutil
+        pathutil.reveal_in_explorer(path)
 
     def _refresh_editable_preview(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
@@ -1073,33 +1106,39 @@ class CacheVaultApp(ctk.CTk):
         from tkinter import filedialog
 
         from ..core import export, models
-
-        def load_asset_bytes(clip_id: str) -> bytes | None:
-            loaded = self.vault.storage.load_clip_asset_bytes(clip_id)
-            return loaded[0] if loaded else None
+        from ..core.exports import export_zip_basename
 
         if kind == "zip":
             dest = filedialog.asksaveasfilename(
                 parent=self, title=f"{brand.TERM_EXPORT} — zip",
                 defaultextension=".zip",
-                initialfile=f"{(collection_name or 'cache-vault-export')}.zip",
+                initialfile=export_zip_basename(),
                 filetypes=[("Zip archive", "*.zip")])
             if not dest:
                 return
-            export.export_zip(clips, dest, include_files=include_files,
-                              collection_name=collection_name,
-                              load_asset_bytes=load_asset_bytes)
+            self.vault.export_proof_zip(
+                [c.id for c in clips],
+                dest,
+                include_original_files=include_files,
+                collection_name=collection_name,
+            )
         else:
             dest = filedialog.askdirectory(
                 parent=self, title=f"{brand.TERM_EXPORT} — folder")
             if not dest:
                 return
+
+            def load_asset_bytes(clip_id: str) -> bytes | None:
+                loaded = self.vault.storage.load_clip_asset_bytes(clip_id)
+                return loaded[0] if loaded else None
+
             export.export_collection(clips, dest, include_files=include_files,
                                      collection_name=collection_name,
                                      load_asset_bytes=load_asset_bytes)
-        self.vault.events.record(models.EVENT_EXPORTED, None,
-                                 {"target": kind, "count": len(clips),
-                                  "include_files": include_files})
+            self.vault.events.record(models.EVENT_EXPORTED, None,
+                                     {"target": kind, "count": len(clips),
+                                      "include_files": include_files})
+        self.refresh()
 
     def _build_query(self):
         raw = self._search_var.get()

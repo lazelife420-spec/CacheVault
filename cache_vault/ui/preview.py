@@ -436,9 +436,6 @@ class PreviewPanel(ctk.CTkFrame):
                         **theme.secondary_button())
                     add("Reveal Copied Bundle", "reveal_editable_copy_folder",
                         **theme.secondary_button())
-                    if self._actions.get("export_html_bundle"):
-                        add("Export HTML Bundle", "export_html_bundle",
-                            **theme.secondary_button())
                 section("Original")
                 add("Show Original", "show_original_path", **theme.secondary_button())
             elif pathutil.is_local_file(clip.content):
@@ -470,6 +467,17 @@ class PreviewPanel(ctk.CTkFrame):
             "toggle_favorite", **theme.secondary_button())
         add("Mark Keep", "mark_keep", **theme.secondary_button())
         add("Copy Metadata", "copy_metadata", **theme.secondary_button())
+
+        section("Export")
+        from ..core import pathutil
+        from ..core.editable_copies import is_html_path
+        add("Export Proof Zip", "export_proof_zip", **theme.secondary_button())
+        if pathutil.is_local_file(clip.content):
+            if is_html_path(clip.content):
+                if self._actions.get("export_html_bundle"):
+                    add("Export HTML Bundle", "export_html_bundle", **theme.secondary_button())
+            elif self._actions.get("export_editable_copy"):
+                add("Export Editable Copy", "export_editable_copy", **theme.secondary_button())
 
         section("Review")
         add("Expire Now", "expire_now", **theme.secondary_button())

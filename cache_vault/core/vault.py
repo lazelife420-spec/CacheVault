@@ -430,25 +430,10 @@ class Vault:
         return html_bundle_summary(clip_id, self._editable_store())
 
     def export_html_bundle(self, clip_id: str, dest_zip: str) -> bool:
-        from pathlib import Path
-
-        from .editable_copies import export_html_bundle_zip, receipts_dir
-
-        rec = self.latest_editable_copy(clip_id)
-        if rec is None or not rec.bundle_dir:
-            rec = self.create_editable_copy(clip_id)
-        if rec is None or not rec.bundle_dir:
-            return False
-        receipt_files = sorted(receipts_dir().glob(f"editable_html_copy_*-{clip_id[:8]}-*.json"))
-        if not receipt_files:
-            receipt_files = sorted(receipts_dir().glob("editable_html_copy_created-*.json"))
-        receipt = receipt_files[-1] if receipt_files else None
-        export_html_bundle_zip(
-            Path(rec.bundle_dir),
-            Path(dest_zip),
-            receipt_path=receipt,
+        result = self.export_proof_zip(
+            [clip_id], dest_zip, mode="html_bundle",
         )
-        return True
+        return result.success
 
     def delete_editable_copy(self, clip_id: str) -> bool:
         rec = self.latest_editable_copy(clip_id)
@@ -456,6 +441,88 @@ class Vault:
             return False
         deleted = self._editable_store().delete_copy_record(rec.id)
         return deleted is not None
+
+    def _events_for_clips(self, clip_ids: list[str], limit: int = 200) -> list[dict]:
+        if not clip_ids:
+            return self.events.recent(limit)
+        placeholders = ",".join("?" * len(clip_ids))
+        rows = self.storage.conn.execute(
+            f"SELECT id, created_at, event_type, clip_id, details FROM events "
+            f"WHERE clip_id IN ({placeholders}) "
+            f"ORDER BY created_at DESC LIMIT ?",
+            (*clip_ids, limit),
+        ).fetchall()
+        out = []
+        for r in rows:
+            import json
+            out.append({
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "event_type": r["event_type"],
+                "clip_id": r["clip_id"],
+                "details": json.loads(r["details"] or "{}"),
+            })
+        return out
+
+    def export_proof_zip(
+        self,
+        clip_ids: list[str],
+        dest_zip: str,
+        *,
+        mode: str = "auto",
+        include_original_files: bool = False,
+        collection_name: str | None = None,
+    ):
+        from .exports import ProofExportResult, create_proof_zip
+
+        clips = [self.storage.get_clip(cid) for cid in clip_ids]
+        clips = [c for c in clips if c is not None]
+        if not clips:
+            return ProofExportResult(export_id=models.new_id(), success=False,
+                                     error="no clips")
+
+        def load_asset(clip_id: str) -> bytes | None:
+            loaded = self.storage.load_clip_asset_bytes(clip_id)
+            return loaded[0] if loaded else None
+
+        result = create_proof_zip(
+            clips,
+            dest_zip,
+            mode=mode,
+            include_original_files=include_original_files,
+            get_editable_copy=self.latest_editable_copy,
+            events_for_clips=self._events_for_clips,
+            load_asset_bytes=load_asset,
+            collection_name=collection_name,
+        )
+        if result.success:
+            details = {
+                "export_id": result.export_id,
+                "path": str(result.zip_path),
+                "file_count": result.file_count,
+                "receipt_count": result.receipt_count,
+                "sha256sums_included": True,
+                "manifest_included": True,
+                "mode": mode,
+                "warnings": result.warnings[:20],
+            }
+            self.events.record(
+                models.EVENT_EXPORT_ZIP_CREATED,
+                clip_ids[0] if len(clip_ids) == 1 else None,
+                details,
+            )
+            for cid in clip_ids:
+                self.events.record(
+                    models.EVENT_ITEM_EXPORTED, cid,
+                    {"export_id": result.export_id, "path": str(result.zip_path)},
+                )
+            self.events.record(models.EVENT_EXPORTED, None, {
+                "export_id": result.export_id,
+                "target": "proof_zip",
+                "count": len(clips),
+                "path": str(result.zip_path),
+            })
+        return result
 
     def list_editable_copies(self):
         from .editable_copies import KIND_FILE
@@ -476,8 +543,9 @@ class Vault:
     def list_export_events(self, limit: int = 50) -> list[dict]:
         rows = self.storage.conn.execute(
             "SELECT id, created_at, event_type, clip_id, details FROM events "
-            "WHERE event_type = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
-            (models.EVENT_EXPORTED, limit),
+            "WHERE event_type IN (?, ?, ?) "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (models.EVENT_EXPORTED, models.EVENT_EXPORT_ZIP_CREATED, models.EVENT_ITEM_EXPORTED, limit),
         ).fetchall()
         out = []
         for r in rows:

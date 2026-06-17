@@ -19,7 +19,7 @@
 | **3** | Immutable originals + editable copies | **Done** — `editable_copies.py`, vault API, preview/context menu, receipts |
 | **4** | Local HTML bundle support | **Done** — HTML asset scan/copy, bundle revisions, zip export, receipts |
 | **4.5** | UI information architecture | **Done** — Command/Vault/Proof/Access nav, vault screens, inspector |
-| 5 | Receipts, manifest, export zip | Partial — export exists; receipt model expansion planned |
+| **5** | Proof export zip + manifest + SHA256SUMS | **Done** — `exports.py`, proof zip, receipts |
 | 6 | Smart folders, tags, notes, search | Planned |
 | 7 | Sensitive item handling | Partial — auto-expiry exists |
 | 8 | Delete/archive/revision model | Partial — Recently Removed exists |
@@ -66,6 +66,14 @@
 - Inspector panel shows proof status, receipts, editable-copy metadata.
 - Exports screen is honest about Phase 5 manifest/SHA256SUMS.
 - Smoke: `scripts/ui_ia_smoke.py`.
+
+## Phase 5 — proof exports
+
+- `cache_vault/core/exports.py` — proof zip with `manifest.json`, `SHA256SUMS.txt`, `receipts/`, `items/`, `editable_copies/`, `html_bundles/`.
+- Never mutates originals; editable/HTML exports use managed copies.
+- Events: `export_zip_created`, `item_exported`; file receipt `export_zip_created`.
+- Legacy folder export via `export.py` unchanged; zip exports use proof pack.
+- Smoke: `scripts/export_manifest_smoke.py`.
 
 ## Core rules (all phases)
 
