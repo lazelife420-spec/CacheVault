@@ -25,6 +25,7 @@ def test_shell_has_lock_guards():
     assert "VaultLockScreen" in src
     assert "_guard_unlocked" in src
     assert "EVENT_VAULT_UNLOCK_FAILED" in src
+    assert "_on_window_unmap" in src
     assert "vault_lock_when_minimized" in src
 
 

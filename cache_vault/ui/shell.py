@@ -206,6 +206,7 @@ class CacheVaultApp(ctk.CTk):
 
         # Closing the window hides to tray (if available) rather than quitting.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Unmap>", self._on_window_unmap, add="+")
 
         self.refresh()
         self._schedule_auto_lock()
@@ -2272,6 +2273,21 @@ class CacheVaultApp(ctk.CTk):
             self.withdraw()
         else:
             self._quit()
+
+    def _on_window_unmap(self, _event=None) -> None:
+        if self._shutting_down or self._locked():
+            return
+        if not (
+            self.vault.settings.vault_lock_when_minimized
+            and vault_lock.lock_config(self.vault.settings).enabled
+        ):
+            return
+        try:
+            is_minimized = self.state() == "iconic"
+        except Exception:  # noqa: BLE001
+            is_minimized = False
+        if is_minimized:
+            self._lock_now(reason="minimized")
 
     def _quit(self) -> None:
         self._shutting_down = True
