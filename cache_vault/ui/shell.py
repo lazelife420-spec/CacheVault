@@ -122,6 +122,8 @@ class CacheVaultApp(ctk.CTk):
 
         self._search_var = ctk.StringVar()
         self._search_job = None
+        self._capture_refresh_job = None
+        self._capture_refresh_pending = False
         self._expiry_job = None
         self._shutting_down = False
         self._main_thread_calls: queue.SimpleQueue = queue.SimpleQueue()
@@ -280,6 +282,12 @@ class CacheVaultApp(ctk.CTk):
         if not self._alive():
             return None
         return self.after(ms, fn)
+
+    def _window_viewable(self) -> bool:
+        try:
+            return bool(self.winfo_viewable()) and self.state() != "withdrawn"
+        except Exception:  # noqa: BLE001
+            return False
 
     def _call_on_main(self, fn) -> None:
         """Schedule ``fn`` on the Tk main thread (safe from pystray / worker threads)."""
@@ -737,6 +745,8 @@ class CacheVaultApp(ctk.CTk):
             )
             self._schedule_auto_lock()
             self.refresh()
+            if self._capture_refresh_pending:
+                self._schedule_capture_refresh()
             return True
         vault_lock.record_lock_event(
             self.vault.events,
@@ -1153,7 +1163,7 @@ class CacheVaultApp(ctk.CTk):
     def _on_clip_captured(self, payload: dict) -> None:
         # Runs on the monitor thread → hop to the UI thread before touching Tk.
         if self._alive():
-            self.after(0, lambda p=dict(payload): self._ingest(p))
+            self.after(40, lambda p=dict(payload): self._ingest(p))
 
     def _ingest(self, payload: dict) -> None:
         if not self._alive():
@@ -1242,7 +1252,26 @@ class CacheVaultApp(ctk.CTk):
         else:
             return
         if clip is not None:
-            self.refresh()
+            self._schedule_capture_refresh()
+
+    def _schedule_capture_refresh(self) -> None:
+        """Batch repaint work after clipboard captures so copy feels instant."""
+        self._capture_refresh_pending = True
+        if self._capture_refresh_job is not None:
+            return
+        if self._locked() or not self._window_viewable():
+            return
+        self._capture_refresh_job = self._safe_after(180, self._flush_capture_refresh)
+
+    def _flush_capture_refresh(self) -> None:
+        self._capture_refresh_job = None
+        if not self._capture_refresh_pending:
+            return
+        self._capture_refresh_pending = False
+        if self._locked() or not self._window_viewable():
+            self._capture_refresh_pending = True
+            return
+        self.refresh()
 
     def _show_toast(self, text: str) -> None:
         if self._alive():
@@ -2743,6 +2772,8 @@ class CacheVaultApp(ctk.CTk):
         self.update_idletasks()
         self.lift()
         self.focus_force()
+        if self._capture_refresh_pending:
+            self._schedule_capture_refresh()
 
     def _on_close(self) -> None:
         # Hide to tray if we have one; otherwise quit outright.
@@ -2773,7 +2804,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _quit(self) -> None:
         self._shutting_down = True
-        for job in (self._search_job, self._expiry_job):
+        for job in (self._search_job, self._capture_refresh_job, self._expiry_job):
             if job:
                 try:
                     self.after_cancel(job)
