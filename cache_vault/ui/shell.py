@@ -22,7 +22,7 @@ from pathlib import Path
 import customtkinter as ctk
 
 from .. import brand
-from ..core import models, search
+from ..core import models, search, vault_lock
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -67,6 +67,7 @@ from .quick_paste import QuickPaste
 from .toast import Toast
 from .tray import TrayController
 from .vault_screens import VaultScreenHost
+from .vault_lock import VaultControlStrip, VaultLockScreen
 from . import theme
 from .crashlog import write_crash
 from .scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
@@ -128,6 +129,9 @@ class CacheVaultApp(ctk.CTk):
         self._date_used_preset: str | None = None
         self._type_filter: str | None = None
         self._sensitive_only = False
+        self._vault_locked = vault_lock.should_lock_on_startup(self.vault.settings)
+        self._idle_lock_job = None
+        self._last_unlock_at = models.now_iso()
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -140,6 +144,13 @@ class CacheVaultApp(ctk.CTk):
         )
 
         self._build_layout()
+        if self._vault_locked:
+            vault_lock.record_lock_event(
+                self.vault.events,
+                vault_lock.EVENT_VAULT_LOCKED,
+                mode=self.vault.settings.vault_lock_mode,
+                reason="startup",
+            )
 
         # Clipboard monitor — callback marshalled onto the Tk thread.
         self._monitor = ClipboardMonitor(
@@ -195,8 +206,10 @@ class CacheVaultApp(ctk.CTk):
 
         # Closing the window hides to tray (if available) rather than quitting.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Unmap>", self._on_window_unmap, add="+")
 
         self.refresh()
+        self._schedule_auto_lock()
         self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
         # Start mobile bridge after the window is live (zeroconf must not block UI).
         self.after(0, lambda: self._mobile_bridge.sync(self.vault.settings))
@@ -269,14 +282,11 @@ class CacheVaultApp(ctk.CTk):
                            fg_color=brand.SURFACE_BG)
         top.grid(row=0, column=0, columnspan=3, sticky="ew")
         top.grid_columnconfigure(0, weight=1)
-        hotkey = self.vault.settings.quick_paste_hotkey or "Ctrl+Shift+V"
-        self._status = ctk.CTkLabel(
+        self._control_strip = VaultControlStrip(
             top,
-            text=f"Quick Paste: {hotkey} · {brand.LABEL_LOCAL_ONLY}",
-            text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11),
+            callbacks=self._control_strip_callbacks(),
         )
-        self._status.grid(row=0, column=0, sticky="w", padx=12)
+        self._control_strip.grid(row=0, column=0, sticky="ew")
         ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
                       command=self._export_view, **theme.primary_button()
                       ).grid(row=0, column=1, padx=4)
@@ -290,6 +300,7 @@ class CacheVaultApp(ctk.CTk):
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
+                                  settings=self.vault.settings,
                                   width=210, corner_radius=0)
         self._filters.grid(row=1, column=0, sticky="nsew")
 
@@ -386,6 +397,19 @@ class CacheVaultApp(ctk.CTk):
                      text_color=brand.MUTED_FG,
                      font=ctk.CTkFont(size=10)).pack(fill="x", pady=4)
 
+        self._lock_screen = VaultLockScreen(
+            self,
+            on_unlock=self._unlock_vault,
+            on_quit=self._quit,
+            mode=self.vault.settings.vault_lock_mode,
+        )
+        self._lock_screen.grid(row=0, column=0, columnspan=3, rowspan=3, sticky="nsew")
+        if self._vault_locked:
+            self._lock_screen.lift()
+            self.after(100, self._lock_screen.focus_unlock)
+        else:
+            self._lock_screen.grid_remove()
+
     def _build_toolbar(self) -> None:
         self._sort_var = ctk.StringVar(value="Newest Added")
         self._added_var = ctk.StringVar(value="Any")
@@ -460,6 +484,109 @@ class CacheVaultApp(ctk.CTk):
             text="Extras go to Recently Removed — nothing is permanently deleted.",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
         ).pack(side="left", padx=4)
+
+    def _control_strip_callbacks(self) -> dict:
+        return {
+            "pause_capture": lambda: self._set_paused(not self.vault.settings.capture_paused),
+            "save_current_clipboard": self._manual_save_clipboard,
+            "save_next_copy": self._arm_next_copy,
+            "ignore_next_copy": self._ignore_next_copy,
+            "capture_rules": self._open_settings,
+            "mobile_access": lambda: self._navigate_screen(NAV_MOBILE_ACCESS),
+            "pair_device": lambda: self._open_pair_android(),
+            "mobile_inbox": lambda: self._navigate_screen(NAV_MOBILE_INBOX),
+            "mobile_receipts": self._open_mobile_receipts,
+            "stamped_ledger": lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+            "export_proof_zip": self._export_view,
+            "open_receipts_folder": self._open_receipts_folder,
+            "quick_paste": self._schedule_quick_paste,
+            "vault_macros": lambda: self._navigate_screen(NAV_VAULT_MACROS),
+            "export_selected": self._export_selected_or_view,
+            "show_first_use_guide": self._open_first_use_guide_from_settings,
+            "lock_now": self._lock_now,
+        }
+
+    def _locked(self) -> bool:
+        return bool(getattr(self, "_vault_locked", False))
+
+    def _lock_now(self, *, reason: str = "manual") -> None:
+        if not vault_lock.lock_config(self.vault.settings).enabled:
+            self._show_toast("Enable Vault Lock in Settings first.")
+            return
+        if self._locked():
+            return
+        self._vault_locked = True
+        self._preview.show(None)
+        self._lock_screen.set_mode(self.vault.settings.vault_lock_mode)
+        self._lock_screen.grid()
+        self._lock_screen.lift()
+        self._lock_screen.focus_unlock()
+        vault_lock.record_lock_event(
+            self.vault.events,
+            vault_lock.EVENT_VAULT_LOCKED,
+            mode=self.vault.settings.vault_lock_mode,
+            reason=reason,
+        )
+
+    def _unlock_vault(self, secret: str) -> bool:
+        if vault_lock.verify_secret(self.vault.settings, secret):
+            self._vault_locked = False
+            self._lock_screen.grid_remove()
+            self._last_unlock_at = models.now_iso()
+            vault_lock.record_lock_event(
+                self.vault.events,
+                vault_lock.EVENT_VAULT_UNLOCKED,
+                mode=self.vault.settings.vault_lock_mode,
+            )
+            self._schedule_auto_lock()
+            self.refresh()
+            return True
+        vault_lock.record_lock_event(
+            self.vault.events,
+            vault_lock.EVENT_VAULT_UNLOCK_FAILED,
+            mode=self.vault.settings.vault_lock_mode,
+            reason="invalid_unlock",
+        )
+        return False
+
+    def _schedule_auto_lock(self) -> None:
+        if self._idle_lock_job:
+            try:
+                self.after_cancel(self._idle_lock_job)
+            except Exception:  # noqa: BLE001
+                pass
+            self._idle_lock_job = None
+        cfg = vault_lock.lock_config(self.vault.settings)
+        if not cfg.enabled or cfg.auto_lock_minutes <= 0 or self._locked():
+            return
+        self._idle_lock_job = self.after(
+            cfg.auto_lock_minutes * 60_000,
+            lambda: self._lock_now(reason="auto_lock"),
+        )
+
+    def _guard_unlocked(self) -> bool:
+        if not self._locked():
+            return True
+        try:
+            self._lock_screen.lift()
+            self._lock_screen.focus_unlock()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+    def _open_receipts_folder(self) -> None:
+        from ..core.settings import default_settings_path
+        from ..core import pathutil
+        folder = default_settings_path().parent
+        folder.mkdir(parents=True, exist_ok=True)
+        pathutil.open_path(str(folder))
+
+    def _export_selected_or_view(self) -> None:
+        clip = getattr(self._preview, "_clip", None)
+        if clip is not None:
+            self._export_clip_proof(clip.id)
+        else:
+            self._export_view()
 
     def _sort_label_to_key(self, label: str) -> str:
         return {
@@ -798,11 +925,11 @@ class CacheVaultApp(ctk.CTk):
                     self._list.render(clips, empty_message=empty_msg)
                 clip_count = len(clips)
 
-            mode = "paused" if self._monitor.paused else f"capturing ({self._monitor.mode})"
-            from ..core.hotkey import normalize_hotkey
-            hk = normalize_hotkey(self.vault.settings.quick_paste_hotkey)
-            paste = f" · paste: {hk}" if getattr(self, "_hotkey", None) and self._hotkey.available else ""
-            self._status.configure(text=f"{clip_count} shown · {mode}{paste}")
+            summary["shown"] = clip_count
+            summary["default_safe"] = self.vault.settings.default_safe_id
+            self._control_strip.update_state(summary)
+            if self._locked():
+                self._lock_screen.lift()
         except Exception as exc:  # noqa: BLE001
             write_crash("refresh", exc)
             raise
@@ -938,6 +1065,8 @@ class CacheVaultApp(ctk.CTk):
         self._call_on_main(self._ignore_next_copy)
 
     def _manual_save_clipboard(self) -> None:
+        if not self._guard_unlocked():
+            return
         payload = read_clipboard_payload()
         if payload is None:
             self._show_toast("Clipboard is empty — nothing to save.")
@@ -962,6 +1091,8 @@ class CacheVaultApp(ctk.CTk):
         self._show_toast("Clipboard saved to Safe.")
 
     def _arm_next_copy(self) -> None:
+        if not self._guard_unlocked():
+            return
         def _apply(safe_id: str, safe_name: str) -> None:
             self._capture_ctrl.arm_next_copy(safe_id, safe_name)
             record_armed_receipt(
@@ -977,6 +1108,8 @@ class CacheVaultApp(ctk.CTk):
         )
 
     def _ignore_next_copy(self) -> None:
+        if not self._guard_unlocked():
+            return
         self._capture_ctrl.arm_ignore_next()
         self._show_toast("Next copy will not be saved.")
 
@@ -1003,6 +1136,8 @@ class CacheVaultApp(ctk.CTk):
         return None
 
     def _on_filter_select(self, key: str) -> None:
+        if not self._guard_unlocked():
+            return
         if key == NAV_QUICK_PASTE:
             self._schedule_quick_paste()
             return
@@ -1023,11 +1158,15 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
 
     def _on_clip_select(self, clip) -> None:
+        if not self._guard_unlocked():
+            return
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
 
     def _copy_again(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
         clip = self.vault.storage.get_clip(clip_id)
         if clip is None:
             return
@@ -1533,6 +1672,17 @@ class CacheVaultApp(ctk.CTk):
 
     def _apply_settings(self, settings) -> None:
         settings.save()
+        vault_lock.record_lock_event(
+            self.vault.events,
+            vault_lock.EVENT_VAULT_LOCK_SETTINGS_CHANGED,
+            mode=settings.vault_lock_mode,
+            reason="settings_saved",
+        )
+        self._lock_screen.set_mode(settings.vault_lock_mode)
+        if not vault_lock.lock_config(settings).enabled and self._locked():
+            self._vault_locked = False
+            self._lock_screen.grid_remove()
+        self._schedule_auto_lock()
         refresh_windows_scroll_cache()
         self._monitor.pause() if settings.capture_paused else self._monitor.resume()
         self._rebind_hotkey(settings.quick_paste_hotkey)
@@ -1588,6 +1738,8 @@ class CacheVaultApp(ctk.CTk):
 
     def _open_quick_paste(self, paste_target=None) -> None:
         if not self._alive():
+            return
+        if not self._guard_unlocked():
             return
         try:
             # If a popup is already up (hotkey pressed twice), just refocus it.
@@ -2048,6 +2200,8 @@ class CacheVaultApp(ctk.CTk):
         *,
         shortcut_backspaces: int = 0,
     ):
+        if not self._guard_unlocked():
+            return None
         target_hwnd = self._resolve_macro_target(target_hwnd)
         if not target_hwnd:
             self._show_toast("No target window — focus an app and try again.")
@@ -2110,10 +2264,30 @@ class CacheVaultApp(ctk.CTk):
 
     def _on_close(self) -> None:
         # Hide to tray if we have one; otherwise quit outright.
+        if (
+            self.vault.settings.vault_lock_when_minimized
+            and vault_lock.lock_config(self.vault.settings).enabled
+        ):
+            self._lock_now(reason="minimized")
         if self._tray.available:
             self.withdraw()
         else:
             self._quit()
+
+    def _on_window_unmap(self, _event=None) -> None:
+        if self._shutting_down or self._locked():
+            return
+        if not (
+            self.vault.settings.vault_lock_when_minimized
+            and vault_lock.lock_config(self.vault.settings).enabled
+        ):
+            return
+        try:
+            is_minimized = self.state() == "iconic"
+        except Exception:  # noqa: BLE001
+            is_minimized = False
+        if is_minimized:
+            self._lock_now(reason="minimized")
 
     def _quit(self) -> None:
         self._shutting_down = True

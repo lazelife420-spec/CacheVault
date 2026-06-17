@@ -78,6 +78,17 @@ class Settings:
     # First-use guide — shown once until dismissed (Settings can reopen).
     first_use_guide_dismissed: bool = False
 
+    # Vault Lock — local app privacy lock. This is not Safe encryption.
+    vault_lock_enabled: bool = False
+    vault_lock_mode: str = "pin"  # "pin" or "passphrase"
+    vault_lock_salt: str = ""
+    vault_lock_hash: str = ""
+    vault_lock_iterations: int = 200_000
+    vault_lock_on_startup: bool = False
+    vault_lock_when_minimized: bool = False
+    vault_lock_auto_minutes: int = 0  # 0 = disabled
+    sidebar_collapsed_sections: list[str] = field(default_factory=list)
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":
@@ -140,6 +151,25 @@ class Settings:
             s.scroll_multiplier = 1.0
         s.restore_clipboard_after_paste = bool(s.restore_clipboard_after_paste)
         s.first_use_guide_dismissed = bool(getattr(s, "first_use_guide_dismissed", False))
+        s.vault_lock_enabled = bool(getattr(s, "vault_lock_enabled", False))
+        if getattr(s, "vault_lock_mode", "pin") not in ("pin", "passphrase"):
+            s.vault_lock_mode = "pin"
+        s.vault_lock_salt = str(getattr(s, "vault_lock_salt", "") or "")
+        s.vault_lock_hash = str(getattr(s, "vault_lock_hash", "") or "")
+        try:
+            s.vault_lock_iterations = max(
+                1, int(getattr(s, "vault_lock_iterations", 200_000)))
+        except (TypeError, ValueError):
+            s.vault_lock_iterations = 200_000
+        s.vault_lock_on_startup = bool(getattr(s, "vault_lock_on_startup", False))
+        s.vault_lock_when_minimized = bool(getattr(s, "vault_lock_when_minimized", False))
+        try:
+            s.vault_lock_auto_minutes = max(
+                0, min(1440, int(getattr(s, "vault_lock_auto_minutes", 0))))
+        except (TypeError, ValueError):
+            s.vault_lock_auto_minutes = 0
+        if not isinstance(getattr(s, "sidebar_collapsed_sections", []), list):
+            s.sidebar_collapsed_sections = []
         s._persist_path = path
         return s
 

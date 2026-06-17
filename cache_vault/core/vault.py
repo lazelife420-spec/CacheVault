@@ -962,6 +962,7 @@ class Vault:
             "mobile_port": self.settings.mobile_access_port,
             "paired_count": len(self.settings.paired_devices),
             "capture_paused": bool(self.settings.capture_paused),
+            "default_safe": self.settings.default_safe_id,
             "editable_copies": copy_counts.get("editable_copies", 0),
             "html_bundles": copy_counts.get("html_bundles", 0),
             "recent_pasted_count": len(pasted),

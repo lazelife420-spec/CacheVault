@@ -38,6 +38,14 @@ class PreviewPanel(ctk.CTkFrame):
                                       font=theme.body_font(11))
         self._subtitle.pack(fill="x", padx=10)
 
+        self._active_tab = "Actions"
+        self._tabs = ctk.CTkSegmentedButton(
+            self._scroll,
+            values=["Actions", "Seal", "Metadata", "History"],
+            command=self._set_tab,
+        )
+        self._tabs.set(self._active_tab)
+
         self._body = ctk.CTkTextbox(self._scroll, height=140, wrap="word",
                                     font=theme.body_font(12))
         self._body.pack(fill="x", padx=10, pady=6)
@@ -89,6 +97,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._vault_frame.pack_forget()
         self._title.configure(text=brand.TERM_VAULT_ITEM)
         self._subtitle.configure(text="")
+        self._hide_tabs()
         self._seal_frame.pack_forget()
         self._set_body(
             "Select a clip to see details.\n\n"
@@ -109,6 +118,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._hide_clip_sections()
         self._title.configure(text=brand.TERM_VAULT_STATUS)
         self._subtitle.configure(text=f"{brand.VAULT_TAGLINE} · {brand.LABEL_LOCAL_ONLY}")
+        self._hide_tabs()
         self._seal_frame.pack_forget()
         self._set_body("")
         self._body.pack_forget()
@@ -210,6 +220,7 @@ class PreviewPanel(ctk.CTkFrame):
                           **theme.secondary_button()).pack(fill="x", pady=2)
 
     def _hide_clip_sections(self) -> None:
+        self._hide_tabs()
         self._seal_frame.pack_forget()
         self._body.pack(fill="x", padx=10, pady=6)
         self._image_frame.pack_forget()
@@ -218,8 +229,48 @@ class PreviewPanel(ctk.CTkFrame):
         self._usage_title.pack_forget()
         self._usage.pack_forget()
 
+    def _show_tabs(self) -> None:
+        self._tabs.pack(fill="x", padx=10, pady=(8, 4))
+
+    def _hide_tabs(self) -> None:
+        self._tabs.pack_forget()
+
+    def _set_tab(self, tab: str) -> None:
+        self._active_tab = tab
+        self._apply_tab_visibility()
+
+    def _apply_tab_visibility(self) -> None:
+        if self._clip is None:
+            return
+        for widget in (
+            self._seal_frame,
+            self._body,
+            self._image_frame,
+            self._meta_title,
+            self._meta,
+            self._usage_title,
+            self._usage,
+            self._buttons,
+        ):
+            widget.pack_forget()
+        if self._active_tab == "Actions":
+            self._buttons.pack(fill="x", padx=8, pady=8)
+        elif self._active_tab == "Seal":
+            self._seal_frame.pack(fill="x", padx=10, pady=(4, 6))
+        elif self._active_tab == "History":
+            self._usage_title.pack(fill="x", padx=10, pady=(8, 2))
+            self._usage.pack(fill="x", padx=10, pady=2)
+        else:
+            if self._clip.content_type == models.CONTENT_IMAGE:
+                self._image_frame.pack(fill="x", padx=10, pady=6)
+            else:
+                self._body.pack(fill="x", padx=10, pady=6)
+            self._meta_title.pack(fill="x", padx=10, pady=(4, 2))
+            self._meta.pack(fill="x", padx=10, pady=2)
+
     def _show_clip_sections(self, *, image: bool = False) -> None:
         self._vault_frame.pack_forget()
+        self._show_tabs()
         if image:
             self._body.pack_forget()
             self._image_frame.pack(fill="x", padx=10, pady=6)
@@ -276,6 +327,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._meta.configure(text=self._meta_text(clip))
         self._set_usage(self._usage_text(clip))
         self._render_buttons(clip)
+        self._apply_tab_visibility()
 
     def _render_seal(self, clip: Clip, ctx: dict | None) -> None:
         for w in self._seal_frame.winfo_children():

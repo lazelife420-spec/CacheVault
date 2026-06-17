@@ -7,7 +7,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import startup
+from ..core import startup, vault_lock
 from ..core.settings import Settings
 from . import theme
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
@@ -273,6 +273,48 @@ class SettingsDialog(ctk.CTkToplevel):
         self._scroll_mult.insert(0, str(settings.scroll_multiplier))
         self._scroll_mult.pack(side="right")
 
+        section("Vault Lock")
+        self._vault_lock_on = ctk.CTkSwitch(body, text="Enable Vault Lock")
+        self._vault_lock_on.pack(anchor="w", padx=8, pady=4)
+        if settings.vault_lock_enabled:
+            self._vault_lock_on.select()
+        self._vault_lock_mode = ctk.StringVar(
+            value="PIN lock" if settings.vault_lock_mode == "pin" else "Passphrase lock",
+        )
+        ctk.CTkOptionMenu(
+            body,
+            variable=self._vault_lock_mode,
+            values=["PIN lock", "Passphrase lock"],
+            width=160,
+        ).pack(anchor="w", padx=8, pady=4)
+        self._vault_lock_secret = ctk.CTkEntry(
+            body,
+            show="*",
+            placeholder_text="New PIN/passphrase (leave blank to keep current)",
+        )
+        self._vault_lock_secret.pack(fill="x", padx=8, pady=4)
+        self._vault_lock_startup = ctk.CTkSwitch(body, text="Lock on startup")
+        self._vault_lock_startup.pack(anchor="w", padx=8, pady=4)
+        if settings.vault_lock_on_startup:
+            self._vault_lock_startup.select()
+        self._vault_lock_minimized = ctk.CTkSwitch(body, text="Lock when minimized")
+        self._vault_lock_minimized.pack(anchor="w", padx=8, pady=4)
+        if settings.vault_lock_when_minimized:
+            self._vault_lock_minimized.select()
+        auto_row = ctk.CTkFrame(body, fg_color="transparent")
+        auto_row.pack(fill="x", padx=8, pady=(4, 0))
+        ctk.CTkLabel(auto_row, text="Auto-lock minutes (0 = off):").pack(side="left")
+        self._vault_lock_auto = ctk.CTkEntry(auto_row, width=60)
+        self._vault_lock_auto.insert(0, str(settings.vault_lock_auto_minutes))
+        self._vault_lock_auto.pack(side="right")
+        ctk.CTkLabel(
+            body,
+            text="Vault Lock hides the app surface. Safes organize your items. "
+                 "They are not encryption unless encryption is added later.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11), wraplength=460,
+        ).pack(anchor="w", padx=8, pady=(4, 8))
+
         section("Startup")
         self._startup = ctk.CTkSwitch(body, text="Start Cache Vault with Windows")
         self._startup.pack(anchor="w", padx=8, pady=6)
@@ -433,6 +475,27 @@ class SettingsDialog(ctk.CTkToplevel):
         try:
             self._settings.macro_keystroke_delay_ms = max(
                 1, min(100, int(self._macro_keystroke_delay.get())),
+            )
+        except ValueError:
+            pass
+        self._settings.vault_lock_enabled = bool(self._vault_lock_on.get())
+        self._settings.vault_lock_mode = (
+            "passphrase" if "Passphrase" in self._vault_lock_mode.get() else "pin"
+        )
+        lock_secret = self._vault_lock_secret.get()
+        if lock_secret:
+            vault_lock.set_lock_secret(
+                self._settings,
+                lock_secret,
+                mode=self._settings.vault_lock_mode,
+            )
+        elif self._settings.vault_lock_enabled and not vault_lock.has_lock_secret(self._settings):
+            self._settings.vault_lock_enabled = False
+        self._settings.vault_lock_on_startup = bool(self._vault_lock_startup.get())
+        self._settings.vault_lock_when_minimized = bool(self._vault_lock_minimized.get())
+        try:
+            self._settings.vault_lock_auto_minutes = max(
+                0, min(1440, int(self._vault_lock_auto.get())),
             )
         except ValueError:
             pass
