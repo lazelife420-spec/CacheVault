@@ -19,7 +19,6 @@ from scripts.android_asset_smoke import (  # noqa: E402
     bridge_host_port,
     curl_status,
     fresh_pair,
-    restart_cache_vault,
 )
 
 
@@ -62,7 +61,7 @@ def main() -> int:
 
     host, port = bridge_host_port()
     device_id, token = fresh_pair()
-    restart_cache_vault()
+    time.sleep(0.5)
     code, _ = curl_status(device_id, token, host="127.0.0.1")
     if code != 200:
         print(f"PC bridge auth failed: {code}", file=sys.stderr)

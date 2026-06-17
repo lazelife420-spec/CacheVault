@@ -140,10 +140,12 @@ class Settings:
             s.scroll_multiplier = 1.0
         s.restore_clipboard_after_paste = bool(s.restore_clipboard_after_paste)
         s.first_use_guide_dismissed = bool(getattr(s, "first_use_guide_dismissed", False))
+        s._persist_path = path
         return s
 
     def save(self, path: str | os.PathLike | None = None) -> None:
-        path = Path(path or default_settings_path())
+        path = Path(path or getattr(self, "_persist_path", None) or default_settings_path())
+        self._persist_path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
 

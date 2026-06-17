@@ -288,3 +288,40 @@ def test_token_stored_as_hash_not_plaintext(vault, mobile_bridge):
     stored = vault.settings.paired_devices[0]
     assert stored["token_hash"] != token
     assert len(stored["token_hash"]) == 64
+
+
+def test_pair_hot_reload_without_restart(tmp_path, monkeypatch):
+    """Pairing saved to disk is accepted while the bridge is already running."""
+    from cache_vault.core import models
+    from cache_vault.core.mobile.models import PairedDevice, hash_token, new_device_token
+    from cache_vault.core.storage import VaultStorage
+    from cache_vault.core.vault import Vault
+
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(
+        "cache_vault.core.settings.default_settings_path", lambda: settings_path)
+
+    settings = Settings()
+    settings.mobile_access_enabled = True
+    settings.save(settings_path)
+    vault = Vault(storage=VaultStorage(":memory:"), settings=Settings.load(settings_path))
+    log = MobileReceiptLog(tmp_path / "mobile_receipts.json")
+    bridge = MobileBridge(vault, receipt_log=log)
+
+    token = new_device_token()
+    device = PairedDevice(
+        device_id="phone-hot-reload",
+        device_name="Hot Reload Phone",
+        created_at=models.now_iso(),
+        token_hash=hash_token(token),
+    )
+    disk = Settings.load(settings_path)
+    disk.paired_devices.append(device.to_dict())
+    disk.save(settings_path)
+
+    vault.settings.paired_devices = []
+
+    code, body = bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 200
+    assert body["device_id"] == device.device_id

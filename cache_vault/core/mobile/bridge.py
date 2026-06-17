@@ -225,7 +225,21 @@ class MobileBridge:
                 count += 1
         return count
 
+    def _refresh_paired_devices_from_disk(self) -> None:
+        """Reload paired devices from disk so pairing/revoke works without restart."""
+        path = getattr(self.vault.settings, "_persist_path", None)
+        if path is None:
+            return
+        fresh = Settings.load(path)
+        self.vault.settings.paired_devices = list(fresh.paired_devices)
+
+    def _paired_devices_for_auth(self) -> list[dict]:
+        self._refresh_paired_devices_from_disk()
+        return self.vault.settings.paired_devices
+
     def active_devices(self, settings: Settings | None = None) -> list[PairedDevice]:
+        if settings is None:
+            self._refresh_paired_devices_from_disk()
         settings = settings or self.vault.settings
         out = []
         for raw in settings.paired_devices:
@@ -345,7 +359,7 @@ class MobileBridge:
         if not device_id or not token:
             return None, "Pairing required. Send X-Device-Id and Authorization Bearer token."
         th = hash_token(token)
-        for raw in self.vault.settings.paired_devices:
+        for raw in self._paired_devices_for_auth():
             d = PairedDevice.from_dict(raw)
             if d.device_id != device_id:
                 continue

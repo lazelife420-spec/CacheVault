@@ -587,7 +587,7 @@ def verify_revoked_device() -> dict:
     ]
     settings.save()
     probe_id, probe_token = fresh_pair(probe_id, "Revoke smoke probe")
-    restart_cache_vault()
+    time.sleep(0.5)
     code, _body = curl_status(probe_id, probe_token, host="127.0.0.1")
     if code != 200:
         return {"revoked_device_401": False, "revoked_receipt": False, "probe_auth": code}
@@ -602,7 +602,7 @@ def verify_revoked_device() -> dict:
         updated.append(row)
     settings.paired_devices = updated
     settings.save()
-    restart_cache_vault()
+    time.sleep(0.5)
     code, _body = curl_status(probe_id, probe_token, host="127.0.0.1")
     before = receipt_count()
     curl_status(probe_id, probe_token, host="127.0.0.1")
@@ -639,10 +639,10 @@ def main() -> int:
     clip_id = latest_image_clip_id()
     host, port = bridge_host_port()
     device_id, token = fresh_pair()
-    restart_cache_vault()
+    time.sleep(0.5)
     code, _ = curl_status(device_id, token, host="127.0.0.1")
     if code != 200:
-        print(json.dumps({"ok": False, "error": f"PC bridge auth failed after restart: {code}"}, indent=2))
+        print(json.dumps({"ok": False, "error": f"PC bridge auth failed (hot-reload): {code}"}, indent=2))
         return 1
 
     before = receipt_count()
