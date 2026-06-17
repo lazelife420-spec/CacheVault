@@ -20,12 +20,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # The core (cache_vault.core) is GUI-free, so CI needs only pytest —
-      # no customtkinter/pystray/pywin32. This also guards the "core has no
-      # third-party deps" promise: if a core module grows a heavy import,
-      # these jobs fail.
       - name: Install test deps
-        run: python -m pip install --upgrade pip pytest
+        run: python -m pip install --upgrade pip pytest -r requirements.txt
 
       - name: Run unit tests
         run: python -m pytest -q
