@@ -48,9 +48,11 @@ def test_capture_refresh_flush_coalesces_to_one_refresh():
     assert calls == ["refresh"]
 
 
-def test_clipboard_capture_path_uses_delayed_ingest_and_batched_refresh():
+def test_clipboard_capture_path_uses_main_thread_queue_and_batched_refresh():
     source = inspect.getsource(CacheVaultApp)
 
-    assert "self.after(40" in source
+    captured = inspect.getsource(CacheVaultApp._on_clip_captured)
+    assert "_call_on_main" in captured
+    assert ".after(" not in captured
     assert "self._schedule_capture_refresh()" in source
     assert "self.refresh()" not in inspect.getsource(CacheVaultApp._save_payload)

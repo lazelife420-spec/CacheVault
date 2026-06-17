@@ -1161,9 +1161,9 @@ class CacheVaultApp(ctk.CTk):
 
     # --- event handlers ----------------------------------------------------
     def _on_clip_captured(self, payload: dict) -> None:
-        # Runs on the monitor thread → hop to the UI thread before touching Tk.
+        # Runs on the monitor thread; queue work for the Tk thread.
         if self._alive():
-            self.after(40, lambda p=dict(payload): self._ingest(p))
+            self._call_on_main(lambda p=dict(payload): self._ingest(p))
 
     def _ingest(self, payload: dict) -> None:
         if not self._alive():
