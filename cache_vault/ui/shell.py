@@ -162,6 +162,10 @@ class CacheVaultApp(ctk.CTk):
         from ..core.macro_shortcut_listener import TextShortcutListener
         from ..core.vault_macros import TRIGGER_HOTKEY, TRIGGER_MENU_ONLY, TRIGGER_TEXT_SHORTCUT
 
+        self._TRIGGER_HOTKEY = TRIGGER_HOTKEY
+        self._TRIGGER_MENU_ONLY = TRIGGER_MENU_ONLY
+        self._TRIGGER_TEXT_SHORTCUT = TRIGGER_TEXT_SHORTCUT
+        self._system_reserved_hotkeys = system_reserved_hotkeys
         self._macro_picker = None
         self._macro_executor = MacroExecutor(
             self.vault.settings,
@@ -178,13 +182,10 @@ class CacheVaultApp(ctk.CTk):
         self._text_shortcut_listener = TextShortcutListener(
             on_match=self._on_text_shortcut_match,
             should_skip=lambda hwnd: hwnd_belongs_to_widget(hwnd, self),
+            schedule_main=self._call_on_main,
         )
         self._sync_text_shortcut_listener()
         self._text_shortcut_listener.start()
-        self._TRIGGER_HOTKEY = TRIGGER_HOTKEY
-        self._TRIGGER_MENU_ONLY = TRIGGER_MENU_ONLY
-        self._TRIGGER_TEXT_SHORTCUT = TRIGGER_TEXT_SHORTCUT
-        self._system_reserved_hotkeys = system_reserved_hotkeys
 
         # Closing the window hides to tray (if available) rather than quitting.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1923,15 +1924,21 @@ class CacheVaultApp(ctk.CTk):
         ok, _reason = self._macro_executor.execution_allowed()
         if not ok or not self.vault.settings.macro_text_shortcuts_enabled:
             return
-        self._call_on_main(
-            lambda: self._run_macro(
-                macro,
-                self._TRIGGER_TEXT_SHORTCUT,
-                shortcut,
-                hwnd,
-                shortcut_backspaces=backspace_count,
-            ),
-        )
+        self._text_shortcut_listener.update([], enabled=False)
+
+        def _run() -> None:
+            try:
+                self._run_macro(
+                    macro,
+                    self._TRIGGER_TEXT_SHORTCUT,
+                    shortcut,
+                    hwnd,
+                    shortcut_backspaces=backspace_count,
+                )
+            finally:
+                self._sync_text_shortcut_listener()
+
+        self._call_on_main(_run)
 
     def _open_macro_picker(
         self,

@@ -154,7 +154,11 @@ class HotkeyListener:
 class MultiHotkeyListener:
     """Registers multiple global hotkeys on one message loop."""
 
+    _next_class_id = 0
+
     def __init__(self):
+        MultiHotkeyListener._next_class_id += 1
+        self._wnd_class = f"CacheVaultMultiHotkey{MultiHotkeyListener._next_class_id}"
         self._bindings: dict[int, tuple[str, Callable[[], None]]] = {}
         self._thread: Optional[threading.Thread] = None
         self._hwnd = None
@@ -202,11 +206,11 @@ class MultiHotkeyListener:
             return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
 
         wc = win32gui.WNDCLASS()
-        wc.lpszClassName = "CacheVaultMultiHotkey"
+        wc.lpszClassName = self._wnd_class
         wc.lpfnWndProc = wndproc
         atom = win32gui.RegisterClass(wc)
         self._hwnd = win32gui.CreateWindow(
-            atom, "CacheVaultMultiHotkey", 0, 0, 0, 0, 0, 0, 0, 0, None)
+            atom, self._wnd_class, 0, 0, 0, 0, 0, 0, 0, 0, None)
 
         self._registered.clear()
         for hid, (spec, _cb) in self._bindings.items():
