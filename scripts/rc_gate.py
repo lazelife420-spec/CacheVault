@@ -22,7 +22,7 @@ from scripts.android_asset_smoke import (  # noqa: E402
     curl_status,
 )
 
-TAG = "v0.1.3-rc2"
+TAG = "v0.1.3-rc3"
 RELEASE_DIR = ROOT / "dist" / "release" / TAG
 ZIP_NAME = f"CacheVault-{TAG}-windows.zip"
 ZIP_PATH = RELEASE_DIR / ZIP_NAME
@@ -77,7 +77,7 @@ def verify_zip_structure() -> dict:
     checks["zip_exists"] = True
     checks["contains_exe"] = "CacheVault.exe" in names
     checks["contains_notes"] = "RELEASE_NOTES.md" in names
-    checks["notes_version_rc2"] = "v0.1.3-rc2" in notes_text
+    checks["notes_version_rc3"] = "v0.1.3-rc3" in notes_text
     checks["no_source_junk"] = not any(n.endswith(".py") for n in names)
     if NOTES_PATH.is_file():
         notes = NOTES_PATH.read_text(encoding="utf-8")
@@ -120,8 +120,8 @@ def main() -> int:
     )
     meta_out = meta.stdout or ""
     exe_meta_pass = (
-        "ProductVersion=0.1.3-rc2" in meta_out
-        and "FileVersion=0.1.3-rc2" in meta_out
+        "ProductVersion=0.1.3-rc3" in meta_out
+        and "FileVersion=0.1.3-rc3" in meta_out
         and "fixed file/product version matches: (0, 1, 3, 0)" in meta_out
     )
     results["exe_metadata"] = {
