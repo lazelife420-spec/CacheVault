@@ -30,16 +30,27 @@ def wait_bridge(port: int, timeout: float = 45.0) -> bool:
     return False
 
 
+def kill_port_listeners(port: int = 8742) -> None:
+    subprocess.run(["taskkill", "/IM", "CacheVault.exe", "/F"], capture_output=True)
+    out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if f":{port}" in line and "LISTENING" in line:
+            parts = line.split()
+            if parts and parts[-1].isdigit():
+                subprocess.run(["taskkill", "/PID", parts[-1], "/F"], capture_output=True)
+    time.sleep(2.0)
+
+
 def ensure_bridge_running() -> tuple[str, int]:
     if not EXE.is_file():
         raise RuntimeError(f"Missing packaged exe: {EXE}")
+    kill_port_listeners()
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.Popen([str(EXE)], cwd=str(ROOT), creationflags=flags)
     host, port = bridge_host_port()
-    if not wait_bridge(port, timeout=3.0):
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.Popen([str(EXE)], cwd=str(ROOT), creationflags=flags)
-        if not wait_bridge(port):
-            raise RuntimeError(f"Bridge did not listen on port {port}")
-        time.sleep(3.0)
+    if not wait_bridge(port):
+        raise RuntimeError(f"Bridge did not listen on port {port}")
+    time.sleep(3.0)
     return host, port
 
 
@@ -66,8 +77,12 @@ def main() -> int:
         "exe_restarted": False,
         "ok": ok_code == 200 and bad_code == 401,
     }
-    if ok_body:
-        result["mobile_api_version"] = ok_body.get("mobile_api_version")
+    if ok_body and isinstance(ok_body, str):
+        try:
+            parsed = json.loads(ok_body)
+            result["mobile_api_version"] = parsed.get("mobile_api_version")
+        except json.JSONDecodeError:
+            pass
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(result, indent=2), encoding="utf-8")
