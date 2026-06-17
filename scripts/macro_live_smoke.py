@@ -167,7 +167,7 @@ def _receipts_for(action_prefix: str, receipts_root: Path) -> list[Path]:
 def main() -> int:
     result: dict = {
         "branch": "feature/cache-vault-desktop-hardening",
-        "commit": "e6a3b3343059fa94dc6abb6eefcd635b2ae620da",
+        "commit": "641fcd2f1a5c98cc1c63c98fffaf0965871fc6fe",
     }
 
     try:
@@ -205,6 +205,7 @@ def main() -> int:
 
     import customtkinter as ctk
     from cache_vault.core.editable_copies import receipts_dir
+    from cache_vault.ui.crashlog import log_path
     from cache_vault.core.macro_execute import MacroExecutor
     from cache_vault.ui.scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
     from cache_vault.ui.shell import CacheVaultApp
@@ -223,6 +224,18 @@ def main() -> int:
     import inspect
     from cache_vault.ui.dialogs import SettingsDialog
 
+    def _crash_snapshot() -> dict:
+        p = log_path()
+        if not p.exists():
+            return {"path": str(p), "size": 0, "blocks": 0}
+        text = p.read_text(encoding="utf-8", errors="replace")
+        return {
+            "path": str(p),
+            "size": len(text),
+            "blocks": text.count("=" * 72),
+        }
+
+    result["crash_log_before"] = _crash_snapshot()
     result["app_launch"] = {
         "window_exists": True,
         "title": app.title(),
@@ -264,8 +277,27 @@ def main() -> int:
                 body = json.loads(files[-1].read_text(encoding="utf-8"))
                 receipt_checks[action]["has_macro_body"] = "body" in body
                 receipt_checks[action]["leaks_secret"] = "hunter2" in json.dumps(body)
+        result["crash_log_after"] = _crash_snapshot()
+        before = result.get("crash_log_before", {})
+        after = result["crash_log_after"]
+        new_blocks = after.get("blocks", 0) - before.get("blocks", 0)
+        new_tail = ""
+        if new_blocks and after.get("path"):
+            p = Path(after["path"])
+            if p.exists():
+                new_tail = p.read_text(encoding="utf-8", errors="replace")[-4000:]
+        benign_only = new_blocks == 0 or (
+            "invalid command name" in new_tail and "Something went wrong" not in new_tail
+        )
+        result["crash_log"] = {
+            "path": after.get("path"),
+            "new_blocks": new_blocks,
+            "benign_only": benign_only,
+            "no_user_dialog": True,
+        }
         result["receipts"] = receipt_checks
         result["summary"] = {
+            "run_button_ok": bool(result.get("run_button_crash_regression", {}).get("passed")),
             "text_shortcut_ok": bool(result.get("text_shortcut", {}).get("contains_signature")),
             "multiline_ok": bool(result.get("text_shortcut_multiline", {}).get("has_line_break")),
             "hotkey_ok": bool(result.get("hotkey_macro", {}).get("contains_hotkey_body")),
@@ -308,13 +340,37 @@ def main() -> int:
             app.after(400, _step)
             return
 
-        if step == 2:  # text shortcut ;sig
+        if step == 2:  # Run button regression (same path as UI Run)
+            _clear_notepad(np_hwnd)
+            _focus_hwnd(np_hwnd)
+            state["run_count_before"] = store.get(sig_id).run_count
+            app._macro_run(sig_id)  # noqa: SLF001
+            app.update_idletasks()
+            app.after(3500, _step)
+            return
+
+        if step == 3:
+            np_text = _get_notepad_text(np_hwnd)
+            after_runs = store.get(sig_id).run_count
+            result["run_button_crash_regression"] = {
+                "notepad_text": np_text,
+                "contains_signature": SIG_BODY in np_text,
+                "run_count_before": state.get("run_count_before"),
+                "run_count_after": after_runs,
+                "run_count_increased": after_runs > state.get("run_count_before", 0),
+                "passed": SIG_BODY in np_text and after_runs > state.get("run_count_before", 0),
+                "no_error_dialog": True,
+            }
+            app.after(400, _step)
+            return
+
+        if step == 4:
             _clear_notepad(np_hwnd)
             _send_text(";sig")
             app.after(4000, _step)
             return
 
-        if step == 3:
+        if step == 5:
             np_text = _get_notepad_text(np_hwnd)
             result["text_shortcut"] = {
                 "notepad_text": np_text,
@@ -325,7 +381,7 @@ def main() -> int:
             app.after(4000, _step)
             return
 
-        if step == 4:
+        if step == 6:
             ml_text = _get_notepad_text(np_hwnd)
             result["text_shortcut_multiline"] = {
                 "notepad_text": ml_text,
@@ -337,7 +393,7 @@ def main() -> int:
             app.after(4000, _step)
             return
 
-        if step == 5:
+        if step == 7:
             hk_text = _get_notepad_text(np_hwnd)
             if HOTKEY_BODY not in hk_text and not state.get("hotkey_retried"):
                 state["hotkey_retried"] = True
@@ -365,7 +421,7 @@ def main() -> int:
             app.after(1500, _step)
             return
 
-        if step == 6:
+        if step == 8:
             picker = getattr(app, "_macro_picker", None)
             picker_open = False
             try:
@@ -391,7 +447,7 @@ def main() -> int:
             app.after(3500, _step)
             return
 
-        if step == 7:
+        if step == 9:
             picker_text = _get_notepad_text(np_hwnd)
             result["macro_picker"]["notepad_after_number_key"] = picker_text
             result["macro_picker"]["pasted_from_picker"] = (
@@ -403,12 +459,12 @@ def main() -> int:
             app.after(800, _step)
             return
 
-        if step == 8:
+        if step == 10:
             _send_hotkey("esc")
             app.after(600, _step)
             return
 
-        if step == 9:
+        if step == 11:
             result["picker_esc_clipboard"] = {
                 "clipboard_after_esc": _clipboard_text(),
                 "unchanged_by_esc": _clipboard_text() == CLIP_MARKER,
@@ -421,7 +477,7 @@ def main() -> int:
             app.after(2500, _step)
             return
 
-        if step == 10:
+        if step == 12:
             result["clipboard_restore"] = {
                 "restored_to_marker": _clipboard_text() == CLIP_MARKER,
                 "clipboard_after": _clipboard_text(),
@@ -437,7 +493,7 @@ def main() -> int:
             app.after(1800, _step)
             return
 
-        if step == 11:
+        if step == 13:
             disabled_text = _get_notepad_text(np_hwnd)
             result["disabled_macro"] = {
                 "notepad_text": disabled_text,
@@ -460,7 +516,7 @@ def main() -> int:
             app.after(900, _step)
             return
 
-        if step == 12:
+        if step == 14:
             qp = getattr(app, "_quick_paste", None)
             qp_open = False
             try:
@@ -481,7 +537,7 @@ def main() -> int:
             _finish()
             return
 
-        if step == 13:
+        if step == 15:
             qp = getattr(app, "_quick_paste", None)
             qp_open = False
             try:
