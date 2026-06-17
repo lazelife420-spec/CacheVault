@@ -51,6 +51,7 @@ object Routes {
 fun CacheVaultMobileRoot(
     pairingStore: PairingStore,
     bridgeRepository: BridgeRepository,
+    manualSetupPrefill: ManualSetupPrefill = ManualSetupPrefill(),
 ) {
     val nav = rememberNavController()
     val context = LocalContext.current
@@ -64,18 +65,48 @@ fun CacheVaultMobileRoot(
             }
         },
     )
-    var manualHost by remember { mutableStateOf("") }
-    var manualPort by remember { mutableStateOf<Int?>(null) }
+    var manualHost by remember { mutableStateOf(manualSetupPrefill.host) }
+    var manualPort by remember { mutableStateOf(manualSetupPrefill.port) }
+    var manualDeviceId by remember { mutableStateOf(manualSetupPrefill.deviceId) }
+    var manualToken by remember { mutableStateOf(manualSetupPrefill.token) }
     val start = if (pairingStore.isPaired()) Routes.Home else Routes.Welcome
 
     fun goHomeAfterPair() {
         nav.navigate(Routes.Home) {
-            popUpTo(Routes.Welcome) { inclusive = true }
+            popUpTo(0) { inclusive = true }
+            launchSingleTop = true
         }
     }
 
+    fun openManualSetup(
+        host: String = "",
+        port: Int? = null,
+        deviceId: String = "",
+        token: String = "",
+    ) {
+        vm.dismissPcOffer()
+        manualHost = host
+        manualPort = port
+        manualDeviceId = deviceId
+        manualToken = token
+        nav.navigate(Routes.ManualSetup)
+    }
+
+    fun openManualSetupForRePair() {
+        val pairing = pairingStore.load()
+        openManualSetup(
+            host = pairing?.host.orEmpty(),
+            port = pairing?.port,
+            deviceId = pairing?.deviceId.orEmpty(),
+        )
+    }
+
     LaunchedEffect(Unit) {
-        if (!pairingStore.isPaired()) {
+        if (pairingStore.isPaired()) return@LaunchedEffect
+        if (manualSetupPrefill.openManualSetup) {
+            vm.dismissPcOffer()
+            nav.navigate(Routes.ManualSetup)
+        } else {
             vm.discoverPcOnLaunch()
         }
     }
@@ -87,22 +118,14 @@ fun CacheVaultMobileRoot(
                 onConnectToPc = { nav.navigate(Routes.EasyConnect) },
                 onScanQr = { nav.navigate(Routes.QrScan) },
                 onFindPc = { nav.navigate(Routes.Discover) },
-                onManualSetup = {
-                    manualHost = ""
-                    manualPort = null
-                    nav.navigate(Routes.ManualSetup)
-                },
+                onManualSetup = { openManualSetup() },
             )
         }
         composable(Routes.EasyConnect) {
             EasyConnectScreen(
                 onOpenWifiSettings = { WifiSettingsHelper.openWifiSettings(context) },
                 onSameWifi = { nav.navigate(Routes.Discover) },
-                onManualSetup = {
-                    manualHost = ""
-                    manualPort = null
-                    nav.navigate(Routes.ManualSetup)
-                },
+                onManualSetup = { openManualSetup() },
                 onBack = { nav.popBackStack() },
             )
         }
@@ -110,15 +133,9 @@ fun CacheVaultMobileRoot(
             DiscoverRoute(
                 context = context,
                 onConnect = { pc ->
-                    manualHost = pc.host
-                    manualPort = pc.port
-                    nav.navigate(Routes.ManualSetup)
+                    openManualSetup(host = pc.host, port = pc.port)
                 },
-                onManualSetup = {
-                    manualHost = ""
-                    manualPort = null
-                    nav.navigate(Routes.ManualSetup)
-                },
+                onManualSetup = { openManualSetup() },
                 onBack = { nav.popBackStack() },
             )
         }
@@ -133,8 +150,11 @@ fun CacheVaultMobileRoot(
                 defaultPort = PairingStore.DEFAULT_PORT,
                 initialHost = manualHost,
                 initialPort = manualPort,
+                initialDeviceId = manualDeviceId,
+                initialToken = manualToken,
                 loading = vm.uiState.loading,
                 error = vm.uiState.error,
+                successMessage = vm.uiState.pairSuccessMessage,
                 onPair = { host, port, deviceId, token ->
                     vm.pair(host, port, deviceId, token, ::goHomeAfterPair)
                 },
@@ -154,6 +174,7 @@ fun CacheVaultMobileRoot(
                         popUpTo(0) { inclusive = true }
                     }
                 },
+                onRePair = { openManualSetupForRePair() },
             )
         }
         composable(Routes.Detail) {
@@ -181,10 +202,10 @@ fun CacheVaultMobileRoot(
             loading = vm.uiState.loading,
             onConnect = { vm.connectOfferedPc(::goHomeAfterPair) },
             onPairNewDevice = {
-                vm.dismissPcOffer()
-                manualHost = offer.host
-                manualPort = offer.port
-                nav.navigate(Routes.ManualSetup)
+                openManualSetup(host = offer.host, port = offer.port)
+            },
+            onManualSetup = {
+                openManualSetup(host = offer.host, port = offer.port)
             },
             onDismiss = { vm.dismissPcOffer() },
         )
@@ -204,7 +225,7 @@ fun CacheVaultMobileRoot(
             dismissButton = {
                 TextButton(onClick = {
                     vm.dismissPcOffer()
-                    nav.navigate(Routes.ManualSetup)
+                    openManualSetup()
                 }) { Text(stringResource(R.string.manual_setup)) }
             },
         )

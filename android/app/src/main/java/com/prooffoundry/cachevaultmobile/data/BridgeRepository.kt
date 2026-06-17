@@ -29,7 +29,9 @@ class BridgeRepository(
 
     suspend fun verifyConnection(config: PairingConfig): BridgeStatus {
         val status = BridgeClient(config).status()
-        pairingStore.save(config.copy(pcLabel = status.product))
+        pairingStore.save(
+            config.copy(pcLabel = status.product.ifBlank { config.pcLabel.ifBlank { config.host } }),
+        )
         return status
     }
 

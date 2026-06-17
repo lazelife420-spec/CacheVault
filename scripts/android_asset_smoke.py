@@ -134,6 +134,37 @@ def restart_cache_vault() -> None:
     raise RuntimeError("Mobile bridge did not start on port 8742")
 
 
+def start_source_bridge() -> None:
+    subprocess.run(
+        ["taskkill", "/IM", "CacheVault.exe", "/F"],
+        capture_output=True, text=True,
+    )
+    out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if ":8742" in line and "LISTENING" in line:
+            parts = line.split()
+            if parts:
+                pid = parts[-1]
+                if pid.isdigit() and pid != "0":
+                    subprocess.run(
+                        ["taskkill", "/PID", pid, "/F"],
+                        capture_output=True, text=True,
+                    )
+    time.sleep(1.5)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "mobile_bridge_server.py")],
+        cwd=str(ROOT), creationflags=flags,
+    )
+    for _ in range(45):
+        out = subprocess.run(["netstat", "-an"], capture_output=True, text=True).stdout
+        if ":8742" in out and "LISTENING" in out:
+            time.sleep(1.5)
+            return
+        time.sleep(1.0)
+    raise RuntimeError("Mobile bridge did not start on port 8742")
+
+
 def find_edittexts(xml_text: str) -> list[ET.Element]:
     if not xml_text.strip():
         return []
@@ -175,18 +206,91 @@ def dismiss_keyboard() -> None:
     time.sleep(0.25)
 
 
+def dismiss_system_overlays() -> None:
+    xml_text = dump_ui()
+    for label in ("Got it", "Cancel", "Not now", "Don't allow", "Dismiss", "Close"):
+        if label not in xml_text:
+            continue
+        nodes = find_nodes(xml_text, text=label)
+        for node in nodes:
+            center = bounds_center(node.attrib.get("bounds", ""))
+            if center:
+                adb("shell", "input", "tap", str(center[0]), str(center[1]))
+                time.sleep(0.35)
+                return
+
+
+def set_android_clipboard(text: str) -> bool:
+    proc = adb("shell", "cmd", "clipboard", "set", text, check=False)
+    out = (proc.stdout or "") + (proc.stderr or "")
+    return "No shell command implementation" not in out
+
+
+def fill_host_ip(host: str) -> None:
+    for i, part in enumerate(host.split(".")):
+        if part:
+            adb("shell", "input", "text", escape_adb_text(part), check=False)
+            time.sleep(0.05)
+        if i < host.count("."):
+            adb("shell", "input", "keyevent", "56", check=False)
+            time.sleep(0.05)
+
+
 def paste_into_field(text: str) -> None:
-    type_slow(text)
+    if set_android_clipboard(text):
+        adb("shell", "input", "keyevent", "279", check=False)  # KEYCODE_PASTE
+        time.sleep(0.3)
+        dismiss_system_overlays()
+        return
+    if "." in text and text.replace(".", "").isdigit():
+        fill_host_ip(text)
+    else:
+        type_slow(text)
 
 
-def clear_and_type(text: str) -> None:
-    adb("shell", "input", "keyevent", "123", check=False)  # MOVE_END
-    for _ in range(64):
-        adb("shell", "input", "keyevent", "67", check=False)  # DEL
-    adb("shell", "input", "text", escape_adb_text(text), check=False)
+def find_field_bounds_by_tag(xml_text: str, tag: str) -> str | None:
+    if not xml_text.strip():
+        return None
+    root = ET.fromstring(xml_text)
+    for node in root.iter("node"):
+        if node.attrib.get("content-desc") == tag:
+            bounds = node.attrib.get("bounds", "")
+            if bounds:
+                return bounds
+    return None
+
+
+def fill_field_by_tag(tag: str, text: str) -> None:
+    dismiss_system_overlays()
+    dismiss_keyboard()
+    bounds = find_field_bounds_by_tag(dump_ui(), tag)
+    if not bounds:
+        raise RuntimeError(f"Manual Setup field not found: {tag}")
+    center = bounds_center(bounds)
+    if not center:
+        raise RuntimeError(f"Could not resolve bounds for field: {tag}")
+    adb("shell", "input", "tap", str(center[0]), str(center[1]))
+    time.sleep(0.45)
+    dismiss_system_overlays()
+    clear_field()
+    dismiss_system_overlays()
+    paste_into_field(text)
+    dismiss_system_overlays()
+    dismiss_keyboard()
 
 
 def fill_edittext(index: int, text: str) -> None:
+    tag_by_index = {
+        0: "manual_setup_host",
+        1: "manual_setup_port",
+        2: "manual_setup_device_id",
+        3: "manual_setup_token",
+    }
+    tag = tag_by_index.get(index)
+    if tag:
+        fill_field_by_tag(tag, text)
+        return
+    dismiss_system_overlays()
     dismiss_keyboard()
     edits = find_edittexts(dump_ui())
     if index >= len(edits):
@@ -195,22 +299,56 @@ def fill_edittext(index: int, text: str) -> None:
     if not center:
         raise RuntimeError(f"Could not resolve EditText bounds for index {index}")
     adb("shell", "input", "tap", str(center[0]), str(center[1]))
-    time.sleep(0.35)
+    time.sleep(0.45)
+    dismiss_system_overlays()
     clear_field()
+    dismiss_system_overlays()
     paste_into_field(text)
+    dismiss_system_overlays()
     dismiss_keyboard()
 
 
-def pair_phone(host: str, port: int, device_id: str, token: str) -> None:
-    wake_and_unlock()
-    adb("shell", "am", "start", "-W", "-n", ACTIVITY, check=False)
+def wait_manual_setup_screen(timeout: float = 15.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        xml_text = dump_ui()
+        if (
+            "Connect to My PC" in xml_text
+            and find_field_bounds_by_tag(xml_text, "manual_setup_host") is not None
+            and find_field_bounds_by_tag(xml_text, "manual_setup_token") is not None
+        ):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def clear_app_pairing() -> None:
+    adb("shell", "pm", "clear", PKG, check=False)
     time.sleep(1.5)
-    if not wait_text("Manual Setup", timeout=15):
+
+
+def pair_phone(host: str, port: int, device_id: str, token: str, *, clear_first: bool = True) -> None:
+    if clear_first:
+        clear_app_pairing()
+    wake_and_unlock()
+    dismiss_system_overlays()
+    adb("shell", "am", "start", "-W", "-n", ACTIVITY, check=False)
+    time.sleep(2.0)
+    xml = dump_ui()
+    if "Try Again" in xml:
+        if not tap_text("Manual Setup", timeout=8):
+            raise RuntimeError("Could not open Manual Setup from no-PC dialog")
+    elif wait_text("Manual Setup", timeout=15):
+        if not tap_text("Manual Setup", timeout=8):
+            raise RuntimeError("Could not open Manual Setup from welcome")
+    else:
         screencap("android_smoke_pair_fail_welcome")
         raise RuntimeError("Welcome screen did not load (unlock phone)")
-    if not tap_text("Manual Setup", timeout=8):
-        raise RuntimeError("Could not open Manual Setup")
     time.sleep(1.0)
+    if not wait_manual_setup_screen(timeout=12):
+        screencap("android_smoke_pair_fail_setup")
+        raise RuntimeError("Manual Setup screen did not open (expected 4+ fields)")
+    screencap("mobile_manual_setup")
     fill_edittext(0, host)
     fill_edittext(1, str(port))
     fill_edittext(2, device_id)
@@ -220,7 +358,8 @@ def pair_phone(host: str, port: int, device_id: str, token: str) -> None:
     time.sleep(0.5)
     if not tap_text("Connect to My PC", timeout=8):
         raise RuntimeError("Could not tap Connect to My PC")
-    if not wait_text("Screenshots", timeout=25):
+    dismiss_system_overlays()
+    if not wait_text("Screenshots", timeout=25) and not wait_text("Vault Sections", timeout=8):
         screencap("android_smoke_pair_fail")
         raise RuntimeError("Pairing did not reach home screen")
     screencap("android_smoke_00_paired_home")
@@ -228,7 +367,9 @@ def pair_phone(host: str, port: int, device_id: str, token: str) -> None:
 
 def is_paired_home() -> bool:
     xml_text = dump_ui()
-    return PKG in xml_text and "Screenshots" in xml_text
+    return PKG in xml_text and (
+        "Vault Sections" in xml_text or "Screenshots" in xml_text or "Vault" in xml_text
+    )
 
 
 def mobile_settings() -> dict:

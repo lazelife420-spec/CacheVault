@@ -27,6 +27,7 @@ fun PcFoundBottomSheet(
     loading: Boolean,
     onConnect: () -> Unit,
     onPairNewDevice: () -> Unit,
+    onManualSetup: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -105,7 +106,7 @@ fun PcFoundBottomSheet(
                     }
                 }
             }
-            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onManualSetup, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.manual_setup))
             }
         }

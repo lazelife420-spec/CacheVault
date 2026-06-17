@@ -44,6 +44,7 @@ fun SettingsScreen(
     hasLoadedVault: Boolean = true,
     loading: Boolean = false,
     onDisconnect: () -> Unit,
+    onRePair: () -> Unit,
     onConnectionDoctor: () -> Unit,
     onBack: (() -> Unit)? = null,
 ) {
@@ -89,6 +90,14 @@ fun SettingsScreen(
             }
             if (!error.isNullOrBlank()) {
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (connection == ConnectionState.REPAIR_NEEDED ||
+                connection == ConnectionState.REVOKED ||
+                connection == ConnectionState.OFFLINE
+            ) {
+                Button(onClick = onRePair, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.enter_new_pairing_code))
+                }
             }
             Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
                 Text("Disconnect / Re-pair")

@@ -11,7 +11,7 @@ object UserMessages {
         "Mobile Access is off.\nTurn it on in Cache Vault on your PC."
 
     const val PAIRING_FAILED =
-        "Pairing failed.\nCheck the device ID and token, or pair again."
+        "Could not connect.\nCheck the PC address, port, device ID, and pairing code."
 
     const val DEVICE_REVOKED =
         "Device revoked.\nThis phone no longer has access. Pair again from your PC."
@@ -28,7 +28,9 @@ object UserMessages {
         "This screenshot is not available on your PC.\nIt may not have been saved as an image asset."
 
     const val REPAIR_NEEDED =
-        "Re-pair needed\n\nYour phone reached the PC, but the pairing token was rejected.\nGenerate a fresh pairing code on the PC."
+        "Could not connect.\nYour phone reached the PC, but the pairing code was rejected.\nGenerate a fresh pairing code on the PC."
+
+    const val PAIRING_SAVED = "Saved — connected to PC"
 
     const val PC_FOUND_SECURE =
         "Local vault detected on this Wi-Fi."

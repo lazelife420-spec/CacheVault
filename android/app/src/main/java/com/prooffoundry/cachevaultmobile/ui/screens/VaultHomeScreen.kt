@@ -50,6 +50,7 @@ fun VaultHomeScreen(
     onOpenClip: (String) -> Unit,
     onBrowseAll: () -> Unit,
     onSection: (VaultSectionKind) -> Unit,
+    onRePair: () -> Unit,
 ) {
     val connection = resolveConnectionState(
         state.status,
@@ -113,7 +114,11 @@ fun VaultHomeScreen(
                 )
             }
             item {
-                VaultStatusCard(connection = connection, hostLabel = state.hostLabel)
+                VaultStatusCard(
+                    connection = connection,
+                    hostLabel = state.hostLabel,
+                    onRePair = if (connection == ConnectionState.REPAIR_NEEDED) onRePair else null,
+                )
             }
             item {
                 Text(

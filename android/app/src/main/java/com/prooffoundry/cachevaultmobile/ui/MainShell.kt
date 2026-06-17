@@ -33,6 +33,7 @@ fun MainShell(
     vm: AppViewModel,
     onOpenClip: (String) -> Unit,
     onDisconnect: () -> Unit,
+    onRePair: () -> Unit,
 ) {
     val state = vm.uiState
     var settingsSubRoute by rememberSaveable { mutableStateOf<String?>(null) }
@@ -82,6 +83,7 @@ fun MainShell(
                     onOpenClip = onOpenClip,
                     onBrowseAll = { vm.openBrowse(BrowseFilter.ALL) },
                     onSection = vm::openVaultSection,
+                    onRePair = onRePair,
                 )
                 MainTab.BROWSE -> BrowseScreen(
                     state = state,
@@ -118,6 +120,7 @@ fun MainShell(
                             hasLoadedVault = state.hasLoadedVault,
                             loading = state.loading,
                             onDisconnect = onDisconnect,
+                            onRePair = onRePair,
                             onConnectionDoctor = { settingsSubRoute = "doctor" },
                             onBack = null,
                         )

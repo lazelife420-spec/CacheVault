@@ -69,6 +69,7 @@ data class AppUiState(
     val thumbnailBytes: Map<String, ByteArray> = emptyMap(),
     val pcFoundOffer: PcFoundOffer? = null,
     val showNoPcFound: Boolean = false,
+    val pairSuccessMessage: String? = null,
 )
 
 class AppViewModel(
@@ -164,29 +165,37 @@ class AppViewModel(
         )
     }
 
-    fun pair(host: String, port: Int, deviceId: String, token: String, onSuccess: () -> Unit) {
+    fun pair(
+        host: String,
+        port: Int,
+        deviceId: String,
+        token: String,
+        onSuccess: () -> Unit,
+    ) {
         viewModelScope.launch {
-            uiState = uiState.copy(loading = true, error = null)
+            uiState = uiState.copy(loading = true, error = null, pairSuccessMessage = null)
             runCatching {
                 val config = PairingConfig.sanitize(host, port, deviceId, token)
                 val status = withContext(Dispatchers.IO) {
                     repository.verifyConnection(config)
                 }
                 status
-            }.onSuccess { status ->
+            }.onSuccess {
                 uiState = uiState.copy(
                     paired = true,
-                    status = status,
+                    status = it,
                     hostLabel = host,
                     loading = false,
                     error = null,
+                    pairSuccessMessage = UserMessages.PAIRING_SAVED,
                 )
-                refreshVaultData()
+                refreshAll()
                 onSuccess()
             }.onFailure { err ->
                 uiState = uiState.copy(
                     loading = false,
                     error = err.toUserMessage(),
+                    pairSuccessMessage = null,
                 )
             }
         }

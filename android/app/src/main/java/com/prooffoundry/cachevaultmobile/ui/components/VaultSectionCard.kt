@@ -15,6 +15,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +74,7 @@ fun VaultSectionCard(
 fun VaultStatusCard(
     connection: ConnectionState,
     hostLabel: String,
+    onRePair: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -123,6 +125,11 @@ fun VaultStatusCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+            if (connection == ConnectionState.REPAIR_NEEDED && onRePair != null) {
+                TextButton(onClick = onRePair) {
+                    Text("Enter new pairing code")
                 }
             }
         }

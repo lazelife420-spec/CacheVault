@@ -17,6 +17,17 @@
     <string name="discover_failed">Could not find your PC. Check same Wi-Fi, firewall, or use Manual Setup.</string>
     <string name="qr_placeholder">QR pairing is coming next. Use Manual Setup for this MVP.</string>
     <string name="pairing_hint">On your PC: Settings → Mobile Access → Pair Android Device</string>
+    <string name="manual_setup_intro">Enter the details from your PC to connect this phone.</string>
+    <string name="manual_setup_ip_hint">Use your PC\'s Wi-Fi address — not localhost or 127.0.0.1.</string>
+    <string name="manual_setup_host_label">PC address (IP on your Wi-Fi)</string>
+    <string name="manual_setup_port_label">Bridge port</string>
+    <string name="manual_setup_device_id_label">Device ID from PC</string>
+    <string name="manual_setup_token_label">Pairing code from PC</string>
+    <string name="manual_setup_pc_label">PC name (optional)</string>
+    <string name="connecting">Connecting…</string>
+    <string name="try_again">Try again with a fresh pairing code from your PC.</string>
+    <string name="enter_new_pairing_code">Enter new pairing code</string>
+    <string name="pairing_saved">Saved — connected to PC</string>
     <string name="search_hint">Search saved clips…</string>
     <string name="vault_search_hint">Search saved vault…</string>
     <string name="proof_subtitle">Local proof history from your PC</string>
