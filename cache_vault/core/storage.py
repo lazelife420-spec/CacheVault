@@ -346,6 +346,22 @@ class VaultStorage:
         ).fetchall()
         return [{"id": r["id"], "name": r["name"], "count": r["n"]} for r in rows]
 
+    def count_by_capture_mode(self, capture_mode: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM clips "
+            "WHERE deleted_at IS NULL AND capture_mode = ?",
+            (capture_mode,),
+        ).fetchone()
+        return int(row["n"]) if row else 0
+
+    def list_by_capture_mode(self, capture_mode: str, *, limit: int = 200) -> list[Clip]:
+        rows = self.conn.execute(
+            "SELECT * FROM clips WHERE deleted_at IS NULL AND capture_mode = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (capture_mode, limit),
+        ).fetchall()
+        return [self._row_to_clip(r) for r in rows]
+
     def soft_delete(self, clip_id: str) -> None:
         self.conn.execute(
             "UPDATE clips SET deleted_at = ? WHERE id = ?",

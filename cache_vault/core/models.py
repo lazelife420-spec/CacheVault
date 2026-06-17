@@ -87,6 +87,7 @@ EVENT_MACRO_HOTKEY_EXECUTED = "macro_hotkey_executed"
 EVENT_MACRO_PICKER_EXECUTED = "macro_picker_executed"
 EVENT_MACRO_BLOCKED_SENSITIVE = "macro_blocked_sensitive"
 EVENT_MACRO_DISABLED_SKIPPED = "macro_disabled_skipped"
+EVENT_MOBILE_INBOX_RECEIVED = "mobile_inbox_received"
 
 # Capture modes stored on each clip.
 CAPTURE_AUTO = "auto"
@@ -95,6 +96,7 @@ CAPTURE_ARMED_NEXT_COPY = "armed_next_copy"
 CAPTURE_MOVED_TO_SAFE = "moved_to_safe"
 CAPTURE_IMPORTED = "imported"
 CAPTURE_MOBILE = "mobile"
+CAPTURE_MOBILE_SHARE = "mobile_share"
 CAPTURE_EXTERNAL_APP = "external_app"
 
 CAPTURE_MODES = (
@@ -104,6 +106,7 @@ CAPTURE_MODES = (
     CAPTURE_MOVED_TO_SAFE,
     CAPTURE_IMPORTED,
     CAPTURE_MOBILE,
+    CAPTURE_MOBILE_SHARE,
     CAPTURE_EXTERNAL_APP,
 )
 
@@ -115,6 +118,8 @@ ACTION_CLIPBOARD_NEXT_COPY_SAVED = "clipboard_next_copy_saved"
 ACTION_CLIPBOARD_NEXT_COPY_IGNORED = "clipboard_next_copy_ignored"
 ACTION_ITEM_MOVED_TO_SAFE = "item_moved_to_safe"
 ACTION_SAFE_CREATED = "safe_created"
+ACTION_MOBILE_SENT_TO_PC = "mobile_sent_to_pc"
+ACTION_MOBILE_INBOX_RECEIVED = "mobile_inbox_received"
 
 PREVIEW_MAX_CHARS = 200
 

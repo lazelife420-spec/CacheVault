@@ -33,6 +33,7 @@ READ_ONLY_ROUTES = frozenset({
     "/mobile/v1/collections",
     "/mobile/v1/favorites",
     "/mobile/v1/recently-removed",
+    "/mobile/v1/inbox",
 })
 
 CLIP_ID_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)$")
@@ -48,6 +49,15 @@ RECEIPT_POST_ROUTES = frozenset({
     "/mobile/v1/clips/{id}/save",
 })
 
+# Paired write routes — scoped mobile-to-PC inbox send only.
+INBOX_POST_ROUTES = frozenset({
+    "/mobile/v1/inbox/send",
+})
+
+INBOX_GET_ROUTES = frozenset({
+    "/mobile/v1/inbox",
+})
+
 FORBIDDEN_ROUTE_PARTS = frozenset({
     "delete", "permanent", "remove", "edit", "restore", "capture", "export",
 })
@@ -56,6 +66,8 @@ FORBIDDEN_ROUTE_PARTS = frozenset({
 def route_family(path: str) -> str | None:
     """Return the matched route family, or None if unknown."""
     if path in READ_ONLY_ROUTES:
+        return path
+    if path in INBOX_POST_ROUTES:
         return path
     if CLIP_ID_RE.match(path):
         return "/mobile/v1/clips/{id}"
@@ -136,6 +148,8 @@ def action_for_route(route_family: str, method: str) -> str:
         "/mobile/v1/clips/{id}/copy": "copy",
         "/mobile/v1/clips/{id}/share": "share",
         "/mobile/v1/clips/{id}/save": "save",
+        "/mobile/v1/inbox/send": "mobile_sent_to_pc",
+        "/mobile/v1/inbox": "mobile_inbox_list",
     }
     return mapping.get(route_family, method.lower())
 

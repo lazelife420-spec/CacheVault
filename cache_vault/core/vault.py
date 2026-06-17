@@ -214,6 +214,110 @@ class Vault:
             force=True,
         )
 
+    def capture_mobile_share(
+        self,
+        content: str,
+        *,
+        source_app: str | None = None,
+        source_window: str | None = None,
+        source_url: str | None = None,
+        safe_id: str | None = None,
+        device_name: str | None = None,
+        device_id: str | None = None,
+        item_type: str = "text",
+    ) -> Clip | None:
+        """Intentional paired mobile send — always creates a vault item."""
+        if content is None or not content.strip():
+            return None
+
+        resolved = self._resolve_safe(safe_id)
+        if resolved is None:
+            return None
+        sid, sname = resolved
+
+        if item_type == "url" and not content.startswith(("http://", "https://")):
+            content = content.strip()
+
+        chash = models.content_hash(content)
+        result = classify.classify(content)
+        sens = sensitive.detect(content)
+        size_bytes = clip_metadata.size_bytes_for(content)
+
+        if self.settings.capture_paused:
+            return None
+
+        clip = Clip(
+            content_hash=chash,
+            content=content,
+            source_app=source_app,
+            source_window=source_window,
+            classification=result.classification,
+            tags=result.tags,
+            is_sensitive=sens.is_sensitive,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=models.CAPTURE_MOBILE_SHARE,
+        )
+
+        if sens.is_sensitive:
+            clip.preview = sensitive.masked_preview(content)
+            if self.settings.sensitive_expiry_enabled:
+                clip.expires_at = sensitive.compute_expiry(
+                    self.settings.sensitive_expiry_minutes
+                )
+        else:
+            clip.preview = models.make_preview(content)
+
+        clip.title = clip_metadata.clip_title(content, clip.preview)
+        clip.source_url = source_url or clip_metadata.extract_source_url(
+            content, clip.classification,
+        )
+        clip.normalized_hash = clip_metadata.normalized_hash(content)
+        clip.size_bytes = size_bytes
+        clip.use_count = 1
+        clip.last_used_at = clip.created_at
+
+        self.storage.add_clip(clip)
+        record_capture_receipt(
+            self.events,
+            action=models.ACTION_MOBILE_SENT_TO_PC,
+            event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
+            success=True,
+            clip_id=clip.id,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=models.CAPTURE_MOBILE_SHARE,
+            source_app=source_app,
+            content_hash=chash,
+            item_type=clip.classification,
+        )
+        self.events.record(
+            models.EVENT_CAPTURED, clip.id,
+            {
+                "classification": clip.classification,
+                "is_sensitive": clip.is_sensitive,
+                "source_app": source_app,
+                "source_window": source_window,
+                "source_url": clip.source_url,
+                "safe_id": sid,
+                "safe_name": sname,
+                "capture_mode": models.CAPTURE_MOBILE_SHARE,
+                "mobile_device_id": device_id,
+                "mobile_device_name": device_name,
+            },
+        )
+        if self.settings.history_max_clips > 0:
+            pruned = self.storage.prune_history(self.settings.history_max_clips)
+            for cid in pruned:
+                self.events.record(models.EVENT_DELETED, cid,
+                                   {"action": "history_prune"})
+        return clip
+
+    def list_mobile_inbox(self, *, limit: int = 200) -> list[Clip]:
+        return self.storage.list_by_capture_mode(
+            models.CAPTURE_MOBILE_SHARE, limit=limit,
+        )
+
     def capture_image(
         self,
         png_bytes: bytes,
@@ -843,6 +947,7 @@ class Vault:
             e for e in self.events.recent(200)
             if e.get("event_type") == models.EVENT_ITEM_PASTED
         ]
+        safes = self.safes.list_all()
         return {
             "all": counts.get("all", 0),
             "favorites": counts.get("favorites", 0),
@@ -860,6 +965,12 @@ class Vault:
             "editable_copies": copy_counts.get("editable_copies", 0),
             "html_bundles": copy_counts.get("html_bundles", 0),
             "recent_pasted_count": len(pasted),
+            "safe_count": len(safes),
+            "exports": len(self.list_export_events(500)),
+            "mobile_inbox": self.storage.count_by_capture_mode(
+                models.CAPTURE_MOBILE_SHARE,
+            ),
+            "vault_macros": 0,
         }
 
     def duplicate_groups(self, *, include_possible: bool = True) -> list[DuplicateGroup]:

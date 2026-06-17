@@ -125,11 +125,20 @@ class MobileBridge:
                 self.wfile.write(payload)
 
             def do_POST(self) -> None:
-                code, body = bridge.handle(
+                length = int(self.headers.get("Content-Length", 0) or 0)
+                raw = self.rfile.read(length) if length else b""
+                body = None
+                if raw:
+                    try:
+                        body = json.loads(raw.decode("utf-8"))
+                    except json.JSONDecodeError:
+                        body = None
+                code, resp = bridge.handle(
                     "POST", self.path, dict(self.headers),
                     remote_ip=self.client_address[0],
+                    body=body,
                 )
-                self._json(code, body)
+                self._json(code, resp)
 
             def do_PUT(self) -> None:
                 code, body = bridge.handle(
@@ -227,7 +236,8 @@ class MobileBridge:
 
     # --- request handling ------------------------------------------------------
     def handle(self, method: str, path: str, headers: dict,
-               remote_ip: str | None = None) -> tuple[int, dict | BinaryResponse]:
+               remote_ip: str | None = None,
+               body: dict | None = None) -> tuple[int, dict | BinaryResponse]:
         """Process one HTTP request. Used by the server and unit tests."""
         path_only, query = api_mod.parse_query(unquote(path))
         family = api_mod.route_family(path_only)
@@ -244,7 +254,10 @@ class MobileBridge:
 
         allowed_post = (
             method == "POST"
-            and family in api_mod.RECEIPT_POST_ROUTES
+            and (
+                family in api_mod.RECEIPT_POST_ROUTES
+                or family in api_mod.INBOX_POST_ROUTES
+            )
         )
         if method != "GET" and not allowed_post:
             rec = api_mod.reject_receipt(
@@ -252,7 +265,7 @@ class MobileBridge:
                 remote_ip=remote_ip)
             self.receipts.record(rec)
             return 405, {"error": "method_not_allowed",
-                         "message": "Read-only API: GET only."}
+                         "message": "Read-only API: GET only except inbox send."}
 
         if api_mod.is_forbidden_route(path_only):
             rec = api_mod.reject_receipt(
@@ -275,13 +288,16 @@ class MobileBridge:
             return 404, {"error": "not_found"}
 
         with self.vault.storage._lock:
-            if method == "POST":
-                status, body = self._dispatch_receipt_post(
+            if method == "POST" and family in api_mod.INBOX_POST_ROUTES:
+                status, resp_body = self._dispatch_inbox_post(
+                    family, path_only, device, body or {})
+            elif method == "POST":
+                status, resp_body = self._dispatch_receipt_post(
                     family, path_only, device)
             else:
-                status, body = self._dispatch_get(
+                status, resp_body = self._dispatch_get(
                     family, path_only, query, device)
-        clip_id = self._clip_id_from_response(body, path_only)
+        clip_id = self._clip_id_from_response(resp_body, path_only)
         rec = MobileAccessReceipt.make(
             action=action, route=path_only,
             result="ok" if status < 400 else "error",
@@ -289,12 +305,12 @@ class MobileBridge:
             clip_id=clip_id,
             remote_ip=remote_ip,
             reason=None if status < 400 else (
-                body.get("error") if isinstance(body, dict) else "error"
+                resp_body.get("error") if isinstance(resp_body, dict) else "error"
             ),
         )
         self.receipts.record(rec)
         self._touch_device(device)
-        return status, body
+        return status, resp_body
 
     @staticmethod
     def _clip_id_from_response(body: dict | BinaryResponse,
@@ -441,7 +457,29 @@ class MobileBridge:
                 "count": len(clips),
             }
 
+        if family == "/mobile/v1/inbox":
+            clips = self.vault.list_mobile_inbox()
+            return 200, {
+                "items": [api_mod.clip_to_api(c, storage=storage) for c in clips],
+                "count": len(clips),
+            }
+
         return 404, {"error": "not_found"}
+
+    def _dispatch_inbox_post(self, family: str, path: str,
+                             device: PairedDevice,
+                             payload: dict) -> tuple[int, dict]:
+        from . import inbox as inbox_mod
+
+        if family != "/mobile/v1/inbox/send":
+            return 404, {"error": "not_found"}
+        valid, err = inbox_mod.validate_send_payload(payload)
+        if valid is None:
+            return 400, {"error": "invalid_payload", "message": err}
+        result = inbox_mod.receive_mobile_send(self.vault, device, valid)
+        if not result.ok:
+            return 400, result.to_response()
+        return 200, result.to_response()
 
     def _dispatch_receipt_post(self, family: str, path: str,
                                device: PairedDevice) -> tuple[int, dict]:
@@ -457,4 +495,8 @@ class MobileBridge:
 
     @staticmethod
     def allowed_routes() -> frozenset[str]:
-        return api_mod.READ_ONLY_ROUTES | api_mod.RECEIPT_POST_ROUTES
+        return (
+            api_mod.READ_ONLY_ROUTES
+            | api_mod.RECEIPT_POST_ROUTES
+            | api_mod.INBOX_POST_ROUTES
+        )
