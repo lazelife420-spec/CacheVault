@@ -54,5 +54,6 @@ def test_clipboard_capture_path_uses_main_thread_queue_and_batched_refresh():
     captured = inspect.getsource(CacheVaultApp._on_clip_captured)
     assert "_call_on_main" in captured
     assert ".after(" not in captured
+    assert "_alive()" not in captured
     assert "self._schedule_capture_refresh()" in source
     assert "self.refresh()" not in inspect.getsource(CacheVaultApp._save_payload)

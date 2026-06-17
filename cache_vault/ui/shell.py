@@ -23,7 +23,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import copy_clean, models, search, vault_lock
+from ..core import capture_debug, copy_clean, models, search, vault_lock
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -1162,13 +1162,15 @@ class CacheVaultApp(ctk.CTk):
     # --- event handlers ----------------------------------------------------
     def _on_clip_captured(self, payload: dict) -> None:
         # Runs on the monitor thread; queue work for the Tk thread.
-        if self._alive():
-            self._call_on_main(lambda p=dict(payload): self._ingest(p))
+        capture_debug.log("queue_ingest", capture_debug.payload_summary(payload))
+        self._call_on_main(lambda p=dict(payload): self._ingest(p))
 
     def _ingest(self, payload: dict) -> None:
         if not self._alive():
+            capture_debug.log("ingest_skipped", "app_not_alive")
             return
         try:
+            capture_debug.log("ingest_started", capture_debug.payload_summary(payload))
             if self._capture_ctrl.consume_ignore():
                 chash = None
                 item_type = models.CONTENT_TEXT
@@ -1184,6 +1186,7 @@ class CacheVaultApp(ctk.CTk):
                     item_type=item_type,
                 )
                 self._show_toast("Next copy was not saved.")
+                capture_debug.log("ingest_skipped", "ignore_next_copy")
                 return
 
             armed = self._capture_ctrl.consume_armed()
@@ -1195,9 +1198,11 @@ class CacheVaultApp(ctk.CTk):
                     capture_mode=models.CAPTURE_ARMED_NEXT_COPY,
                     force=True,
                 )
+                capture_debug.log("ingest_saved", "armed_next_copy")
                 return
 
             if not self._capture_ctrl.should_auto_capture():
+                capture_debug.log("ingest_skipped", "auto_capture_disabled_or_paused")
                 return
 
             safe_id, _safe_name = self._capture_ctrl.resolve_safe_for_auto()
@@ -1246,22 +1251,31 @@ class CacheVaultApp(ctk.CTk):
             ):
                 from ..core import sensitive
                 if sensitive.detect(payload["text"]).is_sensitive:
+                    capture_debug.log("save_skipped", "sensitive_auto_block")
                     self._show_toast(
                         "Sensitive-looking clipboard item was not auto-saved."
                     )
         else:
+            capture_debug.log("save_skipped", "unsupported_or_empty")
             return
         if clip is not None:
+            capture_debug.log("save_created", f"clip_id={clip.id} type={clip.classification}")
             self._schedule_capture_refresh()
+        else:
+            capture_debug.log("save_skipped", "vault_returned_none")
 
     def _schedule_capture_refresh(self) -> None:
         """Batch repaint work after clipboard captures so copy feels instant."""
         self._capture_refresh_pending = True
+        capture_debug.log("refresh_pending", "scheduled")
         if self._capture_refresh_job is not None:
+            capture_debug.log("refresh_deferred", "existing_job")
             return
         if self._locked() or not self._window_viewable():
+            capture_debug.log("refresh_deferred", "locked_or_not_viewable")
             return
         self._capture_refresh_job = self._safe_after(180, self._flush_capture_refresh)
+        capture_debug.log("refresh_scheduled", "delay_ms=180")
 
     def _flush_capture_refresh(self) -> None:
         self._capture_refresh_job = None
@@ -1270,8 +1284,10 @@ class CacheVaultApp(ctk.CTk):
         self._capture_refresh_pending = False
         if self._locked() or not self._window_viewable():
             self._capture_refresh_pending = True
+            capture_debug.log("refresh_deferred", "flush_locked_or_not_viewable")
             return
         self.refresh()
+        capture_debug.log("refresh_flushed", "ok")
 
     def _show_toast(self, text: str) -> None:
         if self._alive():
