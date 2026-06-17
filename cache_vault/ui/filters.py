@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import storage as S
+from ..core.settings import Settings
 from . import theme
 from .guide_copy import EMPTY_SAFES, NAV_TOOLTIPS, TOOLTIP_SAFES
 from .tooltip import bind_tooltip
@@ -95,9 +96,18 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
 
 
 class FilterNav(ctk.CTkScrollableFrame):
-    def __init__(self, master, on_select: Callable[[str], None], **kw):
+    def __init__(
+        self,
+        master,
+        on_select: Callable[[str], None],
+        *,
+        settings: Settings | None = None,
+        **kw,
+    ):
         super().__init__(master, **kw)
         self._on_select = on_select
+        self._settings = settings
+        self._collapsed = set(getattr(settings, "sidebar_collapsed_sections", []) or [])
         self._active = S.FILTER_HOME
         self._rows: dict[str, ctk.CTkFrame] = {}
         self._labels: dict[str, ctk.CTkLabel] = {}
@@ -105,6 +115,8 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._labels_text: dict[str, str] = {}
         self._collection_rows: dict[str, ctk.CTkFrame] = {}
         self._safe_rows: dict[str, ctk.CTkFrame] = {}
+        self._section_frames: dict[str, ctk.CTkFrame] = {}
+        self._section_buttons: dict[str, ctk.CTkButton] = {}
 
         title = ctk.CTkLabel(self, text="◈ Cache Vault", anchor="w",
                              font=ctk.CTkFont(size=18, weight="bold"))
@@ -122,37 +134,25 @@ class FilterNav(ctk.CTkScrollableFrame):
         seal.pack(fill="x", padx=8, pady=(0, 10))
 
         for heading, items in FILTER_GROUPS:
+            parent = self
             if heading:
-                ctk.CTkLabel(self, text=heading, anchor="w",
-                             text_color=brand.STAMP_GOLD,
-                             font=ctk.CTkFont(size=10, weight="bold")
-                             ).pack(fill="x", padx=10, pady=(8, 4))
+                parent = self._section(heading, default_open=True)
             for key, label in items:
                 self._labels_text[key] = label
                 display = _NAV_ICONS.get(key, "") + label
-                self._rows[key] = self._nav_row(self, key, display)
+                self._rows[key] = self._nav_row(parent, key, display)
 
         self._separator()
-        ctk.CTkLabel(self, text="COLLECTIONS", anchor="w",
-                     text_color=brand.STAMP_GOLD,
-                     font=ctk.CTkFont(size=10, weight="bold")
-                     ).pack(fill="x", padx=10, pady=(2, 4))
-        self._collections_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._collections_frame.pack(fill="x")
+        self._collections_frame = self._section("COLLECTIONS", default_open=False)
         self._collections_empty = ctk.CTkLabel(
             self._collections_frame, text="(none yet)", anchor="w",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11))
         self._collections_empty.pack(fill="x", padx=14, pady=2)
 
         self._separator()
-        safes_heading = ctk.CTkLabel(self, text="SAFES", anchor="w",
-                     text_color=brand.STAMP_GOLD,
-                     font=ctk.CTkFont(size=10, weight="bold")
-                     )
-        safes_heading.pack(fill="x", padx=10, pady=(2, 4))
+        self._safes_frame = self._section("SAFES", default_open=True)
+        safes_heading = self._section_buttons["SAFES"]
         bind_tooltip(safes_heading, TOOLTIP_SAFES)
-        self._safes_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._safes_frame.pack(fill="x")
         self._safes_empty = ctk.CTkLabel(
             self._safes_frame, text=EMPTY_SAFES, anchor="w",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
@@ -165,6 +165,42 @@ class FilterNav(ctk.CTkScrollableFrame):
     def _separator(self) -> None:
         ctk.CTkFrame(self, height=1, fg_color=("#C8D0D4", "#263038")).pack(
             fill="x", padx=10, pady=6)
+
+    def _section(self, heading: str, *, default_open: bool) -> ctk.CTkFrame:
+        frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._section_frames[heading] = frame
+        btn = ctk.CTkButton(
+            self,
+            text=self._section_label(heading),
+            anchor="w",
+            height=24,
+            command=lambda h=heading: self._toggle_section(h),
+            fg_color="transparent",
+            hover_color=theme.nav_hover_bg(),
+            text_color=brand.STAMP_GOLD,
+            font=ctk.CTkFont(size=10, weight="bold"),
+        )
+        self._section_buttons[heading] = btn
+        btn.pack(fill="x", padx=6, pady=(8 if default_open else 2, 4))
+        if heading not in self._collapsed:
+            frame.pack(fill="x")
+        return frame
+
+    def _section_label(self, heading: str) -> str:
+        return ("▸ " if heading in self._collapsed else "▾ ") + heading
+
+    def _toggle_section(self, heading: str) -> None:
+        frame = self._section_frames[heading]
+        if heading in self._collapsed:
+            self._collapsed.remove(heading)
+            frame.pack(fill="x")
+        else:
+            self._collapsed.add(heading)
+            frame.pack_forget()
+        self._section_buttons[heading].configure(text=self._section_label(heading))
+        if self._settings is not None:
+            self._settings.sidebar_collapsed_sections = sorted(self._collapsed)
+            self._settings.save()
 
     def _nav_row(self, parent, key: str, label: str) -> ctk.CTkFrame:
         row = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=6)
