@@ -11,7 +11,6 @@ from ..core import clip_metadata, storage as S
 from ..core.models import Clip
 from . import theme
 from .guide_copy import (
-    TOOLTIP_CAPTURE_ACTIVE,
     TOOLTIP_HASH_PROOF,
     TOOLTIP_LOCAL_VAULT_ACTIVE,
 )
@@ -156,10 +155,6 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             font=theme.body_font(11), text_color=brand.MUTED_FG,
         )
         detail_lbl.pack(fill="x", padx=14, pady=(0, 4))
-        if not summary.get("capture_paused"):
-            bind_tooltip(detail_lbl, TOOLTIP_CAPTURE_ACTIVE)
-        else:
-            bind_tooltip(detail_lbl, TOOLTIP_LOCAL_VAULT_ACTIVE)
 
         counts = (
             f"{summary.get('all', 0)} saved · "

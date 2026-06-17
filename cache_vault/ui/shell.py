@@ -66,6 +66,7 @@ from .preview import PreviewPanel
 from .quick_paste import QuickPaste
 from .toast import Toast
 from .tray import TrayController
+from . import tooltip
 from .vault_screens import VaultScreenHost
 from .vault_lock import VaultControlStrip, VaultLockScreen
 from . import theme
@@ -130,6 +131,7 @@ class CacheVaultApp(ctk.CTk):
         self._type_filter: str | None = None
         self._sensitive_only = False
         self._vault_locked = vault_lock.should_lock_on_startup(self.vault.settings)
+        tooltip.set_tooltips_locked(self._vault_locked)
         self._idle_lock_job = None
         self._last_unlock_at = models.now_iso()
 
@@ -211,6 +213,7 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
         self._schedule_auto_lock()
         self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
+        self._bind_tooltip_hide_events()
         # Start mobile bridge after the window is live (zeroconf must not block UI).
         self.after(0, lambda: self._mobile_bridge.sync(self.vault.settings))
 
@@ -237,6 +240,19 @@ class CacheVaultApp(ctk.CTk):
             return bool(self.winfo_exists())
         except Exception:  # noqa: BLE001
             return False
+
+    def _bind_tooltip_hide_events(self) -> None:
+        """Keep hover help out of active interactions and window transitions."""
+        for event in (
+            "<Button-1>",
+            "<Button-2>",
+            "<Button-3>",
+            "<MouseWheel>",
+            "<Configure>",
+            "<FocusOut>",
+            "<Unmap>",
+        ):
+            self.bind_all(event, lambda _e: tooltip.hide_tooltip(), add="+")
 
     def _safe_after(self, ms: int, fn):
         if not self._alive():
@@ -519,6 +535,7 @@ class CacheVaultApp(ctk.CTk):
             return
         if self._locked():
             return
+        tooltip.set_tooltips_locked(True)
         self._vault_locked = True
         self._preview.show(None)
         self._lock_screen.set_mode(self.vault.settings.vault_lock_mode)
@@ -535,6 +552,7 @@ class CacheVaultApp(ctk.CTk):
     def _unlock_vault(self, secret: str) -> bool:
         if vault_lock.verify_secret(self.vault.settings, secret):
             self._vault_locked = False
+            tooltip.set_tooltips_locked(False)
             self._lock_screen.grid_remove()
             self._last_unlock_at = models.now_iso()
             vault_lock.record_lock_event(
@@ -686,6 +704,7 @@ class CacheVaultApp(ctk.CTk):
         }
 
     def _navigate_screen(self, key: str) -> None:
+        tooltip.hide_tooltip()
         self._filters.set_active(key)
         self._on_filter_select(key)
 
@@ -879,6 +898,7 @@ class CacheVaultApp(ctk.CTk):
     def refresh(self) -> None:
         if not self._alive():
             return
+        tooltip.hide_tooltip()
         try:
             from ..core import storage as S
 
@@ -1140,6 +1160,7 @@ class CacheVaultApp(ctk.CTk):
         return None
 
     def _on_filter_select(self, key: str) -> None:
+        tooltip.hide_tooltip()
         if not self._guard_unlocked():
             return
         if key == NAV_QUICK_PASTE:
@@ -1301,8 +1322,12 @@ class CacheVaultApp(ctk.CTk):
 
         from ..core.contextmenu import clip_menu_items
 
+        tooltip.before_menu_open()
         if self._locked():
-            self._open_locked_menu(x_root, y_root)
+            try:
+                self._open_locked_menu(x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
             return
         menu = tk.Menu(self, tearoff=0)
         dispatch = {
@@ -1331,6 +1356,7 @@ class CacheVaultApp(ctk.CTk):
             menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
         finally:
             menu.grab_release()
+            tooltip.after_menu_close()
 
     def _add_menu_items(self, menu, items, dispatch: dict, clip_id: str) -> None:
         import tkinter as tk
@@ -1357,6 +1383,7 @@ class CacheVaultApp(ctk.CTk):
     def _open_locked_menu(self, x_root: int, y_root: int) -> None:
         import tkinter as tk
 
+        tooltip.before_menu_open()
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="Unlock Vault", command=self._lock_screen.focus_unlock)
         menu.add_command(label="Quit", command=self._quit)
@@ -1364,12 +1391,17 @@ class CacheVaultApp(ctk.CTk):
             menu.tk_popup(x_root, y_root)
         finally:
             menu.grab_release()
+            tooltip.after_menu_close()
 
     def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
         import tkinter as tk
 
+        tooltip.before_menu_open()
         if self._locked():
-            self._open_locked_menu(x_root, y_root)
+            try:
+                self._open_locked_menu(x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
             return
         clip_id = getattr(row, "clip_id", None)
         proof_hash = getattr(row, "proof_hash", "") or ""
@@ -1406,12 +1438,17 @@ class CacheVaultApp(ctk.CTk):
             menu.tk_popup(x_root, y_root)
         finally:
             menu.grab_release()
+            tooltip.after_menu_close()
 
     def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
         import tkinter as tk
 
+        tooltip.before_menu_open()
         if self._locked():
-            self._open_locked_menu(x_root, y_root)
+            try:
+                self._open_locked_menu(x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
             return
         safe_id = str(safe.get("id") or "")
         menu = tk.Menu(self, tearoff=0)
@@ -1434,6 +1471,7 @@ class CacheVaultApp(ctk.CTk):
             menu.tk_popup(x_root, y_root)
         finally:
             menu.grab_release()
+            tooltip.after_menu_close()
 
     def _set_default_safe(self, safe_id: str) -> None:
         if not safe_id:
