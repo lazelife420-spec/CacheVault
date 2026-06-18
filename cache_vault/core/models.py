@@ -88,6 +88,11 @@ EVENT_MACRO_PICKER_EXECUTED = "macro_picker_executed"
 EVENT_MACRO_BLOCKED_SENSITIVE = "macro_blocked_sensitive"
 EVENT_MACRO_DISABLED_SKIPPED = "macro_disabled_skipped"
 EVENT_MOBILE_INBOX_RECEIVED = "mobile_inbox_received"
+EVENT_ASSET_DRAG_STARTED = "asset_drag_started"
+EVENT_ASSET_DRAG_EXPORT_PREPARED = "asset_drag_export_prepared"
+EVENT_ASSET_DRAG_BLOCKED_LOCKED = "asset_drag_blocked_locked"
+EVENT_ASSET_DRAG_MISSING_FILE = "asset_drag_missing_file"
+EVENT_ASSET_DRAG_FALLBACK_USED = "asset_drag_fallback_used"
 
 # Capture modes stored on each clip.
 CAPTURE_AUTO = "auto"

@@ -23,7 +23,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import capture_debug, clip_accents, copy_clean, models, search, vault_lock
+from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, search, vault_lock
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -1078,6 +1078,7 @@ class CacheVaultApp(ctk.CTk):
             "load_asset": storage.load_clip_asset_bytes,
             "asset_meta": asset_meta,
             "save_asset_as": self._save_asset_as,
+            "drag_out": self._drag_out_clip,
             "open_asset_folder": open_asset_folder,
             "latest_editable_copy": self.vault.latest_editable_copy,
             "html_bundle_summary": self.vault.html_bundle_summary,
@@ -1091,6 +1092,7 @@ class CacheVaultApp(ctk.CTk):
             "export_proof_zip": self._export_clip_proof,
             "export_editable_copy": lambda cid: self._export_clip_proof_mode(cid, "editable_copy"),
             "clip_inspector_context": self.vault.clip_inspector_context,
+            "copy_path": self._copy_path,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -1534,6 +1536,12 @@ class CacheVaultApp(ctk.CTk):
         self.clipboard_append(meta)
         self._monitor.note_local_copy(meta)
 
+    def _copy_path(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        self._copy_text(clip.content, "Copied path.")
+
     def _copy_clean(self, clip_id: str, action: str) -> None:
         if not self._guard_unlocked():
             return
@@ -1635,6 +1643,7 @@ class CacheVaultApp(ctk.CTk):
             "copy_again": lambda: self._copy_again(clip.id),
             "open_link": lambda: self._open_clip_link(clip.id),
             "open_asset_folder": lambda: self._open_asset_folder(clip.id),
+            "drag_out": lambda: self._drag_out_clip(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
             "move_safe": lambda: self._move_to_safe(clip.id),
             "create_editable_copy": lambda: self._create_editable_copy(clip.id),
@@ -1969,6 +1978,61 @@ class CacheVaultApp(ctk.CTk):
             return
         path = image_assets.assets_dir() / rec.storage_name
         pathutil.reveal_in_explorer(str(path))
+
+    def _drag_out_clip(self, clip_id: str) -> None:
+        from ..core import pathutil
+
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        if self._locked():
+            self.vault.events.record(models.EVENT_ASSET_DRAG_BLOCKED_LOCKED, clip_id, {})
+            self._guard_unlocked()
+            return
+        prepared = drag_export.prepare_drag_export(clip, self.vault.storage)
+        if prepared is None:
+            details = {
+                "classification": clip.classification,
+                "content_type": clip.content_type,
+                "reason": (
+                    "missing_file"
+                    if clip.classification == models.CLASS_PATH
+                    else "unsupported_item"
+                ),
+            }
+            event_type = (
+                models.EVENT_ASSET_DRAG_MISSING_FILE
+                if clip.classification == models.CLASS_PATH
+                else models.EVENT_ASSET_DRAG_FALLBACK_USED
+            )
+            self.vault.events.record(event_type, clip_id, details)
+            if clip.classification == models.CLASS_PATH:
+                if clip.content and pathutil.parent_exists(clip.content):
+                    self._show_toast("File not found. You can still Copy Path or Open Folder.")
+                else:
+                    self._show_toast("File not found. You can still Copy Path.")
+            else:
+                self._show_toast("Drag file export is not available for this item.")
+            return
+        self.vault.events.record(
+            models.EVENT_ASSET_DRAG_STARTED,
+            clip_id,
+            {"kind": prepared.drag_kind, "source": prepared.source},
+        )
+        self.vault.events.record(
+            models.EVENT_ASSET_DRAG_EXPORT_PREPARED,
+            clip_id,
+            {
+                "kind": prepared.drag_kind,
+                "file_name": prepared.display_name,
+                "source": prepared.source,
+                "reused_existing": prepared.reused_existing,
+            },
+        )
+        drag_export.start_file_drag(prepared.file_path)
+        self._show_toast(
+            "Drag PNG ready." if prepared.drag_kind == "image" else "Drag file out ready."
+        )
 
     def _create_editable_copy(self, clip_id: str) -> None:
         self.vault.create_editable_copy(clip_id)
