@@ -121,7 +121,7 @@ def start_file_drag(file_path: str) -> int:
         def GetCanonicalFormatEtc(self, fe):
             raise COMException(hresult=winerror.DATA_S_SAMEFORMATETC)
 
-        def SetData(self, fe, medium):
+        def SetData(self, fe, medium, release=False):
             raise COMException(hresult=winerror.E_NOTIMPL)
 
         def EnumFormatEtc(self, direction):
@@ -147,7 +147,7 @@ def start_file_drag(file_path: str) -> int:
                 return winerror.DRAGDROP_S_CANCEL
             if not (key_state & win32con.MK_LBUTTON):
                 return winerror.DRAGDROP_S_DROP
-            return pythoncom.S_OK
+            return 0
 
         def GiveFeedback(self, effect):
             return winerror.DRAGDROP_S_USEDEFAULTCURSORS
@@ -160,7 +160,7 @@ def start_file_drag(file_path: str) -> int:
         drop_source = wrap(_DropSource(), iid=pythoncom.IID_IDropSource, useDispatcher=0)
         return pythoncom.DoDragDrop(data_obj, drop_source, 1)
     finally:
-        pythoncom.OleUninitialize()
+        pythoncom.CoUninitialize()
 
 
 def _prepare_image_export(clip, storage) -> DragExport | None:
@@ -169,24 +169,16 @@ def _prepare_image_export(clip, storage) -> DragExport | None:
         return None
     png_bytes, _mime = loaded
     target = _preferred_drag_path(clip)
-    reused = False
     if target.exists():
-        try:
-            if target.read_bytes() == png_bytes:
-                reused = True
-            else:
-                target = image_assets.next_available_path(target)
-        except Exception:  # noqa: BLE001
-            target = image_assets.next_available_path(target)
-    if not reused:
-        target.write_bytes(png_bytes)
+        target = image_assets.next_available_path(target)
+    target.write_bytes(png_bytes)
     return DragExport(
         clip_id=getattr(clip, "id", ""),
         drag_kind="image",
         file_path=str(target),
         display_name=target.name,
         source="temp_export",
-        reused_existing=reused,
+        reused_existing=False,
     )
 
 

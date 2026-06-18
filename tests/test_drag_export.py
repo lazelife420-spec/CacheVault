@@ -46,7 +46,7 @@ def test_prepare_drag_export_creates_temp_png_and_preserves_original(vault, tmp_
     assert (tmp_path / "CacheVault" / "drag_out").is_dir()
 
 
-def test_prepare_drag_export_reuses_same_smart_filename(vault, tmp_path, monkeypatch):
+def test_prepare_drag_export_uses_safe_unique_name_on_repeat_drag(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     clip = vault.capture_image(_png_bytes(color="blue"), width=4, height=4, source_app="SnippingTool.exe")
 
@@ -54,8 +54,9 @@ def test_prepare_drag_export_reuses_same_smart_filename(vault, tmp_path, monkeyp
     second = drag_export.prepare_drag_export(clip, vault.storage)
 
     assert first is not None and second is not None
-    assert first.file_path == second.file_path
-    assert second.reused_existing is True
+    assert first.file_path != second.file_path
+    assert second.file_path.endswith("-2.png")
+    assert second.reused_existing is False
 
 
 def test_prepare_drag_export_for_real_file_path(tmp_path):

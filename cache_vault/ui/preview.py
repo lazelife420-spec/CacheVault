@@ -11,7 +11,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from .. import brand
-from ..core import clip_metadata, models
+from ..core import clip_metadata, models, pathutil
 from ..core.clip_accents import LOCKED_ITEMS_MESSAGE
 from ..core.models import Clip
 from . import theme
@@ -302,6 +302,8 @@ class PreviewPanel(ctk.CTkFrame):
             return
         self._clip = clip
         self._revealed = False
+        self._body.unbind("<ButtonPress-1>")
+        self._body.configure(cursor="")
         for w in self._buttons.winfo_children():
             w.destroy()
 
@@ -338,6 +340,16 @@ class PreviewPanel(ctk.CTkFrame):
             self._set_body("Sensitive clip hidden.\nUse Reveal to view its contents.")
         else:
             self._set_body(clip.content or "(empty)")
+            if (
+                clip.classification == models.CLASS_PATH
+                and pathutil.is_local_file(clip.content)
+                and self._actions.get("drag_out")
+            ):
+                self._body.configure(cursor="hand2")
+                self._body.bind(
+                    "<ButtonPress-1>",
+                    lambda _e, c=clip: self._fire("drag_out", c),
+                )
         self._meta.configure(text=self._meta_text(clip))
         self._set_usage(self._usage_text(clip))
         self._render_buttons(clip)
