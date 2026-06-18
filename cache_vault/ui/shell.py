@@ -291,6 +291,33 @@ class CacheVaultApp(ctk.CTk):
             except Exception: # Some mouse buttons might not be supported on all systems
                 pass
 
+    def destroy(self) -> None:
+        """Fully clean up all background threads and listeners."""
+        # 1. Stop UI timers
+        if hasattr(self, "_idle_lock_job") and self._idle_lock_job:
+            self.after_cancel(self._idle_lock_job)
+        if hasattr(self, "_expiry_job") and self._expiry_job:
+            self.after_cancel(self._expiry_job)
+
+        # 2. Stop system listeners
+        if hasattr(self, "_monitor"):
+            self._monitor.stop()
+        if hasattr(self, "_hotkey"):
+            self._hotkey.stop()
+        if hasattr(self, "_capture_hotkeys"):
+            self._capture_hotkeys.stop()
+        if hasattr(self, "_macro_hotkeys"):
+            self._macro_hotkeys.stop()
+        if hasattr(self, "_text_shortcut_listener"):
+            self._text_shortcut_listener.stop()
+        if hasattr(self, "_tray"):
+            self._tray.stop()
+        if hasattr(self, "_mobile_bridge"):
+            self._mobile_bridge.stop()
+
+        # 3. Final destroy
+        super().destroy()
+
     def _safe_after(self, ms: int, fn):
         if not self._alive():
             return None
