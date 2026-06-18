@@ -26,7 +26,7 @@ class ClipList(ctk.CTkScrollableFrame):
             text_color=brand.MUTED_FG, justify="center",
         )
 
-    def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
+    def render(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
         for row in self._rows:
             row.destroy()
         self._rows.clear()
@@ -42,8 +42,18 @@ class ClipList(ctk.CTkScrollableFrame):
             self._empty.pack(pady=40)
             return
 
-        for clip in clips:
-            self._rows.append(self._build_row(clip))
+        if group_by:
+            from ..core import grouping
+            groups = grouping.group_clips(clips, group_by)
+            for title, members in groups.items():
+                hdr = ctk.CTkLabel(self, text=f"{title} ({len(members)})",
+                                   anchor="w", font=ctk.CTkFont(size=11, weight="bold"))
+                hdr.pack(fill="x", padx=10, pady=(8, 2))
+                for clip in members:
+                    self._rows.append(self._build_row(clip))
+        else:
+            for clip in clips:
+                self._rows.append(self._build_row(clip))
 
     def _build_row(self, clip: Clip) -> ctk.CTkFrame:
         selected = clip.id == self._selected_id
@@ -88,6 +98,22 @@ class ClipList(ctk.CTkScrollableFrame):
             preview += "…"
         ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
                      font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
+
+        # Labels/chips
+        try:
+            from ..core.clip_metadata import labels_for_clip
+            ctx_fn = self._on_context and None
+            labels = labels_for_clip(clip)
+            chips = ctk.CTkFrame(row, fg_color="transparent")
+            chips.pack(fill="x", padx=10, pady=(0, 6))
+            for lab in labels[:4]:
+                lbl = ctk.CTkLabel(chips, text=lab, anchor="w",
+                                   font=ctk.CTkFont(size=9),
+                                   text_color=("#444"),
+                                   fg_color=("#eef"), corner_radius=6)
+                lbl.pack(side="left", padx=(0, 6))
+        except Exception:
+            pass
 
         src = clip_metadata.display(clip.source_app)
         added = _short_time(clip.created_at)
