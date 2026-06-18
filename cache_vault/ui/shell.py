@@ -64,7 +64,13 @@ from .mobile_dialogs import (
     MobileAccessReceiptsDialog, PairAndroidDialog, PairedDevicesDialog,
 )
 from .preview import PreviewPanel
-from .quick_paste import ACTION_ALTERNATE, ACTION_COPY_ONLY, QuickPaste
+from .quick_paste import (
+    ACTION_ALTERNATE,
+    ACTION_COPY_ONLY,
+    ACTION_OPEN,
+    ACTION_SAVE_AS,
+    QuickPaste,
+)
 from .toast import Toast
 from .tray import TrayController
 from . import tooltip
@@ -2496,7 +2502,17 @@ class CacheVaultApp(ctk.CTk):
         return clip.content
 
     def _quick_paste_image_action(self, clip, action: str) -> None:
-        del action
+        if action == ACTION_OPEN:
+            self._open_image_asset(clip.id)
+            return
+        if action == ACTION_SAVE_AS:
+            self.vault.events.record(
+                "quick_paste_opened_asset",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "save_as_png"),
+            )
+            self._save_asset_as(clip.id)
+            return
         loaded = self.vault.storage.load_clip_asset_bytes(clip.id)
         png = loaded[0] if loaded else None
         if not png:
@@ -2524,6 +2540,28 @@ class CacheVaultApp(ctk.CTk):
             self._quick_paste_receipt_details(clip, "copy_image"),
         )
         Toast(self, "Copied image to clipboard.")
+
+    def _open_image_asset(self, clip_id: str) -> None:
+        from ..core import image_assets, pathutil
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None or clip.content_type != models.CONTENT_IMAGE:
+            return
+        rec = self.vault.storage.get_asset_record(clip_id)
+        if rec is None:
+            Toast(self, "Image not available.")
+            return
+        path = image_assets.assets_dir() / rec.storage_name
+        opened = pathutil.open_file(str(path))
+        self.vault.events.record(
+            "quick_paste_opened_asset",
+            clip.id,
+            self._quick_paste_receipt_details(
+                clip,
+                "open_image",
+                reason="" if opened else "open_failed",
+            ),
+        )
+        Toast(self, "Opened image." if opened else "Could not open image.")
 
     def _quick_paste_copy_path(self, clip) -> None:
         path_text = clip.content or ""

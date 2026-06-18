@@ -29,6 +29,8 @@ def test_quick_paste_keyboard_bindings_are_wired():
 
     source = inspect.getsource(QuickPaste.__init__)
 
+    assert "placeholder_text=\"Search clips...\"" in source
+    assert "_query_var.trace_add" in source
     assert "<Up>" in source
     assert "<Down>" in source
     assert "<Home>" in source
@@ -37,6 +39,24 @@ def test_quick_paste_keyboard_bindings_are_wired():
     assert "<Control-Return>" in source
     assert "<Shift-Return>" in source
     assert "<Escape>" in source
+
+
+def test_quick_paste_search_filter_uses_metadata_not_body_access():
+    from cache_vault.ui import quick_paste
+
+    clip = _clip(
+        title="",
+        preview="Quarterly report screenshot",
+        safe_name="Work",
+        source_app="SnippingTool.exe",
+        date_used="",
+        created_at="2026-01-01",
+    )
+
+    assert quick_paste._matches_query(clip, "report")
+    assert quick_paste._matches_query(clip, "work")
+    assert quick_paste._matches_query(clip, "snipping")
+    assert not quick_paste._matches_query(clip, "missing")
 
 
 def test_quick_paste_image_action_does_not_fake_paste():
@@ -48,8 +68,20 @@ def test_quick_paste_image_action_does_not_fake_paste():
     assert "write_clipboard_png" in image_source
     assert "deliver_ctrl_v" not in image_source
     assert "Copied image to clipboard" in image_source
+    assert "ACTION_OPEN" in image_source
+    assert "ACTION_SAVE_AS" in image_source
     assert "Pasted ✓" not in finish_source
     assert "Paste attempted" in finish_source
+
+
+def test_quick_paste_open_image_uses_asset_file_helper():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = inspect.getsource(CacheVaultApp._open_image_asset)
+
+    assert "pathutil.open_file" in source
+    assert "quick_paste_opened_asset" in source
+    assert "Opened image." in source
 
 
 def test_quick_paste_path_action_copies_path_only():
@@ -109,6 +141,7 @@ def test_quick_paste_copy_avoids_forbidden_claims():
             inspect.getsource(QuickPaste),
             inspect.getsource(CacheVaultApp._do_paste),
             inspect.getsource(CacheVaultApp._quick_paste_image_action),
+            inspect.getsource(CacheVaultApp._open_image_asset),
             inspect.getsource(CacheVaultApp._finish_paste),
         ],
     ).lower()
