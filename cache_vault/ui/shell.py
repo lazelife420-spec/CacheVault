@@ -376,6 +376,10 @@ class CacheVaultApp(ctk.CTk):
             on_export=self._export_view,
             on_select_clip=self._on_clip_select,
             on_copy=self._copy_again,
+            on_clip_context=self._open_home_clip_menu,
+            on_card_context=self._open_home_card_menu,
+            on_app_context=self._open_home_app_menu,
+            on_status_context=self._open_home_status_menu,
             on_quick_paste=self._schedule_quick_paste,
             on_view_editable_copies=lambda: self._navigate_screen(NAV_EDITABLE_COPIES),
             on_view_html_bundles=lambda: self._navigate_screen(NAV_HTML_BUNDLES),
@@ -1424,6 +1428,7 @@ class CacheVaultApp(ctk.CTk):
         self._selected_clip_id = getattr(clip, "id", None)
         self._list.set_selected(self._selected_clip_id)
         self._grid.set_selected(self._selected_clip_id)
+        self._home.set_selected(self._selected_clip_id)
         self._update_selected_action_strip(clip)
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
@@ -1635,6 +1640,102 @@ class CacheVaultApp(ctk.CTk):
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
+
+    def _popup_menu(self, menu, x_root: int, y_root: int) -> None:
+        tooltip.before_menu_open()
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _add_nav_command(self, menu, label: str, command) -> None:
+        menu.add_command(label=label, command=command)
+
+    def _open_home_clip_menu(self, clip, x_root: int, y_root: int) -> None:
+        self._on_clip_select(clip)
+        self._open_clip_menu(clip, x_root, y_root)
+
+    def _open_home_card_menu(
+        self,
+        label: str,
+        filter_key: str | None,
+        x_root: int,
+        y_root: int,
+    ) -> None:
+        import tkinter as tk
+
+        from ..core import storage as S
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        menu = tk.Menu(self, tearoff=0)
+        nav_items = [
+            ("All Clips", lambda: self._navigate_filter(S.FILTER_ALL)),
+            ("Favorites", lambda: self._navigate_filter(S.FILTER_FAVORITES)),
+            ("Screenshots", lambda: self._navigate_filter(S.FILTER_SCREENSHOTS)),
+            ("Links", lambda: self._navigate_filter(S.FILTER_LINKS)),
+            ("Code", lambda: self._navigate_filter(S.FILTER_CODE)),
+            ("Mobile Inbox", lambda: self._navigate_screen(NAV_MOBILE_INBOX)),
+            ("Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS)),
+            ("Exports", lambda: self._navigate_screen(NAV_EXPORTS)),
+        ]
+        if filter_key:
+            self._add_nav_command(menu, f"Open {label}", lambda f=filter_key: self._navigate_filter(f))
+            menu.add_separator()
+        elif label == "Receipts":
+            self._add_nav_command(menu, "Open Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
+            menu.add_separator()
+        for item_label, command in nav_items:
+            self._add_nav_command(menu, item_label, command)
+        self._popup_menu(menu, x_root, y_root)
+
+    def _open_home_app_menu(self, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        from ..core import storage as S
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Quick Paste", command=self._schedule_quick_paste)
+        menu.add_command(label="Save Current Clipboard", command=self._manual_save_clipboard)
+        menu.add_separator()
+        menu.add_command(label="Open All Clips", command=lambda: self._navigate_filter(S.FILTER_ALL))
+        menu.add_command(label="Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
+        menu.add_command(label="Stamped Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
+        menu.add_command(label="Settings", command=self._open_settings)
+        self._popup_menu(menu, x_root, y_root)
+
+    def _open_home_status_menu(self, surface: str, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        from ..core import storage as S
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        summary = self.vault.dashboard_summary()
+        menu = tk.Menu(self, tearoff=0)
+        if surface == "vault_status":
+            menu.add_command(label="Open Safe", command=lambda: self._navigate_filter(f"{S.SAFE_PREFIX}{summary.get('default_safe', 'default')}"))
+            menu.add_command(label="Set as Default Safe", state="disabled")
+            menu.add_command(label="Copy Safe Summary", command=self._copy_default_safe_summary)
+            menu.add_command(label="Export Safe Proof Zip", state="disabled")
+            menu.add_separator()
+        menu.add_command(label="Open Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
+        menu.add_command(label="Open Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
+        menu.add_command(label="Mobile Access", command=lambda: self._navigate_screen(NAV_MOBILE_ACCESS))
+        self._popup_menu(menu, x_root, y_root)
+
+    def _copy_default_safe_summary(self) -> None:
+        safe_id = self.vault.settings.default_safe_id or "default"
+        safe = next((s for s in self.vault.list_safes() if s.get("id") == safe_id), None)
+        if safe is None:
+            return
+        self._copy_safe_summary(safe)
 
     def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
         import tkinter as tk

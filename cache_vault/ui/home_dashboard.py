@@ -51,6 +51,10 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         on_export: Callable[[], None],
         on_select_clip: Callable[[Clip], None],
         on_copy: Callable[[str], None],
+        on_clip_context: Callable[[Clip, int, int], None] | None = None,
+        on_card_context: Callable[[str, str | None, int, int], None] | None = None,
+        on_app_context: Callable[[int, int], None] | None = None,
+        on_status_context: Callable[[str, int, int], None] | None = None,
         on_quick_paste: Callable[[], None] | None = None,
         on_view_editable_copies: Callable[[], None] | None = None,
         on_view_html_bundles: Callable[[], None] | None = None,
@@ -66,13 +70,23 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._on_export = on_export
         self._on_select_clip = on_select_clip
         self._on_copy = on_copy
+        self._on_clip_context = on_clip_context
+        self._on_card_context = on_card_context
+        self._on_app_context = on_app_context
+        self._on_status_context = on_status_context
         self._on_quick_paste = on_quick_paste
         self._on_view_editable_copies = on_view_editable_copies
         self._on_view_html_bundles = on_view_html_bundles
         self._on_settings = on_settings
         self._image_ready = image_assets_ready
+        self._selected_clip_id: str | None = None
         self._body = ctk.CTkFrame(self, fg_color="transparent")
         self._body.pack(fill="both", expand=True, padx=14, pady=14)
+        self._bind_context(self, lambda e: self._open_app_context(e))
+        self._bind_context(self._body, lambda e: self._open_app_context(e))
+
+    def set_selected(self, clip_id: str | None) -> None:
+        self._selected_clip_id = clip_id
 
     def render(
         self,
@@ -178,6 +192,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             anchor="w", wraplength=560, justify="left",
             text_color=brand.MUTED_FG, font=theme.body_font(10),
         ).pack(fill="x", padx=14, pady=(0, 12))
+        self._bind_context(strip, lambda e: self._open_status_context("vault_status", e))
 
     def _quick_actions(self, summary: dict) -> None:
         frame = ctk.CTkFrame(self._body, **theme.vault_card())
@@ -216,6 +231,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ctk.CTkButton(row2, text="Settings",
                       command=self._on_settings or self._on_mobile_settings,
                       **theme.secondary_button()).pack(side="left", padx=2, expand=True, fill="x")
+        self._bind_context(frame, lambda e: self._open_app_context(e))
 
     def _summary_cards(self, summary: dict) -> None:
         wrap = ctk.CTkFrame(self._body, fg_color="transparent")
@@ -261,6 +277,10 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
         handler = (lambda _e, f=filt: self._on_filter(f)) if filt else (lambda _e: self._on_open_receipts())
         self._bind_clickable(card, handler)
+        self._bind_context(
+            card,
+            lambda e, l=label, f=filt: self._open_card_context(l, f, e),
+        )
 
         def on_enter(_e, c=card) -> None:
             c.configure(border_color=_CARD_BORDER_HOVER)
@@ -316,6 +336,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             for w in (row,):
                 w.bind("<Button-1>", lambda _e, f=filt: self._on_filter(f))
                 w.configure(cursor="hand2")
+        self._bind_context(frame, lambda e: self._open_card_context("Needs Review", S.FILTER_SENSITIVE, e))
 
     def _proof_access_section(self, summary: dict) -> None:
         frame = ctk.CTkFrame(self._body, fg_color=brand.SURFACE_BG, corner_radius=8,
@@ -366,10 +387,17 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             frame, text=brand.TERM_EXPORT,
             command=self._on_export, **theme.secondary_button(),
         ).pack(fill="x", padx=12, pady=(4, 12))
+        self._bind_context(frame, lambda e: self._open_status_context("proof_access", e))
 
     def _compact_clip_card(self, clip: Clip) -> None:
-        card = ctk.CTkFrame(self._body, corner_radius=8, fg_color=brand.SURFACE_BG,
-                             border_width=1, border_color=("#C8D0D4", "#263038"))
+        selected = clip.id == self._selected_clip_id
+        card = ctk.CTkFrame(
+            self._body,
+            corner_radius=8,
+            fg_color=brand.SURFACE_BG,
+            border_width=2 if selected else 1,
+            border_color=brand.PROOF_TEAL if selected else ("#C8D0D4", "#263038"),
+        )
         card.pack(fill="x", pady=4)
 
         badge = clip_metadata.format_label(clip.classification, clip.content_type).upper()
@@ -414,7 +442,54 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ctk.CTkButton(actions, text="Open", width=64, height=26,
                       command=lambda c=clip: self._on_select_clip(c),
                       **theme.secondary_button()).pack(side="left", padx=2)
-        card.bind("<Button-1>", lambda _e, c=clip: self._on_select_clip(c))
+        self._bind_clip_card(card, clip)
+
+    @staticmethod
+    def _bind_context(widget, handler) -> None:
+        widget.bind("<Button-3>", handler)
+        widget.bind("<Button-2>", handler)
+        for child in widget.winfo_children():
+            HomeDashboard._bind_context(child, handler)
+
+    def _bind_clip_card(self, card, clip: Clip) -> None:
+        def select(_e, c=clip) -> None:
+            self._selected_clip_id = c.id
+            self._on_select_clip(c)
+
+        def context(e, c=clip) -> str:
+            self._selected_clip_id = c.id
+            self._on_select_clip(c)
+            if self._on_clip_context:
+                self._on_clip_context(c, e.x_root, e.y_root)
+            return "break"
+
+        card.bind("<Button-1>", select)
+        card.bind("<Button-3>", context)
+        card.bind("<Button-2>", context)
+        for child in card.winfo_children():
+            self._bind_clip_child(child, select, context)
+
+    def _bind_clip_child(self, widget, select, context) -> None:
+        widget.bind("<Button-1>", select)
+        widget.bind("<Button-3>", context)
+        widget.bind("<Button-2>", context)
+        for child in widget.winfo_children():
+            self._bind_clip_child(child, select, context)
+
+    def _open_card_context(self, label: str, filt: str | None, event) -> str:
+        if self._on_card_context:
+            self._on_card_context(label, filt, event.x_root, event.y_root)
+        return "break"
+
+    def _open_status_context(self, surface: str, event) -> str:
+        if self._on_status_context:
+            self._on_status_context(surface, event.x_root, event.y_root)
+        return "break"
+
+    def _open_app_context(self, event) -> str:
+        if self._on_app_context:
+            self._on_app_context(event.x_root, event.y_root)
+        return "break"
 
     @staticmethod
     def _bind_tooltip(widget, text: str) -> None:

@@ -124,3 +124,73 @@ def test_shell_selection_keyboard_and_lock_guards_are_wired():
     assert "_keyboard_focus_is_text_input" in source
     assert "_selected_clip_id = None" in source
     assert "_update_selected_action_strip(None)" in source
+
+
+def test_command_center_recent_clip_context_selects_before_menu():
+    from cache_vault.ui.home_dashboard import HomeDashboard
+
+    source = inspect.getsource(HomeDashboard._bind_clip_card)
+
+    assert "self._selected_clip_id = c.id" in source
+    assert "self._on_select_clip(c)" in source
+    assert "self._on_clip_context(c, e.x_root, e.y_root)" in source
+    assert source.index("self._on_select_clip(c)") < source.index("self._on_clip_context")
+
+
+def test_command_center_empty_space_menu_has_only_app_commands():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = inspect.getsource(CacheVaultApp._open_home_app_menu)
+
+    assert "_open_locked_menu" in source
+    assert "Quick Paste" in source
+    assert "Save Current Clipboard" in source
+    assert "Open All Clips" in source
+    assert "Mobile Inbox" in source
+    assert "Stamped Receipts" in source
+    assert "Settings" in source
+    assert "Remove" not in source
+    assert "Delete" not in source
+    assert "Clear" not in source
+
+
+def test_command_center_dashboard_card_menu_is_navigation_not_clip_menu():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = inspect.getsource(CacheVaultApp._open_home_card_menu)
+
+    assert "_open_locked_menu" in source
+    assert "_navigate_filter" in source
+    assert "_navigate_screen" in source
+    assert "_open_clip_menu" not in source
+    assert "Remove from History" not in source
+
+
+def test_command_center_status_menu_has_relevant_status_actions_only():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = inspect.getsource(CacheVaultApp._open_home_status_menu)
+
+    assert "_open_locked_menu" in source
+    assert "Open Safe" in source
+    assert "Copy Safe Summary" in source
+    assert "Open Receipts" in source
+    assert "Open Mobile Inbox" in source
+    assert "_open_clip_menu" not in source
+    assert "Remove from History" not in source
+
+
+def test_command_center_context_copy_avoids_forbidden_claims():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = "\n".join(
+        inspect.getsource(fn)
+        for fn in (
+            CacheVaultApp._open_home_app_menu,
+            CacheVaultApp._open_home_card_menu,
+            CacheVaultApp._open_home_status_menu,
+        )
+    ).lower()
+
+    for claim in ("cloud sync", "encrypted safes", "final release", "bank-grade", "military-grade"):
+        assert claim not in source
