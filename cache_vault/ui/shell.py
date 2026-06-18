@@ -18,11 +18,12 @@ import sys
 import threading
 import traceback
 from pathlib import Path
+from typing import Callable
 
 import customtkinter as ctk
 
 from .. import brand
-from ..core import models, search, vault_lock
+from ..core import capture_debug, copy_clean, models, search, vault_lock
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -63,9 +64,16 @@ from .mobile_dialogs import (
     MobileAccessReceiptsDialog, PairAndroidDialog, PairedDevicesDialog,
 )
 from .preview import PreviewPanel
-from .quick_paste import QuickPaste
+from .quick_paste import (
+    ACTION_ALTERNATE,
+    ACTION_COPY_ONLY,
+    ACTION_OPEN,
+    ACTION_SAVE_AS,
+    QuickPaste,
+)
 from .toast import Toast
 from .tray import TrayController
+from . import tooltip
 from .vault_screens import VaultScreenHost
 from .vault_lock import VaultControlStrip, VaultLockScreen
 from . import theme
@@ -120,16 +128,21 @@ class CacheVaultApp(ctk.CTk):
 
         self._search_var = ctk.StringVar()
         self._search_job = None
+        self._capture_refresh_job = None
+        self._capture_refresh_pending = False
         self._expiry_job = None
         self._shutting_down = False
         self._main_thread_calls: queue.SimpleQueue = queue.SimpleQueue()
         self._view_mode = "cards"
+        self._selected_clip_id: str | None = None
+        self._visible_clip_ids: list[str] = []
         self._sort_key = models.SORT_NEWEST_ADDED
         self._date_added_preset: str | None = None
         self._date_used_preset: str | None = None
         self._type_filter: str | None = None
         self._sensitive_only = False
         self._vault_locked = vault_lock.should_lock_on_startup(self.vault.settings)
+        tooltip.set_tooltips_locked(self._vault_locked)
         self._idle_lock_job = None
         self._last_unlock_at = models.now_iso()
 
@@ -211,6 +224,7 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
         self._schedule_auto_lock()
         self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
+        self._bind_tooltip_hide_events()
         # Start mobile bridge after the window is live (zeroconf must not block UI).
         self.after(0, lambda: self._mobile_bridge.sync(self.vault.settings))
 
@@ -229,6 +243,7 @@ class CacheVaultApp(ctk.CTk):
         self._show_window()
         self.after(50, self._pump_main_thread)
         self.after(150, self._maybe_show_first_use_guide)
+        self._bind_selection_keys()
 
     def _alive(self) -> bool:
         if self._shutting_down:
@@ -238,10 +253,47 @@ class CacheVaultApp(ctk.CTk):
         except Exception:  # noqa: BLE001
             return False
 
+    def _bind_tooltip_hide_events(self) -> None:
+        """Keep hover help out of active interactions and window transitions."""
+        for event in (
+            "<Button-1>",
+            "<Button-2>",
+            "<Button-3>",
+            "<MouseWheel>",
+            "<Configure>",
+            "<FocusOut>",
+            "<Unmap>",
+        ):
+            self.bind_all(event, lambda _e: tooltip.hide_tooltip(), add="+")
+
+    def _bind_selection_keys(self) -> None:
+        keymap = {
+            "<Up>": lambda e: self._keyboard_move_selection(-1, e),
+            "<Down>": lambda e: self._keyboard_move_selection(1, e),
+            "<Home>": lambda e: self._keyboard_select_edge(first=True, event=e),
+            "<End>": lambda e: self._keyboard_select_edge(first=False, event=e),
+            "<Return>": lambda e: self._keyboard_primary_action(e),
+            "<Control-c>": lambda e: self._keyboard_copy_selected(e),
+            "<Control-C>": lambda e: self._keyboard_copy_selected(e),
+            "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
+            "<Delete>": lambda e: self._keyboard_remove_selected(e),
+            "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
+            "<Menu>": lambda e: self._keyboard_open_context_menu(e),
+            "<Escape>": lambda e: tooltip.hide_tooltip(),
+        }
+        for sequence, callback in keymap.items():
+            self.bind_all(sequence, callback, add="+")
+
     def _safe_after(self, ms: int, fn):
         if not self._alive():
             return None
         return self.after(ms, fn)
+
+    def _window_viewable(self) -> bool:
+        try:
+            return bool(self.winfo_viewable()) and self.state() != "withdrawn"
+        except Exception:  # noqa: BLE001
+            return False
 
     def _call_on_main(self, fn) -> None:
         """Schedule ``fn`` on the Tk main thread (safe from pystray / worker threads)."""
@@ -301,6 +353,7 @@ class CacheVaultApp(ctk.CTk):
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
                                   settings=self.vault.settings,
+                                  on_safe_context=self._open_safe_menu,
                                   width=210, corner_radius=0)
         self._filters.grid(row=1, column=0, sticky="nsew")
 
@@ -329,6 +382,10 @@ class CacheVaultApp(ctk.CTk):
             on_export=self._export_view,
             on_select_clip=self._on_clip_select,
             on_copy=self._copy_again,
+            on_clip_context=self._open_home_clip_menu,
+            on_card_context=self._open_home_card_menu,
+            on_app_context=self._open_home_app_menu,
+            on_status_context=self._open_home_status_menu,
             on_quick_paste=self._schedule_quick_paste,
             on_view_editable_copies=lambda: self._navigate_screen(NAV_EDITABLE_COPIES),
             on_view_html_bundles=lambda: self._navigate_screen(NAV_HTML_BUNDLES),
@@ -344,6 +401,7 @@ class CacheVaultApp(ctk.CTk):
         self._grid = ClipGrid(
             self._center, on_select=self._on_clip_select,
             on_sort=self._set_sort,
+            on_context=self._open_clip_menu,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._home.grid(row=1, column=0, sticky="nsew")
@@ -379,6 +437,8 @@ class CacheVaultApp(ctk.CTk):
                 "open_link": self._open_clip_link,
                 "export_proof": self._export_clip_proof,
                 "remove_clip": self._remove_from_history,
+                "open_clip_menu": self._open_clip_menu,
+                "open_receipt_menu": self._open_receipt_menu,
             },
             corner_radius=0,
         )
@@ -402,6 +462,9 @@ class CacheVaultApp(ctk.CTk):
             on_unlock=self._unlock_vault,
             on_quit=self._quit,
             mode=self.vault.settings.vault_lock_mode,
+            style=self.vault.settings.vault_lock_style,
+            accent=self.vault.settings.vault_lock_accent,
+            show_local_only=self.vault.settings.vault_lock_show_local_only,
         )
         self._lock_screen.grid(row=0, column=0, columnspan=3, rowspan=3, sticky="nsew")
         if self._vault_locked:
@@ -479,11 +542,17 @@ class CacheVaultApp(ctk.CTk):
             command=self._open_duplicate_review, **theme.secondary_button(),
         )
         self._dup_btn.pack(side="left", padx=8)
-        ctk.CTkLabel(
-            self._toolbar_row3,
-            text="Extras go to Recently Removed — nothing is permanently deleted.",
-            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
-        ).pack(side="left", padx=4)
+        self._selected_action_frame = ctk.CTkFrame(self._toolbar_row3, fg_color="transparent")
+        self._selected_action_frame.pack(side="left", padx=(8, 4))
+        self._selected_action_label = ctk.CTkLabel(
+            self._selected_action_frame,
+            text="No item selected",
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=10),
+        )
+        self._selected_action_label.pack(side="left", padx=(0, 4))
+        self._selected_action_buttons: list[ctk.CTkButton] = []
+        self._update_selected_action_strip(None)
 
     def _control_strip_callbacks(self) -> dict:
         return {
@@ -506,6 +575,142 @@ class CacheVaultApp(ctk.CTk):
             "lock_now": self._lock_now,
         }
 
+    def _selected_clip(self):
+        if not self._selected_clip_id:
+            return None
+        return self.vault.storage.get_clip(self._selected_clip_id)
+
+    def _update_selected_action_strip(self, clip) -> None:
+        if not hasattr(self, "_selected_action_frame"):
+            return
+        for btn in getattr(self, "_selected_action_buttons", []):
+            btn.destroy()
+        self._selected_action_buttons = []
+        if self._locked() or clip is None:
+            self._selected_action_label.configure(text="No item selected")
+            return
+        label = (clip.title or clip.preview or "Selected item").splitlines()[0][:28]
+        self._selected_action_label.configure(text=f"Selected: {label}")
+        actions: list[tuple[str, Callable[[], None]]] = []
+        if clip.classification == models.CLASS_LINK:
+            actions = [
+                ("Open", lambda c=clip: self._open_clip_link(c.id)),
+                ("Copy Link", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_LINK_ONLY)),
+                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        elif clip.content_type == models.CONTENT_IMAGE:
+            actions = [
+                ("Copy Image", lambda c=clip: self._copy_again(c.id)),
+                ("Open", lambda c=clip: self._open_asset_folder(c.id)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        elif clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
+            actions = [
+                ("Copy", lambda c=clip: self._copy_again(c.id)),
+                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        else:
+            actions = [
+                ("Copy", lambda c=clip: self._copy_again(c.id)),
+                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT)),
+                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
+                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+            ]
+        actions.append(("More", self._keyboard_open_context_menu))
+        for text, command in actions[:5]:
+            btn = ctk.CTkButton(
+                self._selected_action_frame,
+                text=text,
+                width=82,
+                height=24,
+                command=command,
+                **theme.secondary_button(),
+            )
+            btn.pack(side="left", padx=2)
+            self._selected_action_buttons.append(btn)
+
+    def _keyboard_focus_is_text_input(self, event=None) -> bool:
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            return False
+        cls = widget.winfo_class()
+        return cls in {"Entry", "Text"} or "Entry" in cls or "Textbox" in cls
+
+    def _keyboard_move_selection(self, delta: int, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        if not self._visible_clip_ids:
+            return "break"
+        current = self._selected_clip_id
+        idx = self._visible_clip_ids.index(current) if current in self._visible_clip_ids else 0
+        idx = max(0, min(len(self._visible_clip_ids) - 1, idx + delta))
+        self._select_visible_clip_by_id(self._visible_clip_ids[idx])
+        return "break"
+
+    def _keyboard_select_edge(self, *, first: bool, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        if self._visible_clip_ids:
+            self._select_visible_clip_by_id(self._visible_clip_ids[0 if first else -1])
+        return "break"
+
+    def _keyboard_primary_action(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is None:
+            return "break"
+        if clip.classification == models.CLASS_LINK:
+            self._open_clip_link(clip.id)
+        else:
+            self._copy_again(clip.id)
+        return "break"
+
+    def _keyboard_copy_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._copy_again(clip.id)
+        return "break"
+
+    def _keyboard_copy_clean_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._copy_clean(clip.id, copy_clean.COPY_PLAIN_TEXT)
+        return "break"
+
+    def _keyboard_remove_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            from tkinter import messagebox
+            ok = messagebox.askyesno(
+                "Remove from History",
+                "Remove the selected clip from Cache Vault history? It can be restored from Recently Removed.",
+                parent=self,
+            )
+            if ok:
+                self._remove_from_history(clip.id)
+        return "break"
+
+    def _keyboard_open_context_menu(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is None:
+            return "break"
+        if self._view_mode == "grid":
+            self._grid.open_context_for_selected(clip)
+        else:
+            self._list.open_context_for_selected(clip)
+        return "break"
+
     def _locked(self) -> bool:
         return bool(getattr(self, "_vault_locked", False))
 
@@ -515,9 +720,18 @@ class CacheVaultApp(ctk.CTk):
             return
         if self._locked():
             return
+        tooltip.set_tooltips_locked(True)
         self._vault_locked = True
+        self._selected_clip_id = None
+        self._visible_clip_ids = []
         self._preview.show(None)
+        self._update_selected_action_strip(None)
         self._lock_screen.set_mode(self.vault.settings.vault_lock_mode)
+        self._lock_screen.set_style(
+            self.vault.settings.vault_lock_style,
+            accent=self.vault.settings.vault_lock_accent,
+            show_local_only=self.vault.settings.vault_lock_show_local_only,
+        )
         self._lock_screen.grid()
         self._lock_screen.lift()
         self._lock_screen.focus_unlock()
@@ -531,6 +745,7 @@ class CacheVaultApp(ctk.CTk):
     def _unlock_vault(self, secret: str) -> bool:
         if vault_lock.verify_secret(self.vault.settings, secret):
             self._vault_locked = False
+            tooltip.set_tooltips_locked(False)
             self._lock_screen.grid_remove()
             self._last_unlock_at = models.now_iso()
             vault_lock.record_lock_event(
@@ -540,6 +755,8 @@ class CacheVaultApp(ctk.CTk):
             )
             self._schedule_auto_lock()
             self.refresh()
+            if self._capture_refresh_pending:
+                self._schedule_capture_refresh()
             return True
         vault_lock.record_lock_event(
             self.vault.events,
@@ -682,6 +899,7 @@ class CacheVaultApp(ctk.CTk):
         }
 
     def _navigate_screen(self, key: str) -> None:
+        tooltip.hide_tooltip()
         self._filters.set_active(key)
         self._on_filter_select(key)
 
@@ -693,6 +911,11 @@ class CacheVaultApp(ctk.CTk):
         self._filters.set_active(S.FILTER_ALL)
         self._on_filter_select(S.FILTER_ALL)
         self._on_clip_select(clip)
+
+    def _select_visible_clip_by_id(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is not None:
+            self._on_clip_select(clip)
 
     def _mobile_access_report(self) -> dict:
         import socket
@@ -875,6 +1098,7 @@ class CacheVaultApp(ctk.CTk):
     def refresh(self) -> None:
         if not self._alive():
             return
+        tooltip.hide_tooltip()
         try:
             from ..core import storage as S
 
@@ -918,11 +1142,22 @@ class CacheVaultApp(ctk.CTk):
                 self._show_clips()
                 query = self._build_query()
                 clips = self.vault.list_clips(query)
+                self._visible_clip_ids = [c.id for c in clips]
+                if self._selected_clip_id not in self._visible_clip_ids:
+                    self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
                 empty_msg = self._empty_message(active, clips, query)
                 if self._view_mode == "grid":
+                    self._grid.set_selected(self._selected_clip_id)
                     self._grid.render(clips, empty_message=empty_msg)
+                    self._grid.set_selected(self._selected_clip_id)
                 else:
+                    self._list.set_selected(self._selected_clip_id)
                     self._list.render(clips, empty_message=empty_msg)
+                    self._list.set_selected(self._selected_clip_id)
+                self._update_selected_action_strip(
+                    self.vault.storage.get_clip(self._selected_clip_id)
+                    if self._selected_clip_id else None,
+                )
                 clip_count = len(clips)
 
             summary["shown"] = clip_count
@@ -936,14 +1171,16 @@ class CacheVaultApp(ctk.CTk):
 
     # --- event handlers ----------------------------------------------------
     def _on_clip_captured(self, payload: dict) -> None:
-        # Runs on the monitor thread → hop to the UI thread before touching Tk.
-        if self._alive():
-            self.after(0, lambda p=dict(payload): self._ingest(p))
+        # Runs on the monitor thread; queue work for the Tk thread.
+        capture_debug.log("queue_ingest", capture_debug.payload_summary(payload))
+        self._call_on_main(lambda p=dict(payload): self._ingest(p))
 
     def _ingest(self, payload: dict) -> None:
         if not self._alive():
+            capture_debug.log("ingest_skipped", "app_not_alive")
             return
         try:
+            capture_debug.log("ingest_started", capture_debug.payload_summary(payload))
             if self._capture_ctrl.consume_ignore():
                 chash = None
                 item_type = models.CONTENT_TEXT
@@ -959,6 +1196,7 @@ class CacheVaultApp(ctk.CTk):
                     item_type=item_type,
                 )
                 self._show_toast("Next copy was not saved.")
+                capture_debug.log("ingest_skipped", "ignore_next_copy")
                 return
 
             armed = self._capture_ctrl.consume_armed()
@@ -970,9 +1208,11 @@ class CacheVaultApp(ctk.CTk):
                     capture_mode=models.CAPTURE_ARMED_NEXT_COPY,
                     force=True,
                 )
+                capture_debug.log("ingest_saved", "armed_next_copy")
                 return
 
             if not self._capture_ctrl.should_auto_capture():
+                capture_debug.log("ingest_skipped", "auto_capture_disabled_or_paused")
                 return
 
             safe_id, _safe_name = self._capture_ctrl.resolve_safe_for_auto()
@@ -1021,13 +1261,43 @@ class CacheVaultApp(ctk.CTk):
             ):
                 from ..core import sensitive
                 if sensitive.detect(payload["text"]).is_sensitive:
+                    capture_debug.log("save_skipped", "sensitive_auto_block")
                     self._show_toast(
                         "Sensitive-looking clipboard item was not auto-saved."
                     )
         else:
+            capture_debug.log("save_skipped", "unsupported_or_empty")
             return
         if clip is not None:
-            self.refresh()
+            capture_debug.log("save_created", f"clip_id={clip.id} type={clip.classification}")
+            self._schedule_capture_refresh()
+        else:
+            capture_debug.log("save_skipped", "vault_returned_none")
+
+    def _schedule_capture_refresh(self) -> None:
+        """Batch repaint work after clipboard captures so copy feels instant."""
+        self._capture_refresh_pending = True
+        capture_debug.log("refresh_pending", "scheduled")
+        if self._capture_refresh_job is not None:
+            capture_debug.log("refresh_deferred", "existing_job")
+            return
+        if self._locked() or not self._window_viewable():
+            capture_debug.log("refresh_deferred", "locked_or_not_viewable")
+            return
+        self._capture_refresh_job = self._safe_after(180, self._flush_capture_refresh)
+        capture_debug.log("refresh_scheduled", "delay_ms=180")
+
+    def _flush_capture_refresh(self) -> None:
+        self._capture_refresh_job = None
+        if not self._capture_refresh_pending:
+            return
+        self._capture_refresh_pending = False
+        if self._locked() or not self._window_viewable():
+            self._capture_refresh_pending = True
+            capture_debug.log("refresh_deferred", "flush_locked_or_not_viewable")
+            return
+        self.refresh()
+        capture_debug.log("refresh_flushed", "ok")
 
     def _show_toast(self, text: str) -> None:
         if self._alive():
@@ -1136,6 +1406,7 @@ class CacheVaultApp(ctk.CTk):
         return None
 
     def _on_filter_select(self, key: str) -> None:
+        tooltip.hide_tooltip()
         if not self._guard_unlocked():
             return
         if key == NAV_QUICK_PASTE:
@@ -1160,6 +1431,11 @@ class CacheVaultApp(ctk.CTk):
     def _on_clip_select(self, clip) -> None:
         if not self._guard_unlocked():
             return
+        self._selected_clip_id = getattr(clip, "id", None)
+        self._list.set_selected(self._selected_clip_id)
+        self._grid.set_selected(self._selected_clip_id)
+        self._home.set_selected(self._selected_clip_id)
+        self._update_selected_action_strip(clip)
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
@@ -1195,6 +1471,8 @@ class CacheVaultApp(ctk.CTk):
             webbrowser.open(url)
 
     def _copy_metadata(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
         clip = self.vault.storage.get_clip(clip_id)
         if not clip:
             return
@@ -1205,6 +1483,51 @@ class CacheVaultApp(ctk.CTk):
         self.clipboard_clear()
         self.clipboard_append(meta)
         self._monitor.note_local_copy(meta)
+
+    def _copy_clean(self, clip_id: str, action: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        text = copy_clean.format_clip(clip, action)
+        if text is None:
+            self._show_toast("That Copy Clean format is not available for this item.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self.vault.events.record(
+            copy_clean.EVENT_ITEM_COPIED_CLEAN,
+            clip_id,
+            {
+                "format": action,
+                "classification": clip.classification,
+                "content_type": clip.content_type,
+                "capture_mode": clip.capture_mode,
+                "safe_id": clip.safe_id,
+                "safe_name": clip.safe_name,
+            },
+        )
+        self._show_toast("Copied clean format.")
+
+    def _copy_receipt_summary(self, row) -> None:
+        if not self._guard_unlocked():
+            return
+        text = copy_clean.receipt_summary(row)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self.vault.events.record(
+            copy_clean.EVENT_RECEIPT_SUMMARY_COPIED,
+            getattr(row, "clip_id", None),
+            {
+                "receipt_id": getattr(row, "receipt_id", ""),
+                "action": getattr(row, "action_raw", ""),
+                "has_hash": bool(getattr(row, "proof_hash", "")),
+            },
+        )
+        self._show_toast("Copied receipt summary.")
 
     def _toggle_favorite(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
@@ -1250,31 +1573,334 @@ class CacheVaultApp(ctk.CTk):
 
         from ..core.contextmenu import clip_menu_items
 
+        tooltip.before_menu_open()
+        if self._locked():
+            try:
+                self._open_locked_menu(x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
+            return
         menu = tk.Menu(self, tearoff=0)
         dispatch = {
             "copy_again": lambda: self._copy_again(clip.id),
+            "open_link": lambda: self._open_clip_link(clip.id),
+            "open_asset_folder": lambda: self._open_asset_folder(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
-            "move_collection": lambda: self._move_to_collection(clip.id),
             "move_safe": lambda: self._move_to_safe(clip.id),
-            "export": lambda: self._export_clip(clip.id),
+            "create_editable_copy": lambda: self._create_editable_copy(clip.id),
+            "export_proof_zip": lambda: self._export_clip_proof(clip.id),
+            "view_receipts": self._open_events,
+            "view_mobile_receipt": self._open_events,
+            "copy_metadata": lambda: self._copy_metadata(clip.id),
+            "copy_item_id": lambda: self._copy_text(clip.id, "Copied item ID."),
+            "copy_source_summary": lambda: self._copy_clean(clip.id, copy_clean.COPY_SOURCE_SUMMARY),
             "open": lambda: self._open_clip_path(clip.id),
             "reveal": lambda: self._reveal_clip_path(clip.id),
             "remove": lambda: self._remove_from_history(clip.id),
             "restore": lambda: self._restore(clip.id),
             "permanently_remove": lambda: self._permanently_remove(clip.id),
         }
-        for item in clip_menu_items(clip):
-            if item.separator_before:
-                menu.add_separator()
-            menu.add_command(
-                label=item.label,
-                state=("normal" if item.enabled else "disabled"),
-                command=dispatch[item.key],
-            )
+        self._add_menu_items(menu, clip_menu_items(clip), dispatch, clip.id)
+        self.vault.events.record(
+            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
+            clip.id,
+            {"surface": "clip", "classification": clip.classification},
+        )
         try:
             menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
         finally:
             menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _add_menu_items(self, menu, items, dispatch: dict, clip_id: str) -> None:
+        import tkinter as tk
+
+        for item in items:
+            if item.separator_before:
+                menu.add_separator()
+            if item.children:
+                sub = tk.Menu(menu, tearoff=0)
+                self._add_menu_items(sub, item.children, dispatch, clip_id)
+                menu.add_cascade(label=item.label, menu=sub, state="normal")
+                continue
+            if item.key.startswith("copy_clean:"):
+                action = item.key.split(":", 1)[1]
+                command = lambda a=action, cid=clip_id: self._copy_clean(cid, a)
+            else:
+                command = dispatch[item.key]
+            menu.add_command(
+                label=item.label,
+                state=("normal" if item.enabled else "disabled"),
+                command=command,
+            )
+
+    def _open_locked_menu(self, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        tooltip.before_menu_open()
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Unlock Vault", command=self._lock_screen.focus_unlock)
+        menu.add_command(label="Quit", command=self._quit)
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _popup_menu(self, menu, x_root: int, y_root: int) -> None:
+        tooltip.before_menu_open()
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _add_nav_command(self, menu, label: str, command) -> None:
+        menu.add_command(label=label, command=command)
+
+    def _open_home_clip_menu(self, clip, x_root: int, y_root: int) -> None:
+        self._on_clip_select(clip)
+        self._open_clip_menu(clip, x_root, y_root)
+
+    def _open_home_card_menu(
+        self,
+        label: str,
+        filter_key: str | None,
+        x_root: int,
+        y_root: int,
+    ) -> None:
+        import tkinter as tk
+
+        from ..core import storage as S
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        menu = tk.Menu(self, tearoff=0)
+        nav_items = [
+            ("All Clips", lambda: self._navigate_filter(S.FILTER_ALL)),
+            ("Favorites", lambda: self._navigate_filter(S.FILTER_FAVORITES)),
+            ("Screenshots", lambda: self._navigate_filter(S.FILTER_SCREENSHOTS)),
+            ("Links", lambda: self._navigate_filter(S.FILTER_LINKS)),
+            ("Code", lambda: self._navigate_filter(S.FILTER_CODE)),
+            ("Mobile Inbox", lambda: self._navigate_screen(NAV_MOBILE_INBOX)),
+            ("Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS)),
+            ("Exports", lambda: self._navigate_screen(NAV_EXPORTS)),
+        ]
+        if filter_key:
+            self._add_nav_command(menu, f"Open {label}", lambda f=filter_key: self._navigate_filter(f))
+            menu.add_separator()
+        elif label == "Receipts":
+            self._add_nav_command(menu, "Open Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
+            menu.add_separator()
+        for item_label, command in nav_items:
+            self._add_nav_command(menu, item_label, command)
+        self._popup_menu(menu, x_root, y_root)
+
+    def _open_home_app_menu(self, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        from ..core import storage as S
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Quick Paste", command=self._schedule_quick_paste)
+        menu.add_command(label="Save Current Clipboard", command=self._manual_save_clipboard)
+        menu.add_separator()
+        menu.add_command(label="Open All Clips", command=lambda: self._navigate_filter(S.FILTER_ALL))
+        menu.add_command(label="Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
+        menu.add_command(label="Stamped Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
+        menu.add_command(label="Settings", command=self._open_settings)
+        self._popup_menu(menu, x_root, y_root)
+
+    def _open_home_status_menu(self, surface: str, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        from ..core import storage as S
+
+        if self._locked():
+            self._open_locked_menu(x_root, y_root)
+            return
+        summary = self.vault.dashboard_summary()
+        menu = tk.Menu(self, tearoff=0)
+        if surface == "vault_status":
+            menu.add_command(label="Open Safe", command=lambda: self._navigate_filter(f"{S.SAFE_PREFIX}{summary.get('default_safe', 'default')}"))
+            menu.add_command(label="Set as Default Safe", state="disabled")
+            menu.add_command(label="Copy Safe Summary", command=self._copy_default_safe_summary)
+            menu.add_command(label="Export Safe Proof Zip", state="disabled")
+            menu.add_separator()
+        menu.add_command(label="Open Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
+        menu.add_command(label="Open Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
+        menu.add_command(label="Mobile Access", command=lambda: self._navigate_screen(NAV_MOBILE_ACCESS))
+        self._popup_menu(menu, x_root, y_root)
+
+    def _copy_default_safe_summary(self) -> None:
+        safe_id = self.vault.settings.default_safe_id or "default"
+        safe = next((s for s in self.vault.list_safes() if s.get("id") == safe_id), None)
+        if safe is None:
+            return
+        self._copy_safe_summary(safe)
+
+    def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        tooltip.before_menu_open()
+        if self._locked():
+            try:
+                self._open_locked_menu(x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
+            return
+        clip_id = getattr(row, "clip_id", None)
+        proof_hash = getattr(row, "proof_hash", "") or ""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="Copy Receipt Summary",
+            command=lambda: self._copy_receipt_summary(row),
+        )
+        menu.add_command(
+            label="Copy Receipt Path",
+            state="disabled",
+        )
+        menu.add_command(
+            label="Copy Item ID",
+            state=("normal" if clip_id else "disabled"),
+            command=lambda: self._copy_text(str(clip_id), "Copied item ID."),
+        )
+        menu.add_command(
+            label="Copy Hash",
+            state=("normal" if proof_hash else "disabled"),
+            command=lambda: self._copy_text(proof_hash, "Copied hash."),
+        )
+        menu.add_separator()
+        menu.add_command(
+            label="Open Receipt File / Folder",
+            state="disabled",
+        )
+        menu.add_command(
+            label="Export Proof Zip",
+            state=("normal" if clip_id else "disabled"),
+            command=lambda: self._export_clip_proof(str(clip_id)),
+        )
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
+        import tkinter as tk
+
+        tooltip.before_menu_open()
+        if self._locked():
+            try:
+                self._open_locked_menu(x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
+            return
+        safe_id = str(safe.get("id") or "")
+        builtin = bool(safe.get("builtin"))
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="Set as Default Safe",
+            command=lambda: self._set_default_safe(safe_id),
+        )
+        menu.add_command(
+            label="Copy Safe Summary",
+            command=lambda: self._copy_safe_summary(safe),
+        )
+        menu.add_separator()
+        menu.add_command(
+            label="Rename Safe",
+            state=("disabled" if builtin else "normal"),
+            command=lambda: self._rename_safe(safe),
+        )
+        menu.add_command(
+            label="Change Icon",
+            state=("disabled" if builtin else "normal"),
+            command=lambda: self._customize_safe_text(safe, "icon", "Safe icon"),
+        )
+        menu.add_command(
+            label="Change Color",
+            state=("disabled" if builtin else "normal"),
+            command=lambda: self._customize_safe_text(safe, "accent", "Safe accent color"),
+        )
+        menu.add_command(label="Export Safe Proof Zip", state="disabled")
+        menu.add_command(
+            label="Collapse/Expand Safes",
+            command=lambda: self._filters._toggle_section("SAFES"),  # noqa: SLF001
+        )
+        menu.add_command(
+            label="Delete Safe",
+            state="disabled",
+        )
+        try:
+            menu.tk_popup(x_root, y_root)
+        finally:
+            menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _set_default_safe(self, safe_id: str) -> None:
+        if not safe_id:
+            return
+        self.vault.settings.default_safe_id = safe_id
+        self.vault.settings.save()
+        self.refresh()
+        self._show_toast("Default Safe updated.")
+
+    def _copy_safe_summary(self, safe: dict) -> None:
+        text = (
+            f"Safe: {safe.get('name', 'Safe')}\n"
+            f"Safe ID: {safe.get('id', 'unknown')}\n"
+            f"Icon: {safe.get('icon', 'unavailable')}\n"
+            f"Accent: {safe.get('accent', 'unavailable')}\n"
+            f"Style: {safe.get('visual_style', 'default')}\n"
+            f"Items: {safe.get('count', 0)}\n"
+            "Safes organize items. They are not encryption unless encryption is added later."
+        )
+        self._copy_text(text, "Copied Safe summary.")
+
+    def _rename_safe(self, safe: dict) -> None:
+        from tkinter import simpledialog
+
+        safe_id = str(safe.get("id") or "")
+        name = simpledialog.askstring(
+            "Rename Safe",
+            "Safe name:",
+            initialvalue=str(safe.get("name") or ""),
+            parent=self,
+        )
+        if name:
+            updated = self.vault.safes.rename(safe_id, name)
+            if updated:
+                self.vault.settings.save()
+                self.refresh()
+
+    def _customize_safe_text(self, safe: dict, field: str, label: str) -> None:
+        from tkinter import simpledialog
+
+        safe_id = str(safe.get("id") or "")
+        value = simpledialog.askstring(
+            label,
+            f"{label}:",
+            initialvalue=str(safe.get(field) or ""),
+            parent=self,
+        )
+        if value:
+            updated = self.vault.safes.update_customization(safe_id, **{field: value})
+            if updated:
+                self.vault.settings.save()
+                self.refresh()
+
+    def _copy_text(self, text: str, notice: str = "Copied.") -> None:
+        if not self._guard_unlocked():
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self._show_toast(notice)
 
     def _open_clip_path(self, clip_id: str) -> None:
         from ..core import pathutil
@@ -1285,6 +1911,14 @@ class CacheVaultApp(ctk.CTk):
             self._open_editable_copy(clip_id)
         else:
             pathutil.open_path(clip.content)
+
+    def _open_asset_folder(self, clip_id: str) -> None:
+        from ..core import image_assets, pathutil
+        rec = self.vault.storage.get_asset_record(clip_id)
+        if rec is None:
+            return
+        path = image_assets.assets_dir() / rec.storage_name
+        pathutil.reveal_in_explorer(str(path))
 
     def _create_editable_copy(self, clip_id: str) -> None:
         self.vault.create_editable_copy(clip_id)
@@ -1739,7 +2373,9 @@ class CacheVaultApp(ctk.CTk):
     def _open_quick_paste(self, paste_target=None) -> None:
         if not self._alive():
             return
-        if not self._guard_unlocked():
+        if self._locked():
+            self.vault.events.record("quick_paste_blocked_locked", None, {})
+            self._guard_unlocked()
             return
         try:
             # If a popup is already up (hotkey pressed twice), just refocus it.
@@ -1760,13 +2396,24 @@ class CacheVaultApp(ctk.CTk):
             self.vault.run_expiry_sweep()
             clips = sorted(self.vault.list_clips(), key=lambda c: c.created_at,
                            reverse=True)[: self.vault.settings.quick_paste_count]
+            self.vault.events.record("quick_paste_opened", None, {"count": len(clips)})
             self._quick_paste = QuickPaste(self, clips, on_choose=self._do_paste)
         except Exception as exc:  # noqa: BLE001
             write_crash("quick paste", exc)
             raise
 
-    def _do_paste(self, clip) -> None:
+    def _do_paste(self, clip, action: str = "primary") -> None:
         if clip is None:
+            return
+        if self._locked():
+            self.vault.events.record("quick_paste_blocked_locked", None, {})
+            self._guard_unlocked()
+            return
+        if clip.content_type == models.CONTENT_IMAGE:
+            self._quick_paste_image_action(clip, action)
+            return
+        if clip.classification == models.CLASS_PATH:
+            self._quick_paste_copy_path(clip)
             return
         settings = self.vault.settings
         prior_clipboard = None
@@ -1774,26 +2421,25 @@ class CacheVaultApp(ctk.CTk):
             prior_clipboard = snapshot_clipboard_text()
 
         pasted_text = False
-        if clip.content_type == models.CONTENT_IMAGE:
-            png = self.vault.copied_again_image(clip.id)
-            if not png:
-                self.vault.log_item_pasted(
-                    clip.id, success=False, item_type="image", reason="no_asset",
-                )
-                Toast(self, "Image not available for paste")
-                return
-            from ..core import image_assets
-            if not image_assets.write_clipboard_png(png):
-                self.vault.log_item_pasted(
-                    clip.id, success=False, item_type="image", reason="clipboard_image_failed",
-                )
-                Toast(self, "Could not put image on clipboard")
-                return
-            self._monitor.note_local_copy_image(png)
-            item_type = "image"
-        else:
-            content = self.vault.copied_again(clip.id)
+        if action == ACTION_COPY_ONLY:
+            content = self._quick_paste_text_for_action(clip, ACTION_COPY_ONLY)
             if content is None:
+                Toast(self, "Nothing available to copy.")
+                return
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            self._monitor.note_local_copy(content)
+            self.vault.events.record(
+                "quick_paste_copy_only",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "copy_only"),
+            )
+            Toast(self, "Copied to clipboard")
+            return
+        else:
+            content = self._quick_paste_text_for_action(clip, action)
+            if content is None:
+                Toast(self, "Nothing available to paste.")
                 return
             self.clipboard_clear()
             self.clipboard_append(content)
@@ -1841,6 +2487,114 @@ class CacheVaultApp(ctk.CTk):
             clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
         )
 
+    def _quick_paste_text_for_action(self, clip, action: str) -> str | None:
+        if clip.classification == models.CLASS_LINK:
+            if action == ACTION_ALTERNATE:
+                formatted = copy_clean.format_clip(clip, copy_clean.COPY_MARKDOWN)
+                return formatted or clip.content
+            if action == ACTION_COPY_ONLY:
+                return copy_clean.format_clip(clip, copy_clean.COPY_LINK_ONLY) or clip.content
+            return copy_clean.format_clip(clip, copy_clean.COPY_LINK_ONLY) or clip.content
+        if clip.classification == models.CLASS_PATH:
+            return clip.content
+        if action == ACTION_ALTERNATE:
+            return copy_clean.format_clip(clip, copy_clean.COPY_PLAIN_TEXT) or clip.content
+        return clip.content
+
+    def _quick_paste_image_action(self, clip, action: str) -> None:
+        if action == ACTION_OPEN:
+            self._open_image_asset(clip.id)
+            return
+        if action == ACTION_SAVE_AS:
+            self.vault.events.record(
+                "quick_paste_opened_asset",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "save_as_png"),
+            )
+            self._save_asset_as(clip.id)
+            return
+        loaded = self.vault.storage.load_clip_asset_bytes(clip.id)
+        png = loaded[0] if loaded else None
+        if not png:
+            self.vault.events.record(
+                "quick_paste_image_copied",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "image_copy_failed", reason="no_asset"),
+            )
+            Toast(self, "Image not available.")
+            return
+        from ..core import image_assets
+        if not image_assets.write_clipboard_png(png):
+            self.vault.events.record(
+                "quick_paste_image_copied",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "image_copy_failed", reason="clipboard_image_failed"),
+            )
+            Toast(self, "Could not copy image to clipboard.")
+            return
+        self._monitor.note_local_copy_image(png)
+        self.vault.storage.touch_clip(clip.id)
+        self.vault.events.record(
+            "quick_paste_image_copied",
+            clip.id,
+            self._quick_paste_receipt_details(clip, "copy_image"),
+        )
+        Toast(self, "Copied image to clipboard.")
+
+    def _open_image_asset(self, clip_id: str) -> None:
+        from ..core import image_assets, pathutil
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None or clip.content_type != models.CONTENT_IMAGE:
+            return
+        rec = self.vault.storage.get_asset_record(clip_id)
+        if rec is None:
+            Toast(self, "Image not available.")
+            return
+        path = image_assets.assets_dir() / rec.storage_name
+        opened = pathutil.open_file(str(path))
+        self.vault.events.record(
+            "quick_paste_opened_asset",
+            clip.id,
+            self._quick_paste_receipt_details(
+                clip,
+                "open_image",
+                reason="" if opened else "open_failed",
+            ),
+        )
+        Toast(self, "Opened image." if opened else "Could not open image.")
+
+    def _quick_paste_copy_path(self, clip) -> None:
+        path_text = clip.content or ""
+        if not path_text:
+            Toast(self, "No path available to copy.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(path_text)
+        self._monitor.note_local_copy(path_text)
+        self.vault.events.record(
+            "quick_paste_copy_only",
+            clip.id,
+            self._quick_paste_receipt_details(clip, "copy_path"),
+        )
+        Toast(self, "Copied path to clipboard.")
+
+    def _quick_paste_receipt_details(
+        self,
+        clip,
+        action_type: str,
+        *,
+        target_title: str = "",
+        reason: str = "",
+    ) -> dict:
+        return {
+            "item_type": clip.content_type or clip.classification or "unknown",
+            "safe_id": clip.safe_id or "",
+            "safe_name": clip.safe_name or "",
+            "target_title": target_title[:120] if target_title else "",
+            "action_type": action_type,
+            "reason": reason[:80] if reason else "",
+        }
+
     def _finish_paste(
         self, clip, delivery_ok: bool, item_type: str, target_title: str, reason: str,
         *, clipboard_restored: bool,
@@ -1853,16 +2607,37 @@ class CacheVaultApp(ctk.CTk):
             clipboard_restored=clipboard_restored,
             reason=reason,
         )
+        action_type = "paste_attempted" if self.vault.settings.auto_paste else "copy_only"
+        if delivery_ok and self.vault.settings.auto_paste:
+            event_type = (
+                "quick_paste_link_pasted"
+                if clip.classification == models.CLASS_LINK
+                else "quick_paste_text_pasted"
+            )
+        elif self.vault.settings.auto_paste:
+            event_type = "quick_paste_paste_attempted"
+        else:
+            event_type = "quick_paste_copy_only"
+        self.vault.events.record(
+            event_type,
+            clip.id,
+            self._quick_paste_receipt_details(
+                clip,
+                action_type,
+                target_title=target_title,
+                reason=reason,
+            ),
+        )
         if clip.is_sensitive:
-            Toast(self, "Pasted sensitive clip 🔒" if delivery_ok else "Paste failed 🔒")
+            Toast(self, "Paste attempted for sensitive clip." if delivery_ok else "Paste failed.")
         elif not delivery_ok and self.vault.settings.auto_paste and reason:
-            Toast(self, "Copied — could not paste into the previous app")
+            Toast(self, "Target app unavailable - copied instead")
         elif delivery_ok and self.vault.settings.auto_paste:
             snippet = clip.preview if len(clip.preview) <= 60 else clip.preview[:59] + "…"
-            Toast(self, f"Pasted ✓   {snippet}")
+            Toast(self, f"Paste attempted   {snippet}")
         else:
             snippet = clip.preview if len(clip.preview) <= 60 else clip.preview[:59] + "…"
-            Toast(self, f"Copied ✓   {snippet}")
+            Toast(self, f"Copied to clipboard   {snippet}")
 
     # --- maintenance / lifecycle -------------------------------------------
     def _expiry_tick(self) -> None:
@@ -2261,6 +3036,8 @@ class CacheVaultApp(ctk.CTk):
         self.update_idletasks()
         self.lift()
         self.focus_force()
+        if self._capture_refresh_pending:
+            self._schedule_capture_refresh()
 
     def _on_close(self) -> None:
         # Hide to tray if we have one; otherwise quit outright.
@@ -2291,7 +3068,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _quit(self) -> None:
         self._shutting_down = True
-        for job in (self._search_job, self._expiry_job):
+        for job in (self._search_job, self._capture_refresh_job, self._expiry_job):
             if job:
                 try:
                     self.after_cancel(job)

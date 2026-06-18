@@ -85,6 +85,10 @@ def _high_entropy_secret(text: str) -> bool:
         return False
     if any(ch in token for ch in (" ", "\n", "\t", "\r", "\\", "/", ":")):
         return False
+    parts = [p for p in re.split(r"[._-]+", token) if p]
+    wordish_parts = [p for p in parts if p.isalpha() and len(p) >= 3]
+    if len(wordish_parts) >= 2:
+        return False
     has_upper = any(c.isupper() for c in token)
     has_lower = any(c.islower() for c in token)
     has_digit = any(c.isdigit() for c in token)

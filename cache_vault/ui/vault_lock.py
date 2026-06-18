@@ -16,6 +16,19 @@ LOCK_COPY = (
     "encryption is added later."
 )
 
+LOCK_STYLES: dict[str, dict[str, str]] = {
+    "vault_door": {"label": "Vault Door", "icon": "▣", "accent": brand.STAMP_GOLD},
+    "minimal_seal": {"label": "Minimal Seal", "icon": "◈", "accent": brand.PROOF_TEAL},
+    "keypad": {"label": "Keypad", "icon": "#", "accent": brand.PROOF_TEAL},
+    "passphrase": {"label": "Passphrase", "icon": "•••", "accent": brand.STAMP_GOLD},
+    "graphite": {"label": "Graphite", "icon": "◆", "accent": brand.MUTED_TEXT},
+    "teal_classic": {"label": "Teal Classic", "icon": "◈", "accent": brand.PROOF_TEAL},
+}
+
+
+def normalize_lock_style(style: str | None) -> str:
+    return style if style in LOCK_STYLES else "teal_classic"
+
 
 class VaultLockScreen(ctk.CTkFrame):
     def __init__(
@@ -25,12 +38,18 @@ class VaultLockScreen(ctk.CTkFrame):
         on_unlock: Callable[[str], bool],
         on_quit: Callable[[], None],
         mode: str = vault_lock.LOCK_MODE_PIN,
+        style: str = "teal_classic",
+        accent: str | None = None,
+        show_local_only: bool = True,
         **kw,
     ):
         super().__init__(master, fg_color=brand.FOUNDRY_BLACK, corner_radius=0, **kw)
         self._on_unlock = on_unlock
         self._on_quit = on_quit
         self._mode = vault_lock.normalize_mode(mode)
+        self._style = normalize_lock_style(style)
+        self._accent = accent or LOCK_STYLES[self._style]["accent"]
+        self._show_local_only = show_local_only
         self._error_var = ctk.StringVar(value="")
         self._build()
 
@@ -41,12 +60,13 @@ class VaultLockScreen(ctk.CTkFrame):
         card.grid(row=0, column=0, padx=32, pady=32)
         card.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
+        self._seal = ctk.CTkLabel(
             card,
-            text="◈",
-            text_color=brand.STAMP_GOLD,
+            text=LOCK_STYLES[self._style]["icon"],
+            text_color=self._accent,
             font=ctk.CTkFont(size=42, weight="bold"),
-        ).grid(row=0, column=0, pady=(26, 4))
+        )
+        self._seal.grid(row=0, column=0, pady=(26, 4))
         ctk.CTkLabel(
             card,
             text="Vault locked",
@@ -54,7 +74,7 @@ class VaultLockScreen(ctk.CTkFrame):
         ).grid(row=1, column=0, padx=36, pady=(0, 4))
         ctk.CTkLabel(
             card,
-            text=LOCK_COPY,
+            text=self._copy(),
             wraplength=420,
             justify="center",
             text_color=brand.MUTED_FG,
@@ -96,6 +116,24 @@ class VaultLockScreen(ctk.CTkFrame):
     def set_mode(self, mode: str) -> None:
         self._mode = vault_lock.normalize_mode(mode)
         self._entry.configure(placeholder_text=self._placeholder())
+
+    def set_style(
+        self,
+        style: str,
+        *,
+        accent: str | None = None,
+        show_local_only: bool | None = None,
+    ) -> None:
+        self._style = normalize_lock_style(style)
+        self._accent = accent or LOCK_STYLES[self._style]["accent"]
+        if show_local_only is not None:
+            self._show_local_only = bool(show_local_only)
+        self._seal.configure(text=LOCK_STYLES[self._style]["icon"], text_color=self._accent)
+
+    def _copy(self) -> str:
+        if self._show_local_only:
+            return f"Vault sealed · Local only\n{LOCK_COPY}"
+        return LOCK_COPY
 
     def focus_unlock(self) -> None:
         self._entry.focus_set()

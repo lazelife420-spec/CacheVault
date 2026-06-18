@@ -57,6 +57,11 @@ def test_paths_and_urls_not_flagged_high_entropy():
     assert not sensitive.detect("https://github.com/anthropics/claude-code/blob/main").is_sensitive
 
 
+def test_human_readable_hyphenated_labels_not_flagged_high_entropy():
+    assert not sensitive.detect("cv-live-capture-smoke-20260617-164100").is_sensitive
+    assert not sensitive.detect("cv-notepad-copy-smoke-20260617-164100").is_sensitive
+
+
 def test_masked_preview_hides_secret():
     secret = "sk-abc123DEF456ghi789"
     masked = sensitive.masked_preview(secret)

@@ -73,6 +73,17 @@ def open_path(text: str) -> bool:
         return False
 
 
+def open_file(text: str) -> bool:
+    """Open an existing local file with the OS default handler."""
+    if not is_local_file(text):
+        return False
+    try:
+        os.startfile(clean_path(text))  # type: ignore[attr-defined]  # Windows-only
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def reveal_in_explorer(text: str) -> bool:
     """Reveal a path in Explorer. Selects the item if it exists; otherwise
     opens the parent folder when that still exists. Never runs a shell."""

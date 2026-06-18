@@ -136,11 +136,19 @@ class VaultScreenHost(ctk.CTkFrame):
 
             for row in rows[:80]:
                 line = format_list_line(row)
-                ctk.CTkButton(
+                btn = ctk.CTkButton(
                     list_frame, text=line, anchor="w", height=32,
                     fg_color="transparent", hover_color=theme.nav_hover_bg(),
                     command=lambda r=row: pick(r),
-                ).pack(fill="x", padx=4, pady=1)
+                )
+                btn.pack(fill="x", padx=4, pady=1)
+                if self._callbacks.get("open_receipt_menu"):
+                    btn.bind(
+                        "<Button-3>",
+                        lambda e, r=row: self._callbacks["open_receipt_menu"](
+                            r, e.x_root, e.y_root,
+                        ),
+                    )
             if rows:
                 pick(rows[0])
 
@@ -263,6 +271,13 @@ class VaultScreenHost(ctk.CTkFrame):
             for clip in items[:50]:
                 card = ctk.CTkFrame(self._inbox_list, **theme.vault_card())
                 card.pack(fill="x", pady=6)
+                if self._callbacks.get("open_clip_menu"):
+                    card.bind(
+                        "<Button-3>",
+                        lambda e, c=clip: self._callbacks["open_clip_menu"](
+                            c, e.x_root, e.y_root,
+                        ),
+                    )
                 title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
                 ctk.CTkLabel(
                     card, text=title, anchor="w",

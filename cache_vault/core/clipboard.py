@@ -169,6 +169,7 @@ class ClipboardMonitor:
     def _emit(self) -> None:
         if self._paused or not self._running:
             return
+        from . import capture_debug
         source = _foreground_source()
         image = _read_clipboard_image()
         if image is not None:
@@ -183,6 +184,7 @@ class ClipboardMonitor:
                     "height": height,
                     **source,
                 }
+                capture_debug.log("clipboard_event", capture_debug.payload_summary(payload))
                 try:
                     self._on_clip(payload)
                 except Exception:  # noqa: BLE001
@@ -193,6 +195,7 @@ class ClipboardMonitor:
             return
         self._last_text = text
         payload = {"text": text, **source}
+        capture_debug.log("clipboard_event", capture_debug.payload_summary(payload))
         try:
             self._on_clip(payload)
         except Exception:  # noqa: BLE001 - never let a UI error kill the monitor

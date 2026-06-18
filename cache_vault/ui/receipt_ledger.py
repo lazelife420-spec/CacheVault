@@ -70,6 +70,9 @@ ACTION_LABELS: dict[str, str] = {
     "copy": "Copy Requested",
     "share": "Share Requested",
     "save": "Save Requested",
+    "item_copied_clean": "Copied Clean Format",
+    "item_context_action_used": "Context Action",
+    "receipt_summary_copied": "Receipt Summary Copied",
 }
 
 FILTER_ALL = "All"

@@ -37,7 +37,7 @@ from scripts.android_asset_smoke import (  # noqa: E402
     wake_and_unlock,
     wait_text,
 )
-from scripts.pairing_hot_reload_smoke import ensure_bridge_running  # noqa: E402
+from scripts.pairing_hot_reload_smoke import ensure_bridge_running, kill_port_listeners  # noqa: E402
 
 
 def start_source_bridge() -> None:
@@ -263,30 +263,37 @@ def main() -> int:
         print(json.dumps({"pass": False, "error": "app-debug.apk missing — run gradlew assembleDebug"}))
         return 1
 
-    SHOT_DIR.mkdir(parents=True, exist_ok=True)
-    host, port = ensure_bridge_running()
-    device_id, token = fresh_pair(device_id="share-gate-phone", device_name="Samsung Gate Phone")
-    code, _ = curl_status(device_id, token, host=host)
-    if code != 200:
-        host = "192.168.0.16"
+    try:
+        SHOT_DIR.mkdir(parents=True, exist_ok=True)
+        host, port = ensure_bridge_running()
+        device_id, token = fresh_pair(device_id="share-gate-phone", device_name="Samsung Gate Phone")
         code, _ = curl_status(device_id, token, host=host)
-    if code != 200:
-        print(json.dumps({"pass": False, "error": f"bridge not reachable (status {code})"}))
-        return 1
+        if code != 200:
+            host = "192.168.0.16"
+            code, _ = curl_status(device_id, token, host=host)
+        if code != 200:
+            print(json.dumps({"pass": False, "error": f"bridge not reachable (status {code})"}))
+            return 1
 
-    push_pairing_to_phone(host, port, device_id, token)
-    wake_and_unlock()
-    result = run_share_flow()
-    result["device_id"] = device_id
-    result["bridge_host"] = host
-    result["bridge_port"] = port
-    result["screenshots"] = [
-        str(SHOT_DIR / "share_smoke_01_simple_mode.png"),
-        str(SHOT_DIR / "share_smoke_02_after_send.png"),
-    ]
-    OUT.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    print(json.dumps(result, indent=2))
-    return 0 if result["pass"] else 1
+        push_pairing_to_phone(host, port, device_id, token)
+        wake_and_unlock()
+        result = run_share_flow()
+        result["device_id"] = device_id
+        result["bridge_host"] = host
+        result["bridge_port"] = port
+        result["screenshots"] = [
+            str(SHOT_DIR / "share_smoke_01_simple_mode.png"),
+            str(SHOT_DIR / "share_smoke_02_after_send.png"),
+        ]
+        with OUT.open("w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2)
+            fh.write("\n")
+            fh.flush()
+        print(json.dumps(result, indent=2))
+        sys.stdout.flush()
+        return 0 if result["pass"] else 1
+    finally:
+        kill_port_listeners()
 
 
 if __name__ == "__main__":

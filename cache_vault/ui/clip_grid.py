@@ -29,12 +29,16 @@ class ClipGrid(ctk.CTkScrollableFrame):
         master,
         on_select: Callable[[Clip], None],
         on_sort: Callable[[str], None] | None = None,
+        on_context: Callable[[Clip, int, int], None] | None = None,
         **kw,
     ):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._on_sort = on_sort
+        self._on_context = on_context
         self._selected_id: str | None = None
+        self._row_by_id: dict[str, ctk.CTkFrame] = {}
+        self._name_label_by_id: dict[str, ctk.CTkLabel] = {}
         self._sort_key = models.SORT_NEWEST_ADDED
         self._header = ctk.CTkFrame(self, fg_color=brand.SURFACE_BG, corner_radius=6)
         self._header.pack(fill="x", padx=4, pady=(4, 2))
@@ -77,6 +81,8 @@ class ClipGrid(ctk.CTkScrollableFrame):
     def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
         for w in self._rows_frame.winfo_children():
             w.destroy()
+        self._row_by_id.clear()
+        self._name_label_by_id.clear()
         if not clips:
             self._empty.configure(
                 text=empty_message or (
@@ -96,6 +102,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
         )
         row.pack(fill="x", pady=2)
+        self._row_by_id[clip.id] = row
         for col, (key, _label, weight) in enumerate(COLUMNS):
             row.grid_columnconfigure(col, weight=weight)
         values = self._row_values(clip)
@@ -107,8 +114,15 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 text_color=brand.PROOF_TEAL if key == "name" and selected else brand.MUTED_FG,
             )
             lbl.grid(row=0, column=col, sticky="ew", padx=6, pady=6)
-            lbl.bind("<Button-1>", lambda _e, c=clip: self._select(c))
-        row.bind("<Button-1>", lambda _e, c=clip: self._select(c))
+            if key == "name":
+                self._name_label_by_id[clip.id] = lbl
+        self._bind_clip_events(row, clip)
+
+    def _bind_clip_events(self, widget, clip: Clip) -> None:
+        widget.bind("<Button-1>", lambda _e, c=clip: self._select(c), add="+")
+        widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c), add="+")
+        for child in widget.winfo_children():
+            self._bind_clip_events(child, clip)
 
     def _row_values(self, clip: Clip) -> dict[str, str]:
         name = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
@@ -128,8 +142,53 @@ class ClipGrid(ctk.CTkScrollableFrame):
         }
 
     def _select(self, clip: Clip) -> None:
+        previous_id = self._selected_id
         self._selected_id = clip.id
+        self._apply_selection(previous_id, clip.id)
         self._on_select(clip)
+
+    def set_selected(self, clip_id: str | None) -> None:
+        previous_id = self._selected_id
+        self._selected_id = clip_id
+        if clip_id is not None:
+            self._apply_selection(previous_id, clip_id)
+        elif previous_id:
+            row = self._row_by_id.get(previous_id)
+            if row is not None:
+                row.configure(fg_color=brand.ROW_BG)
+            name_label = self._name_label_by_id.get(previous_id)
+            if name_label is not None:
+                name_label.configure(text_color=brand.MUTED_FG)
+
+    def _context(self, event, clip: Clip) -> None:
+        self._select(clip)
+        if self._on_context is not None:
+            self._on_context(clip, event.x_root, event.y_root)
+
+    def open_context_for_selected(self, clip: Clip) -> None:
+        row = self._row_by_id.get(clip.id)
+        if row is None or self._on_context is None:
+            return
+        self._on_context(
+            clip,
+            row.winfo_rootx() + 24,
+            row.winfo_rooty() + max(12, row.winfo_height() // 2),
+        )
+
+    def _apply_selection(self, previous_id: str | None, selected_id: str) -> None:
+        for clip_id in {previous_id, selected_id}:
+            if not clip_id:
+                continue
+            row = self._row_by_id.get(clip_id)
+            if row is not None:
+                row.configure(
+                    fg_color=brand.ROW_SELECTED_BG if clip_id == selected_id else brand.ROW_BG,
+                )
+            name_label = self._name_label_by_id.get(clip_id)
+            if name_label is not None:
+                name_label.configure(
+                    text_color=brand.PROOF_TEAL if clip_id == selected_id else brand.MUTED_FG,
+                )
 
 
 def _short(iso: str) -> str:

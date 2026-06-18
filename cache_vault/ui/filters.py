@@ -102,10 +102,12 @@ class FilterNav(ctk.CTkScrollableFrame):
         on_select: Callable[[str], None],
         *,
         settings: Settings | None = None,
+        on_safe_context: Callable[[dict, int, int], None] | None = None,
         **kw,
     ):
         super().__init__(master, **kw)
         self._on_select = on_select
+        self._on_safe_context = on_safe_context
         self._settings = settings
         self._collapsed = set(getattr(settings, "sidebar_collapsed_sections", []) or [])
         self._active = S.FILTER_HOME
@@ -115,6 +117,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._labels_text: dict[str, str] = {}
         self._collection_rows: dict[str, ctk.CTkFrame] = {}
         self._safe_rows: dict[str, ctk.CTkFrame] = {}
+        self._safe_meta: dict[str, dict] = {}
         self._section_frames: dict[str, ctk.CTkFrame] = {}
         self._section_buttons: dict[str, ctk.CTkButton] = {}
 
@@ -300,6 +303,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         for row in self._safe_rows.values():
             row.destroy()
         self._safe_rows.clear()
+        self._safe_meta.clear()
         for key in list(self._labels):
             if key.startswith(S.SAFE_PREFIX):
                 del self._labels[key]
@@ -313,5 +317,16 @@ class FilterNav(ctk.CTkScrollableFrame):
                 key = S.SAFE_PREFIX + safe["id"]
                 row = self._nav_row(self._safes_frame, key, f"  {safe['name']}")
                 self._safe_rows[key] = row
+                self._safe_meta[key] = dict(safe)
+                row.bind("<Button-3>", lambda e, k=key: self._safe_context(e, k))
+                for child in row.winfo_children():
+                    child.bind("<Button-3>", lambda e, k=key: self._safe_context(e, k))
                 self._counts[key].configure(text=str(safe.get("count", 0)))
         self._highlight()
+
+    def _safe_context(self, event, key: str) -> None:
+        if self._on_safe_context is None:
+            return
+        safe = self._safe_meta.get(key)
+        if safe:
+            self._on_safe_context(safe, event.x_root, event.y_root)

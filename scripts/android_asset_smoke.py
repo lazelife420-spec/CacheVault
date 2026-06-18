@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -24,7 +25,8 @@ from cache_vault.core.mobile.models import (  # noqa: E402
 )
 from cache_vault.core.settings import Settings  # noqa: E402
 
-ADB = Path(os.environ.get("LOCALAPPDATA", "")) / "Android" / "Sdk" / "platform-tools" / "adb.exe"
+_DEFAULT_ADB = Path(os.environ.get("LOCALAPPDATA", "")) / "Android" / "Sdk" / "platform-tools" / "adb.exe"
+ADB = Path(shutil.which("adb") or _DEFAULT_ADB)
 PKG = "com.prooffoundry.cachevaultmobile"
 ACTIVITY = f"{PKG}/.MainActivity"
 EXE = ROOT / "dist" / "CacheVault.exe"

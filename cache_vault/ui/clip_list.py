@@ -19,6 +19,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._on_select = on_select
         self._on_context = on_context
         self._rows: list[ctk.CTkFrame] = []
+        self._row_by_id: dict[str, ctk.CTkFrame] = {}
         self._selected_id: str | None = None
         self._empty = ctk.CTkLabel(
             self, text="No clips yet.\nCopy something and it will appear here.",
@@ -29,6 +30,7 @@ class ClipList(ctk.CTkScrollableFrame):
         for row in self._rows:
             row.destroy()
         self._rows.clear()
+        self._row_by_id.clear()
         self._empty.pack_forget()
 
         if not clips:
@@ -50,6 +52,7 @@ class ClipList(ctk.CTkScrollableFrame):
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
         )
         row.pack(fill="x", padx=4, pady=2)
+        self._row_by_id[clip.id] = row
 
         badge = clip_metadata.format_label(clip.classification, clip.content_type).upper()
         if clip.is_sensitive:
@@ -94,10 +97,14 @@ class ClipList(ctk.CTkScrollableFrame):
             anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=9),
         ).pack(fill="x", padx=10, pady=(0, 8))
 
-        for widget in (row, top, trail):
-            widget.bind("<Button-1>", lambda _e, c=clip: self._select(c))
-            widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c))
+        self._bind_clip_events(row, clip)
         return row
+
+    def _bind_clip_events(self, widget, clip: Clip) -> None:
+        widget.bind("<Button-1>", lambda _e, c=clip: self._select(c), add="+")
+        widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c), add="+")
+        for child in widget.winfo_children():
+            self._bind_clip_events(child, clip)
 
     def _context(self, event, clip: Clip) -> None:
         self._select(clip)
@@ -105,8 +112,41 @@ class ClipList(ctk.CTkScrollableFrame):
             self._on_context(clip, event.x_root, event.y_root)
 
     def _select(self, clip: Clip) -> None:
+        previous_id = self._selected_id
         self._selected_id = clip.id
+        self._apply_selection(previous_id, clip.id)
         self._on_select(clip)
+
+    def set_selected(self, clip_id: str | None) -> None:
+        previous_id = self._selected_id
+        self._selected_id = clip_id
+        if clip_id is not None:
+            self._apply_selection(previous_id, clip_id)
+        elif previous_id:
+            row = self._row_by_id.get(previous_id)
+            if row is not None:
+                row.configure(fg_color=brand.ROW_BG)
+
+    def open_context_for_selected(self, clip: Clip) -> None:
+        row = self._row_by_id.get(clip.id)
+        if row is None or self._on_context is None:
+            return
+        self._on_context(
+            clip,
+            row.winfo_rootx() + 24,
+            row.winfo_rooty() + max(12, row.winfo_height() // 2),
+        )
+
+    def _apply_selection(self, previous_id: str | None, selected_id: str) -> None:
+        for clip_id in {previous_id, selected_id}:
+            if not clip_id:
+                continue
+            row = self._row_by_id.get(clip_id)
+            if row is None:
+                continue
+            row.configure(
+                fg_color=brand.ROW_SELECTED_BG if clip_id == selected_id else brand.ROW_BG,
+            )
 
 
 def _short_time(iso: str) -> str:
