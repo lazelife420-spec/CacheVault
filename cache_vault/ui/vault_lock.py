@@ -7,6 +7,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
+from ..core.clip_accents import LOCKED_ITEMS_MESSAGE
 from ..core import vault_lock
 from . import theme
 
@@ -69,17 +70,11 @@ class VaultLockScreen(ctk.CTkFrame):
         self._seal.grid(row=0, column=0, pady=(26, 4))
         ctk.CTkLabel(
             card,
-            text="Vault locked",
-            font=ctk.CTkFont(size=24, weight="bold"),
-        ).grid(row=1, column=0, padx=36, pady=(0, 4))
-        ctk.CTkLabel(
-            card,
-            text=self._copy(),
+            text=LOCKED_ITEMS_MESSAGE,
             wraplength=420,
             justify="center",
-            text_color=brand.MUTED_FG,
-            font=theme.body_font(12),
-        ).grid(row=2, column=0, padx=36, pady=(0, 18))
+            font=ctk.CTkFont(size=22, weight="bold"),
+        ).grid(row=1, column=0, padx=36, pady=(0, 18))
 
         self._entry = ctk.CTkEntry(
             card,

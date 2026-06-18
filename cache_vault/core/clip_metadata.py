@@ -49,8 +49,10 @@ def size_bytes_for(content: str) -> int:
     return len((content or "").encode("utf-8", "replace"))
 
 
-def format_label(classification: str, content_type: str) -> str:
-    if content_type == models.CONTENT_IMAGE:
+def format_label(classification: str | None, content_type: str | None) -> str:
+    if str(content_type or "").startswith("image"):
+        return "Screenshot"
+    if isinstance(classification, str) and "screen" in classification.lower():
         return "Screenshot"
     return {
         models.CLASS_LINK: "Link",
@@ -137,9 +139,16 @@ def labels_for_clip(clip, ctx: dict | None = None) -> list[str]:
             labels.append("Browser")
             if "chrome" in s.lower():
                 labels.append("Chrome")
+        elif "android" in s.lower() or "mobile" in s.lower():
+            labels.append("Android Share")
         else:
             # Short source app name
             labels.append(s.split(".")[0])
+    mode = getattr(clip, "capture_mode", None)
+    if mode in (models.CAPTURE_MOBILE, models.CAPTURE_MOBILE_SHARE):
+        mobile_label = "Android Share" if mode == models.CAPTURE_MOBILE_SHARE else "Mobile"
+        if mobile_label not in labels:
+            labels.append(mobile_label)
 
     # Time bucket label
     tb = _time_bucket(getattr(clip, "created_at", None))
@@ -166,4 +175,3 @@ def labels_for_clip(clip, ctx: dict | None = None) -> list[str]:
         labels.append("Sensitive")
 
     return labels
-

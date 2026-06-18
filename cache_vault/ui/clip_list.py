@@ -7,7 +7,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import clip_metadata
+from ..core import clip_accents, clip_metadata
 from ..core.models import Clip
 from . import theme
 
@@ -21,14 +21,22 @@ class ClipList(ctk.CTkScrollableFrame):
         self._rows: list[ctk.CTkFrame] = []
         self._row_by_id: dict[str, ctk.CTkFrame] = {}
         self._selected_id: str | None = None
+        self._collapsed_groups: set[tuple[str, str]] = set()
+        self._last_clips: list[Clip] = []
+        self._last_empty_message: str | None = None
+        self._last_group_by: str | None = None
         self._empty = ctk.CTkLabel(
             self, text="No clips yet.\nCopy something and it will appear here.",
             text_color=brand.MUTED_FG, justify="center",
         )
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
-        for row in self._rows:
-            row.destroy()
+        self._last_clips = list(clips)
+        self._last_empty_message = empty_message
+        self._last_group_by = group_by
+        for widget in list(self.winfo_children()):
+            if widget is not self._empty:
+                widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
         self._empty.pack_forget()
@@ -46,14 +54,46 @@ class ClipList(ctk.CTkScrollableFrame):
             from ..core import grouping
             groups = grouping.group_clips(clips, group_by)
             for title, members in groups.items():
-                hdr = ctk.CTkLabel(self, text=f"{title} ({len(members)})",
-                                   anchor="w", font=ctk.CTkFont(size=11, weight="bold"))
-                hdr.pack(fill="x", padx=10, pady=(8, 2))
-                for clip in members:
-                    self._rows.append(self._build_row(clip))
+                self._build_group_header(group_by, title, len(members))
+                if (group_by, title) not in self._collapsed_groups:
+                    for clip in members:
+                        self._rows.append(self._build_row(clip))
         else:
             for clip in clips:
                 self._rows.append(self._build_row(clip))
+
+    def _build_group_header(self, group_by: str, title: str, count: int) -> None:
+        style = clip_accents.group_header_accent(group_by, title)
+        collapsed = (group_by, title) in self._collapsed_groups
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=8, pady=(10, 2))
+        rail = ctk.CTkFrame(header, width=3, height=24, fg_color=style.accent, corner_radius=2)
+        rail.pack(side="left", fill="y", padx=(0, 6))
+        label = f"{'▸' if collapsed else '▾'} {title} ({count})"
+        btn = ctk.CTkButton(
+            header,
+            text=label,
+            anchor="w",
+            height=24,
+            fg_color="transparent",
+            hover_color=style.bg,
+            text_color=style.text,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda gb=group_by, t=title: self._toggle_group(gb, t),
+        )
+        btn.pack(side="left", fill="x", expand=True)
+
+    def _toggle_group(self, group_by: str, title: str) -> None:
+        key = (group_by, title)
+        if key in self._collapsed_groups:
+            self._collapsed_groups.remove(key)
+        else:
+            self._collapsed_groups.add(key)
+        self.render(
+            self._last_clips,
+            empty_message=self._last_empty_message,
+            group_by=self._last_group_by,
+        )
 
     def _build_row(self, clip: Clip) -> ctk.CTkFrame:
         selected = clip.id == self._selected_id
@@ -72,9 +112,15 @@ class ClipList(ctk.CTkScrollableFrame):
 
         top = ctk.CTkFrame(row, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=(6, 0))
+        badge_style = clip_accents.type_accent(clip.classification, clip.content_type)
+        if clip.is_sensitive:
+            badge_style = clip_accents.label_accent("Sensitive")
+        elif clip.duplicate_of:
+            badge_style = clip_accents.label_accent("Duplicate")
+
         ctk.CTkLabel(
             top, text=badge, font=ctk.CTkFont(size=9, weight="bold"),
-            text_color=brand.WARNING_RED if clip.is_sensitive else brand.MUTED_FG,
+            text_color=badge_style.accent,
         ).pack(side="left")
         trail = ctk.CTkFrame(top, fg_color="transparent")
         trail.pack(side="right")
@@ -102,16 +148,11 @@ class ClipList(ctk.CTkScrollableFrame):
         # Labels/chips
         try:
             from ..core.clip_metadata import labels_for_clip
-            ctx_fn = self._on_context and None
             labels = labels_for_clip(clip)
             chips = ctk.CTkFrame(row, fg_color="transparent")
             chips.pack(fill="x", padx=10, pady=(0, 6))
             for lab in labels[:4]:
-                lbl = ctk.CTkLabel(chips, text=lab, anchor="w",
-                                   font=ctk.CTkFont(size=9),
-                                   text_color=("#444"),
-                                   fg_color=("#eef"), corner_radius=6)
-                lbl.pack(side="left", padx=(0, 6))
+                self._build_chip(chips, lab)
         except Exception:
             pass
 
@@ -125,6 +166,31 @@ class ClipList(ctk.CTkScrollableFrame):
 
         self._bind_clip_events(row, clip)
         return row
+
+    def _build_chip(self, parent, label: str) -> None:
+        style = clip_accents.label_accent(label)
+        chip = ctk.CTkFrame(
+            parent,
+            fg_color=style.bg,
+            border_width=1,
+            border_color=style.border,
+            corner_radius=6,
+        )
+        chip.pack(side="left", padx=(0, 6), pady=(0, 2))
+        ctk.CTkLabel(
+            chip,
+            text="●",
+            width=10,
+            font=ctk.CTkFont(size=7),
+            text_color=style.accent,
+        ).pack(side="left", padx=(5, 2), pady=2)
+        ctk.CTkLabel(
+            chip,
+            text=label,
+            anchor="w",
+            font=ctk.CTkFont(size=9),
+            text_color=style.text,
+        ).pack(side="left", padx=(0, 6), pady=2)
 
     def _bind_clip_events(self, widget, clip: Clip) -> None:
         widget.bind("<Button-1>", lambda _e, c=clip: self._select(c), add="+")

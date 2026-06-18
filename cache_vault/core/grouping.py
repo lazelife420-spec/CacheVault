@@ -7,18 +7,30 @@ from . import clip_metadata
 
 
 def group_clips(clips: Iterable, by: str) -> dict[str, list]:
-    """Group clips by a simple key: 'date' or 'source'.
+    """Group clips by a simple key: date/source/type/domain/safe.
 
     Returns an ordered mapping label -> list[clips].
     """
+    by = (by or "").lower().replace("_", " ")
     groups = defaultdict(list)
     for clip in clips:
         if by == "date":
             key = clip_metadata._time_bucket(getattr(clip, "created_at", None))
-        elif by == "source":
+        elif by in ("source", "source app"):
             key = (getattr(clip, "source_app", None) or getattr(clip, "capture_mode", None) or "Unknown")
         elif by == "type":
             key = clip_metadata.format_label(getattr(clip, "classification", None), getattr(clip, "content_type", None))
+        elif by == "domain":
+            url = (
+                getattr(clip, "source_url", None)
+                or clip_metadata.extract_source_url(
+                    getattr(clip, "content", None) or getattr(clip, "preview", None) or "",
+                    getattr(clip, "classification", None),
+                )
+            )
+            key = clip_metadata.source_domain(url) or "No Domain"
+        elif by == "safe":
+            key = getattr(clip, "safe_name", None) or getattr(clip, "safe_id", None) or "Default Safe"
         else:
             key = "Other"
         groups[key].append(clip)
