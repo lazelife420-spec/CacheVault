@@ -72,6 +72,7 @@ class AboutDialog(ctk.CTkToplevel):
 
         ctk.CTkButton(self, text="Close", command=self.destroy,
                       **theme.primary_button()).pack(anchor="e", padx=20, pady=(0, 16))
+        self.bind("<Escape>", lambda _e: self.destroy())
         _bring_to_front(self, master, modal=True)
 
 
@@ -389,6 +390,7 @@ class SettingsDialog(ctk.CTkToplevel):
                       **theme.primary_button()).pack(side="right", padx=(8, 0))
         ctk.CTkButton(footer, text="Cancel", command=self.destroy,
                       **theme.secondary_button()).pack(side="right")
+        self.bind("<Escape>", lambda _e: self.destroy())
 
         _bring_to_front(self, master, modal=True)
 
@@ -717,6 +719,7 @@ class MoveToCollectionDialog(ctk.CTkToplevel):
         ctk.CTkButton(footer, text="Remove from collection",
                       fg_color=("gray60", "gray35"), command=self._clear
                       ).pack(side="right")
+        self.bind("<Escape>", lambda _e: self.destroy())
 
         _bring_to_front(self, master, modal=True)
 
@@ -772,6 +775,7 @@ class ExportViewDialog(ctk.CTkToplevel):
         ctk.CTkButton(self, text="Continue…", command=self._go,
                       **theme.primary_button()
                       ).pack(anchor="e", padx=16, pady=12)
+        self.bind("<Escape>", lambda _e: self.destroy())
         _bring_to_front(self, master, modal=True)
 
     def _go(self) -> None:
