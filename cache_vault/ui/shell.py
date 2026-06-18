@@ -2067,16 +2067,23 @@ class CacheVaultApp(ctk.CTk):
             return
         png_bytes, _mime = loaded
         clip = self.vault.storage.get_clip(clip_id)
-        initial = f"{(clip.title if clip else 'screenshot') or 'screenshot'}.png"
+        # Block when locked to avoid leaking metadata
+        if not self._guard_unlocked():
+            return
+        from ..core import image_assets as _ia
+
+        initial = _ia.make_smart_filename(clip)[:80]
         path = filedialog.asksaveasfilename(
             parent=self, title="Save Screenshot As",
             defaultextension=".png",
-            initialfile=initial[:80],
+            initialfile=initial,
             filetypes=[("PNG image", "*.png")],
         )
         if not path:
             return
-        Path(path).write_bytes(png_bytes)
+        p = Path(path)
+        p = _ia.next_available_path(p)
+        p.write_bytes(png_bytes)
         self.vault.events.record(models.EVENT_EXPORTED, clip_id, {"target": "asset_png"})
 
     def _export_clip(self, clip_id: str) -> None:
@@ -2091,14 +2098,18 @@ class CacheVaultApp(ctk.CTk):
             loaded = self.vault.storage.load_clip_asset_bytes(clip_id)
             if loaded:
                 png_bytes, _mime = loaded
+                from ..core import image_assets as _ia
+                initial = _ia.make_smart_filename(clip)[:80]
                 path = filedialog.asksaveasfilename(
                     parent=self, title="Export / Save As",
                     defaultextension=".png",
-                    initialfile=f"{(clip.title or 'screenshot')[:40].strip()}.png",
+                    initialfile=initial,
                     filetypes=[("PNG image", "*.png")],
                 )
                 if path:
-                    Path(path).write_bytes(png_bytes)
+                    p = Path(path)
+                    p = _ia.next_available_path(p)
+                    p.write_bytes(png_bytes)
                     self.vault.events.record(
                         models.EVENT_EXPORTED, clip_id, {"target": "single_png"})
                 return

@@ -86,6 +86,69 @@ def make_storage_name(clip_id: str, ext: str = "png") -> str:
     return f"{clip_id}.{ext.lstrip('.')}"
 
 
+def _slugify(value: str) -> str:
+    """Make a filesystem-safe lowercase slug from a value.
+
+    Replace non-alphanumeric characters with '-', collapse runs, and strip
+    leading/trailing '-'. Keep it short.
+    """
+    import re
+
+    if not value:
+        return "unknown"
+    s = value.lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-+", "-", s)
+    s = s.strip("-")
+    return s[:40] or "unknown"
+
+
+def make_smart_filename(clip) -> str:
+    """Generate a smart filename for an image clip.
+
+    Format: CacheVault_<kind>_<source-app>_<YYYY-MM-DD>_<HHmmss>_<short-id>.png
+    Falls back to sensible defaults when metadata is missing.
+    """
+    from datetime import datetime
+
+    kind = "screenshot" if getattr(clip, "content_type", "") == "image" or getattr(clip, "classification", "") == "screenshot" else "image"
+    source = getattr(clip, "source_app", None) or getattr(clip, "capture_mode", None) or "unknown"
+    source_slug = _slugify(str(source))
+    created = getattr(clip, "created_at", None)
+    try:
+        dt = datetime.fromisoformat(created) if created else datetime.utcnow()
+    except Exception:
+        # created may be a short date or None
+        try:
+            dt = datetime.strptime(str(created), "%Y-%m-%d")
+        except Exception:
+            dt = datetime.utcnow()
+    date = dt.strftime("%Y-%m-%d")
+    timestr = dt.strftime("%H%M%S")
+    short_id = (getattr(clip, "id", "") or "")[:6]
+    if not short_id:
+        import uuid
+
+        short_id = uuid.uuid4().hex[:6]
+    name = f"CacheVault_{kind}_{source_slug}_{date}_{timestr}_{short_id}.png"
+    return name
+
+
+def next_available_path(path: Path) -> Path:
+    """Return a Path that doesn't overwrite existing files by appending -2, -3, etc."""
+    if not path.exists():
+        return path
+    base = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    i = 2
+    while True:
+        new = parent / f"{base}-{i}{suffix}"
+        if not new.exists():
+            return new
+        i += 1
+
+
 def image_preview_label(width: int, height: int, mime: str = "image/png") -> str:
     kind = "Screenshot" if mime == "image/png" else "Image"
     if width and height:
