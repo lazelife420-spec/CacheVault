@@ -132,3 +132,31 @@ def write_clipboard_png(png_bytes: bytes) -> bool:
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def clipboard_has_image() -> bool:
+    """Return True if the Windows clipboard currently contains image data.
+
+    This function is best-effort and returns False on non-Windows platforms
+    or when clipboard APIs are unavailable.
+    """
+    try:
+        import win32clipboard  # type: ignore
+        import win32con  # type: ignore
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        win32clipboard.OpenClipboard()
+        try:
+            # Check for PNG registered format first
+            png_fmt = win32clipboard.RegisterClipboardFormat("PNG")
+            if win32clipboard.IsClipboardFormatAvailable(png_fmt):
+                return True
+            # Fall back to CF_DIB
+            if win32clipboard.IsClipboardFormatAvailable(win32con.CF_DIB):
+                return True
+            return False
+        finally:
+            win32clipboard.CloseClipboard()
+    except Exception:  # noqa: BLE001
+        return False

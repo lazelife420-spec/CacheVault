@@ -67,7 +67,7 @@ def test_quick_paste_image_action_does_not_fake_paste():
 
     assert "write_clipboard_png" in image_source
     assert "deliver_ctrl_v" not in image_source
-    assert "Copied image to clipboard" in image_source
+    assert any(s in image_source for s in ("Copied image to clipboard", "Image copied to clipboard"))
     assert "ACTION_OPEN" in image_source
     assert "ACTION_SAVE_AS" in image_source
     assert "Pasted ✓" not in finish_source

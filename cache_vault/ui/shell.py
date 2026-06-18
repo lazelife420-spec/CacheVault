@@ -1452,7 +1452,14 @@ class CacheVaultApp(ctk.CTk):
                 return
             from ..core import image_assets
             if image_assets.write_clipboard_png(png):
+                # Verify clipboard contains image data when possible and give a
+                # precise message advising where to paste.
+                ok = image_assets.clipboard_has_image()
                 self._monitor.note_local_copy_image(png)
+                if ok:
+                    Toast(self, "Image copied to clipboard — paste into an image-capable app like Paint")
+                else:
+                    Toast(self, "Image copied to clipboard (target apps may not accept images)")
             return
         content = self.vault.copied_again(clip_id)
         if content is None:
@@ -2532,6 +2539,8 @@ class CacheVaultApp(ctk.CTk):
             )
             Toast(self, "Could not copy image to clipboard.")
             return
+        # Confirm the clipboard contains image data and provide a helpful toast.
+        ok = image_assets.clipboard_has_image()
         self._monitor.note_local_copy_image(png)
         self.vault.storage.touch_clip(clip.id)
         self.vault.events.record(
@@ -2539,7 +2548,10 @@ class CacheVaultApp(ctk.CTk):
             clip.id,
             self._quick_paste_receipt_details(clip, "copy_image"),
         )
-        Toast(self, "Copied image to clipboard.")
+        if ok:
+            Toast(self, "Image copied to clipboard — paste into an image-capable app like Paint")
+        else:
+            Toast(self, "Image copied to clipboard (target apps may not accept images)")
 
     def _open_image_asset(self, clip_id: str) -> None:
         from ..core import image_assets, pathutil
