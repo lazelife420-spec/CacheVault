@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 OUT = ROOT / "visual_smoke" / "macro_live_smoke.json"
+SMOKE_TIMEOUT_MS = 90_000
 
 SIG_BODY = "Cache Vault smoke signature"
 SIG_MULTI = "Line one smoke\nLine two smoke"
@@ -166,8 +167,14 @@ def _receipts_for(action_prefix: str, receipts_root: Path) -> list[Path]:
 
 def main() -> int:
     result: dict = {
-        "branch": "feature/cache-vault-desktop-hardening",
-        "commit": "641fcd2f1a5c98cc1c63c98fffaf0965871fc6fe",
+        "branch": subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True, text=True, cwd=ROOT,
+        ).stdout.strip(),
+        "commit": subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, cwd=ROOT,
+        ).stdout.strip(),
     }
 
     try:
@@ -180,6 +187,7 @@ def main() -> int:
 
     tmpdir = tempfile.mkdtemp(prefix="cv_macro_smoke_")
     os.environ["LOCALAPPDATA"] = tmpdir
+    os.environ["CACHE_VAULT_DISABLE_TRAY"] = "1"
 
     from cache_vault.core.settings import Settings
     from cache_vault.core.storage import VaultStorage
@@ -218,7 +226,7 @@ def main() -> int:
     app = CacheVaultApp(vault=vault)
     app.withdraw()  # keep UI out of the way during Notepad focus tests
 
-    state: dict = {"step": 0, "np_hwnd": None, "notepad": None}
+    state: dict = {"step": 0, "np_hwnd": None, "notepad": None, "finished": False}
     sig_id, hk_id, multi_id, sens_id = "smoke-sig", "smoke-hk", "smoke-multi", "smoke-sens"
 
     import inspect
@@ -260,9 +268,18 @@ def main() -> int:
         app._sync_macro_triggers()  # noqa: SLF001
 
     def _finish() -> None:
+        if state.get("finished"):
+            return
+        state["finished"] = True
         if state.get("notepad"):
             try:
                 state["notepad"].terminate()
+                state["notepad"].wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                try:
+                    state["notepad"].kill()
+                except Exception:  # noqa: BLE001
+                    pass
             except Exception:  # noqa: BLE001
                 pass
         rdir = receipts_dir()
@@ -314,9 +331,20 @@ def main() -> int:
         }
         result["accepted"] = all(result["summary"].values())
         OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        with OUT.open("w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2)
+            fh.write("\n")
+            fh.flush()
         print(json.dumps(result, indent=2))
-        app.quit()
+        sys.stdout.flush()
+        app.after(0, app._quit)  # noqa: SLF001 - smoke owns this app instance.
+
+    def _timeout() -> None:
+        if state.get("finished"):
+            return
+        result["fatal"] = "macro live smoke timed out"
+        result["timeout_ms"] = SMOKE_TIMEOUT_MS
+        _finish()
 
     def _step() -> None:
         np_hwnd = state["np_hwnd"]
@@ -555,6 +583,7 @@ def main() -> int:
             _finish()
             return
 
+    app.after(SMOKE_TIMEOUT_MS, _timeout)
     app.after(2000, _step)
     app.mainloop()
     return 0 if result.get("accepted") else 1

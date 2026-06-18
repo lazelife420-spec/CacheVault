@@ -7,6 +7,7 @@ Quit must terminate the process cleanly and remove the icon — the shell wires
 
 from __future__ import annotations
 
+import os
 from typing import Callable
 
 try:  # pragma: no cover - optional dependency
@@ -40,6 +41,8 @@ class TrayController:
         return _HAS_TRAY
 
     def start(self) -> None:
+        if os.environ.get("CACHE_VAULT_DISABLE_TRAY") == "1":
+            return
         if not _HAS_TRAY:
             return
         items = [

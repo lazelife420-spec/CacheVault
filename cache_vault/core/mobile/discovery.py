@@ -24,7 +24,7 @@ class MobileDiscovery:
     def __init__(self) -> None:
         self._zc: Zeroconf | None = None
         self._info = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     @property
     def is_advertising(self) -> bool:
