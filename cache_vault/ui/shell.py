@@ -64,7 +64,7 @@ from .mobile_dialogs import (
     MobileAccessReceiptsDialog, PairAndroidDialog, PairedDevicesDialog,
 )
 from .preview import PreviewPanel
-from .quick_paste import QuickPaste
+from .quick_paste import ACTION_ALTERNATE, ACTION_COPY_ONLY, QuickPaste
 from .toast import Toast
 from .tray import TrayController
 from . import tooltip
@@ -2367,7 +2367,9 @@ class CacheVaultApp(ctk.CTk):
     def _open_quick_paste(self, paste_target=None) -> None:
         if not self._alive():
             return
-        if not self._guard_unlocked():
+        if self._locked():
+            self.vault.events.record("quick_paste_blocked_locked", None, {})
+            self._guard_unlocked()
             return
         try:
             # If a popup is already up (hotkey pressed twice), just refocus it.
@@ -2388,13 +2390,24 @@ class CacheVaultApp(ctk.CTk):
             self.vault.run_expiry_sweep()
             clips = sorted(self.vault.list_clips(), key=lambda c: c.created_at,
                            reverse=True)[: self.vault.settings.quick_paste_count]
+            self.vault.events.record("quick_paste_opened", None, {"count": len(clips)})
             self._quick_paste = QuickPaste(self, clips, on_choose=self._do_paste)
         except Exception as exc:  # noqa: BLE001
             write_crash("quick paste", exc)
             raise
 
-    def _do_paste(self, clip) -> None:
+    def _do_paste(self, clip, action: str = "primary") -> None:
         if clip is None:
+            return
+        if self._locked():
+            self.vault.events.record("quick_paste_blocked_locked", None, {})
+            self._guard_unlocked()
+            return
+        if clip.content_type == models.CONTENT_IMAGE:
+            self._quick_paste_image_action(clip, action)
+            return
+        if clip.classification == models.CLASS_PATH:
+            self._quick_paste_copy_path(clip)
             return
         settings = self.vault.settings
         prior_clipboard = None
@@ -2402,26 +2415,25 @@ class CacheVaultApp(ctk.CTk):
             prior_clipboard = snapshot_clipboard_text()
 
         pasted_text = False
-        if clip.content_type == models.CONTENT_IMAGE:
-            png = self.vault.copied_again_image(clip.id)
-            if not png:
-                self.vault.log_item_pasted(
-                    clip.id, success=False, item_type="image", reason="no_asset",
-                )
-                Toast(self, "Image not available for paste")
-                return
-            from ..core import image_assets
-            if not image_assets.write_clipboard_png(png):
-                self.vault.log_item_pasted(
-                    clip.id, success=False, item_type="image", reason="clipboard_image_failed",
-                )
-                Toast(self, "Could not put image on clipboard")
-                return
-            self._monitor.note_local_copy_image(png)
-            item_type = "image"
-        else:
-            content = self.vault.copied_again(clip.id)
+        if action == ACTION_COPY_ONLY:
+            content = self._quick_paste_text_for_action(clip, ACTION_COPY_ONLY)
             if content is None:
+                Toast(self, "Nothing available to copy.")
+                return
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            self._monitor.note_local_copy(content)
+            self.vault.events.record(
+                "quick_paste_copy_only",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "copy_only"),
+            )
+            Toast(self, "Copied to clipboard")
+            return
+        else:
+            content = self._quick_paste_text_for_action(clip, action)
+            if content is None:
+                Toast(self, "Nothing available to paste.")
                 return
             self.clipboard_clear()
             self.clipboard_append(content)
@@ -2469,6 +2481,82 @@ class CacheVaultApp(ctk.CTk):
             clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
         )
 
+    def _quick_paste_text_for_action(self, clip, action: str) -> str | None:
+        if clip.classification == models.CLASS_LINK:
+            if action == ACTION_ALTERNATE:
+                formatted = copy_clean.format_clip(clip, copy_clean.COPY_MARKDOWN)
+                return formatted or clip.content
+            if action == ACTION_COPY_ONLY:
+                return copy_clean.format_clip(clip, copy_clean.COPY_LINK_ONLY) or clip.content
+            return copy_clean.format_clip(clip, copy_clean.COPY_LINK_ONLY) or clip.content
+        if clip.classification == models.CLASS_PATH:
+            return clip.content
+        if action == ACTION_ALTERNATE:
+            return copy_clean.format_clip(clip, copy_clean.COPY_PLAIN_TEXT) or clip.content
+        return clip.content
+
+    def _quick_paste_image_action(self, clip, action: str) -> None:
+        del action
+        loaded = self.vault.storage.load_clip_asset_bytes(clip.id)
+        png = loaded[0] if loaded else None
+        if not png:
+            self.vault.events.record(
+                "quick_paste_image_copied",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "image_copy_failed", reason="no_asset"),
+            )
+            Toast(self, "Image not available.")
+            return
+        from ..core import image_assets
+        if not image_assets.write_clipboard_png(png):
+            self.vault.events.record(
+                "quick_paste_image_copied",
+                clip.id,
+                self._quick_paste_receipt_details(clip, "image_copy_failed", reason="clipboard_image_failed"),
+            )
+            Toast(self, "Could not copy image to clipboard.")
+            return
+        self._monitor.note_local_copy_image(png)
+        self.vault.storage.touch_clip(clip.id)
+        self.vault.events.record(
+            "quick_paste_image_copied",
+            clip.id,
+            self._quick_paste_receipt_details(clip, "copy_image"),
+        )
+        Toast(self, "Copied image to clipboard.")
+
+    def _quick_paste_copy_path(self, clip) -> None:
+        path_text = clip.content or ""
+        if not path_text:
+            Toast(self, "No path available to copy.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(path_text)
+        self._monitor.note_local_copy(path_text)
+        self.vault.events.record(
+            "quick_paste_copy_only",
+            clip.id,
+            self._quick_paste_receipt_details(clip, "copy_path"),
+        )
+        Toast(self, "Copied path to clipboard.")
+
+    def _quick_paste_receipt_details(
+        self,
+        clip,
+        action_type: str,
+        *,
+        target_title: str = "",
+        reason: str = "",
+    ) -> dict:
+        return {
+            "item_type": clip.content_type or clip.classification or "unknown",
+            "safe_id": clip.safe_id or "",
+            "safe_name": clip.safe_name or "",
+            "target_title": target_title[:120] if target_title else "",
+            "action_type": action_type,
+            "reason": reason[:80] if reason else "",
+        }
+
     def _finish_paste(
         self, clip, delivery_ok: bool, item_type: str, target_title: str, reason: str,
         *, clipboard_restored: bool,
@@ -2481,16 +2569,37 @@ class CacheVaultApp(ctk.CTk):
             clipboard_restored=clipboard_restored,
             reason=reason,
         )
+        action_type = "paste_attempted" if self.vault.settings.auto_paste else "copy_only"
+        if delivery_ok and self.vault.settings.auto_paste:
+            event_type = (
+                "quick_paste_link_pasted"
+                if clip.classification == models.CLASS_LINK
+                else "quick_paste_text_pasted"
+            )
+        elif self.vault.settings.auto_paste:
+            event_type = "quick_paste_paste_attempted"
+        else:
+            event_type = "quick_paste_copy_only"
+        self.vault.events.record(
+            event_type,
+            clip.id,
+            self._quick_paste_receipt_details(
+                clip,
+                action_type,
+                target_title=target_title,
+                reason=reason,
+            ),
+        )
         if clip.is_sensitive:
-            Toast(self, "Pasted sensitive clip 🔒" if delivery_ok else "Paste failed 🔒")
+            Toast(self, "Paste attempted for sensitive clip." if delivery_ok else "Paste failed.")
         elif not delivery_ok and self.vault.settings.auto_paste and reason:
-            Toast(self, "Copied — could not paste into the previous app")
+            Toast(self, "Target app unavailable - copied instead")
         elif delivery_ok and self.vault.settings.auto_paste:
             snippet = clip.preview if len(clip.preview) <= 60 else clip.preview[:59] + "…"
-            Toast(self, f"Pasted ✓   {snippet}")
+            Toast(self, f"Paste attempted   {snippet}")
         else:
             snippet = clip.preview if len(clip.preview) <= 60 else clip.preview[:59] + "…"
-            Toast(self, f"Copied ✓   {snippet}")
+            Toast(self, f"Copied to clipboard   {snippet}")
 
     # --- maintenance / lifecycle -------------------------------------------
     def _expiry_tick(self) -> None:

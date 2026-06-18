@@ -7,7 +7,7 @@ A small, always-on-top popup listing recent clips. Keyboard-first:
 - ``Enter``          choose the highlighted clip
 - ``Esc``            cancel
 
-Choosing a clip calls ``on_choose(clip)`` and closes the popup.
+Choosing a clip calls ``on_choose(clip, action)`` and closes the popup.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from ..core.models import Clip
+from ..core import models
 
 
 _BADGE = {
@@ -24,9 +25,13 @@ _BADGE = {
     "email": "MAIL", "phone": "TEL", "plain": "TEXT",
 }
 
+ACTION_PRIMARY = "primary"
+ACTION_COPY_ONLY = "copy_only"
+ACTION_ALTERNATE = "alternate"
+
 
 class QuickPaste(ctk.CTkToplevel):
-    def __init__(self, master, clips: list[Clip], on_choose: Callable[[Clip], None]):
+    def __init__(self, master, clips: list[Clip], on_choose: Callable[[Clip, str], None]):
         super().__init__(master)
         self._clips = clips
         self._on_choose = on_choose
@@ -44,7 +49,7 @@ class QuickPaste(ctk.CTkToplevel):
 
         header = ctk.CTkLabel(
             self, anchor="w",
-            text="Paste from Cache Vault   —   ↑/↓ select · 1–9 jump · Enter paste · Esc cancel",
+            text="Paste from Cache Vault   —   ↑/↓ select · Enter act · Ctrl+Enter copy · Esc cancel",
             font=ctk.CTkFont(size=11), text_color=("gray40", "gray65"),
         )
         header.pack(fill="x", padx=12, pady=(10, 4))
@@ -63,11 +68,17 @@ class QuickPaste(ctk.CTkToplevel):
         # Key bindings.
         self.bind("<Up>", lambda _e: self._move(-1))
         self.bind("<Down>", lambda _e: self._move(1))
-        self.bind("<Return>", lambda _e: self._choose(self._index))
-        self.bind("<KP_Enter>", lambda _e: self._choose(self._index))
+        self.bind("<Home>", lambda _e: self._edge(0))
+        self.bind("<End>", lambda _e: self._edge(len(self._rows) - 1))
+        self.bind("<Return>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
+        self.bind("<KP_Enter>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
+        self.bind("<Control-Return>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
+        self.bind("<Control-KP_Enter>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
+        self.bind("<Shift-Return>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
+        self.bind("<Shift-KP_Enter>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
         self.bind("<Escape>", lambda _e: self._cancel())
         for n in range(1, 10):
-            self.bind(str(n), lambda _e, k=n - 1: self._choose(k))
+            self.bind(str(n), lambda _e, k=n - 1: self._choose(k, ACTION_PRIMARY))
 
         # Grab keyboard focus so the bindings fire immediately. The popup is
         # often launched from a global hotkey while another app is foreground,
@@ -97,11 +108,14 @@ class QuickPaste(ctk.CTkToplevel):
         ctk.CTkLabel(row, text=clip.preview or "(empty)", anchor="w",
                      justify="left", wraplength=300).pack(
             side="left", fill="x", expand=True, padx=4, pady=6)
+        ctk.CTkLabel(row, text=primary_action_label(clip), width=78,
+                     font=ctk.CTkFont(size=10, weight="bold"),
+                     text_color=("gray35", "gray70")).pack(side="right", padx=(4, 8))
         if clip.is_pinned:
             ctk.CTkLabel(row, text="★", width=20, text_color="#f5b301",
-                         font=ctk.CTkFont(size=12)).pack(side="right", padx=(0, 8))
+                         font=ctk.CTkFont(size=12)).pack(side="right", padx=(0, 2))
         for w in (row, *row.winfo_children()):
-            w.bind("<Button-1>", lambda _e, k=i: self._choose(k))
+            w.bind("<Button-1>", lambda _e, k=i: self._choose(k, ACTION_PRIMARY))
             w.bind("<Enter>", lambda _e, k=i: self._set_index(k))
         return row
 
@@ -115,6 +129,12 @@ class QuickPaste(ctk.CTkToplevel):
         self._index = (self._index + delta) % len(self._rows)
         self._highlight()
 
+    def _edge(self, index: int) -> None:
+        if not self._rows:
+            return
+        self._index = max(0, min(index, len(self._rows) - 1))
+        self._highlight()
+
     def _highlight(self) -> None:
         for i, row in enumerate(self._rows):
             row.configure(fg_color=("gray80", "gray30") if i == self._index
@@ -125,14 +145,14 @@ class QuickPaste(ctk.CTkToplevel):
         self._closing = True
         self.destroy()
 
-    def _choose(self, i: int) -> None:
+    def _choose(self, i: int, action: str = ACTION_PRIMARY) -> None:
         if self._closing:
             return
         if 0 <= i < len(self._clips):
             clip = self._clips[i]
             self._closing = True
             self.destroy()
-            self._on_choose(clip)
+            self._on_choose(clip, action)
 
     def focus_popup(self) -> None:
         """Raise the popup above everything and capture keyboard input."""
@@ -175,3 +195,13 @@ class QuickPaste(ctk.CTkToplevel):
         y = min(py + 4, sh - h - 8)
         x, y = max(8, x), max(8, y)
         return f"{w}x{h}+{x}+{y}"
+
+
+def primary_action_label(clip: Clip) -> str:
+    if clip.content_type == models.CONTENT_IMAGE:
+        return "Copy Image"
+    if clip.classification == models.CLASS_LINK:
+        return "Paste Link"
+    if clip.classification == models.CLASS_PATH:
+        return "Copy Path"
+    return "Paste Text"
