@@ -90,6 +90,7 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
     if clip.classification == models.CLASS_LINK:
         primary_children.insert(0, MenuItem("open_link", "Open Link"))
     if clip.content_type == models.CONTENT_IMAGE:
+        primary_children.append(MenuItem("drag_out", "Drag PNG"))
         primary_children.append(MenuItem("open_asset_folder", "Open Asset Folder"))
 
     organize_children = [
@@ -131,6 +132,8 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
         open_label = "Open Asset Folder" if clip.content_type == models.CONTENT_IMAGE else (
             "Open Editable Copy" if is_file else "Open Folder"
         )
+        if is_file:
+            primary_children.append(MenuItem("drag_out", "Drag File Out", enabled=exists))
         primary_children.append(MenuItem("open", open_label, enabled=exists))
         advanced_children.append(MenuItem("reveal", "Reveal in Explorer",
                                           enabled=exists or parent))

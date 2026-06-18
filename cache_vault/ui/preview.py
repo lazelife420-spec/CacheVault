@@ -381,6 +381,8 @@ class PreviewPanel(ctk.CTkFrame):
         ctk.CTkLabel(self._seal_frame, text="").pack(pady=2)
 
     def _render_image_preview(self, clip: Clip) -> None:
+        self._image_label.unbind("<ButtonPress-1>")
+        self._image_label.configure(cursor="")
         loader = self._actions.get("load_asset")
         loaded = loader(clip.id) if loader else None
         if not loaded:
@@ -402,12 +404,20 @@ class PreviewPanel(ctk.CTkFrame):
                 self._image_ref = ctk.CTkImage(
                     light_image=thumb, dark_image=thumb, size=thumb.size)
                 self._image_label.configure(image=self._image_ref, text="")
+                if self._actions.get("drag_out"):
+                    self._image_label.configure(cursor="hand2")
+                    self._image_label.bind(
+                        "<ButtonPress-1>",
+                        lambda _e, c=clip: self._fire("drag_out", c),
+                    )
         except Exception:  # noqa: BLE001
             self._image_ref = None
             self._image_label.configure(image=None, text="Could not render preview.")
         size_kb = max(1, len(png_bytes) // 1024)
-        self._image_hint.configure(
-            text=f"Local PNG · {mime} · {size_kb} KB · stored on this PC only.")
+        hint = f"Local PNG · {mime} · {size_kb} KB · stored on this PC only."
+        if self._actions.get("drag_out"):
+            hint += " Use Drag PNG or drag the preview out."
+        self._image_hint.configure(text=hint)
 
     def _set_usage(self, text: str) -> None:
         self._usage.configure(state="normal")
@@ -528,6 +538,8 @@ class PreviewPanel(ctk.CTkFrame):
         section("Primary")
         if clip.content_type == models.CONTENT_IMAGE:
             add("Copy Image", "copy_again", **theme.primary_button())
+            if self._actions.get("drag_out"):
+                add("Drag PNG", "drag_out", **theme.secondary_button())
             add("Save As PNG", "save_asset_as", **theme.secondary_button())
             if self._actions.get("open_asset_folder"):
                 add("Open Asset Folder", "open_asset_folder", **theme.secondary_button())
@@ -557,6 +569,8 @@ class PreviewPanel(ctk.CTkFrame):
                 add("Show Original", "show_original_path", **theme.secondary_button())
             elif pathutil.is_local_file(clip.content):
                 section("Editable Copy")
+                if self._actions.get("drag_out"):
+                    add("Drag File Out", "drag_out", **theme.primary_button())
                 add("Open Editable Copy", "open_editable_copy",
                     **theme.primary_button())
                 has_copy = bool(self._actions.get("latest_editable_copy", lambda _cid: None)(clip.id))
@@ -572,10 +586,17 @@ class PreviewPanel(ctk.CTkFrame):
                 add("Show Original in Explorer", "show_original_path",
                     **theme.secondary_button())
             elif pathutil.target_exists(clip.content):
+                if self._actions.get("drag_out") and pathutil.is_local_file(clip.content):
+                    add("Drag File Out", "drag_out", **theme.primary_button())
                 add("Open Folder", "open_folder", **theme.secondary_button())
                 add("Show in Explorer", "show_original_path",
                     **theme.secondary_button())
             else:
+                section("File not found")
+                if self._actions.get("copy_path"):
+                    add("Copy Path", "copy_path", **theme.secondary_button())
+                if pathutil.parent_exists(clip.content):
+                    add("Open Folder", "open_folder", **theme.secondary_button())
                 add("Show in Explorer", "show_original_path",
                     **theme.secondary_button())
 
@@ -612,11 +633,19 @@ class PreviewPanel(ctk.CTkFrame):
             return
         if key == "open_folder":
             from ..core import pathutil
-            pathutil.open_path(clip.content)
+            target = clip.content
+            if pathutil.is_local_path(target) and not pathutil.target_exists(target):
+                target = pathutil.parent_dir(target)
+            pathutil.open_path(target)
             return
         if key == "show_original_path":
             from ..core import pathutil
             pathutil.reveal_in_explorer(clip.content)
+            return
+        if key == "copy_path":
+            handler = self._actions.get("copy_path")
+            if handler:
+                handler(clip.id)
             return
         handler = self._actions.get(key)
         if handler:
