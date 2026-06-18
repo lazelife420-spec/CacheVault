@@ -109,20 +109,20 @@ def make_smart_filename(clip) -> str:
     Format: CacheVault_<kind>_<source-app>_<YYYY-MM-DD>_<HHmmss>_<short-id>.png
     Falls back to sensible defaults when metadata is missing.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     kind = "screenshot" if getattr(clip, "content_type", "") == "image" or getattr(clip, "classification", "") == "screenshot" else "image"
     source = getattr(clip, "source_app", None) or getattr(clip, "capture_mode", None) or "unknown"
     source_slug = _slugify(str(source))
     created = getattr(clip, "created_at", None)
     try:
-        dt = datetime.fromisoformat(created) if created else datetime.utcnow()
+        dt = datetime.fromisoformat(created) if created else datetime.now(timezone.utc)
     except Exception:
         # created may be a short date or None
         try:
             dt = datetime.strptime(str(created), "%Y-%m-%d")
         except Exception:
-            dt = datetime.utcnow()
+            dt = datetime.now(timezone.utc)
     date = dt.strftime("%Y-%m-%d")
     timestr = dt.strftime("%H%M%S")
     short_id = (getattr(clip, "id", "") or "")[:6]
