@@ -116,7 +116,14 @@ def labels_for_clip(clip, ctx: dict | None = None) -> list[str]:
     # Type label — prefer explicit image typing when available
     cls = getattr(clip, "classification", None)
     ct = getattr(clip, "content_type", None)
-    if cls == models.CLASS_IMAGE and not ct:
+    # If content_type explicitly indicates an image, prefer that
+    if isinstance(ct, str) and ct.startswith("image"):
+        ct = models.CONTENT_IMAGE
+    # Handle loose classification values like 'screenshot' or 'screen' as images
+    elif isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower()):
+        ct = models.CONTENT_IMAGE
+    # Preserve explicit model constant mapping as well
+    elif cls == models.CLASS_IMAGE and not ct:
         ct = models.CONTENT_IMAGE
     typ = format_label(cls, ct)
     labels.append(typ)
