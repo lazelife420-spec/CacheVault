@@ -231,6 +231,21 @@ class MacroEditDialog(ctk.CTkToplevel):
         self.transient(master)
         _bring_to_front(self)
 
+        # Keyboard bindings: Esc to cancel, Enter on single-line fields to save,
+        # Ctrl+Enter to save from anywhere (body is multi-line so regular Enter is ignored).
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.bind("<Control-Return>", lambda _e: self._save())
+        self.bind("<Control-KP_Enter>", lambda _e: self._save())
+        # Pressing Enter in name or desc should submit the form.
+        self._name.bind("<Return>", lambda _e: self._save())
+        self._desc.bind("<Return>", lambda _e: self._save())
+        # Focus name field on open for faster keyboard entry
+        try:
+            self._name.focus_set()
+            self._name.selection_range(0, 'end')
+        except Exception:
+            pass
+
     def _suggest_type(self) -> None:
         from ..core.vault_macros import SMART_TYPE_LABELS, suggest_smart_type
         body = self._body.get("1.0", "end").strip()
@@ -258,11 +273,76 @@ class MacroTemplatePicker(ctk.CTkToplevel):
         self.resizable(False, False)
         ctk.CTkLabel(self, text="Choose a starter template",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(12, 8))
-        for tid, tpl in MACRO_TEMPLATES.items():
-            ctk.CTkButton(
-                self, text=tpl.get("name", tid), anchor="w",
+
+        # Keyboard-aware list of template buttons
+        self._rows: list[ctk.CTkButton] = []
+        self._index = 0
+        for i, (tid, tpl) in enumerate(MACRO_TEMPLATES.items()):
+            btn = ctk.CTkButton(
+                self,
+                text=tpl.get("name", tid),
+                anchor="w",
                 command=lambda t=tid: (on_pick(t), self.destroy()),
-                fg_color="transparent", hover_color=theme.nav_hover_bg(),
-            ).pack(fill="x", padx=16, pady=2)
+                fg_color="transparent",
+                hover_color=theme.nav_hover_bg(),
+            )
+            btn.pack(fill="x", padx=16, pady=2)
+            # mouse interactions update selection
+            btn.bind("<Enter>", lambda _e, k=i: self._set_index(k))
+            btn.bind("<Button-1>", lambda _e, k=i: (on_pick(list(MACRO_TEMPLATES.keys())[k]), self.destroy()))
+            self._rows.append(btn)
+
+        # Key bindings: arrows, home/end, enter, esc
+        self.bind("<Up>", lambda _e: self._move(-1))
+        self.bind("<Down>", lambda _e: self._move(1))
+        self.bind("<Home>", lambda _e: self._edge(0))
+        self.bind("<End>", lambda _e: self._edge(len(self._rows) - 1))
+        self.bind("<Return>", lambda _e: self._choose(self._index))
+        self.bind("<KP_Enter>", lambda _e: self._choose(self._index))
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+        self.after(20, self._focus_popup)
+        self.after(140, self._focus_popup)
+        self._highlight()
         self.transient(master)
         _bring_to_front(self)
+
+    def _set_index(self, i: int) -> None:
+        self._index = i
+        self._highlight()
+
+    def _move(self, delta: int) -> None:
+        if not self._rows:
+            return
+        self._index = (self._index + delta) % len(self._rows)
+        self._highlight()
+
+    def _edge(self, index: int) -> None:
+        if not self._rows:
+            return
+        self._index = max(0, min(index, len(self._rows) - 1))
+        self._highlight()
+
+    def _highlight(self) -> None:
+        for i, w in enumerate(self._rows):
+            try:
+                w.configure(fg_color=("#e9eef6" if i == self._index else "transparent"))
+            except Exception:
+                pass
+
+    def _choose(self, i: int) -> None:
+        if 0 <= i < len(self._rows):
+            # trigger the button callback
+            self._rows[i].invoke()
+
+    def _focus_popup(self) -> None:
+        try:
+            self.deiconify()
+            self.attributes("-topmost", True)
+            self.lift()
+            self.focus_force()
+            if self._rows:
+                self._rows[self._index].focus_set()
+            self.grab_set()
+        except Exception:
+            pass

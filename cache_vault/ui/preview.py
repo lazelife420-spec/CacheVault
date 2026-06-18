@@ -12,6 +12,7 @@ from PIL import Image
 
 from .. import brand
 from ..core import clip_metadata, models
+from ..core.clip_accents import LOCKED_ITEMS_MESSAGE
 from ..core.models import Clip
 from . import theme
 
@@ -105,6 +106,19 @@ class PreviewPanel(ctk.CTkFrame):
             "Use Home for recently saved clips, or switch to Grid to sort by "
             "First Saved, Last Used, Source, and Type."
         )
+
+    def show_locked_message(self) -> None:
+        self._clip = None
+        self._revealed = False
+        for w in self._buttons.winfo_children():
+            w.destroy()
+        self._hide_clip_sections()
+        self._vault_frame.pack_forget()
+        self._title.configure(text=LOCKED_ITEMS_MESSAGE)
+        self._subtitle.configure(text="")
+        self._hide_tabs()
+        self._seal_frame.pack_forget()
+        self._set_body(LOCKED_ITEMS_MESSAGE)
 
     def show_vault_summary(self, summary: dict, callbacks: dict[str, Callable]) -> None:
         """Show Vault Control when Home is active and no clip is selected."""
@@ -607,4 +621,3 @@ class PreviewPanel(ctk.CTkFrame):
         handler = self._actions.get(key)
         if handler:
             handler(clip.id)
-

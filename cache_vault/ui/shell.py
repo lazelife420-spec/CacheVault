@@ -23,7 +23,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import capture_debug, copy_clean, models, search, vault_lock
+from ..core import capture_debug, clip_accents, copy_clean, models, search, vault_lock
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -724,8 +724,7 @@ class CacheVaultApp(ctk.CTk):
         self._vault_locked = True
         self._selected_clip_id = None
         self._visible_clip_ids = []
-        self._preview.show(None)
-        self._update_selected_action_strip(None)
+        self._render_locked_surface()
         self._lock_screen.set_mode(self.vault.settings.vault_lock_mode)
         self._lock_screen.set_style(
             self.vault.settings.vault_lock_style,
@@ -1102,6 +1101,11 @@ class CacheVaultApp(ctk.CTk):
         try:
             from ..core import storage as S
 
+            if self._locked():
+                self._render_locked_surface()
+                self._lock_screen.lift()
+                return
+
             active = self._filters.active
             counts = self.vault.counts()
             summary = self.vault.dashboard_summary()
@@ -1152,7 +1156,11 @@ class CacheVaultApp(ctk.CTk):
                     self._grid.set_selected(self._selected_clip_id)
                 else:
                     self._list.set_selected(self._selected_clip_id)
-                    self._list.render(clips, empty_message=empty_msg)
+                    self._list.render(
+                        clips,
+                        empty_message=empty_msg,
+                        group_by=self._group_by_for_view(active, query),
+                    )
                     self._list.set_selected(self._selected_clip_id)
                 self._update_selected_action_strip(
                     self.vault.storage.get_clip(self._selected_clip_id)
@@ -1168,6 +1176,41 @@ class CacheVaultApp(ctk.CTk):
         except Exception as exc:  # noqa: BLE001
             write_crash("refresh", exc)
             raise
+
+    def _render_locked_surface(self) -> None:
+        self._selected_clip_id = None
+        self._visible_clip_ids = []
+        self._filters.update_counts({})
+        self._filters.update_collections([])
+        self._filters.update_safes([])
+        self._show_clips()
+        self._list.set_selected(None)
+        self._grid.set_selected(None)
+        self._list.render([], empty_message=clip_accents.LOCKED_ITEMS_MESSAGE)
+        self._grid.render([], empty_message=clip_accents.LOCKED_ITEMS_MESSAGE)
+        self._preview.show_locked_message()
+        self._update_selected_action_strip(None)
+        self._control_strip.update_state({
+            "capture_paused": self.vault.settings.capture_paused,
+            "mobile_enabled": False,
+            "paired_count": 0,
+            "default_safe": "Vault locked",
+        })
+
+    def _group_by_for_view(self, active: str, query) -> str | None:
+        from ..core import storage as S
+
+        if query.domain:
+            return "domain"
+        if active.startswith(S.SAFE_PREFIX):
+            return "safe"
+        if self._sort_key == models.SORT_SOURCE:
+            return "source"
+        if self._sort_key == models.SORT_TYPE:
+            return "type"
+        if self._sort_key in (models.SORT_NEWEST_ADDED, models.SORT_OLDEST_ADDED):
+            return "date"
+        return None
 
     # --- event handlers ----------------------------------------------------
     def _on_clip_captured(self, payload: dict) -> None:
@@ -1452,7 +1495,14 @@ class CacheVaultApp(ctk.CTk):
                 return
             from ..core import image_assets
             if image_assets.write_clipboard_png(png):
+                # Verify clipboard contains image data when possible and give a
+                # precise message advising where to paste.
+                ok = image_assets.clipboard_has_image()
                 self._monitor.note_local_copy_image(png)
+                if ok:
+                    Toast(self, "Image copied to clipboard — paste into an image-capable app like Paint")
+                else:
+                    Toast(self, "Image copied to clipboard (target apps may not accept images)")
             return
         content = self.vault.copied_again(clip_id)
         if content is None:
@@ -2060,16 +2110,23 @@ class CacheVaultApp(ctk.CTk):
             return
         png_bytes, _mime = loaded
         clip = self.vault.storage.get_clip(clip_id)
-        initial = f"{(clip.title if clip else 'screenshot') or 'screenshot'}.png"
+        # Block when locked to avoid leaking metadata
+        if not self._guard_unlocked():
+            return
+        from ..core import image_assets as _ia
+
+        initial = _ia.make_smart_filename(clip)[:80]
         path = filedialog.asksaveasfilename(
             parent=self, title="Save Screenshot As",
             defaultextension=".png",
-            initialfile=initial[:80],
+            initialfile=initial,
             filetypes=[("PNG image", "*.png")],
         )
         if not path:
             return
-        Path(path).write_bytes(png_bytes)
+        p = Path(path)
+        p = _ia.next_available_path(p)
+        p.write_bytes(png_bytes)
         self.vault.events.record(models.EVENT_EXPORTED, clip_id, {"target": "asset_png"})
 
     def _export_clip(self, clip_id: str) -> None:
@@ -2084,14 +2141,18 @@ class CacheVaultApp(ctk.CTk):
             loaded = self.vault.storage.load_clip_asset_bytes(clip_id)
             if loaded:
                 png_bytes, _mime = loaded
+                from ..core import image_assets as _ia
+                initial = _ia.make_smart_filename(clip)[:80]
                 path = filedialog.asksaveasfilename(
                     parent=self, title="Export / Save As",
                     defaultextension=".png",
-                    initialfile=f"{(clip.title or 'screenshot')[:40].strip()}.png",
+                    initialfile=initial,
                     filetypes=[("PNG image", "*.png")],
                 )
                 if path:
-                    Path(path).write_bytes(png_bytes)
+                    p = Path(path)
+                    p = _ia.next_available_path(p)
+                    p.write_bytes(png_bytes)
                     self.vault.events.record(
                         models.EVENT_EXPORTED, clip_id, {"target": "single_png"})
                 return
@@ -2532,6 +2593,8 @@ class CacheVaultApp(ctk.CTk):
             )
             Toast(self, "Could not copy image to clipboard.")
             return
+        # Confirm the clipboard contains image data and provide a helpful toast.
+        ok = image_assets.clipboard_has_image()
         self._monitor.note_local_copy_image(png)
         self.vault.storage.touch_clip(clip.id)
         self.vault.events.record(
@@ -2539,7 +2602,10 @@ class CacheVaultApp(ctk.CTk):
             clip.id,
             self._quick_paste_receipt_details(clip, "copy_image"),
         )
-        Toast(self, "Copied image to clipboard.")
+        if ok:
+            Toast(self, "Image copied to clipboard — paste into an image-capable app like Paint")
+        else:
+            Toast(self, "Image copied to clipboard (target apps may not accept images)")
 
     def _open_image_asset(self, clip_id: str) -> None:
         from ..core import image_assets, pathutil

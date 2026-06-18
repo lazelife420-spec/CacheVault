@@ -574,12 +574,31 @@ class SafePickerDialog(ctk.CTkToplevel):
 
         scroll = ctk.CTkScrollableFrame(self, height=200)
         scroll.pack(fill="both", expand=True, padx=12, pady=4)
-        for safe in self._registry.list_destinations():
-            ctk.CTkButton(
+        # Keyboard-aware safe list
+        self._rows: list[ctk.CTkButton] = []
+        self._index = 0
+        destinations = list(self._registry.list_destinations())
+        for i, safe in enumerate(destinations):
+            btn = ctk.CTkButton(
                 scroll, text=safe.name, anchor="w",
                 command=lambda s=safe: self._choose(s.id, s.name),
                 **theme.secondary_button(),
-            ).pack(fill="x", pady=2)
+            )
+            btn.pack(fill="x", pady=2)
+            btn.bind("<Enter>", lambda _e, k=i: self._set_index(k))
+            btn.bind("<Button-1>", lambda _e, k=i: self._choose(destinations[k].id, destinations[k].name))
+            self._rows.append(btn)
+
+        # Key bindings for navigation and activation
+        self.bind("<Up>", lambda _e: self._move(-1))
+        self.bind("<Down>", lambda _e: self._move(1))
+        self.bind("<Home>", lambda _e: self._edge(0))
+        self.bind("<End>", lambda _e: self._edge(len(self._rows) - 1))
+        self.bind("<Return>", lambda _e: self._choose_index(self._index))
+        self.bind("<KP_Enter>", lambda _e: self._choose_index(self._index))
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.after(20, self._focus_popup)
+        self._highlight()
 
         create_row = ctk.CTkFrame(self, fg_color="transparent")
         create_row.pack(fill="x", padx=16, pady=8)
@@ -618,6 +637,47 @@ class SafePickerDialog(ctk.CTkToplevel):
             self.destroy()
         else:
             self._new_name.delete(0, "end")
+
+    def _set_index(self, i: int) -> None:
+        self._index = i
+        self._highlight()
+
+    def _move(self, delta: int) -> None:
+        if not self._rows:
+            return
+        self._index = (self._index + delta) % len(self._rows)
+        self._highlight()
+
+    def _edge(self, index: int) -> None:
+        if not self._rows:
+            return
+        self._index = max(0, min(index, len(self._rows) - 1))
+        self._highlight()
+
+    def _highlight(self) -> None:
+        for i, w in enumerate(self._rows):
+            try:
+                w.configure(fg_color=("#eef3fb" if i == self._index else theme.secondary_button().get("fg_color", "transparent")))
+            except Exception:
+                pass
+
+    def _choose_index(self, i: int) -> None:
+        if 0 <= i < len(self._rows):
+            destinations = list(self._registry.list_destinations())
+            self._choose(destinations[i].id, destinations[i].name)
+
+    def _focus_popup(self) -> None:
+        try:
+            self.deiconify()
+            self.attributes("-topmost", True)
+            self.lift()
+            self.focus_force()
+            if self._rows:
+                self._rows[self._index].focus_set()
+            if self._picker_mode:
+                self.grab_set()
+        except Exception:
+            pass
 
 
 class MoveToCollectionDialog(ctk.CTkToplevel):

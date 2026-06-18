@@ -49,8 +49,10 @@ def size_bytes_for(content: str) -> int:
     return len((content or "").encode("utf-8", "replace"))
 
 
-def format_label(classification: str, content_type: str) -> str:
-    if content_type == models.CONTENT_IMAGE:
+def format_label(classification: str | None, content_type: str | None) -> str:
+    if str(content_type or "").startswith("image"):
+        return "Screenshot"
+    if isinstance(classification, str) and "screen" in classification.lower():
         return "Screenshot"
     return {
         models.CLASS_LINK: "Link",
@@ -77,3 +79,99 @@ def display(value: str | None, *, fallback: str = "—") -> str:
     text = str(value).strip()
     return text if text else fallback
 
+
+def _time_bucket(iso: str) -> str:
+    """Bucket an ISO timestamp into Today/Yesterday/This Week/Older."""
+    from datetime import datetime, timezone, timedelta
+
+    if not iso:
+        return "Older"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except Exception:
+        try:
+            dt = datetime.strptime(iso, "%Y-%m-%d")
+        except Exception:
+            return "Older"
+    # Normalize 'now' to match dt's timezone-awareness
+    if dt.tzinfo is None:
+        now = datetime.now()
+    else:
+        now = datetime.now(dt.tzinfo)
+    delta = now - dt
+    if delta < timedelta(days=1) and now.date() == dt.date():
+        return "Today"
+    if delta < timedelta(days=2) and (now - timedelta(days=1)).date() == dt.date():
+        return "Yesterday"
+    if delta < timedelta(days=7):
+        return "This Week"
+    return "Older"
+
+
+def labels_for_clip(clip, ctx: dict | None = None) -> list[str]:
+    """Deterministically derive short labels for a clip from metadata.
+
+    Uses only existing metadata and the optional context dict (receipt counts,
+    export flags). Does not infer or guess beyond available fields.
+    """
+    labels: list[str] = []
+    # Type label — prefer explicit image typing when available
+    cls = getattr(clip, "classification", None)
+    ct = getattr(clip, "content_type", None)
+    # If content_type explicitly indicates an image, prefer that
+    if isinstance(ct, str) and ct.startswith("image"):
+        ct = models.CONTENT_IMAGE
+    # Handle loose classification values like 'screenshot' or 'screen' as images
+    elif isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower()):
+        ct = models.CONTENT_IMAGE
+    # Preserve explicit model constant mapping as well
+    elif cls == models.CLASS_IMAGE and not ct:
+        ct = models.CONTENT_IMAGE
+    typ = format_label(cls, ct)
+    labels.append(typ)
+
+    # Source app / capture mode
+    src = getattr(clip, "source_app", None) or getattr(clip, "capture_mode", None)
+    if src:
+        s = str(src)
+        # Map common apps to friendly labels
+        if "chrome" in s.lower() or "edge" in s.lower() or "browser" in s.lower():
+            labels.append("Browser")
+            if "chrome" in s.lower():
+                labels.append("Chrome")
+        elif "android" in s.lower() or "mobile" in s.lower():
+            labels.append("Android Share")
+        else:
+            # Short source app name
+            labels.append(s.split(".")[0])
+    mode = getattr(clip, "capture_mode", None)
+    if mode in (models.CAPTURE_MOBILE, models.CAPTURE_MOBILE_SHARE):
+        mobile_label = "Android Share" if mode == models.CAPTURE_MOBILE_SHARE else "Mobile"
+        if mobile_label not in labels:
+            labels.append(mobile_label)
+
+    # Time bucket label
+    tb = _time_bucket(getattr(clip, "created_at", None))
+    labels.append(tb)
+
+    # Favorite
+    if getattr(clip, "is_pinned", False):
+        labels.append("Favorite")
+
+    # Duplicate
+    if getattr(clip, "duplicate_of", None):
+        labels.append("Duplicate")
+
+    # Receipts
+    if ctx and ctx.get("receipt_count", 0):
+        labels.append("Has Receipt")
+
+    # Saved/exported state
+    if ctx and ctx.get("export_ready"):
+        labels.append("Exported")
+
+    # Sensitive
+    if getattr(clip, "is_sensitive", False):
+        labels.append("Sensitive")
+
+    return labels
