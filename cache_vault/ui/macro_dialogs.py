@@ -231,6 +231,21 @@ class MacroEditDialog(ctk.CTkToplevel):
         self.transient(master)
         _bring_to_front(self)
 
+        # Keyboard bindings: Esc to cancel, Enter on single-line fields to save,
+        # Ctrl+Enter to save from anywhere (body is multi-line so regular Enter is ignored).
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.bind("<Control-Return>", lambda _e: self._save())
+        self.bind("<Control-KP_Enter>", lambda _e: self._save())
+        # Pressing Enter in name or desc should submit the form.
+        self._name.bind("<Return>", lambda _e: self._save())
+        self._desc.bind("<Return>", lambda _e: self._save())
+        # Focus name field on open for faster keyboard entry
+        try:
+            self._name.focus_set()
+            self._name.selection_range(0, 'end')
+        except Exception:
+            pass
+
     def _suggest_type(self) -> None:
         from ..core.vault_macros import SMART_TYPE_LABELS, suggest_smart_type
         body = self._body.get("1.0", "end").strip()
