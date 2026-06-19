@@ -47,8 +47,10 @@ fun SimpleShareScreen(
     onShareWithSomeone: () -> Unit,
     onDismiss: () -> Unit,
     sensitiveReason: String? = null,
+    imageLabel: String? = null,
 ) {
     var showSensitiveWarning by remember { mutableStateOf(false) }
+    val isImage = imageLabel != null
 
     Column(
         modifier = Modifier
@@ -74,6 +76,13 @@ fun SimpleShareScreen(
                 MaterialTheme.colorScheme.error
             },
         )
+        if (imageLabel != null) {
+            Text(
+                text = imageLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+        }
         if (sensitiveReason != null) {
             SensitiveBadge(reason = sensitiveReason)
         }
@@ -87,8 +96,10 @@ fun SimpleShareScreen(
                 if (sensitiveReason != null) showSensitiveWarning = true else onSendToPc()
             },
         )
-        SimpleActionButton(text = "Copy Text", onClick = onCopyText)
-        SimpleActionButton(text = "Share with Someone", onClick = onShareWithSomeone)
+        if (!isImage) {
+            SimpleActionButton(text = "Copy Text", onClick = onCopyText)
+            SimpleActionButton(text = "Share with Someone", onClick = onShareWithSomeone)
+        }
         SimpleActionButton(text = "Done", onClick = onDismiss)
         Spacer(modifier = Modifier.height(8.dp))
         Text(

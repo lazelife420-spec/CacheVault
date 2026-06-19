@@ -344,6 +344,108 @@ class Vault:
                                    {"action": "history_prune"})
         return clip
 
+    def capture_mobile_image_share(
+        self,
+        image_bytes: bytes,
+        *,
+        mime_type: str,
+        original_name: str | None = None,
+        source_app: str | None = None,
+        source_window: str | None = None,
+        safe_id: str | None = None,
+        device_name: str | None = None,
+        device_id: str | None = None,
+        width: int = 0,
+        height: int = 0,
+    ) -> Clip | None:
+        """Intentional paired mobile image send — stores an image clip + asset.
+
+        Mirrors ``capture_mobile_share`` (text) for receipts/events so mobile
+        image sends land in the same Mobile Inbox. The image is stored as a
+        binary asset; the clip ``content`` is a non-revealing label only.
+        """
+        from . import image_assets
+
+        if not image_bytes:
+            return None
+        if self.settings.capture_paused:
+            return None
+
+        resolved = self._resolve_safe(safe_id)
+        if resolved is None:
+            return None
+        sid, sname = resolved
+
+        chash = models.bytes_hash(image_bytes)
+        ext = image_assets.ext_for_mime(mime_type)
+        clip = Clip(
+            content_hash=chash,
+            content_type=models.CONTENT_IMAGE,
+            content=image_assets.image_content_label(width, height),
+            preview=image_assets.image_preview_label(width, height, mime_type),
+            source_app=source_app,
+            source_window=source_window or device_name,
+            classification=models.CLASS_IMAGE,
+            tags=["image", "mobile"],
+            title=original_name or "Mobile image",
+            size_bytes=len(image_bytes),
+            use_count=1,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=models.CAPTURE_MOBILE_SHARE,
+        )
+        clip.last_used_at = clip.created_at
+        self.storage.add_clip(clip)
+
+        record = image_assets.ClipAssetRecord(
+            asset_id=models.new_id(),
+            clip_id=clip.id,
+            mime_type=mime_type,
+            file_ext=ext,
+            size_bytes=len(image_bytes),
+            sha256=chash,
+            created_at=models.now_iso(),
+            original_name=original_name,
+            storage_name=image_assets.make_storage_name(clip.id, ext),
+            width=width or None,
+            height=height or None,
+        )
+        self.storage.save_clip_asset(record, image_bytes)
+
+        record_capture_receipt(
+            self.events,
+            action=models.ACTION_MOBILE_SENT_TO_PC,
+            event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
+            success=True,
+            clip_id=clip.id,
+            safe_id=sid,
+            safe_name=sname,
+            capture_mode=models.CAPTURE_MOBILE_SHARE,
+            source_app=source_app,
+            content_hash=chash,
+            item_type=models.CLASS_IMAGE,
+        )
+        self.events.record(
+            models.EVENT_CAPTURED, clip.id,
+            {
+                "classification": models.CLASS_IMAGE,
+                "content_type": models.CONTENT_IMAGE,
+                "source_app": source_app,
+                "source_window": source_window,
+                "safe_id": sid,
+                "safe_name": sname,
+                "capture_mode": models.CAPTURE_MOBILE_SHARE,
+                "mobile_device_id": device_id,
+                "mobile_device_name": device_name,
+            },
+        )
+        if self.settings.history_max_clips > 0:
+            pruned = self.storage.prune_history(self.settings.history_max_clips)
+            for cid in pruned:
+                self.events.record(models.EVENT_DELETED, cid,
+                                   {"action": "history_prune"})
+        return clip
+
     def list_mobile_inbox(self, *, limit: int = 200) -> list[Clip]:
         return self.storage.list_by_capture_mode(
             models.CAPTURE_MOBILE_SHARE, limit=limit,
