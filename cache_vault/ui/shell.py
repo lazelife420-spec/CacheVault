@@ -645,7 +645,9 @@ class CacheVaultApp(ctk.CTk):
             return
         label = (clip.title or clip.preview or "Selected item").splitlines()[0][:28]
         self._selected_action_label.configure(text=f"Selected: {label}")
-        actions: list[tuple[str, Callable[[], None]]] = []
+        actions: list[tuple[str, Callable[[], None]]] = [
+            ("Send to Macros", lambda: self._send_to_macro_safe(clip.id))
+        ]
         if clip.classification == models.CLASS_LINK:
             actions = [
                 ("Open", lambda c=clip: self._open_clip_link(c.id)),
@@ -1801,6 +1803,7 @@ class CacheVaultApp(ctk.CTk):
             "drag_out": lambda: self._drag_out_clip(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
             "move_safe": lambda: self._move_to_safe(clip.id),
+            "send_to_macro_safe": lambda: self._send_to_macro_safe(clip.id),
             "create_editable_copy": lambda: self._create_editable_copy(clip.id),
             "export_proof_zip": lambda: self._export_clip_proof(clip.id),
             "view_receipts": self._open_events,
@@ -2319,6 +2322,12 @@ class CacheVaultApp(ctk.CTk):
         self.vault.permanently_remove(clip_id)
         self.refresh()
         self._preview.show(None)
+
+    def _send_to_macro_safe(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        if self.vault.send_to_macro_safe(clip_id):
+            self._show_toast("Added to Vault Macros.")
 
     # --- export ------------------------------------------------------------
     def _save_asset_as(self, clip_id: str) -> None:

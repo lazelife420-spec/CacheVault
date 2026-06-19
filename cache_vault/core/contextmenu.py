@@ -104,6 +104,7 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
             "Mark Keep",
             enabled=not clip.is_pinned,
         ),
+        MenuItem("send_to_macro_safe", "Send to Vault Macros", separator_before=True),
     ]
 
     proof_children = [

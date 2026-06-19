@@ -30,6 +30,37 @@ class Vault:
         self.events = EventLog(self.storage)
         self.safes = SafeRegistry(self.settings)
 
+    @property
+    def macros(self):
+        """Lazy-loaded MacroStore."""
+        from .vault_macros import MacroStore
+        return MacroStore()
+
+    def send_to_macro_safe(self, clip_id: str, safe_id: str | None = None) -> bool:
+        """Create a new macro from an existing clip."""
+        from . import vault_macros
+        clip = self.storage.get_clip(clip_id)
+        if clip is None:
+            return False
+        
+        registry = vault_macros.MacroSafeRegistry(self.settings)
+        sid = safe_id or registry.default_safe().id
+        
+        macro = vault_macros.Macro(
+            id=models.new_id(),
+            name=clip.title[:64] if clip.title else "New Macro",
+            body=clip.content,
+            safe_id=sid,
+            smart_type=vault_macros.suggest_smart_type(clip.content, clip.title or ""),
+        )
+        self.macros.upsert(macro)
+        self.events.record(
+            "sent_to_macros",
+            clip_id,
+            {"macro_id": macro.id, "safe_id": sid}
+        )
+        return True
+
     # --- capture -----------------------------------------------------------
     def _capture_blocked(
         self,
