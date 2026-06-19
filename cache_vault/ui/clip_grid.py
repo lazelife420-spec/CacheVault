@@ -182,13 +182,18 @@ class ClipGrid(ctk.CTkScrollableFrame):
             row = self._row_by_id.get(clip_id)
             if row is not None:
                 is_selected = clip_id == selected_id
-                row.configure(
-                    fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                    border_width=1 if is_selected else 0,
-                    border_color=brand.PROOF_TEAL if is_selected else "transparent",
-                )
                 if is_selected:
+                    row.configure(
+                        fg_color=brand.ROW_SELECTED_BG,
+                        border_width=1,
+                        border_color=brand.PROOF_TEAL,
+                    )
                     self._safe_see(row)
+                else:
+                    row.configure(
+                        fg_color=brand.ROW_BG,
+                        border_width=0,
+                    )
             name_label = self._name_label_by_id.get(clip_id)
             if name_label is not None:
                 name_label.configure(
