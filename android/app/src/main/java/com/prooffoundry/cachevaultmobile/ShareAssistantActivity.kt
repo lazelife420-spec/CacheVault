@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.prooffoundry.cachevaultmobile.data.BridgeError
+import com.prooffoundry.cachevaultmobile.data.SensitiveText
 import com.prooffoundry.cachevaultmobile.ui.screens.SimpleShareScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.copyCleanText
 import com.prooffoundry.cachevaultmobile.ui.screens.shareTextExternal
@@ -24,6 +25,7 @@ class ShareAssistantActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val shared = extractSharedText(intent)
+        val sensitiveReason = SensitiveText.reason(shared.text)
         val app = application as CacheVaultMobileApp
         val pairing = app.pairingStore.load()
         setContent {
@@ -79,6 +81,7 @@ class ShareAssistantActivity : ComponentActivity() {
                         status = "Shared"
                     },
                     onDismiss = { finish() },
+                    sensitiveReason = sensitiveReason,
                 )
             }
         }

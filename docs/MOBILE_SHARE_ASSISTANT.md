@@ -137,7 +137,7 @@ Receipts include: `clip_id`, `safe_id`, `safe_name`, `capture_mode`, `source_app
 | Mobile cannot mutate desktop originals | **Yes** |
 | Mobile cannot delete/edit desktop items | **Yes** |
 | No encryption claim unless implemented | **Yes** — Safes are not encrypted |
-| Sensitive-looking content | Warn before save/send (mobile UI planned) |
+| Sensitive-looking content | **Yes** — phone warns and requires confirm before Send to PC (`SensitiveText` + confirm dialog); desktop still masks on receipt |
 
 ## Android Share Sheet
 

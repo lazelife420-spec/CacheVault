@@ -14,8 +14,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-SERVICE_TYPE = "_cachevault-mobile._tcp.local."
-SERVICE_NAME = "Cache Vault Desktop._cachevault-mobile._tcp.local."
+# mDNS service-type label must be <= 15 bytes (RFC 6763); "cachevault-mobile"
+# (17) is rejected by zeroconf, so discovery uses the compliant "cachevault".
+SERVICE_TYPE = "_cachevault._tcp.local."
+SERVICE_NAME = "Cache Vault Desktop._cachevault._tcp.local."
 
 
 class MobileDiscovery:
@@ -31,7 +33,7 @@ class MobileDiscovery:
         return self._info is not None
 
     def start(self, port: int, *, pc_name: str | None = None) -> bool:
-        """Register ``_cachevault-mobile._tcp``; return False if unavailable."""
+        """Register ``_cachevault._tcp``; return False if unavailable."""
         with self._lock:
             self.stop()
             try:
@@ -87,14 +89,30 @@ def guess_lan_ip() -> str | None:
 
 
 def _lan_addresses() -> list[bytes]:
-    """Best-effort IPv4 addresses for mDNS advertisement."""
+    """IPv4 address(es) for mDNS advertisement — the reachable Wi-Fi LAN IP only.
+
+    Advertise just the recommended Wi-Fi LAN IP (192.168.x / 10.x) when one
+    exists. mDNS does not preserve A-record order and Android's ``NsdManager``
+    resolves a single host, so advertising every adapter lets the phone resolve
+    the desktop to an unreachable Hyper-V / WSL virtual adapter (e.g. 172.x) and
+    silently fail — surfacing as "No Cache Vault PC found". A single reachable
+    address is unambiguous. Only when no home-LAN IP exists do we fall back to
+    advertising all detected addresses.
+    """
+    from ..lan_ip import list_lan_ipv4, recommended_lan_ipv4
+
+    ips = list_lan_ipv4()
+    if not ips:
+        return []
+    recommended = recommended_lan_ipv4(ips)
+    if recommended and (recommended.startswith("192.168.") or recommended.startswith("10.")):
+        chosen = [recommended]
+    else:
+        chosen = ips
     out: list[bytes] = []
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            addr = info[4][0]
-            if addr.startswith("127."):
-                continue
+    for addr in chosen:
+        try:
             out.append(socket.inet_aton(addr))
-    except OSError:
-        pass
+        except OSError:
+            continue
     return out

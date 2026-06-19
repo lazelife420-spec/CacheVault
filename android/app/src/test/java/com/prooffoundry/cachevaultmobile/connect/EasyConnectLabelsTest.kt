@@ -34,6 +34,15 @@ class EasyConnectLabelsTest {
 
     @Test
     fun serviceTypeMatchesDesktop() {
-        assertTrue(PcDiscovery.SERVICE_TYPE.contains("_cachevault-mobile._tcp"))
+        // Must match the desktop's zeroconf SERVICE_TYPE ("_cachevault._tcp.local.").
+        assertTrue(PcDiscovery.SERVICE_TYPE.contains("_cachevault._tcp"))
+    }
+
+    @Test
+    fun serviceTypeLabelIsMdnsCompliant() {
+        // mDNS application-protocol label must be <= 15 bytes (RFC 6763);
+        // "cachevault-mobile" (17) is rejected by zeroconf and breaks discovery.
+        val label = PcDiscovery.SERVICE_TYPE.substringBefore("._tcp").trimStart('_')
+        assertTrue("label too long: $label", label.toByteArray().size <= 15)
     }
 }
