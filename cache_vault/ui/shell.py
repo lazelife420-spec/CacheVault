@@ -58,6 +58,7 @@ from .filters import (
     NAV_STAMPED_RECEIPTS,
     NAV_VAULT_MACROS,
 )
+from ..core.win_mouse import install_mouse_handler
 from .home_dashboard import HomeDashboard
 from .duplicate_dialog import DuplicateReviewDialog
 from .mobile_dialogs import (
@@ -150,6 +151,7 @@ class CacheVaultApp(ctk.CTk):
         self._resize_job = None
         self._last_width = 0
         self._last_height = 0
+        self._mouse_handler = None
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -250,6 +252,14 @@ class CacheVaultApp(ctk.CTk):
         self.after(150, self._maybe_show_first_use_guide)
         self._bind_selection_keys()
         self.bind("<Configure>", self._on_window_configure)
+        self.after(200, self._install_native_mouse_handler)
+
+    def _install_native_mouse_handler(self) -> None:
+        self._mouse_handler = install_mouse_handler(
+            self,
+            on_back=lambda: self._call_on_main(self._navigate_back),
+            on_forward=lambda: self._call_on_main(self._navigate_forward),
+        )
 
     def _alive(self) -> bool:
         if self._shutting_down:
@@ -321,6 +331,9 @@ class CacheVaultApp(ctk.CTk):
         if self._resize_job:
             self.after_cancel(self._resize_job)
             self._resize_job = None
+        if self._mouse_handler:
+            self._mouse_handler.stop()
+            self._mouse_handler = None
 
         # 3. Final destroy
         super().destroy()
@@ -1571,8 +1584,8 @@ class CacheVaultApp(ctk.CTk):
             )
         self.refresh()
 
-    def _navigate_back(self) -> None:
-        if self._locked():
+    def _navigate_back(self, event=None) -> None:
+        if self._keyboard_focus_is_text_input(event) or self._locked():
             # Locked back returns to safe home if not already there,
             # or does nothing if history is empty.
             return
@@ -1584,8 +1597,8 @@ class CacheVaultApp(ctk.CTk):
         self._nav_forward_stack.append(current)
         self._navigate_screen(prev, record_history=False)
 
-    def _navigate_forward(self) -> None:
-        if self._locked() or not self._nav_forward_stack:
+    def _navigate_forward(self, event=None) -> None:
+        if self._keyboard_focus_is_text_input(event) or self._locked() or not self._nav_forward_stack:
             return
         
         current = self._filters.active
