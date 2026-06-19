@@ -58,6 +58,7 @@ from .filters import (
     NAV_STAMPED_RECEIPTS,
     NAV_VAULT_MACROS,
 )
+from ..core.win_mouse import install_mouse_handler
 from .home_dashboard import HomeDashboard
 from .duplicate_dialog import DuplicateReviewDialog
 from .mobile_dialogs import (
@@ -122,8 +123,8 @@ class CacheVaultApp(ctk.CTk):
         super().__init__()
         self.vault = vault or Vault()
         self.title(brand.WINDOW_TITLE)
-        self.geometry("1200x760")
-        self.minsize(1000, 650)
+        self.geometry("1100x700")
+        self.minsize(900, 600)
         self._apply_window_icon()
 
         self._search_var = ctk.StringVar()
@@ -147,6 +148,11 @@ class CacheVaultApp(ctk.CTk):
         self._last_unlock_at = models.now_iso()
         self._nav_history: list[str] = []
         self._nav_forward_stack: list[str] = []
+        self._resize_job = None
+        self._last_width = 0
+        self._last_height = 0
+        self._mouse_handler = None
+        self._is_compact_width = False
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -246,6 +252,15 @@ class CacheVaultApp(ctk.CTk):
         self.after(50, self._pump_main_thread)
         self.after(150, self._maybe_show_first_use_guide)
         self._bind_selection_keys()
+        self.bind("<Configure>", self._on_window_configure)
+        self.after(200, self._install_native_mouse_handler)
+
+    def _install_native_mouse_handler(self) -> None:
+        self._mouse_handler = install_mouse_handler(
+            self,
+            on_back=lambda: self._call_on_main(self._navigate_back),
+            on_forward=lambda: self._call_on_main(self._navigate_forward),
+        )
 
     def _alive(self) -> bool:
         if self._shutting_down:
@@ -314,6 +329,12 @@ class CacheVaultApp(ctk.CTk):
             self._tray.stop()
         if hasattr(self, "_mobile_bridge"):
             self._mobile_bridge.stop()
+        if self._resize_job:
+            self.after_cancel(self._resize_job)
+            self._resize_job = None
+        if self._mouse_handler:
+            self._mouse_handler.stop()
+            self._mouse_handler = None
 
         # 3. Final destroy
         super().destroy()
@@ -357,9 +378,9 @@ class CacheVaultApp(ctk.CTk):
 
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
-        self.grid_columnconfigure(0, weight=0, minsize=220)
+        self.grid_columnconfigure(0, weight=0, minsize=200)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, weight=0, minsize=340)
+        self.grid_columnconfigure(2, weight=0, minsize=320)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=0)
 
@@ -625,7 +646,9 @@ class CacheVaultApp(ctk.CTk):
             return
         label = (clip.title or clip.preview or "Selected item").splitlines()[0][:28]
         self._selected_action_label.configure(text=f"Selected: {label}")
-        actions: list[tuple[str, Callable[[], None]]] = []
+        actions: list[tuple[str, Callable[[], None]]] = [
+            ("Send to Macros", lambda: self._send_to_macro_safe(clip.id))
+        ]
         if clip.classification == models.CLASS_LINK:
             actions = [
                 ("Open", lambda c=clip: self._open_clip_link(c.id)),
@@ -1132,10 +1155,30 @@ class CacheVaultApp(ctk.CTk):
         }
 
     # --- data refresh ------------------------------------------------------
+    def _cancel_all_refreshes(self) -> None:
+        """Kill any pending background render jobs before starting a new one."""
+        if self._search_job:
+            try:
+                self.after_cancel(self._search_job)
+            except Exception:  # noqa: BLE001
+                pass
+            self._search_job = None
+
+        if self._capture_refresh_job:
+            try:
+                self.after_cancel(self._capture_refresh_job)
+            except Exception: # noqa: BLE001
+                pass
+            self._capture_refresh_job = None
+
+        self._list.cancel_render()
+        self._grid.cancel_render()
+
     def refresh(self) -> None:
         if not self._alive():
             return
         tooltip.hide_tooltip()
+        self._cancel_all_refreshes()
         try:
             from ..core import storage as S
 
@@ -1190,11 +1233,11 @@ class CacheVaultApp(ctk.CTk):
                 empty_msg = self._empty_message(active, clips, query)
                 if self._view_mode == "grid":
                     self._grid.set_selected(self._selected_clip_id)
-                    self._grid.render(clips, empty_message=empty_msg)
+                    self._grid.render_batched(clips, empty_message=empty_msg)
                     self._grid.set_selected(self._selected_clip_id)
                 else:
                     self._list.set_selected(self._selected_clip_id)
-                    self._list.render(
+                    self._list.render_batched(
                         clips,
                         empty_message=empty_msg,
                         group_by=self._group_by_for_view(active, query),
@@ -1221,6 +1264,7 @@ class CacheVaultApp(ctk.CTk):
         self._filters.update_counts({})
         self._filters.update_collections([])
         self._filters.update_safes([])
+        self._home.grid_remove()
         self._show_clips()
         self._list.set_selected(None)
         self._grid.set_selected(None)
@@ -1478,6 +1522,41 @@ class CacheVaultApp(ctk.CTk):
         self._search_job = None
         self.refresh()
 
+    def _on_window_configure(self, event) -> None:
+        """Throttle layout-heavy work during window resizing."""
+        if event.widget != self:
+            return
+        w, h = event.width, event.height
+        if w == self._last_width and h == self._last_height:
+            return
+        self._last_width, self._last_height = w, h
+
+        if self._resize_job:
+            self.after_cancel(self._resize_job)
+        self._resize_job = self.after(150, self._handle_resize_debounced)
+
+    def _handle_resize_debounced(self) -> None:
+        self._resize_job = None
+        if not self._alive() or self._locked():
+            return
+        
+        # Responsive check
+        w = self.winfo_width()
+        is_compact = w < 1024
+        if is_compact != self._is_compact_width:
+            self._is_compact_width = is_compact
+            if is_compact:
+                self._preview.grid_forget()
+                self.grid_columnconfigure(2, minsize=0)
+            else:
+                self._preview.grid(row=1, column=2, sticky="nsew")
+                self.grid_columnconfigure(2, weight=0, minsize=320)
+        
+        # During a resize, we don't want to rebuild the entire clip list if possible.
+        # But we might need to tell elements to wrap or adjust.
+        # For now, we'll just refresh, but Phase A batched render will make this cheap.
+        self.refresh()
+
     def _empty_message(self, active: str, clips: list, query) -> str | None:
         from ..core import storage as S
         if clips:
@@ -1521,8 +1600,8 @@ class CacheVaultApp(ctk.CTk):
             )
         self.refresh()
 
-    def _navigate_back(self) -> None:
-        if self._locked():
+    def _navigate_back(self, event=None) -> None:
+        if self._keyboard_focus_is_text_input(event) or self._locked():
             # Locked back returns to safe home if not already there,
             # or does nothing if history is empty.
             return
@@ -1534,8 +1613,8 @@ class CacheVaultApp(ctk.CTk):
         self._nav_forward_stack.append(current)
         self._navigate_screen(prev, record_history=False)
 
-    def _navigate_forward(self) -> None:
-        if self._locked() or not self._nav_forward_stack:
+    def _navigate_forward(self, event=None) -> None:
+        if self._keyboard_focus_is_text_input(event) or self._locked() or not self._nav_forward_stack:
             return
         
         current = self._filters.active
@@ -1738,6 +1817,7 @@ class CacheVaultApp(ctk.CTk):
             "drag_out": lambda: self._drag_out_clip(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
             "move_safe": lambda: self._move_to_safe(clip.id),
+            "send_to_macro_safe": lambda: self._send_to_macro_safe(clip.id),
             "create_editable_copy": lambda: self._create_editable_copy(clip.id),
             "export_proof_zip": lambda: self._export_clip_proof(clip.id),
             "view_receipts": self._open_events,
@@ -2256,6 +2336,12 @@ class CacheVaultApp(ctk.CTk):
         self.vault.permanently_remove(clip_id)
         self.refresh()
         self._preview.show(None)
+
+    def _send_to_macro_safe(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        if self.vault.send_to_macro_safe(clip_id):
+            self._show_toast("Added to Vault Macros.")
 
     # --- export ------------------------------------------------------------
     def _save_asset_as(self, clip_id: str) -> None:

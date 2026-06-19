@@ -25,12 +25,14 @@ class ClipList(ctk.CTkScrollableFrame):
         self._last_clips: list[Clip] = []
         self._last_empty_message: str | None = None
         self._last_group_by: str | None = None
+        self._render_job: str | None = None
         self._empty = ctk.CTkLabel(
             self, text="No clips yet.\nCopy something and it will appear here.",
             text_color=brand.MUTED_FG, justify="center",
         )
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
+        self.cancel_render()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
@@ -50,17 +52,76 @@ class ClipList(ctk.CTkScrollableFrame):
             self._empty.pack(pady=40)
             return
 
+        for clip in clips:
+            self._rows.append(self._build_row(clip))
+
+    def cancel_render(self) -> None:
+        if self._render_job:
+            try:
+                self.after_cancel(self._render_job)
+            except Exception: # noqa: BLE001
+                pass
+            self._render_job = None
+
+    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
+        self.cancel_render()
+        self._last_clips = list(clips)
+        self._last_empty_message = empty_message
+        self._last_group_by = group_by
+
+        for widget in list(self.winfo_children()):
+            if widget is not self._empty:
+                widget.destroy()
+        self._rows.clear()
+        self._row_by_id.clear()
+        self._empty.pack_forget()
+
+        if not clips:
+            self._empty.configure(
+                text=empty_message or (
+                    "No saved clips yet.\nCopy something and Cache Vault will save it here."
+                )
+            )
+            self._empty.pack(pady=40)
+            return
+
+        batch_size = 15
         if group_by:
             from ..core import grouping
             groups = grouping.group_clips(clips, group_by)
+            flat_pending: list[tuple[str, list[Clip] | Clip]] = []
             for title, members in groups.items():
-                self._build_group_header(group_by, title, len(members))
+                flat_pending.append(("header", (group_by, title, len(members))))
                 if (group_by, title) not in self._collapsed_groups:
                     for clip in members:
-                        self._rows.append(self._build_row(clip))
+                        flat_pending.append(("clip", clip))
+            self._render_next_batch_flat(flat_pending, 0, batch_size)
         else:
-            for clip in clips:
-                self._rows.append(self._build_row(clip))
+            self._render_next_batch(clips, 0, batch_size)
+
+    def _render_next_batch(self, clips: list[Clip], start_idx: int, batch_size: int) -> None:
+        end_idx = min(start_idx + batch_size, len(clips))
+        for i in range(start_idx, end_idx):
+            self._rows.append(self._build_row(clips[i]))
+
+        if end_idx < len(clips):
+            self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
+        else:
+            self._render_job = None
+
+    def _render_next_batch_flat(self, pending: list[tuple[str, any]], start_idx: int, batch_size: int) -> None:
+        end_idx = min(start_idx + batch_size, len(pending))
+        for i in range(start_idx, end_idx):
+            kind, data = pending[i]
+            if kind == "header":
+                self._build_group_header(*data)
+            else:
+                self._rows.append(self._build_row(data))
+
+        if end_idx < len(pending):
+            self._render_job = self.after(10, lambda: self._render_next_batch_flat(pending, end_idx, batch_size))
+        else:
+            self._render_job = None
 
     def _build_group_header(self, group_by: str, title: str, count: int) -> None:
         style = clip_accents.group_header_accent(group_by, title)

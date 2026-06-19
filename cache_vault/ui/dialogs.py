@@ -81,9 +81,9 @@ class SettingsDialog(ctk.CTkToplevel):
                  *, mobile: dict | None = None, help: dict | None = None):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
-        self.geometry("520x720")
+        self.geometry("520x680")
         self.resizable(False, True)
-        self.minsize(520, 600)
+        self.minsize(520, 520)
         self._settings = settings
         self._on_save = on_save
         self._mobile = mobile or {}
@@ -95,8 +95,15 @@ class SettingsDialog(ctk.CTkToplevel):
         # Mobile Access — pinned above scroll so pairing is visible without scrolling.
         self._mobile_section = self._build_mobile_section(settings)
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=16, pady=(0, 12))
+        ctk.CTkButton(footer, text="Save", command=self._save,
+                      **theme.primary_button()).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(footer, text="Cancel", command=self.destroy,
+                      **theme.secondary_button()).pack(side="right")
+
         body = ctk.CTkScrollableFrame(self)
-        body.pack(fill="both", expand=True, padx=8, pady=(4, 4))
+        body.pack(side="top", fill="both", expand=True, padx=8, pady=(4, 4))
         self._scroll_body = body
 
         def section(title: str) -> None:
@@ -383,13 +390,6 @@ class SettingsDialog(ctk.CTkToplevel):
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
         self._excluded.pack(fill="x", padx=8, pady=(4, 8))
 
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=16, pady=(0, 12))
-
-        ctk.CTkButton(footer, text="Save", command=self._save,
-                      **theme.primary_button()).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(footer, text="Cancel", command=self.destroy,
-                      **theme.secondary_button()).pack(side="right")
         self.bind("<Escape>", lambda _e: self.destroy())
 
         _bring_to_front(self, master, modal=True)
@@ -574,8 +574,29 @@ class SafePickerDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text=title, font=ctk.CTkFont(size=15, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
+
+        create_row = ctk.CTkFrame(footer, fg_color="transparent")
+        create_row.pack(fill="x", pady=(0, 8))
+        self._new_name = ctk.CTkEntry(create_row, placeholder_text="New Safe name")
+        self._new_name.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(create_row, text="Create", command=self._create_new,
+                      **theme.primary_button()).pack(side="right")
+
+        if picker_mode:
+            ctk.CTkButton(footer, text="Cancel", command=self.destroy,
+                          **theme.secondary_button()).pack(anchor="e")
+        else:
+            ctk.CTkLabel(
+                footer, text="Create Safes here; pick them when saving clips.",
+                anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
+            ).pack(anchor="w", pady=(0, 4))
+            ctk.CTkButton(footer, text="Close", command=self.destroy,
+                          **theme.secondary_button()).pack(anchor="e")
+
         scroll = ctk.CTkScrollableFrame(self, height=200)
-        scroll.pack(fill="both", expand=True, padx=12, pady=4)
+        scroll.pack(side="top", fill="both", expand=True, padx=12, pady=4)
         # Keyboard-aware safe list
         self._rows: list[ctk.CTkButton] = []
         self._index = 0
@@ -601,24 +622,6 @@ class SafePickerDialog(ctk.CTkToplevel):
         self.bind("<Escape>", lambda _e: self.destroy())
         self.after(20, self._focus_popup)
         self._highlight()
-
-        create_row = ctk.CTkFrame(self, fg_color="transparent")
-        create_row.pack(fill="x", padx=16, pady=8)
-        self._new_name = ctk.CTkEntry(create_row, placeholder_text="New Safe name")
-        self._new_name.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(create_row, text="Create", command=self._create_new,
-                      **theme.primary_button()).pack(side="right")
-
-        if picker_mode:
-            ctk.CTkButton(self, text="Cancel", command=self.destroy,
-                          **theme.secondary_button()).pack(anchor="e", padx=16, pady=(0, 12))
-        else:
-            ctk.CTkLabel(
-                self, text="Create Safes here; pick them when saving clips.",
-                anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
-            ).pack(anchor="w", padx=16, pady=(0, 4))
-            ctk.CTkButton(self, text="Close", command=self.destroy,
-                          **theme.secondary_button()).pack(anchor="e", padx=16, pady=(0, 12))
 
         _bring_to_front(self, master, modal=picker_mode)
 
@@ -699,27 +702,27 @@ class MoveToCollectionDialog(ctk.CTkToplevel):
             self._entry.insert(0, current)
         self._entry.pack(fill="x", padx=16, pady=4)
 
-        if existing:
-            ctk.CTkLabel(self, text="Existing:", anchor="w",
-                         text_color=("gray45", "gray60"),
-                         font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16, pady=(8, 0))
-            chips = ctk.CTkScrollableFrame(self, height=110, fg_color="transparent")
-            chips.pack(fill="both", expand=True, padx=12, pady=4)
-            for name in existing:
-                ctk.CTkButton(chips, text=name, anchor="w", height=26,
-                              fg_color=("gray85", "gray25"),
-                              text_color=("gray10", "gray90"),
-                              command=lambda n=name: self._fill(n)
-                              ).pack(fill="x", padx=4, pady=2)
-
         footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=16, pady=(4, 12))
+        footer.pack(side="bottom", fill="x", padx=16, pady=(4, 12))
         ctk.CTkButton(footer, text="Save", command=self._save
                       ).pack(side="right", padx=(8, 0))
         ctk.CTkButton(footer, text="Remove from collection",
                       fg_color=("gray60", "gray35"), command=self._clear
                       ).pack(side="right")
         self.bind("<Escape>", lambda _e: self.destroy())
+
+        if existing:
+            ctk.CTkLabel(self, text="Existing:", anchor="w",
+                         text_color=("gray45", "gray60"),
+                         font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16, pady=(8, 0))
+            chips = ctk.CTkScrollableFrame(self, height=110, fg_color="transparent")
+            chips.pack(side="top", fill="both", expand=True, padx=12, pady=4)
+            for name in existing:
+                ctk.CTkButton(chips, text=name, anchor="w", height=26,
+                              fg_color=("gray85", "gray25"),
+                              text_color=("gray10", "gray90"),
+                              command=lambda n=name: self._fill(n)
+                              ).pack(fill="x", padx=4, pady=2)
 
         _bring_to_front(self, master, modal=True)
 
@@ -840,8 +843,25 @@ class EventLogDialog(ctk.CTkToplevel):
         self._filter.set(FILTER_ALL)
         self._filter.pack(side="right")
 
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(side="bottom", fill="x", padx=16, pady=(4, 12))
+        self._filedialog = filedialog
+        self._messagebox = messagebox
+        self._export_rows_fn = export_rows
+        self._format_receipt_copy_fn = format_receipt_copy
+        ctk.CTkButton(actions, text="Copy Receipt", command=self._copy_receipt,
+                      **theme.secondary_button()).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(actions, text="Copy Full Hash", command=self._copy_hash,
+                      **theme.secondary_button()).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(actions, text="Export Selected", command=self._export_selected,
+                      **theme.secondary_button()).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(actions, text="Export All", command=self._export_all,
+                      **theme.primary_button()).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(actions, text="Refresh", command=self._refresh,
+                      **theme.secondary_button()).pack(side="right")
+
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=12, pady=4)
+        body.pack(side="top", fill="both", expand=True, padx=12, pady=4)
         body.grid_columnconfigure(0, weight=3)
         body.grid_columnconfigure(1, weight=2)
         body.grid_rowconfigure(0, weight=1)
@@ -858,22 +878,7 @@ class EventLogDialog(ctk.CTkToplevel):
         self._detail.pack(fill="both", expand=True, padx=10, pady=4)
         self._detail.configure(state="disabled")
 
-        actions = ctk.CTkFrame(self, fg_color="transparent")
-        actions.pack(fill="x", padx=16, pady=(4, 12))
-        self._filedialog = filedialog
-        self._messagebox = messagebox
-        self._export_rows_fn = export_rows
-        self._format_receipt_copy_fn = format_receipt_copy
-        ctk.CTkButton(actions, text="Copy Receipt", command=self._copy_receipt,
-                      **theme.secondary_button()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(actions, text="Copy Full Hash", command=self._copy_hash,
-                      **theme.secondary_button()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(actions, text="Export Selected", command=self._export_selected,
-                      **theme.secondary_button()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(actions, text="Export All", command=self._export_all,
-                      **theme.primary_button()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(actions, text="Refresh", command=self._refresh,
-                      **theme.secondary_button()).pack(side="right")
+
 
         try:
             self._rebuild_rows()

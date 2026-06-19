@@ -47,8 +47,28 @@ class FirstUseGuideDialog(ctk.CTkToplevel):
         self._on_action = on_action
         self._from_settings = from_settings
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=16, pady=(4, 14))
+        ctk.CTkButton(
+            footer, text=GUIDE_BTN_START,
+            command=lambda: self._done("start"),
+            **theme.primary_button(),
+        ).pack(fill="x", pady=3)
+        ctk.CTkButton(
+            footer, text=GUIDE_BTN_RECEIPTS,
+            command=lambda: self._done("receipts"),
+            **theme.secondary_button(),
+        ).pack(fill="x", pady=3)
+        ctk.CTkButton(
+            footer, text=GUIDE_BTN_DISMISS,
+            command=lambda: self._done("dismiss"),
+            fg_color="transparent",
+            hover_color=theme.nav_hover_bg(),
+            text_color=brand.MUTED_FG,
+        ).pack(fill="x", pady=(2, 0))
+
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=12, pady=(12, 4))
+        scroll.pack(side="top", fill="both", expand=True, padx=12, pady=(12, 4))
 
         ctk.CTkLabel(
             scroll, text=GUIDE_TITLE,
@@ -73,27 +93,6 @@ class FirstUseGuideDialog(ctk.CTkToplevel):
                 anchor="w", justify="left", wraplength=480,
                 text_color=brand.MUTED_FG, font=theme.body_font(11),
             ).pack(fill="x", padx=12, pady=(0, 10))
-
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=16, pady=(4, 14))
-
-        ctk.CTkButton(
-            footer, text=GUIDE_BTN_START,
-            command=lambda: self._done("start"),
-            **theme.primary_button(),
-        ).pack(fill="x", pady=3)
-        ctk.CTkButton(
-            footer, text=GUIDE_BTN_RECEIPTS,
-            command=lambda: self._done("receipts"),
-            **theme.secondary_button(),
-        ).pack(fill="x", pady=3)
-        ctk.CTkButton(
-            footer, text=GUIDE_BTN_DISMISS,
-            command=lambda: self._done("dismiss"),
-            fg_color="transparent",
-            hover_color=theme.nav_hover_bg(),
-            text_color=brand.MUTED_FG,
-        ).pack(fill="x", pady=(2, 0))
 
         self.protocol("WM_DELETE_WINDOW", self._close_only)
         self.transient(master)
