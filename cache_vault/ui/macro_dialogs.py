@@ -57,8 +57,19 @@ class VaultMacrosSetupDialog(ctk.CTkToplevel):
         self._record_receipt = record_receipt
         self._registry = MacroSafeRegistry(settings)
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=12, pady=(0, 12))
+        ctk.CTkButton(
+            footer, text="Complete Setup", command=self._finish,
+            **theme.primary_button(),
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            footer, text="Skip for now", command=self.destroy,
+            **theme.secondary_button(),
+        ).pack(side="right")
+
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        scroll.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(
             scroll, text="Set up Vault Macros",
@@ -129,16 +140,7 @@ class VaultMacrosSetupDialog(ctk.CTkToplevel):
         self._sensitive.select() if settings.macro_sensitive_confirmation else self._sensitive.deselect()
         self._sensitive.pack(anchor="w", pady=(2, 12))
 
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=12, pady=(0, 12))
-        ctk.CTkButton(
-            footer, text="Complete Setup", command=self._finish,
-            **theme.primary_button(),
-        ).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(
-            footer, text="Skip for now", command=self.destroy,
-            **theme.secondary_button(),
-        ).pack(side="right")
+
 
         self.transient(master)
         _bring_to_front(self)
@@ -185,8 +187,13 @@ class MacroEditDialog(ctk.CTkToplevel):
         self._registry = registry
         self._on_save = on_save
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=12, pady=(0, 12))
+        ctk.CTkButton(footer, text="Save", command=self._save, **theme.primary_button()).pack(side="right")
+        ctk.CTkButton(footer, text="Cancel", command=self.destroy, **theme.secondary_button()).pack(side="right", padx=8)
+
         body = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=10, pady=10)
+        body.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(body, text="Name").pack(anchor="w")
         self._name = ctk.CTkEntry(body, width=460)
@@ -223,10 +230,7 @@ class MacroEditDialog(ctk.CTkToplevel):
             command=self._suggest_type, **theme.secondary_button(),
         ).pack(anchor="w", pady=(0, 8))
 
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=12, pady=(0, 12))
-        ctk.CTkButton(footer, text="Save", command=self._save, **theme.primary_button()).pack(side="right")
-        ctk.CTkButton(footer, text="Cancel", command=self.destroy, **theme.secondary_button()).pack(side="right", padx=8)
+
 
         self.transient(master)
         _bring_to_front(self)

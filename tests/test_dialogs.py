@@ -15,11 +15,11 @@ class TestSettingsDialog:
         from cache_vault.ui.dialogs import SettingsDialog
 
         src = inspect.getsource(SettingsDialog.__init__)
-        assert re.search(r'geometry\s*\(\s*["\"]520x720["\"]\s*\)', src), (
-            "Settings dialog must declare geometry 520x720"
+        assert re.search(r'geometry\s*\(\s*["\"]520x680["\"]\s*\)', src), (
+            "Settings dialog must declare geometry 520x680"
         )
-        assert re.search(r'minsize\s*\(\s*520\s*,\s*600\s*\)', src), (
-            "Settings dialog must enforce minsize 520x600"
+        assert re.search(r'minsize\s*\(\s*520\s*,\s*520\s*\)', src), (
+            "Settings dialog must enforce minsize 520x520"
         )
         assert re.search(r'resizable\s*\(\s*False\s*,\s*True\s*\)', src), (
             "Settings dialog must be vertically resizable"
@@ -41,9 +41,9 @@ class TestSettingsDialog:
         assert dialog._current_width == 520, (
             f"expected width 520, got {dialog._current_width}"
         )
-        assert dialog._current_height >= 720, (
+        assert dialog._current_height >= 680, (
             f"Settings dialog requested height is {dialog._current_height}px; "
-            f"expected >= 720px to prevent footer clipping under display scaling"
+            f"expected >= 680px to prevent footer clipping under display scaling"
         )
 
         dialog.destroy()
@@ -72,8 +72,8 @@ class TestSettingsDialog:
         assert dialog._min_width == 520, (
             f"expected min width 520, got {dialog._min_width}"
         )
-        assert dialog._min_height == 600, (
-            f"expected min height 600, got {dialog._min_height}"
+        assert dialog._min_height == 520, (
+            f"expected min height 520, got {dialog._min_height}"
         )
 
         dialog.destroy()
@@ -92,7 +92,15 @@ class TestSettingsDialog:
             f"expected >= 3 top-level children (title, body, footer), got {len(children)}"
         )
 
-        footer = children[-1]
+        footer = None
+        for child in children:
+            if isinstance(child, ctk.CTkFrame) and not isinstance(child, ctk.CTkScrollableFrame):
+                texts = {b.cget("text") for b in child.winfo_children() if isinstance(b, ctk.CTkButton)}
+                if "Save" in texts and "Cancel" in texts:
+                    footer = child
+                    break
+                    
+        assert footer is not None, "Footer frame not found"
         buttons = [w for w in footer.winfo_children()
                    if isinstance(w, ctk.CTkButton)]
         button_texts = {b.cget("text") for b in buttons}

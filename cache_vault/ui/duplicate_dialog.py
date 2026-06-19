@@ -68,13 +68,10 @@ class DuplicateReviewDialog(ctk.CTkToplevel):
                      text_color=brand.MUTED_FG, font=theme.body_font(11)).pack(
             fill="x", padx=12, pady=(0, 10))
 
-        scroll = ctk.CTkScrollableFrame(self, height=180)
-        scroll.pack(fill="both", expand=True, padx=16, pady=8)
-        for clip in clips:
-            self._occurrence(scroll, clip)
+
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
-        actions.pack(fill="x", padx=16, pady=8)
+        actions.pack(side="bottom", fill="x", padx=16, pady=8)
         for text, action in [
             ("Keep Newest", "keep_newest"),
             ("Keep Oldest", "keep_oldest"),
@@ -90,6 +87,11 @@ class DuplicateReviewDialog(ctk.CTkToplevel):
                 command=lambda a=action: self._fire(a),
                 **(theme.destructive_button() if destructive else theme.secondary_button()),
             ).pack(fill="x", pady=2)
+
+        scroll = ctk.CTkScrollableFrame(self, height=180)
+        scroll.pack(side="top", fill="both", expand=True, padx=16, pady=8)
+        for clip in clips:
+            self._occurrence(scroll, clip)
 
     def _occurrence(self, parent, clip: Clip) -> None:
         frame = ctk.CTkFrame(parent, fg_color=brand.SURFACE_BG, corner_radius=6)

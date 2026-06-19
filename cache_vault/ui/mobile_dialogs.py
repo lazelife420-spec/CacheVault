@@ -369,8 +369,13 @@ class PairedDevicesDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="Paired Devices",
                      font=ctk.CTkFont(size=15, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=16, pady=12)
+        ctk.CTkButton(footer, text="Close", command=self.destroy,
+                      **theme.secondary_button()).pack(anchor="e")
+
         frame = ctk.CTkScrollableFrame(self, height=200)
-        frame.pack(fill="both", expand=True, padx=12, pady=4)
+        frame.pack(side="top", fill="both", expand=True, padx=12, pady=4)
         if not devices:
             ctk.CTkLabel(frame, text="No paired devices yet.",
                          text_color=brand.MUTED_FG).pack(pady=20)
@@ -383,8 +388,7 @@ class PairedDevicesDialog(ctk.CTkToplevel):
                 row, text="Revoke", width=70, command=lambda i=d["device_id"]: self._revoke(i),
                 **theme.destructive_button(),
             ).pack(side="right", padx=4)
-        ctk.CTkButton(self, text="Close", command=self.destroy,
-                      **theme.secondary_button()).pack(anchor="e", padx=16, pady=12)
+
         from .dialogs import _bring_to_front
         _bring_to_front(self, master, modal=True)
 
