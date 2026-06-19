@@ -111,6 +111,32 @@ class BridgeClientTest {
         assertEquals("/mobile/v1/clips/img-1/asset", request.path)
     }
 
+    @Test
+    fun sendImageToPcPostsBase64Payload() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"success":true,"desktop_item_id":"img9","safe_name":"Default Safe"}""",
+            ),
+        )
+        val resp = client.sendImageToPc(
+            contentB64 = "iVBORw0KGgo=",
+            mimeType = "image/png",
+            originalName = "photo.png",
+            sourceApp = "Android Share",
+            sourceDeviceName = "Pixel",
+            safeId = "default",
+        )
+        assertTrue(resp.success)
+        assertEquals("Default Safe", resp.safeName)
+        val request = server.takeRequest()
+        assertEquals("/mobile/v1/inbox/send", request.path)
+        val sentBody = request.body.readUtf8()
+        assertTrue(sentBody.contains("\"item_type\":\"image\""))
+        assertTrue(sentBody.contains("\"content_b64\":\"iVBORw0KGgo=\""))
+        assertTrue(sentBody.contains("\"mime_type\":\"image/png\""))
+        assertEquals("Bearer secret-token", request.getHeader("Authorization"))
+    }
+
     @Test(expected = BridgeError.AssetNotAvailable::class)
     fun fetchImageAssetNotAvailable() {
         server.enqueue(

@@ -81,6 +81,32 @@ class BridgeClient(
         return execute(request, InboxSendResponseJson::class.java).toModel()
     }
 
+    /**
+     * Send an image to the paired PC. [contentB64] is the base64-encoded image
+     * bytes (encoding is the caller's responsibility so this stays JVM-testable).
+     */
+    fun sendImageToPc(
+        contentB64: String,
+        mimeType: String,
+        originalName: String? = null,
+        sourceApp: String? = null,
+        sourceDeviceName: String? = null,
+        safeId: String? = null,
+    ): InboxSendResponse {
+        val payload = InboxImageSendRequest(
+            contentB64 = contentB64,
+            mimeType = mimeType,
+            originalName = originalName,
+            sourceApp = sourceApp,
+            sourceDeviceName = sourceDeviceName,
+            safeId = safeId,
+        )
+        val json = moshi.adapter(InboxImageSendRequest::class.java).toJson(payload)
+        val body = json.toRequestBody("application/json".toMediaType())
+        val request = baseRequest("/mobile/v1/inbox/send").post(body).build()
+        return execute(request, InboxSendResponseJson::class.java).toModel()
+    }
+
     fun fetchImageAsset(clipId: String): ImageAssetResult {
         val request = baseRequest("/mobile/v1/clips/$clipId/asset").get().build()
         try {
@@ -247,6 +273,17 @@ class BridgeClient(
         @Json(name = "source_app") val sourceApp: String? = null,
         @Json(name = "source_device_name") val sourceDeviceName: String? = null,
         @Json(name = "source_url") val sourceUrl: String? = null,
+        @Json(name = "safe_id") val safeId: String? = null,
+        @Json(name = "user_action") val userAction: String = "send_to_pc",
+    )
+
+    private data class InboxImageSendRequest(
+        @Json(name = "item_type") val itemType: String = "image",
+        @Json(name = "content_b64") val contentB64: String,
+        @Json(name = "mime_type") val mimeType: String,
+        @Json(name = "original_name") val originalName: String? = null,
+        @Json(name = "source_app") val sourceApp: String? = null,
+        @Json(name = "source_device_name") val sourceDeviceName: String? = null,
         @Json(name = "safe_id") val safeId: String? = null,
         @Json(name = "user_action") val userAction: String = "send_to_pc",
     )
