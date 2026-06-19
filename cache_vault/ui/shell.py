@@ -122,8 +122,8 @@ class CacheVaultApp(ctk.CTk):
         super().__init__()
         self.vault = vault or Vault()
         self.title(brand.WINDOW_TITLE)
-        self.geometry("1200x760")
-        self.minsize(1000, 650)
+        self.geometry("1100x700")
+        self.minsize(900, 600)
         self._apply_window_icon()
 
         self._search_var = ctk.StringVar()
@@ -147,6 +147,9 @@ class CacheVaultApp(ctk.CTk):
         self._last_unlock_at = models.now_iso()
         self._nav_history: list[str] = []
         self._nav_forward_stack: list[str] = []
+        self._resize_job = None
+        self._last_width = 0
+        self._last_height = 0
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -246,6 +249,7 @@ class CacheVaultApp(ctk.CTk):
         self.after(50, self._pump_main_thread)
         self.after(150, self._maybe_show_first_use_guide)
         self._bind_selection_keys()
+        self.bind("<Configure>", self._on_window_configure)
 
     def _alive(self) -> bool:
         if self._shutting_down:
@@ -314,6 +318,9 @@ class CacheVaultApp(ctk.CTk):
             self._tray.stop()
         if hasattr(self, "_mobile_bridge"):
             self._mobile_bridge.stop()
+        if self._resize_job:
+            self.after_cancel(self._resize_job)
+            self._resize_job = None
 
         # 3. Final destroy
         super().destroy()
@@ -357,9 +364,9 @@ class CacheVaultApp(ctk.CTk):
 
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
-        self.grid_columnconfigure(0, weight=0, minsize=220)
+        self.grid_columnconfigure(0, weight=0, minsize=200)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, weight=0, minsize=340)
+        self.grid_columnconfigure(2, weight=0, minsize=320)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=0)
 
@@ -1132,10 +1139,30 @@ class CacheVaultApp(ctk.CTk):
         }
 
     # --- data refresh ------------------------------------------------------
+    def _cancel_all_refreshes(self) -> None:
+        """Kill any pending background render jobs before starting a new one."""
+        if self._search_job:
+            try:
+                self.after_cancel(self._search_job)
+            except Exception:  # noqa: BLE001
+                pass
+            self._search_job = None
+
+        if self._capture_refresh_job:
+            try:
+                self.after_cancel(self._capture_refresh_job)
+            except Exception: # noqa: BLE001
+                pass
+            self._capture_refresh_job = None
+
+        self._list.cancel_render()
+        self._grid.cancel_render()
+
     def refresh(self) -> None:
         if not self._alive():
             return
         tooltip.hide_tooltip()
+        self._cancel_all_refreshes()
         try:
             from ..core import storage as S
 
@@ -1190,11 +1217,11 @@ class CacheVaultApp(ctk.CTk):
                 empty_msg = self._empty_message(active, clips, query)
                 if self._view_mode == "grid":
                     self._grid.set_selected(self._selected_clip_id)
-                    self._grid.render(clips, empty_message=empty_msg)
+                    self._grid.render_batched(clips, empty_message=empty_msg)
                     self._grid.set_selected(self._selected_clip_id)
                 else:
                     self._list.set_selected(self._selected_clip_id)
-                    self._list.render(
+                    self._list.render_batched(
                         clips,
                         empty_message=empty_msg,
                         group_by=self._group_by_for_view(active, query),
@@ -1221,6 +1248,7 @@ class CacheVaultApp(ctk.CTk):
         self._filters.update_counts({})
         self._filters.update_collections([])
         self._filters.update_safes([])
+        self._home.grid_remove()
         self._show_clips()
         self._list.set_selected(None)
         self._grid.set_selected(None)
@@ -1476,6 +1504,28 @@ class CacheVaultApp(ctk.CTk):
 
     def _debounced_refresh(self) -> None:
         self._search_job = None
+        self.refresh()
+
+    def _on_window_configure(self, event) -> None:
+        """Throttle layout-heavy work during window resizing."""
+        if event.widget != self:
+            return
+        w, h = event.width, event.height
+        if w == self._last_width and h == self._last_height:
+            return
+        self._last_width, self._last_height = w, h
+
+        if self._resize_job:
+            self.after_cancel(self._resize_job)
+        self._resize_job = self.after(150, self._handle_resize_debounced)
+
+    def _handle_resize_debounced(self) -> None:
+        self._resize_job = None
+        if not self._alive() or self._locked():
+            return
+        # During a resize, we don't want to rebuild the entire clip list if possible.
+        # But we might need to tell elements to wrap or adjust.
+        # For now, we'll just refresh, but Phase A batched render will make this cheap.
         self.refresh()
 
     def _empty_message(self, active: str, clips: list, query) -> str | None:

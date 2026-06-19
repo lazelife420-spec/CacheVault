@@ -44,6 +44,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._header.pack(fill="x", padx=4, pady=(4, 2))
         self._rows_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._rows_frame.pack(fill="both", expand=True, padx=4)
+        self._render_job: str | None = None
         self._empty = ctk.CTkLabel(
             self._rows_frame,
             text="No clips match this filter.\nTry All Clips or clear filters.",
@@ -79,6 +80,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             self._on_sort(self._sort_key)
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
+        self.cancel_render()
         for w in self._rows_frame.winfo_children():
             w.destroy()
         self._row_by_id.clear()
@@ -94,6 +96,44 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._empty.pack_forget()
         for clip in clips:
             self._build_row(clip)
+
+    def cancel_render(self) -> None:
+        if self._render_job:
+            try:
+                self.after_cancel(self._render_job)
+            except Exception: # noqa: BLE001
+                pass
+            self._render_job = None
+
+    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
+        self.cancel_render()
+        for w in self._rows_frame.winfo_children():
+            if w is not self._empty:
+                w.destroy()
+        self._row_by_id.clear()
+        self._name_label_by_id.clear()
+        if not clips:
+            self._empty.configure(
+                text=empty_message or (
+                    "No clips match this filter.\nTry All Clips or clear filters."
+                )
+            )
+            self._empty.pack(pady=40)
+            return
+        self._empty.pack_forget()
+        
+        batch_size = 20
+        self._render_next_batch(clips, 0, batch_size)
+
+    def _render_next_batch(self, clips: list[Clip], start_idx: int, batch_size: int) -> None:
+        end_idx = min(start_idx + batch_size, len(clips))
+        for i in range(start_idx, end_idx):
+            self._build_row(clips[i])
+        
+        if end_idx < len(clips):
+            self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
+        else:
+            self._render_job = None
 
     def _build_row(self, clip: Clip) -> None:
         selected = clip.id == self._selected_id
