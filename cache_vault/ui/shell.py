@@ -152,6 +152,7 @@ class CacheVaultApp(ctk.CTk):
         self._last_width = 0
         self._last_height = 0
         self._mouse_handler = None
+        self._is_compact_width = False
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -1538,6 +1539,19 @@ class CacheVaultApp(ctk.CTk):
         self._resize_job = None
         if not self._alive() or self._locked():
             return
+        
+        # Responsive check
+        w = self.winfo_width()
+        is_compact = w < 1024
+        if is_compact != self._is_compact_width:
+            self._is_compact_width = is_compact
+            if is_compact:
+                self._preview.grid_forget()
+                self.grid_columnconfigure(2, minsize=0)
+            else:
+                self._preview.grid(row=1, column=2, sticky="nsew")
+                self.grid_columnconfigure(2, weight=0, minsize=320)
+        
         # During a resize, we don't want to rebuild the entire clip list if possible.
         # But we might need to tell elements to wrap or adjust.
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
