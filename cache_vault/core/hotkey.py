@@ -137,7 +137,10 @@ class HotkeyListener:
         wc = win32gui.WNDCLASS()
         wc.lpszClassName = "CacheVaultHotkey"
         wc.lpfnWndProc = wndproc
-        atom = win32gui.RegisterClass(wc)
+        try:
+            atom = win32gui.RegisterClass(wc)
+        except Exception:
+            atom = wc.lpszClassName
         self._hwnd = win32gui.CreateWindow(
             atom, "CacheVaultHotkey", 0, 0, 0, 0, 0, 0, 0, 0, None)
 
@@ -208,7 +211,10 @@ class MultiHotkeyListener:
         wc = win32gui.WNDCLASS()
         wc.lpszClassName = self._wnd_class
         wc.lpfnWndProc = wndproc
-        atom = win32gui.RegisterClass(wc)
+        try:
+            atom = win32gui.RegisterClass(wc)
+        except Exception:
+            atom = wc.lpszClassName
         self._hwnd = win32gui.CreateWindow(
             atom, self._wnd_class, 0, 0, 0, 0, 0, 0, 0, 0, None)
 

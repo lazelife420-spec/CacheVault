@@ -216,7 +216,11 @@ class ClipboardMonitor:
         wc = win32gui.WNDCLASS()
         wc.lpszClassName = "CacheVaultClipboardListener"
         wc.lpfnWndProc = wndproc
-        class_atom = win32gui.RegisterClass(wc)
+        try:
+            class_atom = win32gui.RegisterClass(wc)
+        except Exception:
+            # Already registered or other error, try to continue with the name
+            class_atom = wc.lpszClassName
         self._hwnd = win32gui.CreateWindow(
             class_atom, "CacheVaultClipboardListener", 0, 0, 0, 0, 0,
             0, 0, 0, None,

@@ -236,9 +236,27 @@ class ClipList(ctk.CTkScrollableFrame):
             row = self._row_by_id.get(clip_id)
             if row is None:
                 continue
-            row.configure(
-                fg_color=brand.ROW_SELECTED_BG if clip_id == selected_id else brand.ROW_BG,
-            )
+            is_selected = clip_id == selected_id
+            if is_selected:
+                row.configure(
+                    fg_color=brand.ROW_SELECTED_BG,
+                    border_width=1,
+                    border_color=brand.PROOF_TEAL,
+                )
+                # Ensure the row is visible in the scrollable frame.
+                self._safe_see(row)
+            else:
+                row.configure(
+                    fg_color=brand.ROW_BG,
+                    border_width=0,
+                )
+
+    def _safe_see(self, widget) -> None:
+        try:
+            self.update_idletasks()
+            self.see(widget)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _short_time(iso: str) -> str:

@@ -145,6 +145,8 @@ class CacheVaultApp(ctk.CTk):
         tooltip.set_tooltips_locked(self._vault_locked)
         self._idle_lock_job = None
         self._last_unlock_at = models.now_iso()
+        self._nav_history: list[str] = []
+        self._nav_forward_stack: list[str] = []
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -279,10 +281,42 @@ class CacheVaultApp(ctk.CTk):
             "<Delete>": lambda e: self._keyboard_remove_selected(e),
             "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
             "<Menu>": lambda e: self._keyboard_open_context_menu(e),
-            "<Escape>": lambda e: tooltip.hide_tooltip(),
+            "<Escape>": self._on_escape_pressed,
+            "<Button-8>": lambda _e: self._navigate_back(),
+            "<Button-9>": lambda _e: self._navigate_forward(),
         }
         for sequence, callback in keymap.items():
-            self.bind_all(sequence, callback, add="+")
+            try:
+                self.bind_all(sequence, callback, add="+")
+            except Exception: # Some mouse buttons might not be supported on all systems
+                pass
+
+    def destroy(self) -> None:
+        """Fully clean up all background threads and listeners."""
+        # 1. Stop UI timers
+        if hasattr(self, "_idle_lock_job") and self._idle_lock_job:
+            self.after_cancel(self._idle_lock_job)
+        if hasattr(self, "_expiry_job") and self._expiry_job:
+            self.after_cancel(self._expiry_job)
+
+        # 2. Stop system listeners
+        if hasattr(self, "_monitor"):
+            self._monitor.stop()
+        if hasattr(self, "_hotkey"):
+            self._hotkey.stop()
+        if hasattr(self, "_capture_hotkeys"):
+            self._capture_hotkeys.stop()
+        if hasattr(self, "_macro_hotkeys"):
+            self._macro_hotkeys.stop()
+        if hasattr(self, "_text_shortcut_listener"):
+            self._text_shortcut_listener.stop()
+        if hasattr(self, "_tray"):
+            self._tray.stop()
+        if hasattr(self, "_mobile_bridge"):
+            self._mobile_bridge.stop()
+
+        # 3. Final destroy
+        super().destroy()
 
     def _safe_after(self, ms: int, fn):
         if not self._alive():
@@ -897,10 +931,11 @@ class CacheVaultApp(ctk.CTk):
             "mobile_settings": lambda: self._navigate_screen(NAV_MOBILE_ACCESS),
         }
 
-    def _navigate_screen(self, key: str) -> None:
+    def _navigate_screen(self, key: str, record_history: bool = True) -> None:
         tooltip.hide_tooltip()
+        prev = self._filters.active
         self._filters.set_active(key)
-        self._on_filter_select(key)
+        self._on_filter_select(key, record_history=record_history, prev_key=prev)
 
     def _select_clip_by_id(self, clip_id: str) -> None:
         from ..core import storage as S
@@ -970,13 +1005,14 @@ class CacheVaultApp(ctk.CTk):
         }
 
     def _navigate_filter(self, key: str) -> None:
+        prev = self._filters.active
         self._filters.set_active(key)
         if key == FILTER_HOME:
             self._preview.show_vault_control(
                 self.vault.dashboard_summary(),
                 self._vault_panel_callbacks(),
             )
-        self._on_filter_select(key)
+        self._on_filter_select(key, prev_key=prev)
 
     def _show_home(self) -> None:
         self._toolbar.grid_remove()
@@ -1450,10 +1486,22 @@ class CacheVaultApp(ctk.CTk):
             return "No clips match this filter.\nTry All Clips or clear filters."
         return None
 
-    def _on_filter_select(self, key: str) -> None:
+    def _on_filter_select(self, key: str, record_history: bool = True, prev_key: str | None = None) -> None:
         tooltip.hide_tooltip()
         if not self._guard_unlocked():
             return
+
+        if record_history:
+            current = prev_key if prev_key is not None else self._filters.active
+            if current and current != key:
+                # Only track actual sections, not transient actions.
+                # Use a small history limit to avoid memory bloat.
+                if not self._nav_history or self._nav_history[-1] != current:
+                    self._nav_history.append(current)
+                    if len(self._nav_history) > 50:
+                        self._nav_history.pop(0)
+                self._nav_forward_stack.clear()
+
         if key == NAV_QUICK_PASTE:
             self._schedule_quick_paste()
             return
@@ -1472,6 +1520,50 @@ class CacheVaultApp(ctk.CTk):
                 self._vault_panel_callbacks(),
             )
         self.refresh()
+
+    def _navigate_back(self) -> None:
+        if self._locked():
+            # Locked back returns to safe home if not already there,
+            # or does nothing if history is empty.
+            return
+        if not self._nav_history:
+            return
+        
+        current = self._filters.active
+        prev = self._nav_history.pop()
+        self._nav_forward_stack.append(current)
+        self._navigate_screen(prev, record_history=False)
+
+    def _navigate_forward(self) -> None:
+        if self._locked() or not self._nav_forward_stack:
+            return
+        
+        current = self._filters.active
+        nxt = self._nav_forward_stack.pop()
+        self._nav_history.append(current)
+        self._navigate_screen(nxt, record_history=False)
+
+    def _on_escape_pressed(self, event=None) -> None:
+        tooltip.hide_tooltip()
+        
+        # 1. Close context menus (if we can find them)
+        # 2. Close transient overlays
+        if self._quick_paste and self._quick_paste.winfo_exists():
+            self._quick_paste.destroy()
+            self._quick_paste = None
+            return
+
+        # 3. Clear search if it has focus or text
+        if self._search_var.get():
+            self._search_var.set("")
+            self.focus_set()
+            return
+
+        # 4. Clear selection if in list
+        if self._selected_clip_id:
+            self._selected_clip_id = None
+            self.refresh()
+            return
 
     def _on_clip_select(self, clip) -> None:
         if not self._guard_unlocked():
