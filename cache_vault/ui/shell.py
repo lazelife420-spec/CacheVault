@@ -24,6 +24,7 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, search, vault_lock
+from .. import feature_gate
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -54,11 +55,13 @@ from .filters import (
     NAV_MOBILE_INBOX,
     NAV_QUICK_PASTE,
     NAV_SCREEN_KEYS,
+    NAV_FOUNDER,
     NAV_SETTINGS,
     NAV_STAMPED_RECEIPTS,
     NAV_VAULT_MACROS,
 )
 from ..core.win_mouse import install_mouse_handler
+from .founder import FounderDialog, FounderPromptDialog
 from .home_dashboard import HomeDashboard
 from .duplicate_dialog import DuplicateReviewDialog
 from .mobile_dialogs import (
@@ -88,6 +91,13 @@ HK_ARM_NEXT = 11
 HK_IGNORE_NEXT = 12
 HK_MACRO_MENU = 13
 HK_MACRO_ID_BASE = 100
+
+_FOUNDER_NAV_GATES: dict[str, str] = {
+    NAV_EXPORTS: "exports_advanced",
+    NAV_EDITABLE_COPIES: "editable_copies_advanced",
+    NAV_HTML_BUNDLES: "html_bundle_export",
+    NAV_VAULT_MACROS: "macros_advanced",
+}
 
 
 class CacheVaultApp(ctk.CTk):
@@ -847,6 +857,20 @@ class CacheVaultApp(ctk.CTk):
             pass
         return False
 
+    def _require_founder(self, feature_key: str) -> bool:
+        if feature_gate.requires_feature(feature_key):
+            return True
+        FounderPromptDialog(
+            self,
+            feature_key,
+            on_enter_license=self._open_founder,
+            on_learn_more=self._open_founder,
+        )
+        return False
+
+    def _open_founder(self) -> None:
+        FounderDialog(self, on_license_changed=self.refresh)
+
     def _open_receipts_folder(self) -> None:
         from ..core.settings import default_settings_path
         from ..core import pathutil
@@ -855,6 +879,8 @@ class CacheVaultApp(ctk.CTk):
         pathutil.open_path(str(folder))
 
     def _export_selected_or_view(self) -> None:
+        if not self._require_founder("exports_advanced"):
+            return
         clip = getattr(self._preview, "_clip", None)
         if clip is not None:
             self._export_clip_proof(clip.id)
@@ -1071,6 +1097,8 @@ class CacheVaultApp(ctk.CTk):
             )
 
     def _open_duplicate_review(self) -> None:
+        if not self._require_founder("smart_filters_advanced"):
+            return
         groups = self.vault.duplicate_groups()
         if not groups:
             from tkinter import messagebox
@@ -1471,7 +1499,7 @@ class CacheVaultApp(ctk.CTk):
             SafePickerDialog(
                 self, self.vault.settings,
                 on_pick=lambda sid, _name: self._manual_save_to_safe(payload, sid),
-                on_create=lambda name: self.vault.create_safe(name),
+                on_create=self._create_safe_if_allowed,
             )
             return
         self._manual_save_to_safe(payload, picked[0])
@@ -1499,7 +1527,7 @@ class CacheVaultApp(ctk.CTk):
             self, self.vault.settings,
             title="Save next copy to",
             on_pick=_apply,
-            on_create=lambda name: self.vault.create_safe(name),
+            on_create=self._create_safe_if_allowed,
         )
 
     def _ignore_next_copy(self) -> None:
@@ -1586,6 +1614,12 @@ class CacheVaultApp(ctk.CTk):
             return
         if key == NAV_SETTINGS:
             self._open_settings()
+            return
+        if key == NAV_FOUNDER:
+            self._open_founder()
+            return
+        gate = _FOUNDER_NAV_GATES.get(key)
+        if gate and not self._require_founder(gate):
             return
         if key == NAV_VAULT_MACROS:
             if (
@@ -2207,18 +2241,26 @@ class CacheVaultApp(ctk.CTk):
         )
 
     def _create_editable_copy(self, clip_id: str) -> None:
+        if not self._require_founder("editable_copies_advanced"):
+            return
         self.vault.create_editable_copy(clip_id)
         self._refresh_editable_preview(clip_id)
 
     def _open_editable_copy(self, clip_id: str) -> None:
+        if not self._require_founder("editable_copies_advanced"):
+            return
         self.vault.open_editable_copy(clip_id)
         self._refresh_editable_preview(clip_id)
 
     def _save_editable_revision(self, clip_id: str) -> None:
+        if not self._require_founder("editable_copies_advanced"):
+            return
         self.vault.save_editable_revision(clip_id)
         self._refresh_editable_preview(clip_id)
 
     def _reveal_editable_copy_folder(self, clip_id: str) -> None:
+        if not self._require_founder("editable_copies_advanced"):
+            return
         from ..core import pathutil
         rec = self.vault.latest_editable_copy(clip_id)
         if rec is not None:
@@ -2226,14 +2268,20 @@ class CacheVaultApp(ctk.CTk):
             pathutil.reveal_in_explorer(target)
 
     def _preview_html_copy(self, clip_id: str) -> None:
+        if not self._require_founder("html_bundle_export"):
+            return
         self.vault.preview_html_copy(clip_id)
         self._refresh_editable_preview(clip_id)
 
     def _edit_html_source(self, clip_id: str) -> None:
+        if not self._require_founder("html_bundle_export"):
+            return
         self.vault.edit_html_source(clip_id)
         self._refresh_editable_preview(clip_id)
 
     def _export_html_bundle(self, clip_id: str) -> None:
+        if not self._require_founder("html_bundle_export"):
+            return
         from tkinter import filedialog
 
         from ..core.exports import export_zip_basename
@@ -2256,6 +2304,8 @@ class CacheVaultApp(ctk.CTk):
         self._export_clip_proof_mode(clip_id, "auto")
 
     def _export_clip_proof_mode(self, clip_id: str, mode: str) -> None:
+        if not self._require_founder("proof_pack_export"):
+            return
         from tkinter import filedialog
 
         from ..core.exports import export_zip_basename
@@ -2315,7 +2365,7 @@ class CacheVaultApp(ctk.CTk):
             self, self.vault.settings,
             title="Move to Safe",
             on_pick=pick,
-            on_create=lambda name: self.vault.create_safe(name),
+            on_create=self._create_safe_if_allowed,
         )
 
     def _restore(self, clip_id: str) -> None:
@@ -2340,8 +2390,15 @@ class CacheVaultApp(ctk.CTk):
     def _send_to_macro_safe(self, clip_id: str) -> None:
         if not self._guard_unlocked():
             return
+        if not self._require_founder("macros_advanced"):
+            return
         if self.vault.send_to_macro_safe(clip_id):
             self._show_toast("Added to Vault Macros.")
+
+    def _create_safe_if_allowed(self, name: str):
+        if not self._require_founder("safes_advanced"):
+            return None
+        return self.vault.create_safe(name)
 
     # --- export ------------------------------------------------------------
     def _save_asset_as(self, clip_id: str) -> None:
@@ -2412,6 +2469,8 @@ class CacheVaultApp(ctk.CTk):
 
     def _export_view(self) -> None:
         """Export the clips currently shown (active filter / collection)."""
+        if not self._require_founder("exports_advanced"):
+            return
         clips = self._current_clips()
         if not clips:
             return
@@ -2421,6 +2480,10 @@ class CacheVaultApp(ctk.CTk):
                              clips, name, kind, incl))
 
     def _do_export_view(self, clips, collection_name, kind, include_files) -> None:
+        if kind == "zip" and not self._require_founder("zip_export"):
+            return
+        if kind != "zip" and not self._require_founder("exports_advanced"):
+            return
         from tkinter import filedialog
 
         from ..core import export, models

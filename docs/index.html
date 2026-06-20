@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cache Vault Founder MVP — Local-first clipboard vault</title>
+  <meta name="description" content="Cache Vault is a local-first Windows clipboard vault with a genuinely usable free version and a one-time Founder upgrade for advanced proof and export workflows." />
+  <meta name="theme-color" content="#0b1220" />
+
+  <meta property="og:title" content="Cache Vault Founder MVP" />
+  <meta property="og:description" content="Local-first clipboard vault. Free usable base. One-time Founder upgrade. No cloud. No subscription. Proof receipts included." />
+  <meta property="og:type" content="website" />
+
+  <style>
+    :root {
+      --bg: #07111f;
+      --bg2: #0b1220;
+      --card: rgba(255,255,255,.075);
+      --card2: rgba(255,255,255,.105);
+      --text: #f6f8fb;
+      --muted: #b8c2d6;
+      --line: rgba(255,255,255,.14);
+      --accent: #62d4ff;
+      --accent2: #8cffb6;
+      --warn: #ffd166;
+      --shadow: 0 24px 90px rgba(0,0,0,.38);
+      --radius: 24px;
+      --max: 1120px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 18% 8%, rgba(98,212,255,.25), transparent 32rem),
+        radial-gradient(circle at 82% 18%, rgba(140,255,182,.18), transparent 30rem),
+        radial-gradient(circle at 50% 100%, rgba(98,212,255,.10), transparent 34rem),
+        linear-gradient(180deg, #07111f 0%, #0b1220 48%, #07111f 100%);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    a { color: inherit; }
+
+    .wrap {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(16px);
+      background: rgba(7,17,31,.78);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 74px;
+      gap: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      letter-spacing: -.02em;
+    }
+
+    .mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(135deg, rgba(98,212,255,.95), rgba(140,255,182,.9));
+      color: #06111f;
+      font-weight: 900;
+      box-shadow: 0 10px 30px rgba(98,212,255,.25);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 1px solid var(--line);
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 14px;
+      text-decoration: none;
+      font-weight: 800;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+      white-space: nowrap;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,.30);
+      background: rgba(255,255,255,.06);
+    }
+
+    .button.primary {
+      color: #06111f;
+      border: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      box-shadow: 0 18px 60px rgba(98,212,255,.22);
+    }
+
+    .button.dark {
+      background: rgba(255,255,255,.08);
+    }
+
+    .hero {
+      padding: 92px 0 64px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--accent2);
+      background: rgba(140,255,182,.10);
+      border: 1px solid rgba(140,255,182,.18);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: clamp(44px, 6vw, 76px);
+      line-height: .95;
+      letter-spacing: -.065em;
+      margin: 0 0 24px;
+    }
+
+    .lead {
+      color: var(--muted);
+      font-size: clamp(18px, 2.2vw, 23px);
+      max-width: 760px;
+      margin: 0 0 28px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 30px 0 22px;
+    }
+
+    .proof-strip {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 22px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255,255,255,.045);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .visual {
+      position: relative;
+      min-height: 480px;
+      border-radius: 34px;
+      background:
+        radial-gradient(circle at 30% 20%, rgba(98,212,255,.22), transparent 12rem),
+        radial-gradient(circle at 80% 90%, rgba(140,255,182,.18), transparent 16rem),
+        rgba(255,255,255,.055);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .vault-card {
+      position: absolute;
+      inset: 34px 34px auto 34px;
+      padding: 24px;
+      border-radius: 22px;
+      background: rgba(6,17,31,.72);
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: 0 20px 70px rgba(0,0,0,.32);
+    }
+
+    .mini-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent2);
+      box-shadow: 0 0 0 6px rgba(140,255,182,.13);
+    }
+
+    .clip {
+      display: grid;
+      grid-template-columns: 40px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      margin: 10px 0;
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 16px;
+      background: rgba(255,255,255,.055);
+    }
+
+    .clip-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: rgba(98,212,255,.14);
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      font-weight: 900;
+    }
+
+    .clip strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .clip span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tag {
+      color: #06111f;
+      background: var(--accent2);
+      padding: 6px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .receipt {
+      position: absolute;
+      right: 34px;
+      bottom: 34px;
+      width: min(360px, calc(100% - 68px));
+      padding: 22px;
+      border-radius: 22px;
+      background: rgba(255,255,255,.92);
+      color: #09111f;
+      box-shadow: 0 20px 70px rgba(0,0,0,.30);
+    }
+
+    .receipt h3 {
+      margin: 0 0 12px;
+      letter-spacing: -.02em;
+    }
+
+    .hash {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #334155;
+      word-break: break-all;
+      background: #eef4f8;
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+
+    section {
+      padding: 64px 0;
+    }
+
+    .section-head {
+      max-width: 740px;
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      font-size: clamp(30px, 4vw, 48px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+      margin: 0 0 14px;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 18px;
+      margin: 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .card {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: 0 16px 60px rgba(0,0,0,.16);
+    }
+
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      letter-spacing: -.02em;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .price {
+      font-size: 54px;
+      letter-spacing: -.06em;
+      line-height: 1;
+      margin: 18px 0;
+      font-weight: 900;
+    }
+
+    .list {
+      list-style: none;
+      padding: 0;
+      margin: 18px 0 0;
+      display: grid;
+      gap: 11px;
+    }
+
+    .list li {
+      color: var(--muted);
+      padding-left: 28px;
+      position: relative;
+    }
+
+    .list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: var(--accent2);
+      font-weight: 900;
+    }
+
+    .proof-box {
+      border: 1px solid rgba(140,255,182,.24);
+      background: linear-gradient(135deg, rgba(140,255,182,.09), rgba(98,212,255,.06));
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    .fact {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255,255,255,.055);
+    }
+
+    .fact b {
+      display: block;
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+
+    .fact span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .compare {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: rgba(255,255,255,.045);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1.25fr .55fr .7fr;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .row:last-child { border-bottom: 0; }
+
+    .cell {
+      padding: 16px 18px;
+    }
+
+    .row.head {
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      font-weight: 900;
+    }
+
+    .yes { color: var(--accent2); font-weight: 900; }
+    .no { color: #ff9e9e; font-weight: 900; }
+
+    .notice {
+      padding: 18px 20px;
+      border: 1px solid rgba(255,209,102,.25);
+      border-radius: 18px;
+      background: rgba(255,209,102,.08);
+      color: #ffe0a3;
+      margin-top: 22px;
+    }
+
+    .cta {
+      text-align: center;
+      padding: 84px 0 96px;
+    }
+
+    .cta-card {
+      padding: 42px;
+      border: 1px solid var(--line);
+      border-radius: 32px;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(98,212,255,.18), transparent 18rem),
+        radial-gradient(circle at 85% 80%, rgba(140,255,182,.14), transparent 18rem),
+        rgba(255,255,255,.06);
+      box-shadow: var(--shadow);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 28px 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    code {
+      color: #dce7ff;
+      background: rgba(255,255,255,.08);
+      padding: 2px 6px;
+      border-radius: 7px;
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid, .split, .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .facts {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .nav-links {
+        display: none;
+      }
+
+      .visual {
+        min-height: 520px;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .wrap {
+        width: min(100% - 28px, var(--max));
+      }
+
+      .hero {
+        padding-top: 58px;
+      }
+
+      .hero-actions .button {
+        width: 100%;
+      }
+
+      .facts {
+        grid-template-columns: 1fr;
+      }
+
+      .row {
+        grid-template-columns: 1fr;
+      }
+
+      .cell {
+        border-bottom: 1px solid var(--line);
+      }
+
+      .row .cell:last-child {
+        border-bottom: 0;
+      }
+
+      .visual {
+        min-height: 600px;
+      }
+
+      .vault-card {
+        inset: 20px 20px auto 20px;
+      }
+
+      .receipt {
+        right: 20px;
+        bottom: 20px;
+        width: calc(100% - 40px);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!--
+    Replace these two href values before going fully public:
+    1) Download Free button: GitHub release asset or latest release URL.
+    2) Buy Founder button: checkout/payment URL.
+  -->
+
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="Cache Vault home">
+        <span class="mark">CV</span>
+        <span>Cache Vault</span>
+      </a>
+
+      <div class="nav-links">
+        <a href="#free">Free</a>
+        <a href="#founder">Founder</a>
+        <a href="#proof">Proof</a>
+        <a href="#download">Download</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="top">
+    <header class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <div class="eyebrow">Founder MVP v0.1.3 · Windows</div>
+          <h1>A local-first clipboard vault with receipts.</h1>
+          <p class="lead">
+            Cache Vault saves useful copied text, code, replies, receipts and reusable work locally on your Windows PC.
+            The free version is usable. Founder Edition is a one-time upgrade for advanced proof and export workflows.
+          </p>
+
+          <div class="hero-actions">
+            <a class="button primary" href="https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/v0.1.3-founder-mvp">Download Free</a>
+            <a class="button dark" href="#founder">Founder Edition — $19 lifetime</a>
+          </div>
+
+          <div class="proof-strip" aria-label="Product guarantees">
+            <span class="pill">No account required</span>
+            <span class="pill">No subscription</span>
+            <span class="pill">No cloud claim</span>
+            <span class="pill">Local-first storage</span>
+          </div>
+        </div>
+
+        <div class="visual" aria-label="Cache Vault product illustration">
+          <div class="vault-card">
+            <div class="mini-title">
+              <span>Local Vault</span>
+              <span class="status-dot" aria-hidden="true"></span>
+            </div>
+
+            <div class="clip">
+              <div class="clip-icon">{ }</div>
+              <div>
+                <strong>Code snippet</strong>
+                <span>Saved locally · searchable</span>
+              </div>
+              <span class="tag">Safe</span>
+            </div>
+
+            <div class="clip">
+              <div class="clip-icon">TXT</div>
+              <div>
+                <strong>Saved reply</strong>
+                <span>Favorite · copy back out</span>
+              </div>
+              <span class="tag">Free</span>
+            </div>
+
+            <div class="clip">
+              <div class="clip-icon">ZIP</div>
+              <div>
+                <strong>Proof pack export</strong>
+                <span>Founder workflow</span>
+              </div>
+              <span class="tag">Prove</span>
+            </div>
+          </div>
+
+          <div class="receipt">
+            <h3>Release receipt included</h3>
+            <p>
+              Version, edition, enabled features, package hash, and known limitations are documented plainly.
+            </p>
+            <div class="hash">
+              SHA256<br />
+              279d181513e0c4653911d7803d62d5c924b0b15a5b009c5bbb0b8a8f0e0a0316
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section id="free">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Free means usable.</h2>
+          <p class="sub">
+            Cache Vault is not fake-free. The base app covers the daily clipboard vault workflow without a license.
+          </p>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <h3>Capture</h3>
+            <p>Keep useful copied items in a local vault instead of losing them when the clipboard changes.</p>
+          </div>
+
+          <div class="card">
+            <h3>Search</h3>
+            <p>Find saved clips by content and reuse them without digging through files or old messages.</p>
+          </div>
+
+          <div class="card">
+            <h3>Favorites</h3>
+            <p>Pin important clips so reusable replies, code and references are easy to reach.</p>
+          </div>
+
+          <div class="card">
+            <h3>Copy back out</h3>
+            <p>Send a saved vault item back to your clipboard when you need it again.</p>
+          </div>
+
+          <div class="card">
+            <h3>Single-item export</h3>
+            <p>Export individual items without paying for the advanced bulk workflows.</p>
+          </div>
+
+          <div class="card">
+            <h3>Local-first</h3>
+            <p>No account, no monthly plan, and no cloud requirement for the core vault.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="founder">
+      <div class="wrap split">
+        <div class="card">
+          <div class="eyebrow">Founder Edition</div>
+          <h2>Power tools for people who save real work.</h2>
+          <p class="sub">
+            Founder Edition unlocks advanced workflows while keeping the free app useful.
+          </p>
+
+          <ul class="list">
+            <li>Bulk exports and ZIP bundles</li>
+            <li>Proof-pack exports</li>
+            <li>HTML bundle workflows</li>
+            <li>Advanced editable copies</li>
+            <li>Smart filters and duplicate review</li>
+            <li>Macros and custom safes</li>
+          </ul>
+        </div>
+
+        <div class="card proof-box">
+          <h3>One-time Founder license</h3>
+          <div class="price">$19</div>
+          <p>
+            Early Founder pricing for a local Windows utility. No subscription. No login gate.
+          </p>
+
+          <div class="hero-actions">
+            <a class="button primary" href="#founder">Buy Founder</a>
+            <a class="button dark" href="#compare">Compare tiers</a>
+          </div>
+
+          <div class="notice">
+            Licenses are manually issued in this MVP. That is intentional for the first sellable release.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="proof">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Built with receipts.</h2>
+          <p class="sub">
+            Cache Vault’s release gate records what passed, what shipped, and what is not claimed.
+          </p>
+        </div>
+
+        <div class="facts">
+          <div class="fact">
+            <b>440</b>
+            <span>tests passed</span>
+          </div>
+
+          <div class="fact">
+            <b>1</b>
+            <span>test skipped</span>
+          </div>
+
+          <div class="fact">
+            <b>PASS</b>
+            <span>packaged selftest</span>
+          </div>
+
+          <div class="fact">
+            <b>0.1.3</b>
+            <span>package version</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:18px;">
+          <h3>Production release gate</h3>
+          <p>
+            Release commit <code>763b549366b2a5c68f8ac311f4d30cf8c3ac2f6c</code> is tagged
+            <code>v0.1.3-founder-mvp</code>. The packaged ZIP hash is:
+          </p>
+          <div class="hash">
+            279d181513e0c4653911d7803d62d5c924b0b15a5b009c5bbb0b8a8f0e0a0316
+          </div>
+        </div>
+
+        <div class="notice">
+          Honest limits: no cloud sync, no mobile bridge, no account system, and no automatic license server in this MVP.
+        </div>
+      </div>
+    </section>
+
+    <section id="compare">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Free vs Founder</h2>
+          <p class="sub">
+            Basic access stays free. Founder unlocks advanced workflows.
+          </p>
+        </div>
+
+        <div class="compare" role="table" aria-label="Free versus Founder feature comparison">
+          <div class="row head" role="row">
+            <div class="cell" role="columnheader">Feature</div>
+            <div class="cell" role="columnheader">Free</div>
+            <div class="cell" role="columnheader">Founder</div>
+          </div>
+
+          <div class="row" role="row">
+            <div class="cell">Capture, search, favorites</div>
+            <div class="cell yes">Yes</div>
+            <div class="cell yes">Yes</div>
+          </div>
+
+          <div class="row" role="row">
+            <div class="cell">Copy saved items back out</div>
+            <div class="cell yes">Yes</div>
+            <div class="cell yes">Yes</div>
+          </div>
+
+          <div class="row" role="row">
+            <div class="cell">Single-item export</div>
+            <div class="cell yes">Yes</div>
+            <div class="cell yes">Yes</div>
+          </div>
+
+          <div class="row" role="row">
+            <div class="cell">Bulk export and ZIP bundles</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+
+          <div class="row" role="row">
+            <div class="cell">Proof-pack exports</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+
+          <div class="row" role="row">
+            <div class="cell">HTML bundles and advanced editable copies</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+
+          <div class="row" role="row">
+            <div class="cell">Macros, custom safes, duplicate review</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="cta">
+      <div class="wrap">
+        <div class="cta-card">
+          <div class="eyebrow">Ready to ship</div>
+          <h2>Download the free vault. Upgrade only when you need the power tools.</h2>
+          <p class="sub">
+            Cache Vault runs on Windows. Founder MVP v0.1.3 has production keys, packaged proof, a tagged release, and a release receipt.
+          </p>
+
+          <div class="hero-actions" style="justify-content:center;">
+            <a class="button primary" href="https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/v0.1.3-founder-mvp">Download Free</a>
+            <a class="button dark" href="#founder">Buy Founder — $19</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span>Cache Vault · Proof Foundry</span>
+      <span>Build it. Prove it. Ship it.</span>
+    </div>
+  </footer>
+</body>
+</html>
+

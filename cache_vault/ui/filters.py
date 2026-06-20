@@ -22,9 +22,10 @@ NAV_HTML_BUNDLES = "nav_html_bundles"
 NAV_MOBILE_ACCESS = "nav_mobile_access"
 NAV_MOBILE_INBOX = "nav_mobile_inbox"
 NAV_VAULT_MACROS = "nav_vault_macros"
+NAV_FOUNDER = "nav_founder"
 NAV_SETTINGS = "nav_settings"
 
-NAV_DIALOG_ONLY = frozenset({NAV_QUICK_PASTE})
+NAV_DIALOG_ONLY = frozenset({NAV_QUICK_PASTE, NAV_FOUNDER})
 NAV_SCREEN_KEYS = frozenset({
     NAV_STAMPED_RECEIPTS,
     NAV_EXPORTS,
@@ -50,6 +51,7 @@ _NAV_ICONS: dict[str, str] = {
     NAV_MOBILE_ACCESS: "◈ ",
     NAV_MOBILE_INBOX: "↓ ",
     NAV_VAULT_MACROS: "⚡ ",
+    NAV_FOUNDER: "◆ ",
     NAV_SETTINGS: "⚙ ",
 }
 
@@ -83,6 +85,7 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (NAV_HTML_BUNDLES, brand.TERM_HTML_BUNDLES),
     ]),
     ("ACCESS", [
+        (NAV_FOUNDER, "Founder"),
         (NAV_MOBILE_INBOX, brand.TERM_MOBILE_INBOX),
         (NAV_MOBILE_ACCESS, brand.TERM_MOBILE_ACCESS),
         (NAV_SETTINGS, "Settings"),

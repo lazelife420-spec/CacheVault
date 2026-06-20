@@ -227,7 +227,7 @@ auto-paste behaviour are configurable in Settings; the hotkey re-registers
 live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
 dedicated message-loop thread (requires pywin32).
 
-## Honest scope & limitations (MVP v0.1.2)
+## Honest scope & limitations (v0.1.3 Founder MVP)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
