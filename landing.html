@@ -3,8 +3,53 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Cache Vault Founder Edition</title>
+  <title>Cache Vault Founder Edition — Local-first clipboard vault for Windows</title>
+  <meta name="description" content="Cache Vault is a local-first Windows clipboard vault with a genuinely usable free version and a one-time Founder upgrade for advanced proof and export workflows." />
+  <meta name="robots" content="index, follow" />
   <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#07111f" />
+  <link rel="canonical" href="https://cashdominion.gumroad.com/l/eojmeb" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='56' fill='%23141d28'/%3E%3Crect x='96' y='18' width='64' height='26' rx='10' fill='%232dd4bf'/%3E%3Ccircle cx='128' cy='128' r='66' fill='%230c121a' stroke='%232dd4bf' stroke-width='15'/%3E%3Ccircle cx='128' cy='128' r='28' fill='%235eead4'/%3E%3C/svg%3E" type="image/svg+xml" />
+
+  <meta property="og:title" content="Cache Vault Founder Edition — Local-first clipboard vault" />
+  <meta property="og:description" content="Local-first clipboard vault for Windows. Free usable base. One-time Founder upgrade. No cloud. No subscription. Proof receipts included." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://cashdominion.gumroad.com/l/eojmeb" />
+  <meta property="og:site_name" content="Cache Vault" />
+  <meta property="og:locale" content="en_US" />
+
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Cache Vault Founder Edition — Local-first clipboard vault" />
+  <meta name="twitter:description" content="Local-first clipboard vault for Windows. Free usable base. One-time Founder upgrade. No cloud. No subscription." />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Cache Vault Founder Edition",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows",
+    "description": "Local-first Windows clipboard vault with a usable free tier and a one-time Founder upgrade for proof packs, bulk exports, and advanced workflows.",
+    "offers": [
+      {
+        "@type": "Offer",
+        "name": "Free",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      {
+        "@type": "Offer",
+        "name": "Founder Edition",
+        "price": "19",
+        "priceCurrency": "USD",
+        "url": "https://cashdominion.gumroad.com/l/eojmeb"
+      }
+    ],
+    "downloadUrl": "https://github.com/Z3r0DayZion-install/CacheVault/releases/download/v0.1.3-founder-mvp.2/CacheVault-v0.1.3-founder-mvp.2-windows.zip",
+    "softwareVersion": "0.1.3-founder-mvp.2"
+  }
+  </script>
+
   <style>
     :root {
       --bg: #f4f7fb;
@@ -105,6 +150,22 @@
       font-weight: 800;
       letter-spacing: -0.02em;
       text-decoration: none;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
     }
 
     .nav-actions {
@@ -456,6 +517,7 @@
 
     @media (max-width: 900px) {
       .hero-grid, .split, .grid-3 { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
       .sticky-buy { display: block; }
       footer { padding-bottom: 120px; }
     }
@@ -489,6 +551,13 @@
         </svg>
         <span>Cache Vault</span>
       </a>
+      <div class="nav-links">
+        <a href="#free">Free</a>
+        <a href="#founder">Founder</a>
+        <a href="#proof">Proof</a>
+        <a href="#compare">Compare</a>
+        <a href="#download">Download</a>
+      </div>
       <div class="nav-actions">
         <button type="button" class="theme-btn" id="theme-toggle" aria-label="Toggle light and dark mode">◐</button>
         <a class="btn btn-primary" href="https://cashdominion.gumroad.com/l/eojmeb" target="_blank" rel="noopener noreferrer">Buy Founder</a>
@@ -516,7 +585,7 @@
 
           <div class="hero-actions">
             <a class="btn btn-primary" href="https://cashdominion.gumroad.com/l/eojmeb" target="_blank" rel="noopener noreferrer">Buy Founder Edition</a>
-            <a class="btn" href="https://github.com/Z3r0DayZion-install/CacheVault/releases/download/v0.1.3-founder-mvp.2/CacheVault-v0.1.3-founder-mvp.2-windows.zip">Download Free (.2)</a>
+            <a class="btn" href="https://github.com/Z3r0DayZion-install/CacheVault/releases/download/v0.1.3-founder-mvp.2/CacheVault-v0.1.3-founder-mvp.2-windows.zip">Download Free</a>
           </div>
 
           <div class="pills" aria-label="Trust guarantees">
