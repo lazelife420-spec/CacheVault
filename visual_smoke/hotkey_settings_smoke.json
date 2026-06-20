@@ -1,0 +1,18 @@
+{
+  "pass": true,
+  "checks": {
+    "keyboard_shortcuts_section": true,
+    "quick_paste_menu_label": true,
+    "save_to_vault_label": true,
+    "skip_capture_label": true,
+    "reset_defaults_button": true,
+    "shortcut_help_button": true,
+    "hotkey_status_helper": true,
+    "geometry_520x720": true,
+    "status_labels_present": true
+  },
+  "screenshots": {
+    "01_settings_keyboard_shortcuts.png": "visual_smoke/hotkey_settings_polish/01_settings_keyboard_shortcuts.png",
+    "02_hotkey_help.png": "visual_smoke/hotkey_settings_polish/02_hotkey_help.png"
+  }
+}

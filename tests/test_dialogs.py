@@ -15,17 +15,26 @@ class TestSettingsDialog:
         from cache_vault.ui.dialogs import SettingsDialog
 
         src = inspect.getsource(SettingsDialog.__init__)
-        assert re.search(r'geometry\s*\(\s*["\"]520x680["\"]\s*\)', src), (
-            "Settings dialog must declare geometry 520x680"
+        assert re.search(r'geometry\s*\(\s*["\"]520x720["\"]\s*\)', src), (
+            "Settings dialog must declare geometry 520x720"
         )
-        assert re.search(r'minsize\s*\(\s*520\s*,\s*520\s*\)', src), (
-            "Settings dialog must enforce minsize 520x520"
+        assert re.search(r'minsize\s*\(\s*520\s*,\s*540\s*\)', src), (
+            "Settings dialog must enforce minsize 520x540"
         )
         assert re.search(r'resizable\s*\(\s*False\s*,\s*True\s*\)', src), (
             "Settings dialog must be vertically resizable"
         )
         assert "Capture Rules" in src, (
             "Settings must include Capture Rules section"
+        )
+        assert "Keyboard Shortcuts" in src, (
+            "Settings must include Keyboard Shortcuts section"
+        )
+        assert "Save to Vault" in src, (
+            "Settings must label manual save as Save to Vault"
+        )
+        assert "Quick Paste menu" in src, (
+            "Settings must label quick paste hotkey clearly"
         )
         assert "Manage Safes" in src, (
             "Settings must expose Manage Safes control"
@@ -41,9 +50,9 @@ class TestSettingsDialog:
         assert dialog._current_width == 520, (
             f"expected width 520, got {dialog._current_width}"
         )
-        assert dialog._current_height >= 680, (
+        assert dialog._current_height >= 720, (
             f"Settings dialog requested height is {dialog._current_height}px; "
-            f"expected >= 680px to prevent footer clipping under display scaling"
+            f"expected >= 720px to prevent footer clipping under display scaling"
         )
 
         dialog.destroy()
@@ -72,8 +81,8 @@ class TestSettingsDialog:
         assert dialog._min_width == 520, (
             f"expected min width 520, got {dialog._min_width}"
         )
-        assert dialog._min_height == 520, (
-            f"expected min height 520, got {dialog._min_height}"
+        assert dialog._min_height == 540, (
+            f"expected min height 540, got {dialog._min_height}"
         )
 
         dialog.destroy()
@@ -247,5 +256,27 @@ class TestSettingsDialog:
         assert pair_btn is not None
         pair_btn.invoke()
         assert calls == [False]
+
+        dialog.destroy()
+
+    def test_keyboard_shortcuts_show_status_labels(self, tk_root):
+        """Each shortcut row should expose a live status label."""
+        from cache_vault.core.settings import Settings
+        from cache_vault.ui.dialogs import SettingsDialog
+
+        dialog = SettingsDialog(tk_root, Settings(), on_save=lambda s: None)
+        dialog.update_idletasks()
+
+        assert set(dialog._hk_entries) == {
+            "manual_save", "arm_next", "ignore_next", "quick_paste", "macro_menu",
+        }
+        for role in dialog._hk_entries:
+            status = dialog._hk_status[role].cget("text")
+            assert status.startswith("Ready ·"), f"{role} status: {status!r}"
+
+        dialog._manual_hk.delete(0, "end")
+        dialog._manual_hk.insert(0, dialog._hotkey.get())
+        dialog._refresh_hotkey_statuses()
+        assert "Same shortcut" in dialog._hk_status["manual_save"].cget("text")
 
         dialog.destroy()
