@@ -1,5 +1,27 @@
 # Changelog
 
+## Cache Vault v0.1.3 — Founder MVP
+
+Release label: **Founder MVP** · Tag: `v0.1.3-founder-mvp`
+
+### Added
+
+- Offline Ed25519 Founder license verification (Free + Founder editions).
+- Founder unlock UI (sidebar → Founder).
+- Central feature gate for advanced exports, proof packs, HTML bundles, editable copies, macros, safes, and review filters.
+- App proof receipt export.
+- Founder purchase/license docs and landing page.
+
+### Changed
+
+- Package version `0.1.3`; Founder MVP carried by release tag and display label.
+- Advanced power workflows require a valid Founder license; core capture/search/favorite/copy remain free.
+
+### Trust
+
+- No cloud sync, no license server, no accounts in this MVP.
+- Manual Founder license delivery only.
+
 ## Cache Vault v0.1.2
 
 Released from commit `6cbb20d`.

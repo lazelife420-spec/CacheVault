@@ -38,6 +38,19 @@ def _selftest() -> int:
     bridge = MobileBridge(vault)
     assert bridge.allowed_routes()  # mobile stack importable in frozen builds
 
+    # Licensing / Ed25519 must work in frozen builds (Founder MVP gate).
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cache_vault import licensing
+
+    Ed25519PrivateKey.generate()  # cryptography backend alive
+    missing = licensing.load_license()
+    if missing.state == licensing.LicenseState.MISSING_LICENSE:
+        pass
+    elif missing.state == licensing.LicenseState.FOUNDER_VALID:
+        assert licensing.is_feature_enabled("proof_pack_export")
+    else:
+        raise RuntimeError(f"license smoke failed: {missing.state.value} — {missing.message}")
+
     vault.clear_sensitive()
     vault.close()
     print("selftest OK — core capture/classify/sensitive/image/mobile pipeline works")
