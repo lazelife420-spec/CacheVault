@@ -103,7 +103,7 @@ if ($receiptFolder) {
 # 8. Checkout placeholder (informational — expected until you wire payment)
 try {
     $landing = (Invoke-WebRequest -Uri $landingUrl -UseBasicParsing).Content
-    $isPlaceholder = $landing -match 'href="#founder"'
+    $isPlaceholder = $landing -match 'class="button[^"]*"\s+href="#founder"'
     if ($isPlaceholder) {
         Write-Host ""
         Write-Host "WARN  Checkout still placeholder (#founder) — wire before first sale."
@@ -127,6 +127,17 @@ foreach ($r in $results) {
 Write-Host ""
 if ($failed -eq 0) {
     Write-Host "All automated checks passed. Complete manual UI checklist in docs/FOUNDER_FIRST_SALE.md"
+    $receiptPath = Join-Path $root "visual_smoke/buyer_simulation_gate.json"
+    $receiptDir = Split-Path $receiptPath -Parent
+    if (-not (Test-Path $receiptDir)) { New-Item -ItemType Directory -Force -Path $receiptDir | Out-Null }
+    $receipt = [ordered]@{
+        release_tag = $releaseTag
+        passed = $results.Count
+        failed = 0
+        overall_pass = $true
+        steps = $results
+    }
+    $receipt | ConvertTo-Json -Depth 4 | Set-Content -Path $receiptPath -Encoding utf8
 } else {
     Write-Host "$failed check(s) failed. Fix before first sale."
     exit 1

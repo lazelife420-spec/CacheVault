@@ -21,7 +21,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 if (-not $ReleaseUrl) {
-    $ReleaseUrl = "https://github.com/$Owner/CacheVault/releases/tag/v0.1.3-founder-mvp.1"
+    $ReleaseUrl = "https://github.com/$Owner/CacheVault/releases/tag/v0.1.3-founder-mvp.2"
 }
 
 $source = Join-Path $root "docs\index.html"

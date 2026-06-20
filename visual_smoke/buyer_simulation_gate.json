@@ -1,0 +1,78 @@
+{
+  "release_tag": "v0.1.3-founder-mvp.2",
+  "passed": 14,
+  "failed": 0,
+  "overall_pass": true,
+  "steps": [
+    {
+      "Step": "Release ZIP built locally",
+      "Pass": true,
+      "Detail": "C:\\Users\\KickA\\Desktop\\CacheVault\\dist\\release\\v0.1.3-founder-mvp.2\\CacheVault-v0.1.3-founder-mvp.2-windows.zip"
+    },
+    {
+      "Step": "Packaged EXE exists",
+      "Pass": true,
+      "Detail": "C:\\Users\\KickA\\Desktop\\CacheVault\\dist\\CacheVault.exe"
+    },
+    {
+      "Step": "Production test license exists",
+      "Pass": true,
+      "Detail": "C:\\secure\\cachevault-keys\\founder-test-license.json"
+    },
+    {
+      "Step": "GitHub Release has ZIP asset (v0.1.3-founder-mvp.2)",
+      "Pass": true,
+      "Detail": "https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/v0.1.3-founder-mvp.2"
+    },
+    {
+      "Step": "Landing page HTTP 200",
+      "Pass": true,
+      "Detail": "https://z3r0dayzion-install.github.io/cache-vault-landing/"
+    },
+    {
+      "Step": "Landing links to release (v0.1.3-founder-mvp.2)",
+      "Pass": true,
+      "Detail": ""
+    },
+    {
+      "Step": "Free mode selftest (packaged EXE)",
+      "Pass": true,
+      "Detail": "selftest OK ù core capture/classify/sensitive/image/mobile pipeline works"
+    },
+    {
+      "Step": "Invalid license rejected",
+      "Pass": true,
+      "Detail": ""
+    },
+    {
+      "Step": "Founder license accepted (selftest)",
+      "Pass": true,
+      "Detail": ""
+    },
+    {
+      "Step": "License file persists on disk",
+      "Pass": true,
+      "Detail": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-buyer-sim-founder\\CacheVault\\license.json"
+    },
+    {
+      "Step": "Founder active after restart (selftest)",
+      "Pass": true,
+      "Detail": ""
+    },
+    {
+      "Step": "Proof receipt exports",
+      "Pass": true,
+      "Detail": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-buyer-sim-receipt\\CacheVault_Proof_2026-06-20-181710"
+    },
+    {
+      "Step": "Receipt has no clipboard leak",
+      "Pass": true,
+      "Detail": ""
+    },
+    {
+      "Step": "Checkout URL wired on landing",
+      "Pass": true,
+      "Detail": ""
+    }
+  ]
+}
