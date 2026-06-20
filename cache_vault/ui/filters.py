@@ -9,6 +9,7 @@ import customtkinter as ctk
 from .. import brand
 from ..core import storage as S
 from ..core.settings import Settings
+from ..core.smart_folders import SMART_FOLDER_NAV
 from . import theme
 from .guide_copy import EMPTY_SAFES, NAV_TOOLTIPS, TOOLTIP_SAFES
 from .tooltip import bind_tooltip
@@ -72,6 +73,7 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (S.FILTER_EMAILS, "Emails"),
         (S.FILTER_PHONES, "Phone Numbers"),
     ]),
+    ("SMART FOLDERS", list(SMART_FOLDER_NAV)),
     ("REVIEW", [
         (S.FILTER_SENSITIVE, "Sensitive"),
         (S.FILTER_DUPLICATES, "Duplicates"),
