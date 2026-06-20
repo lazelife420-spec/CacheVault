@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cache Vault Founder Edition</title>
+  <meta name="color-scheme" content="light dark" />
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --bg2: #e8eef6;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --line: rgba(15, 23, 42, 0.12);
+      --accent: #0d9488;
+      --accent2: #14b8a6;
+      --accent-text: #042f2e;
+      --gold: #b45309;
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+      --radius: 20px;
+      --max: 1080px;
+      --focus: #0284c7;
+    }
+
+    html[data-theme="dark"] {
+      --bg: #07111f;
+      --bg2: #0b1220;
+      --surface: rgba(255, 255, 255, 0.06);
+      --text: #f6f8fb;
+      --muted: #b8c2d6;
+      --line: rgba(255, 255, 255, 0.14);
+      --accent: #2dd4bf;
+      --accent2: #5eead4;
+      --accent-text: #042f2e;
+      --gold: #fcd34d;
+      --shadow: 0 24px 90px rgba(0, 0, 0, 0.38);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 15% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 28rem),
+        radial-gradient(circle at 85% 10%, color-mix(in srgb, var(--accent2) 14%, transparent), transparent 24rem),
+        linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    a { color: inherit; }
+    :focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    .skip {
+      position: absolute;
+      left: -9999px;
+      top: 0;
+      background: var(--surface);
+      padding: 8px 12px;
+      z-index: 100;
+    }
+    .skip:focus { left: 12px; top: 12px; }
+
+    .wrap {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: blur(14px);
+      background: color-mix(in srgb, var(--bg) 82%, transparent);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 68px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .theme-btn {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 12px;
+      min-width: 44px;
+      min-height: 44px;
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 48px;
+      padding: 0 20px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+
+    .btn-primary {
+      border: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: var(--accent-text);
+      box-shadow: 0 16px 40px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+
+    .hero {
+      padding: 72px 0 48px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 40px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      font-size: clamp(36px, 5vw, 58px);
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+      margin: 0 0 16px;
+    }
+
+    .product-name {
+      display: block;
+      color: var(--accent);
+      font-size: 0.72em;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .lead {
+      color: var(--muted);
+      font-size: clamp(17px, 2vw, 20px);
+      max-width: 640px;
+      margin: 0 0 24px;
+    }
+
+    .price-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 20px 0;
+    }
+
+    .price-tag {
+      font-size: clamp(40px, 6vw, 52px);
+      font-weight: 900;
+      letter-spacing: -0.06em;
+      line-height: 1;
+    }
+
+    .price-note {
+      color: var(--muted);
+      font-size: 14px;
+      max-width: 280px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 24px;
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 20px;
+    }
+
+    .pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .visual {
+      position: relative;
+      border-radius: 28px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      padding: 28px;
+      min-height: 420px;
+      overflow: hidden;
+    }
+
+    .visual svg {
+      width: 120px;
+      height: 120px;
+      display: block;
+      margin: 0 auto 20px;
+    }
+
+    .card-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .mini-card {
+      display: grid;
+      grid-template-columns: 40px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      font-size: 13px;
+    }
+
+    .mini-card strong { display: block; }
+    .mini-card span { color: var(--muted); font-size: 12px; }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent2) 25%, transparent);
+      color: var(--accent);
+    }
+
+    section { padding: 56px 0; }
+
+    h2 {
+      font-size: clamp(28px, 4vw, 40px);
+      letter-spacing: -0.04em;
+      margin: 0 0 12px;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 17px;
+      margin: 0 0 24px;
+      max-width: 720px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .panel {
+      padding: 22px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .list {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .list li {
+      position: relative;
+      padding-left: 26px;
+      color: var(--muted);
+    }
+
+    .list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: 900;
+    }
+
+    .notice {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid color-mix(in srgb, var(--gold) 35%, var(--line));
+      background: color-mix(in srgb, var(--gold) 10%, transparent);
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .compare {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1.3fr 0.5fr 0.6fr;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .row:last-child { border-bottom: 0; }
+    .row.head { font-weight: 800; background: color-mix(in srgb, var(--surface) 70%, var(--accent) 8%); }
+    .cell { padding: 14px 16px; font-size: 14px; }
+    .yes { color: var(--accent); font-weight: 800; }
+    .no { color: #ef4444; font-weight: 800; }
+
+    .hash {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      word-break: break-all;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--bg) 80%, transparent);
+      color: var(--muted);
+      margin-top: 12px;
+    }
+
+    .cta {
+      text-align: center;
+      padding: 72px 0 96px;
+    }
+
+    .cta-card {
+      padding: 36px 28px;
+      border-radius: 28px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .desc-block {
+      color: var(--muted);
+      font-size: 16px;
+      max-width: 720px;
+      margin: 0 auto 24px;
+    }
+
+    .sticky-buy {
+      display: none;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 45;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      background: color-mix(in srgb, var(--bg) 92%, transparent);
+      border-top: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+
+    .sticky-buy .wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .sticky-buy .btn { flex: 1; max-width: 220px; }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 24px 0 110px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid, .split, .grid-3 { grid-template-columns: 1fr; }
+      .sticky-buy { display: block; }
+      footer { padding-bottom: 120px; }
+    }
+
+    @media (max-width: 560px) {
+      .row { grid-template-columns: 1fr; }
+      .cell { border-bottom: 1px solid var(--line); }
+      .row .cell:last-child { border-bottom: 0; }
+      .hero-actions .btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <nav class="nav" aria-label="Primary">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top">
+        <svg width="36" height="36" viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+          <rect x="0" y="0" width="256" height="256" rx="56" fill="#141d28"/>
+          <rect x="96" y="18" width="64" height="26" rx="10" fill="#2dd4bf"/>
+          <circle cx="128" cy="128" r="66" fill="#0c121a"/>
+          <g stroke="#2dd4bf" stroke-width="15" stroke-linecap="round">
+            <line x1="97" y1="97" x2="62" y2="62"/>
+            <line x1="159" y1="97" x2="194" y2="62"/>
+            <line x1="97" y1="159" x2="62" y2="194"/>
+            <line x1="159" y1="159" x2="194" y2="194"/>
+          </g>
+          <circle cx="128" cy="128" r="66" fill="none" stroke="#2dd4bf" stroke-width="15"/>
+          <circle cx="128" cy="128" r="28" fill="#5eead4"/>
+        </svg>
+        <span>Cache Vault</span>
+      </a>
+      <div class="nav-actions">
+        <button type="button" class="theme-btn" id="theme-toggle" aria-label="Toggle light and dark mode">◐</button>
+        <button type="button" class="btn btn-primary" data-gumroad-action="buy">Buy Founder</button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <header class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div>
+          <div class="eyebrow">Founder MVP · Lifetime license · Windows</div>
+          <h1>
+            <span class="product-name" data-gumroad-field="name">Cache Vault Founder Edition — Lifetime License</span>
+            Keep useful clipboard work. Prove what you ship.
+          </h1>
+          <p class="lead" data-gumroad-field="description">
+            A one-time Founder license for Cache Vault. Unlocks advanced exports, proof packs, HTML bundles, smart organization, macros, custom safes, and future Founder updates. Cache Vault is local-first: no account, no cloud requirement, and no subscription.
+          </p>
+
+          <div class="price-row" aria-label="Price">
+            <div class="price-tag" data-gumroad-field="price">$19</div>
+            <p class="price-note">One-time payment. No subscription. License file delivered after purchase.</p>
+          </div>
+
+          <div class="hero-actions">
+            <button type="button" class="btn btn-primary" data-gumroad-action="buy">Buy Founder Edition</button>
+            <a class="btn" href="#compare">Compare Free vs Founder</a>
+          </div>
+
+          <div class="pills" aria-label="Trust guarantees">
+            <span class="pill">Local-first</span>
+            <span class="pill">No cloud claim</span>
+            <span class="pill">Offline license</span>
+            <span class="pill">Proof receipts</span>
+          </div>
+        </div>
+
+        <div class="visual" aria-label="Product preview">
+          <svg viewBox="0 0 256 256" role="img" aria-label="Cache Vault icon">
+            <title>Cache Vault</title>
+            <rect x="0" y="0" width="256" height="256" rx="56" fill="#141d28"/>
+            <rect x="96" y="18" width="64" height="26" rx="10" fill="#2dd4bf"/>
+            <circle cx="128" cy="128" r="66" fill="#0c121a"/>
+            <g stroke="#2dd4bf" stroke-width="15" stroke-linecap="round">
+              <line x1="97" y1="97" x2="62" y2="62"/>
+              <line x1="159" y1="97" x2="194" y2="62"/>
+              <line x1="97" y1="159" x2="62" y2="194"/>
+              <line x1="159" y1="159" x2="194" y2="194"/>
+            </g>
+            <circle cx="128" cy="128" r="66" fill="none" stroke="#2dd4bf" stroke-width="15"/>
+            <circle cx="128" cy="128" r="28" fill="#5eead4"/>
+          </svg>
+
+          <div class="card-list">
+            <div class="mini-card">
+              <div aria-hidden="true">TXT</div>
+              <div><strong>Saved reply</strong><span>Favorites · copy back out</span></div>
+              <span class="tag">Free</span>
+            </div>
+            <div class="mini-card">
+              <div aria-hidden="true">{ }</div>
+              <div><strong>Code snippet</strong><span>Searchable local vault</span></div>
+              <span class="tag">Free</span>
+            </div>
+            <div class="mini-card">
+              <div aria-hidden="true">ZIP</div>
+              <div><strong>Proof-pack export</strong><span>Founder workflow</span></div>
+              <span class="tag">Founder</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section id="free">
+      <div class="wrap">
+        <h2>Free stays usable</h2>
+        <p class="sub">The base app is not crippleware. Founder unlocks power workflows only.</p>
+        <div class="grid-3">
+          <div class="panel"><h3>Capture</h3><p>Save useful copied text, code, and paths locally.</p></div>
+          <div class="panel"><h3>Search</h3><p>Find clips fast without digging through old files.</p></div>
+          <div class="panel"><h3>Favorites</h3><p>Pin important clips for daily reuse.</p></div>
+          <div class="panel"><h3>Copy back out</h3><p>Send saved items back to your clipboard.</p></div>
+          <div class="panel"><h3>Single export</h3><p>Export one item as TXT, MD, HTML, or JSON.</p></div>
+          <div class="panel"><h3>Local-only</h3><p>No account, no subscription, no cloud requirement.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="founder">
+      <div class="wrap split">
+        <div class="panel">
+          <h2>Founder unlocks proof workflows</h2>
+          <p class="sub">Built for people who reuse information and need receipts, not promises.</p>
+          <ul class="list">
+            <li>Bulk exports and ZIP bundles</li>
+            <li>Proof-pack exports with SHA256SUMS</li>
+            <li>HTML bundle workflows</li>
+            <li>Advanced editable copies</li>
+            <li>Vault Macros and custom Safes</li>
+            <li>Duplicate review and smart filters</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>What you receive</h3>
+          <ul class="list">
+            <li>Founder license file (<code>license.json</code>)</li>
+            <li>Install and import instructions</li>
+            <li>Future Founder updates for this license</li>
+          </ul>
+          <div class="notice">
+            After purchase, you receive a Founder license file and install/import instructions. Licenses are manually issued during the Founder MVP period.
+          </div>
+          <div class="hero-actions" style="margin-top:20px;">
+            <button type="button" class="btn btn-primary" data-gumroad-action="buy">Buy Founder — <span data-gumroad-field="price">$19</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="proof">
+      <div class="wrap">
+        <h2>Built with receipts</h2>
+        <p class="sub">Release gate recorded before this page went live.</p>
+        <div class="grid-3">
+          <div class="panel"><h3>440</h3><p>tests passed</p></div>
+          <div class="panel"><h3>v0.1.3</h3><p>package version</p></div>
+          <div class="panel"><h3>PASS</h3><p>packaged selftest</p></div>
+        </div>
+        <div class="panel" style="margin-top:16px;">
+          <h3>Release ZIP SHA256</h3>
+          <div class="hash">279d181513e0c4653911d7803d62d5c924b0b15a5b009c5bbb0b8a8f0e0a0316</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="compare">
+      <div class="wrap">
+        <h2>Free vs Founder</h2>
+        <p class="sub">Basic access stays free. Founder unlocks advanced workflows.</p>
+        <div class="compare" role="table" aria-label="Feature comparison">
+          <div class="row head" role="row">
+            <div class="cell" role="columnheader">Feature</div>
+            <div class="cell" role="columnheader">Free</div>
+            <div class="cell" role="columnheader">Founder</div>
+          </div>
+          <div class="row" role="row">
+            <div class="cell">Capture, search, favorites</div>
+            <div class="cell yes">Yes</div>
+            <div class="cell yes">Yes</div>
+          </div>
+          <div class="row" role="row">
+            <div class="cell">Single-item export</div>
+            <div class="cell yes">Yes</div>
+            <div class="cell yes">Yes</div>
+          </div>
+          <div class="row" role="row">
+            <div class="cell">Bulk export and ZIP bundles</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+          <div class="row" role="row">
+            <div class="cell">Proof-pack exports</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+          <div class="row" role="row">
+            <div class="cell">HTML bundles and editable copies</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+          <div class="row" role="row">
+            <div class="cell">Macros, custom safes, duplicate review</div>
+            <div class="cell no">No</div>
+            <div class="cell yes">Yes</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta" id="buy">
+      <div class="wrap">
+        <div class="cta-card">
+          <h2>Unlock Founder Edition</h2>
+          <p class="desc-block" data-gumroad-field="description">
+            A one-time Founder license for Cache Vault. Unlocks advanced exports, proof packs, HTML bundles, smart organization, macros, custom safes, and future Founder updates.
+          </p>
+          <div class="price-row" style="justify-content:center;">
+            <div class="price-tag" data-gumroad-field="price">$19</div>
+            <p class="price-note">Lifetime license · Windows · manual delivery during MVP</p>
+          </div>
+          <div class="hero-actions" style="justify-content:center;">
+            <button type="button" class="btn btn-primary" data-gumroad-action="buy">I want this — Buy Founder Edition</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="sticky-buy" aria-label="Quick purchase">
+    <div class="wrap">
+      <div>
+        <strong data-gumroad-field="price">$19</strong>
+        <span style="color:var(--muted); font-size:13px;"> · lifetime</span>
+      </div>
+      <button type="button" class="btn btn-primary" data-gumroad-action="buy">Buy now</button>
+    </div>
+  </div>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span>Cache Vault · Proof Foundry</span>
+      <span>Build it. Prove it. Ship it.</span>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var toggle = document.getElementById("theme-toggle");
+      var stored = "";
+      try { stored = localStorage.getItem("cv-theme") || ""; } catch (e) {}
+
+      function applyTheme(mode) {
+        root.setAttribute("data-theme", mode);
+        if (toggle) {
+          toggle.textContent = mode === "dark" ? "☀" : "☾";
+          toggle.setAttribute("aria-label", mode === "dark" ? "Switch to light mode" : "Switch to dark mode");
+        }
+      }
+
+      if (stored === "light" || stored === "dark") {
+        applyTheme(stored);
+      } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+        applyTheme("light");
+      } else {
+        applyTheme("dark");
+      }
+
+      if (toggle) {
+        toggle.addEventListener("click", function () {
+          var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+          applyTheme(next);
+          try { localStorage.setItem("cv-theme", next); } catch (e) {}
+        });
+      }
+
+      var obs = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.style.opacity = "1";
+            entry.target.style.transform = "translateY(0)";
+          }
+        });
+      }, { threshold: 0.08 });
+
+      document.querySelectorAll(".panel, .visual, .cta-card").forEach(function (el) {
+        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        el.style.opacity = "0";
+        el.style.transform = "translateY(14px)";
+        el.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+        obs.observe(el);
+      });
+    })();
+  </script>
+</body>
+</html>
