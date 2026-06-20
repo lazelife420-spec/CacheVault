@@ -12,12 +12,18 @@ $testLicense = "C:\secure\cachevault-keys\founder-test-license.json"
 $releaseUrl = "https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/$releaseTag"
 $landingUrl = "https://z3r0dayzion-install.github.io/cache-vault-landing/"
 
+$originalLocalAppData = $env:LOCALAPPDATA
+if (-not $originalLocalAppData) {
+    $originalLocalAppData = [Environment]::GetFolderPath("LocalApplicationData")
+}
+
 $results = @()
 
 function Step($label, $pass, $detail = "") {
     $script:results += [pscustomobject]@{ Step = $label; Pass = $pass; Detail = $detail }
 }
 
+try {
 # 1. Artifacts exist
 Step "Release ZIP built locally" (Test-Path $zip) $zip
 Step "Packaged EXE exists" (Test-Path $exe) $exe
@@ -141,4 +147,7 @@ if ($failed -eq 0) {
 } else {
     Write-Host "$failed check(s) failed. Fix before first sale."
     exit 1
+}
+} finally {
+    $env:LOCALAPPDATA = $originalLocalAppData
 }
