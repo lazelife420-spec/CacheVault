@@ -1,0 +1,40 @@
+{
+  "checks": {
+    "share_screen_title": true,
+    "button_send_to_cache_vault": true,
+    "button_copy_text": true,
+    "button_share_someone": true,
+    "button_done": true,
+    "status_sent": true,
+    "status_failed": false,
+    "inbox_item_created": true,
+    "capture_mode_mobile_share": true,
+    "safe_assigned": true,
+    "source_stored": true,
+    "content_has_url": true,
+    "receipt_logged": true
+  },
+  "inbox_before": 34,
+  "inbox_after": 35,
+  "clip": {
+    "id": "8a70b1af9ff34d8fbd8eb6203b413678",
+    "content": "Cache Vault post-RC3 gate \u2014 https://example.com/post-rc3-share-gate",
+    "source_app": "Android Share",
+    "source_window": "SM-S911W",
+    "safe_id": "default",
+    "safe_name": "Default Safe",
+    "capture_mode": "mobile_share",
+    "created_at": "2026-06-20T18:53:24.674625+00:00"
+  },
+  "receipt_actions": [
+    "mobile_sent_to_pc"
+  ],
+  "pass": true,
+  "device_id": "share-gate-phone",
+  "bridge_host": "192.168.0.11",
+  "bridge_port": 8742,
+  "screenshots": [
+    "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\share_smoke_01_simple_mode.png",
+    "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\share_smoke_02_after_send.png"
+  ]
+}

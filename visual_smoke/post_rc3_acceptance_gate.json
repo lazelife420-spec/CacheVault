@@ -1,6 +1,6 @@
 {
-  "branch": "feature/context-menus-copy-clean",
-  "commit": "567fc8b892b4f5a5312d19e0bf31821d529ac5ca",
+  "branch": "feature/android-share-sheet-post-rc3",
+  "commit": "211b0f3e58e3bfa6b80fe2c03e9d1592476e74eb",
   "no_tag": true,
   "no_github_release": true,
   "no_final_release_claim": true,
@@ -8,7 +8,7 @@
   "desktop_pytest": {
     "pass": true,
     "returncode": 0,
-    "tail": "........................................................................ [ 36%]\n........................................................................ [ 54%]\n........................................................................ [ 72%]\n........................................................................ [ 90%]\n.......s................................                                 [100%]\n"
+    "tail": "........................................................................ [ 47%]\n........................................................................ [ 63%]\n........................................................................ [ 79%]\n..............................................................s......... [ 94%]\n.......................                                                  [100%]\n"
   },
   "desktop_selftest": {
     "pass": true,
@@ -20,7 +20,7 @@
     "apk": "C:\\Users\\KickA\\Desktop\\CacheVault\\android\\app\\build\\outputs\\apk\\debug\\app-debug.apk",
     "share_assistant_manifest": true,
     "send_intent": true,
-    "tail": " :app:bundleReleaseClassesToCompileJar UP-TO-DATE\n> Task :app:compileReleaseUnitTestKotlin UP-TO-DATE\n> Task :app:preReleaseUnitTestBuild UP-TO-DATE\n> Task :app:javaPreCompileReleaseUnitTest UP-TO-DATE\n> Task :app:compileReleaseUnitTestJavaWithJavac NO-SOURCE\n> Task :app:processReleaseJavaRes UP-TO-DATE\n> Task :app:processReleaseUnitTestJavaRes UP-TO-DATE\n> Task :app:testReleaseUnitTest UP-TO-DATE\n> Task :app:test UP-TO-DATE\n\nBUILD SUCCESSFUL in 8s\n64 actionable tasks: 1 executed, 63 up-to-date\n"
+    "tail": " :app:bundleReleaseClassesToCompileJar UP-TO-DATE\n> Task :app:compileReleaseUnitTestKotlin UP-TO-DATE\n> Task :app:preReleaseUnitTestBuild UP-TO-DATE\n> Task :app:javaPreCompileReleaseUnitTest UP-TO-DATE\n> Task :app:compileReleaseUnitTestJavaWithJavac NO-SOURCE\n> Task :app:processReleaseJavaRes UP-TO-DATE\n> Task :app:processReleaseUnitTestJavaRes UP-TO-DATE\n> Task :app:testReleaseUnitTest UP-TO-DATE\n> Task :app:test UP-TO-DATE\n\nBUILD SUCCESSFUL in 7s\n64 actionable tasks: 1 executed, 63 up-to-date\n"
   },
   "mobile_inbox_api": {
     "pass": true,
@@ -38,12 +38,12 @@
     },
     "receipt_action": "list_recently_removed",
     "sensitive_in_receipt": false,
-    "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_post_rc3_bk4jfjo2\\mobile_receipts.json"
+    "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_post_rc3_v2pkakxy\\mobile_receipts.json"
   },
   "receipt_proof": {
     "pass": true,
-    "mobile_receipts_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_rcpt_nf503pdi\\CacheVault\\mobile_receipts.json",
-    "file_receipts_dir": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_rcpt_nf503pdi\\CacheVault\\Receipts",
+    "mobile_receipts_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_rcpt_duimvrbe\\CacheVault\\mobile_receipts.json",
+    "file_receipts_dir": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_rcpt_duimvrbe\\CacheVault\\Receipts",
     "actions_found": {
       "mobile_sent_to_pc": true,
       "mobile_inbox_received": true
@@ -64,9 +64,50 @@
     "deferred_or_planned": true
   },
   "android_share_smoke": {
-    "pass": false,
-    "run": false,
-    "note": "real Android Share Sheet smoke not run \u2014 no device/emulator"
+    "pass": true,
+    "run": true,
+    "returncode": 0,
+    "proof": {
+      "checks": {
+        "share_screen_title": true,
+        "button_send_to_cache_vault": true,
+        "button_copy_text": true,
+        "button_share_someone": true,
+        "button_done": true,
+        "status_sent": true,
+        "status_failed": false,
+        "inbox_item_created": true,
+        "capture_mode_mobile_share": true,
+        "safe_assigned": true,
+        "source_stored": true,
+        "content_has_url": true,
+        "receipt_logged": true
+      },
+      "inbox_before": 34,
+      "inbox_after": 35,
+      "clip": {
+        "id": "8a70b1af9ff34d8fbd8eb6203b413678",
+        "content": "Cache Vault post-RC3 gate \u2014 https://example.com/post-rc3-share-gate",
+        "source_app": "Android Share",
+        "source_window": "SM-S911W",
+        "safe_id": "default",
+        "safe_name": "Default Safe",
+        "capture_mode": "mobile_share",
+        "created_at": "2026-06-20T18:53:24.674625+00:00"
+      },
+      "receipt_actions": [
+        "mobile_sent_to_pc"
+      ],
+      "pass": true,
+      "device_id": "share-gate-phone",
+      "bridge_host": "192.168.0.11",
+      "bridge_port": 8742,
+      "screenshots": [
+        "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\share_smoke_01_simple_mode.png",
+        "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\share_smoke_02_after_send.png"
+      ]
+    },
+    "tail": "ipt_logged\": true\n  },\n  \"inbox_before\": 34,\n  \"inbox_after\": 35,\n  \"clip\": {\n    \"id\": \"8a70b1af9ff34d8fbd8eb6203b413678\",\n    \"content\": \"Cache Vault post-RC3 gate \\u2014 https://example.com/post-rc3-share-gate\",\n    \"source_app\": \"Android Share\",\n    \"source_window\": \"SM-S911W\",\n    \"safe_id\": \"default\",\n    \"safe_name\": \"Default Safe\",\n    \"capture_mode\": \"mobile_share\",\n    \"created_at\": \"2026-06-20T18:53:24.674625+00:00\"\n  },\n  \"receipt_actions\": [\n    \"mobile_sent_to_pc\"\n  ],\n  \"pass\": true,\n  \"device_id\": \"share-gate-phone\",\n  \"bridge_host\": \"192.168.0.11\",\n  \"bridge_port\": 8742,\n  \"screenshots\": [\n    \"C:\\\\Users\\\\KickA\\\\Desktop\\\\CacheVault\\\\visual_smoke\\\\share_smoke_01_simple_mode.png\",\n    \"C:\\\\Users\\\\KickA\\\\Desktop\\\\CacheVault\\\\visual_smoke\\\\share_smoke_02_after_send.png\"\n  ]\n}\n"
   },
   "desktop_smoke": {
     "pass": true,
@@ -82,11 +123,11 @@
       "sent_from_phone": true
     }
   },
-  "acceptance_lane": "context_menus",
-  "android_share_informational": true,
+  "acceptance_lane": "post_rc3",
+  "android_share_informational": false,
   "android_share_blocks_overall": false,
   "overall_pass": true,
   "post_rc3_lane_accepted": true,
-  "mobile_acceptance_complete": false,
-  "mobile_acceptance_note": "Share Sheet smoke skipped (informational for context_menus lane; no device/emulator)."
+  "mobile_acceptance_complete": true,
+  "mobile_acceptance_note": ""
 }
