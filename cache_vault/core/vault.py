@@ -1084,7 +1084,11 @@ class Vault:
         return self.storage.list_clips(query)
 
     def counts(self):
-        return self.storage.counts()
+        out = self.storage.counts()
+        from .smart_folders import count_all
+
+        out.update(count_all(self.storage))
+        return out
 
     def dashboard_summary(self) -> dict:
         counts = self.storage.counts()

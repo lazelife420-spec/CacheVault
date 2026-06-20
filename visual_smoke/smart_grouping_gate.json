@@ -1,0 +1,19 @@
+{
+  "branch": "feature/smart-grouping-folders",
+  "lane": "smart-grouping-folders",
+  "pytest": "PASS",
+  "selftest": "PASS",
+  "smart_grouping_smoke": "PASS",
+  "export_folder_receipt_smoke": "PASS",
+  "screenshots_captured": true,
+  "receipts": {
+    "smoke": "visual_smoke/smart_grouping_smoke.json",
+    "gate": "visual_smoke/smart_grouping_gate.json",
+    "export": "visual_smoke/smart_folder_export_smoke.json"
+  },
+  "screenshots": {
+    "01_smart_folders_sidebar": "visual_smoke/smart_grouping/01_smart_folders_sidebar.png"
+  },
+  "capture_script": "scripts/smart_grouping_smoke.py",
+  "note": "Deterministic smart folders — type, recency, mobile share, manual saves. No AI sorting."
+}

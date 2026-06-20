@@ -48,6 +48,8 @@ FILTER_SCREENSHOTS = "screenshots"
 COLLECTION_PREFIX = "col:"
 # Sidebar Safe entries use this prefix, e.g. "safe:default".
 SAFE_PREFIX = "safe:"
+# Smart folder sidebar entries, e.g. "smart:recent".
+SMART_PREFIX = "smart:"
 
 _CLASS_BY_FILTER = {
     FILTER_LINKS: models.CLASS_LINK,
@@ -574,6 +576,14 @@ class VaultStorage:
         elif fn.startswith(SAFE_PREFIX):
             where.append("safe_id = ?")
             params.append(fn[len(SAFE_PREFIX):])
+        elif fn.startswith(SMART_PREFIX):
+            from .smart_folders import apply_smart_folder_filter, folder_id_from_key
+
+            fid = folder_id_from_key(fn)
+            if fid:
+                apply_smart_folder_filter(fid, where, params)
+            else:
+                where.append("1 = 0")
 
         # Structured search tokens (type:, source:, sensitive:, pinned:).
         if query.type_filter:

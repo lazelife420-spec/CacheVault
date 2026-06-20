@@ -1,0 +1,92 @@
+{
+  "pass": true,
+  "checks": {
+    "smart_folders_section": true,
+    "eight_smart_folders": true,
+    "recent_folder": true,
+    "mobile_share_folder": true,
+    "filter_nav_wires_smart": true,
+    "folder_receipts": true,
+    "mobile_share_count": true,
+    "export_smoke": true
+  },
+  "folder_receipts": {
+    "receipt_type": "smart_folder_bundle",
+    "generated_at": "2026-06-20T21:25:39.852027+00:00",
+    "folder_count": 8,
+    "total_clips": 5,
+    "folders": [
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "recent",
+        "filter_key": "smart:recent",
+        "label": "Recent",
+        "count": 2,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      },
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "unused",
+        "filter_key": "smart:unused",
+        "label": "Unused",
+        "count": 0,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      },
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "mobile_share",
+        "filter_key": "smart:mobile_share",
+        "label": "From Phone",
+        "count": 1,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      },
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "text",
+        "filter_key": "smart:text",
+        "label": "Plain Text",
+        "count": 1,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      },
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "url",
+        "filter_key": "smart:url",
+        "label": "URLs",
+        "count": 1,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      },
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "image",
+        "filter_key": "smart:image",
+        "label": "Images",
+        "count": 0,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      },
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "code",
+        "filter_key": "smart:code",
+        "label": "Code",
+        "count": 0,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      },
+      {
+        "receipt_type": "smart_folder_snapshot",
+        "folder_id": "manual",
+        "filter_key": "smart:manual",
+        "label": "Manual Saves",
+        "count": 0,
+        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+      }
+    ]
+  },
+  "export_smoke": {
+    "zip_created": true,
+    "manifest_has_collection": true
+  },
+  "screenshots": {
+    "01_smart_folders_sidebar": "visual_smoke/smart_grouping/01_smart_folders_sidebar.png"
+  }
+}

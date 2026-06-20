@@ -2538,6 +2538,19 @@ class CacheVaultApp(ctk.CTk):
             self.vault.events.record(models.EVENT_EXPORTED, None,
                                      {"target": kind, "count": len(clips),
                                       "include_files": include_files})
+        from ..core.smart_folders import folder_id_from_key, folder_receipt, is_smart_filter
+
+        if is_smart_filter(self._filters.active):
+            fid = folder_id_from_key(self._filters.active)
+            if fid:
+                self.vault.events.record(
+                    models.EVENT_EXPORTED,
+                    None,
+                    {
+                        "target": "smart_folder_export",
+                        "smart_folder": folder_receipt(fid, len(clips)),
+                    },
+                )
         self.refresh()
 
     def _build_query(self):
@@ -2561,7 +2574,12 @@ class CacheVaultApp(ctk.CTk):
 
     @staticmethod
     def _collection_name_for(active: str):
+        from ..core.smart_folders import export_collection_name
         from ..core.storage import COLLECTION_PREFIX
+
+        name = export_collection_name(active)
+        if name:
+            return name
         if active.startswith(COLLECTION_PREFIX):
             return active[len(COLLECTION_PREFIX):]
         return None
