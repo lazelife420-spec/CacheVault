@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import startup, vault_lock
+from ..core.hotkey import DEFAULT_HOTKEY_BINDINGS, diagnose_hotkey_spec, normalize_hotkey
 from ..core.settings import Settings
 from . import theme
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
@@ -81,13 +82,15 @@ class SettingsDialog(ctk.CTkToplevel):
                  *, mobile: dict | None = None, help: dict | None = None):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
-        self.geometry("520x680")
+        self.geometry("520x720")
         self.resizable(False, True)
-        self.minsize(520, 520)
+        self.minsize(520, 540)
         self._settings = settings
         self._on_save = on_save
         self._mobile = mobile or {}
         self._help = help or {}
+        self._hk_entries: dict[str, ctk.CTkEntry] = {}
+        self._hk_status: dict[str, ctk.CTkLabel] = {}
 
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
@@ -136,7 +139,7 @@ class SettingsDialog(ctk.CTkToplevel):
                          text_color=brand.PROOF_TEAL).pack(anchor="w", padx=8, pady=(0, 4))
 
         section("Capture")
-        self._pause = ctk.CTkSwitch(body, text="Pause capture")
+        self._pause = ctk.CTkSwitch(body, text="Pause capture (nothing new is saved while on)")
         self._pause.pack(anchor="w", padx=8, pady=6)
         self._pause.select() if settings.capture_paused else self._pause.deselect()
 
@@ -154,19 +157,6 @@ class SettingsDialog(ctk.CTkToplevel):
         self._default_safe = ctk.CTkEntry(safe_row, width=140)
         self._default_safe.insert(0, settings.default_safe_id)
         self._default_safe.pack(side="right")
-
-        def _hk_row(label: str, value: str) -> ctk.CTkEntry:
-            row = ctk.CTkFrame(body, fg_color="transparent")
-            row.pack(fill="x", padx=8, pady=(6, 0))
-            ctk.CTkLabel(row, text=label).pack(side="left")
-            entry = ctk.CTkEntry(row, width=140)
-            entry.insert(0, value)
-            entry.pack(side="right")
-            return entry
-
-        self._manual_hk = _hk_row("Manual save hotkey:", settings.manual_save_hotkey)
-        self._arm_hk = _hk_row("Save next copy hotkey:", settings.arm_next_copy_hotkey)
-        self._ignore_hk = _hk_row("Ignore next copy hotkey:", settings.ignore_next_copy_hotkey)
 
         self._picker_on_manual = ctk.CTkSwitch(
             body, text="Show Safe picker when saving manually",
@@ -203,25 +193,54 @@ class SettingsDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=8, pady=(0, 6))
 
-        section("Sensitive Clips")
-        self._sens = ctk.CTkSwitch(body, text="Auto-expire sensitive clips")
-        self._sens.pack(anchor="w", padx=8, pady=6)
-        self._sens.select() if settings.sensitive_expiry_enabled else self._sens.deselect()
+        section("Keyboard Shortcuts")
+        ctk.CTkLabel(
+            body,
+            text="Global shortcuts work while other apps are focused. "
+                 "Status shows format/conflicts only — another app may still claim a key.",
+            anchor="w", justify="left", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11), wraplength=460,
+        ).pack(anchor="w", padx=8, pady=(0, 6))
 
-        ctk.CTkLabel(body, text="Sensitive expiry (minutes):").pack(
-            anchor="w", padx=8, pady=(10, 0))
-        self._minutes = ctk.CTkEntry(body)
-        self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
-        self._minutes.pack(anchor="w", padx=8, pady=4, fill="x")
+        self._manual_hk = self._hotkey_row(
+            body, "Save to Vault", "Save the current clipboard now.",
+            settings.manual_save_hotkey, "manual_save",
+        )
+        self._arm_hk = self._hotkey_row(
+            body, "Save next copy", "Save only the next Ctrl+C copy, then turn off.",
+            settings.arm_next_copy_hotkey, "arm_next",
+        )
+        self._ignore_hk = self._hotkey_row(
+            body, "Skip capture", "Ignore the next clipboard copy (one shot).",
+            settings.ignore_next_copy_hotkey, "ignore_next",
+        )
+        self._hotkey = self._hotkey_row(
+            body, "Quick Paste menu", "Open the recent-clips picker anywhere.",
+            settings.quick_paste_hotkey, "quick_paste",
+        )
+        self._macro_menu_hk = self._hotkey_row(
+            body, "Macro menu", "Open the Vault Macros picker.",
+            settings.macro_menu_hotkey, "macro_menu",
+        )
 
-        hk_row = ctk.CTkFrame(body, fg_color="transparent")
-        hk_row.pack(fill="x", padx=8, pady=(10, 0))
-        ctk.CTkLabel(hk_row, text="Quick-paste hotkey:").pack(side="left")
-        self._hotkey = ctk.CTkEntry(hk_row, width=140)
-        self._hotkey.insert(0, settings.quick_paste_hotkey)
-        self._hotkey.pack(side="right")
+        hk_actions = ctk.CTkFrame(body, fg_color="transparent")
+        hk_actions.pack(fill="x", padx=8, pady=(8, 4))
+        ctk.CTkButton(
+            hk_actions, text="Reset shortcuts to defaults",
+            command=self._reset_hotkeys_to_defaults,
+            **theme.secondary_button(),
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            hk_actions, text="Shortcut help…",
+            command=self._show_hotkey_help,
+            **theme.secondary_button(),
+        ).pack(side="left")
+        self._refresh_hotkey_statuses()
 
-        self._auto_paste = ctk.CTkSwitch(body, text="Paste selected item immediately")
+        section("Quick Paste Menu")
+        self._auto_paste = ctk.CTkSwitch(
+            body, text="Paste selected clip immediately after you pick one",
+        )
         self._auto_paste.pack(anchor="w", padx=8, pady=6)
         self._auto_paste.select() if settings.auto_paste else self._auto_paste.deselect()
 
@@ -237,6 +256,17 @@ class SettingsDialog(ctk.CTkToplevel):
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
+
+        section("Sensitive Clips")
+        self._sens = ctk.CTkSwitch(body, text="Auto-expire sensitive clips")
+        self._sens.pack(anchor="w", padx=8, pady=6)
+        self._sens.select() if settings.sensitive_expiry_enabled else self._sens.deselect()
+
+        ctk.CTkLabel(body, text="Sensitive expiry (minutes):").pack(
+            anchor="w", padx=8, pady=(10, 0))
+        self._minutes = ctk.CTkEntry(body)
+        self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
+        self._minutes.pack(anchor="w", padx=8, pady=4, fill="x")
 
         section("Vault Macros")
         ctk.CTkLabel(
@@ -258,7 +288,6 @@ class SettingsDialog(ctk.CTkToplevel):
         self._macro_hk_on.pack(anchor="w", padx=8, pady=4)
         if settings.macro_hotkeys_enabled:
             self._macro_hk_on.select()
-        self._macro_menu_hk = _hk_row("Macro menu hotkey:", settings.macro_menu_hotkey)
         self._macro_restore = ctk.CTkSwitch(
             body, text="Restore clipboard after macro paste (text only)",
         )
@@ -413,9 +442,107 @@ class SettingsDialog(ctk.CTkToplevel):
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
         self._excluded.pack(fill="x", padx=8, pady=(4, 8))
 
+        ctk.CTkFrame(body, height=16, fg_color="transparent").pack(fill="x")
+
         self.bind("<Escape>", lambda _e: self.destroy())
 
         _bring_to_front(self, master, modal=True)
+
+    def _hotkey_row(
+        self,
+        parent: ctk.CTkScrollableFrame,
+        title: str,
+        hint: str,
+        value: str,
+        role: str,
+    ) -> ctk.CTkEntry:
+        block = ctk.CTkFrame(parent, fg_color="transparent")
+        block.pack(fill="x", padx=8, pady=(6, 0))
+        row = ctk.CTkFrame(block, fg_color="transparent")
+        row.pack(fill="x")
+        ctk.CTkLabel(
+            row, text=title, font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(side="left", anchor="w")
+        entry = ctk.CTkEntry(row, width=160, placeholder_text="Ctrl+Shift+V")
+        entry.insert(0, value)
+        entry.pack(side="right")
+        ctk.CTkLabel(
+            block, text=hint, anchor="w", justify="left",
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", pady=(2, 0))
+        status = ctk.CTkLabel(
+            block, text="", anchor="w", font=ctk.CTkFont(size=11),
+        )
+        status.pack(anchor="w", pady=(2, 0))
+        self._hk_entries[role] = entry
+        self._hk_status[role] = status
+        entry.bind("<KeyRelease>", lambda _e: self._refresh_hotkey_statuses())
+        return entry
+
+    def _collect_hotkey_specs(self) -> dict[str, str]:
+        return {role: entry.get().strip() for role, entry in self._hk_entries.items()}
+
+    def _refresh_hotkey_statuses(self) -> None:
+        specs = self._collect_hotkey_specs()
+        colors = {
+            "ok": brand.PROOF_TEAL,
+            "invalid": brand.WARNING_RED,
+            "duplicate": brand.WARNING_RED,
+            "unavailable": brand.STAMP_GOLD,
+            "reserved": brand.STAMP_GOLD,
+        }
+        for role, entry in self._hk_entries.items():
+            kind, message = diagnose_hotkey_spec(entry.get(), role, specs)
+            label = self._hk_status[role]
+            label.configure(text=message, text_color=colors.get(kind, brand.MUTED_FG))
+
+    def _reset_hotkeys_to_defaults(self) -> None:
+        for role, entry in self._hk_entries.items():
+            entry.delete(0, "end")
+            entry.insert(0, DEFAULT_HOTKEY_BINDINGS.get(role, ""))
+        self._refresh_hotkey_statuses()
+
+    def _show_hotkey_help(self) -> None:
+        help_win = ctk.CTkToplevel(self)
+        help_win.title(f"{brand.PRODUCT_NAME} — Keyboard Shortcuts")
+        help_win.geometry("480x420")
+        help_win.resizable(False, False)
+        ctk.CTkLabel(
+            help_win, text="Keyboard Shortcuts",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=brand.PROOF_TEAL,
+        ).pack(anchor="w", padx=16, pady=(14, 6))
+        body = ctk.CTkTextbox(help_win, wrap="word")
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        lines = [
+            "Cache Vault registers global shortcuts on Windows.",
+            "",
+            "Save to Vault — save what's on the clipboard right now.",
+            "Save next copy — save only the next Ctrl+C, then stop.",
+            "Skip capture — ignore the next clipboard change once.",
+            "Quick Paste menu — open recent clips and paste one.",
+            "Macro menu — open saved Vault Macros.",
+            "",
+            "Defaults:",
+        ]
+        for role, default in DEFAULT_HOTKEY_BINDINGS.items():
+            lines.append(f"  • {default} ({normalize_hotkey(default)})")
+        lines.extend([
+            "",
+            "Tips:",
+            "• Use Ctrl+Shift+… to avoid clashing with common app shortcuts.",
+            "• Win+V is reserved by Windows for its clipboard history.",
+            "• If a shortcut fails, another app may already own that key.",
+            "• Changes apply after you click Save in Settings.",
+        ])
+        body.insert("1.0", "\n".join(lines))
+        body.configure(state="disabled")
+        ctk.CTkButton(
+            help_win, text="Close", command=help_win.destroy,
+            **theme.primary_button(),
+        ).pack(anchor="e", padx=16, pady=(0, 12))
+        _bring_to_front(help_win, self, modal=False)
+        return help_win
 
     def _build_mobile_section(self, settings: Settings) -> ctk.CTkFrame:
         card = ctk.CTkFrame(self, fg_color=brand.SURFACE_BG, corner_radius=8)

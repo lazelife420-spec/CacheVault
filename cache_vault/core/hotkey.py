@@ -82,6 +82,58 @@ def normalize_hotkey(spec: str) -> str:
     return "+".join(mod_parts + ([key_part] if key_part else []))
 
 
+# Default bindings mirrored from Settings — used for reset/help copy only.
+DEFAULT_HOTKEY_BINDINGS: dict[str, str] = {
+    "manual_save": "ctrl+shift+c",
+    "arm_next": "ctrl+alt+c",
+    "ignore_next": "ctrl+shift+x",
+    "quick_paste": "ctrl+shift+v",
+    "macro_menu": "ctrl+shift+m",
+}
+
+# OS / app shortcuts users should avoid reassigning to macros (display hint only).
+_WINDOWS_RESERVED_DISPLAY = frozenset({
+    "win+v", "alt+tab", "ctrl+c", "ctrl+v", "ctrl+x",
+})
+
+
+def _canonical_key(spec: str) -> str:
+    return "+".join(p.lower() for p in normalize_hotkey(spec).split("+"))
+
+
+def diagnose_hotkey_spec(
+    spec: str,
+    role: str,
+    all_specs: dict[str, str],
+    *,
+    win32_available: bool | None = None,
+) -> tuple[str, str]:
+    """Return ``(kind, message)`` for settings UI status labels.
+
+    *kind* is one of: ``ok``, ``invalid``, ``duplicate``, ``unavailable``, ``reserved``.
+    """
+    if win32_available is None:
+        win32_available = _HAS_WIN32
+    raw = (spec or "").strip()
+    if not raw:
+        return "invalid", "Enter a shortcut like Ctrl+Shift+V"
+    _mods, vk = parse_hotkey(raw)
+    if vk is None:
+        return "invalid", "Missing key — use Ctrl/Alt/Shift + letter or F-key"
+    canon_key = _canonical_key(raw)
+    dup_roles = [
+        r for r, other in all_specs.items()
+        if r != role and other.strip() and _canonical_key(other) == canon_key
+    ]
+    if dup_roles:
+        return "duplicate", "Same shortcut used elsewhere in Cache Vault"
+    if not win32_available:
+        return "unavailable", "Global shortcuts need Windows (pywin32)"
+    if canon_key in _WINDOWS_RESERVED_DISPLAY:
+        return "reserved", "May conflict with Windows or common app shortcuts"
+    return "ok", f"Ready · {normalize_hotkey(raw)}"
+
+
 class HotkeyListener:
     """Registers a single global hotkey and calls ``on_activate`` when pressed.
 
