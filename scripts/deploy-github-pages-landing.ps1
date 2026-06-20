@@ -46,6 +46,10 @@ if (-not (Test-Path (Join-Path $work ".git"))) {
 }
 
 Copy-Item $source (Join-Path $work "index.html") -Force
+$imageSource = Join-Path $root "docs\cache-vault-social-share.png"
+if (Test-Path -LiteralPath $imageSource) {
+    Copy-Item $imageSource (Join-Path $work "cache-vault-social-share.png") -Force
+}
 New-Item -ItemType File -Force -Path (Join-Path $work ".nojekyll") | Out-Null
 
 $page = Get-Content (Join-Path $work "index.html") -Raw
@@ -57,7 +61,11 @@ $page = $page -replace 'https://github\.com/[^/]+/CacheVault/releases/tag/v[\w\.
 Set-Content -Path (Join-Path $work "index.html") -Value $page -Encoding UTF8
 
 Push-Location $work
-git add index.html .nojekyll
+$addPaths = @("index.html", ".nojekyll")
+if (Test-Path (Join-Path $work "cache-vault-social-share.png")) {
+    $addPaths += "cache-vault-social-share.png"
+}
+git add @addPaths
 $status = git status --porcelain
 if ($status) {
     git commit -m "update checkout URL to Gumroad"
