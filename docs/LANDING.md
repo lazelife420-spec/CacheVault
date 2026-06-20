@@ -11,21 +11,31 @@ Sales surface for **Cache Vault Founder MVP v0.1.3**.
 
 Source template: `cache_vault_github_pages_landing.zip` (integrated 2026-06-20).
 
-## Live URLs (after Pages is enabled)
+## Live URLs
 
-**In-repo Pages** (recommended):
+**Public landing (GitHub Pages — live):**
+
+```text
+https://z3r0dayzion-install.github.io/cache-vault-landing/
+```
+
+Repo: [github.com/Z3r0DayZion-install/cache-vault-landing](https://github.com/Z3r0DayZion-install/cache-vault-landing)
+
+**In-repo copy** (`docs/index.html`) — Pages not enabled on the private CacheVault repo (plan limit). Use the public landing repo above for sales.
+
+If CacheVault is made public or plan upgraded:
 
 ```text
 https://Z3r0DayZion-install.github.io/CacheVault/
 ```
 
-Enable:
+Enable on CacheVault:
 
 ```text
 GitHub → Settings → Pages → Deploy from branch → master → /docs
 ```
 
-**Dedicated landing repo** (optional):
+**Dedicated landing repo** (live):
 
 ```powershell
 pwsh scripts\deploy-github-pages-landing.ps1 `
@@ -33,6 +43,8 @@ pwsh scripts\deploy-github-pages-landing.ps1 `
   -Repo cache-vault-landing `
   -CheckoutUrl "https://your-checkout-url"
 ```
+
+Live: https://z3r0dayzion-install.github.io/cache-vault-landing/
 
 ## Wired links
 
