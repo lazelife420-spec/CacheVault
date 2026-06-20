@@ -71,8 +71,10 @@ Also update `docs/index.html` Buy button hrefs and commit to CacheVault.
 
 ## 3. Set in-app purchase URL (next app build)
 
+**Checkout (live):** https://cashdominion.gumroad.com/l/eojmeb
+
 ```powershell
-$env:FOUNDER_PURCHASE_URL = "https://YOUR-CHECKOUT-URL"
+$env:FOUNDER_PURCHASE_URL = "https://cashdominion.gumroad.com/l/eojmeb"
 pwsh packaging\build_exe.ps1
 pwsh packaging\package_release.ps1 -Tag v0.1.3-founder-mvp
 ```

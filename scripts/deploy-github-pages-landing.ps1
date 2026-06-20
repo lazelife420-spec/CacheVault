@@ -1,9 +1,6 @@
 # Publish Cache Vault Founder landing to a dedicated GitHub Pages repo.
 # Usage:
-#   pwsh scripts\deploy-github-pages-landing.ps1 -Owner Z3r0DayZion-install -Repo cache-vault-landing -CheckoutUrl "https://your-checkout-url"
-#
-# For in-repo Pages (docs/index.html), enable:
-#   GitHub → Settings → Pages → Deploy from branch → master → /docs
+#   pwsh scripts\deploy-github-pages-landing.ps1 -Owner Z3r0DayZion-install -Repo cache-vault-landing -CheckoutUrl "https://cashdominion.gumroad.com/l/eojmeb"
 
 param(
     [Parameter(Mandatory = $true)]
@@ -13,7 +10,7 @@ param(
     [string]$Repo,
 
     [Parameter(Mandatory = $false)]
-    [string]$CheckoutUrl = "#founder",
+    [string]$CheckoutUrl = "https://cashdominion.gumroad.com/l/eojmeb",
 
     [Parameter(Mandatory = $false)]
     [string]$ReleaseUrl = ""
@@ -29,7 +26,7 @@ if (-not $ReleaseUrl) {
 
 $source = Join-Path $root "docs\index.html"
 if (-not (Test-Path -LiteralPath $source)) {
-    throw "Missing $source — run landing integration first."
+    throw "Missing $source"
 }
 
 $work = Join-Path $env:TEMP "cache-vault-landing-github-pages"
@@ -37,27 +34,39 @@ if (Test-Path $work) {
     Remove-Item $work -Recurse -Force
 }
 
-New-Item -ItemType Directory -Path $work | Out-Null
-Copy-Item $source (Join-Path $work "index.html")
+$remote = "https://github.com/$Owner/$Repo.git"
+git clone $remote $work 2>$null
+if (-not (Test-Path (Join-Path $work ".git"))) {
+    New-Item -ItemType Directory -Path $work | Out-Null
+    Push-Location $work
+    git init
+    git branch -M main
+    git remote add origin $remote
+    Pop-Location
+}
+
+Copy-Item $source (Join-Path $work "index.html") -Force
 New-Item -ItemType File -Force -Path (Join-Path $work ".nojekyll") | Out-Null
 
 $page = Get-Content (Join-Path $work "index.html") -Raw
-$page = $page.Replace("#founder", $CheckoutUrl)
-if ($CheckoutUrl -ne "#founder") {
-    $page = $page.Replace('href="#founder"', "href=""$CheckoutUrl""")
-}
+$buy = "href=""$CheckoutUrl"" target=""_blank"" rel=""noopener noreferrer"""
+$page = $page.Replace('class="button dark" href="#founder">Founder Edition', "class=""button dark"" $buy>Founder Edition")
+$page = $page.Replace('class="button primary" href="#founder">Buy Founder</a>', "class=""button primary"" $buy>Buy Founder</a>")
+$page = $page.Replace('class="button dark" href="#founder">Buy Founder', "class=""button dark"" $buy>Buy Founder")
 Set-Content -Path (Join-Path $work "index.html") -Value $page -Encoding UTF8
 
 Push-Location $work
-git init
-git add .
-git commit -m "launch Cache Vault Founder landing page"
-git branch -M main
-git remote add origin "https://github.com/$Owner/$Repo.git"
-git push -u origin main
+git add index.html .nojekyll
+$status = git status --porcelain
+if ($status) {
+    git commit -m "update checkout URL to Gumroad"
+    git pull origin main --rebase 2>$null
+    git push -u origin main
+} else {
+    Write-Host "No changes to deploy."
+}
 Pop-Location
 
 Write-Host ""
-Write-Host "Pushed landing page to https://github.com/$Owner/$Repo"
-Write-Host "Enable GitHub Pages: Settings -> Pages -> Deploy from branch -> main -> /(root)"
 Write-Host "Live URL: https://$Owner.github.io/$Repo/"
+Write-Host "Checkout: $CheckoutUrl"
