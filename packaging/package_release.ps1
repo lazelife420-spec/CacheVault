@@ -30,6 +30,12 @@ if ($NotesPath) {
 if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Missing built executable: $exePath"
 }
+
+$exeBytes = [System.IO.File]::ReadAllBytes($exePath)
+$exeText = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+if ($exeText -notmatch "cache_vault\.ui\.founder") {
+    throw "Built exe missing cache_vault.ui.founder — run packaging\build_exe.ps1 from current source"
+}
 if (-not (Test-Path -LiteralPath $notesPath)) {
     throw "Missing release notes file: $notesPath"
 }

@@ -2568,7 +2568,10 @@ class CacheVaultApp(ctk.CTk):
                 "devices": self._open_paired_devices,
                 "receipts": self._open_mobile_receipts,
             },
-            help={"show_guide": self._open_first_use_guide_from_settings},
+            help={
+                "show_guide": self._open_first_use_guide_from_settings,
+                "founder": self._open_founder,
+            },
         )
 
     def _maybe_show_first_use_guide(self) -> None:

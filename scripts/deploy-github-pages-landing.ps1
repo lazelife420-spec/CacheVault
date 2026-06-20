@@ -21,7 +21,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 if (-not $ReleaseUrl) {
-    $ReleaseUrl = "https://github.com/$Owner/CacheVault/releases/tag/v0.1.3-founder-mvp"
+    $ReleaseUrl = "https://github.com/$Owner/CacheVault/releases/tag/v0.1.3-founder-mvp.1"
 }
 
 $source = Join-Path $root "docs\index.html"
@@ -53,6 +53,7 @@ $buy = "href=""$CheckoutUrl"" target=""_blank"" rel=""noopener noreferrer"""
 $page = $page.Replace('class="button dark" href="#founder">Founder Edition', "class=""button dark"" $buy>Founder Edition")
 $page = $page.Replace('class="button primary" href="#founder">Buy Founder</a>', "class=""button primary"" $buy>Buy Founder</a>")
 $page = $page.Replace('class="button dark" href="#founder">Buy Founder', "class=""button dark"" $buy>Buy Founder")
+$page = $page -replace 'https://github\.com/[^/]+/CacheVault/releases/tag/v[\w\.-]+', $ReleaseUrl
 Set-Content -Path (Join-Path $work "index.html") -Value $page -Encoding UTF8
 
 Push-Location $work

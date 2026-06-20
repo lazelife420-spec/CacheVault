@@ -92,6 +92,29 @@ class SettingsDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
 
+        if self._help.get("founder"):
+            founder_row = ctk.CTkFrame(self, fg_color="transparent")
+            founder_row.pack(fill="x", padx=16, pady=(0, 8))
+            ctk.CTkLabel(
+                founder_row,
+                text="Founder Edition",
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=brand.PROOF_TEAL,
+            ).pack(anchor="w", pady=(0, 4))
+            ctk.CTkButton(
+                founder_row,
+                text="Import License…",
+                command=self._help["founder"],
+                **theme.secondary_button(),
+            ).pack(anchor="w")
+            ctk.CTkLabel(
+                founder_row,
+                text="Offline license file from your purchase email.",
+                anchor="w",
+                text_color=brand.MUTED_FG,
+                font=ctk.CTkFont(size=11),
+            ).pack(anchor="w", pady=(4, 0))
+
         # Mobile Access — pinned above scroll so pairing is visible without scrolling.
         self._mobile_section = self._build_mobile_section(settings)
 
