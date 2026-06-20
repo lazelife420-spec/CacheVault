@@ -1,0 +1,13 @@
+{
+  "branch": "feature/context-menus-copy-clean",
+  "starting_head": "e49b487643d6fb648c22d04f1032006f33e2b9e0",
+  "current_head": "567fc8b892b4f5a5312d19e0bf31821d529ac5ca",
+  "acceptance_lane": "context_menus",
+  "pytest": 0,
+  "selftest": 0,
+  "paste_picker_smoke": 0,
+  "macro_live_smoke": 0,
+  "post_rc3_acceptance_gate": 0,
+  "android_share_smoke": "skipped_informational",
+  "overall_accepted": true
+}
