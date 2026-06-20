@@ -26,6 +26,42 @@ class ClipAssetRecord:
     height: int | None = None
 
 
+# Image MIME types accepted from the mobile Share Sheet, mapped to file ext.
+_MIME_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+}
+ALLOWED_IMAGE_MIME = frozenset(_MIME_EXT)
+
+
+def ext_for_mime(mime_type: str) -> str:
+    """File extension for an accepted image MIME type ('bin' if unknown)."""
+    return _MIME_EXT.get((mime_type or "").lower().strip(), "bin")
+
+
+def image_dimensions(data: bytes) -> tuple[int, int]:
+    """Best-effort ``(width, height)`` for image bytes; ``(0, 0)`` if undecodable."""
+    try:
+        with Image.open(BytesIO(data)) as img:
+            return img.size
+    except Exception:  # noqa: BLE001 - any decode failure -> unknown size
+        return (0, 0)
+
+
+def is_decodable_image(data: bytes) -> bool:
+    """True when ``data`` is a real image Pillow can open (anti-spoof guard)."""
+    try:
+        with Image.open(BytesIO(data)) as img:
+            img.verify()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def assets_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     path = Path(base) / "CacheVault" / "assets"

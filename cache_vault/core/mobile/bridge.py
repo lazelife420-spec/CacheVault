@@ -31,6 +31,10 @@ if TYPE_CHECKING:
 
 _CLIP_ID_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)$")
 
+# Reject POST bodies larger than this before reading them. Image sends are
+# capped at 10 MB decoded; base64 + JSON overhead fits comfortably under 20 MB.
+MAX_POST_BODY_BYTES = 20 * 1024 * 1024
+
 
 class MobileBridge:
     """Desktop-side read-only API for paired Android devices."""
@@ -126,6 +130,10 @@ class MobileBridge:
 
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length", 0) or 0)
+                if length > MAX_POST_BODY_BYTES:
+                    self._json(413, {"error": "payload_too_large",
+                                     "message": "Request body too large."})
+                    return
                 raw = self.rfile.read(length) if length else b""
                 body = None
                 if raw:

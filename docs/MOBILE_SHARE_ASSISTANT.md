@@ -137,17 +137,27 @@ Receipts include: `clip_id`, `safe_id`, `safe_name`, `capture_mode`, `source_app
 | Mobile cannot mutate desktop originals | **Yes** |
 | Mobile cannot delete/edit desktop items | **Yes** |
 | No encryption claim unless implemented | **Yes** — Safes are not encrypted |
-| Sensitive-looking content | Warn before save/send (mobile UI planned) |
+| Sensitive-looking content | **Yes** — phone warns and requires confirm before Send to PC (`SensitiveText` + confirm dialog); desktop still masks on receipt |
 
 ## Android Share Sheet
 
-`ShareAssistantActivity` handles `ACTION_SEND` for `text/plain` and opens **Simple Mode** with the shared content pre-filled.
+`ShareAssistantActivity` handles `ACTION_SEND` for `text/plain` **and `image/*`** and
+opens **Simple Mode** with the shared content pre-filled.
 
 Entry: Android Share → Cache Vault Mobile → giant buttons → **Send to PC** → done.
 
+### Image send
+
+Shared images (`image/*`, up to 10 MB) are read from the content URI, base64-encoded,
+and sent to `POST /mobile/v1/inbox/send` with `item_type=image`. The desktop verifies the
+bytes are a real image (Pillow), stores them as an image clip + binary asset in the
+Default Safe, and stamps a receipt. Receipts never contain the image bytes. The phone
+shows the filename/size before sending; the desktop applies the same vault-lock guards to
+mobile images as any other clip.
+
 ## Known limitations (first slice)
 
-- Image/file send metadata only — binary upload deferred
+- File (non-image) send deferred — `image/*` only for now
 - Read Aloud not implemented yet
 - Open Later not implemented
 - Simple Mode Safe picker uses default Safe unless Power Mode expanded

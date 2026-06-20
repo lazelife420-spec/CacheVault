@@ -11,13 +11,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,10 +46,16 @@ fun SimpleShareScreen(
     onCopyText: () -> Unit,
     onShareWithSomeone: () -> Unit,
     onDismiss: () -> Unit,
+    sensitiveReason: String? = null,
+    imageLabel: String? = null,
 ) {
+    var showSensitiveWarning by remember { mutableStateOf(false) }
+    val isImage = imageLabel != null
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -59,22 +76,77 @@ fun SimpleShareScreen(
                 MaterialTheme.colorScheme.error
             },
         )
+        if (imageLabel != null) {
+            Text(
+                text = imageLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        if (sensitiveReason != null) {
+            SensitiveBadge(reason = sensitiveReason)
+        }
         statusMessage?.let {
             Text(text = it, style = MaterialTheme.typography.titleMedium)
         }
         SimpleActionButton(
             text = "Send to PC",
             enabled = isConnected,
-            onClick = onSendToPc,
+            onClick = {
+                if (sensitiveReason != null) showSensitiveWarning = true else onSendToPc()
+            },
         )
-        SimpleActionButton(text = "Copy Text", onClick = onCopyText)
-        SimpleActionButton(text = "Share with Someone", onClick = onShareWithSomeone)
+        if (!isImage) {
+            SimpleActionButton(text = "Copy Text", onClick = onCopyText)
+            SimpleActionButton(text = "Share with Someone", onClick = onShareWithSomeone)
+        }
         SimpleActionButton(text = "Done", onClick = onDismiss)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Local-only · paired Send-to-PC · no cloud",
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+
+    if (showSensitiveWarning && sensitiveReason != null) {
+        AlertDialog(
+            onDismissRequest = { showSensitiveWarning = false },
+            title = { Text("This looks sensitive") },
+            text = {
+                Text(
+                    "This looks like $sensitiveReason. Send it to " +
+                        "$connectionLabel anyway? It will be stored on your PC " +
+                        "(local-only) with masking.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSensitiveWarning = false
+                    onSendToPc()
+                }) { Text("Send anyway") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSensitiveWarning = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SensitiveBadge(reason: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "⚠ Looks sensitive — $reason. You'll be asked to confirm before sending.",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
 }
 
