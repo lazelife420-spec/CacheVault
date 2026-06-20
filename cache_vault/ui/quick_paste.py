@@ -18,6 +18,8 @@ import customtkinter as ctk
 
 from ..core.models import Clip
 from ..core import models
+from . import theme
+from .. import brand
 
 
 _BADGE = {
@@ -53,8 +55,8 @@ class QuickPaste(ctk.CTkToplevel):
 
         header = ctk.CTkLabel(
             self, anchor="w",
-            text="Paste from Cache Vault   —   search · ↑/↓ select · Enter act · Ctrl+Enter copy",
-            font=ctk.CTkFont(size=11), text_color=("gray40", "gray65"),
+            text=f"{brand.QUICK_PASTE_HEADER}   —   {brand.QUICK_PASTE_HINT}",
+            font=ctk.CTkFont(size=11), text_color=brand.PROOF_TEAL,
         )
         header.pack(fill="x", padx=12, pady=(10, 4))
         self._search = ctk.CTkEntry(
@@ -154,6 +156,7 @@ class QuickPaste(ctk.CTkToplevel):
             width=86,
             height=24,
             command=lambda k=i: self._choose(k, ACTION_PRIMARY),
+            **theme.primary_button(),
         ).pack(side="left", padx=2)
         if clip.content_type == models.CONTENT_IMAGE:
             ctk.CTkButton(
@@ -196,8 +199,8 @@ class QuickPaste(ctk.CTkToplevel):
 
     def _highlight(self) -> None:
         for i, row in enumerate(self._rows):
-            row.configure(fg_color=("gray80", "gray30") if i == self._index
-                          else ("gray92", "gray20"))
+            row.configure(fg_color=theme.nav_active_bg() if i == self._index
+                          else "transparent")
 
     def _cancel(self) -> None:
         """Close without choosing — clipboard unchanged."""
@@ -260,12 +263,12 @@ class QuickPaste(ctk.CTkToplevel):
 
 def primary_action_label(clip: Clip) -> str:
     if clip.content_type == models.CONTENT_IMAGE:
-        return "Copy Image"
+        return brand.LABEL_COPY_IMAGE_TO_CLIPBOARD
     if clip.classification == models.CLASS_LINK:
-        return "Paste Link"
+        return "Copy Link to Clipboard"
     if clip.classification == models.CLASS_PATH:
-        return "Copy Path"
-    return "Paste Text"
+        return brand.LABEL_COPY_TO_CLIPBOARD
+    return brand.LABEL_COPY_TO_CLIPBOARD
 
 
 def _matches_query(clip: Clip, query: str) -> bool:

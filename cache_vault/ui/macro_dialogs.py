@@ -23,11 +23,17 @@ from . import theme
 
 
 def _bring_to_front(win: ctk.CTkToplevel) -> None:
-    win.update_idletasks()
-    win.lift()
-    win.attributes("-topmost", True)
-    win.after(200, lambda: win.attributes("-topmost", False))
-    win.focus_force()
+    def _raise() -> None:
+        try:
+            if not win.winfo_exists():
+                return
+            win.deiconify()
+            win.lift()
+            win.focus_force()
+        except Exception:  # noqa: BLE001
+            pass
+
+    win.after(200, _raise)
 
 
 def _section(parent, text: str) -> None:
@@ -275,41 +281,68 @@ class MacroTemplatePicker(ctk.CTkToplevel):
         self.title(f"{brand.TERM_VAULT_MACROS} — New from template")
         self.geometry("420x360")
         self.resizable(False, False)
+        self._on_pick = on_pick
+        self._closed = False
+        self._after_ids: list[str] = []
+        self.protocol("WM_DELETE_WINDOW", self._close)
         ctk.CTkLabel(self, text="Choose a starter template",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(12, 8))
 
-        # Keyboard-aware list of template buttons
         self._rows: list[ctk.CTkButton] = []
         self._index = 0
-        for i, (tid, tpl) in enumerate(MACRO_TEMPLATES.items()):
+        template_ids = list(MACRO_TEMPLATES.keys())
+        for i, tid in enumerate(template_ids):
+            tpl = MACRO_TEMPLATES[tid]
             btn = ctk.CTkButton(
                 self,
                 text=tpl.get("name", tid),
                 anchor="w",
-                command=lambda t=tid: (on_pick(t), self.destroy()),
+                command=lambda t=tid: self._pick(t),
                 fg_color="transparent",
                 hover_color=theme.nav_hover_bg(),
             )
             btn.pack(fill="x", padx=16, pady=2)
-            # mouse interactions update selection
             btn.bind("<Enter>", lambda _e, k=i: self._set_index(k))
-            btn.bind("<Button-1>", lambda _e, k=i: (on_pick(list(MACRO_TEMPLATES.keys())[k]), self.destroy()))
             self._rows.append(btn)
 
-        # Key bindings: arrows, home/end, enter, esc
         self.bind("<Up>", lambda _e: self._move(-1))
         self.bind("<Down>", lambda _e: self._move(1))
         self.bind("<Home>", lambda _e: self._edge(0))
         self.bind("<End>", lambda _e: self._edge(len(self._rows) - 1))
         self.bind("<Return>", lambda _e: self._choose(self._index))
         self.bind("<KP_Enter>", lambda _e: self._choose(self._index))
-        self.bind("<Escape>", lambda _e: self.destroy())
+        self.bind("<Escape>", lambda _e: self._close())
 
-        self.after(20, self._focus_popup)
-        self.after(140, self._focus_popup)
+        self._schedule(self.after(120, self._focus_popup))
         self._highlight()
         self.transient(master)
         _bring_to_front(self)
+
+    def _schedule(self, after_id: str) -> None:
+        self._after_ids.append(after_id)
+
+    def _close(self) -> None:
+        self._closed = True
+        for after_id in self._after_ids:
+            try:
+                self.after_cancel(after_id)
+            except Exception:  # noqa: BLE001
+                pass
+        self._after_ids.clear()
+        try:
+            self.grab_release()
+        except Exception:  # noqa: BLE001
+            pass
+        self.destroy()
+
+    def _pick(self, template_id: str) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._on_pick(template_id)
+        finally:
+            self._close()
 
     def _set_index(self, i: int) -> None:
         self._index = i
@@ -328,25 +361,28 @@ class MacroTemplatePicker(ctk.CTkToplevel):
         self._highlight()
 
     def _highlight(self) -> None:
+        if self._closed:
+            return
         for i, w in enumerate(self._rows):
             try:
+                if not w.winfo_exists():
+                    continue
                 w.configure(fg_color=("#e9eef6" if i == self._index else "transparent"))
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
     def _choose(self, i: int) -> None:
         if 0 <= i < len(self._rows):
-            # trigger the button callback
-            self._rows[i].invoke()
+            template_ids = list(MACRO_TEMPLATES.keys())
+            self._pick(template_ids[i])
 
     def _focus_popup(self) -> None:
         try:
+            if self._closed or not self.winfo_exists():
+                return
             self.deiconify()
-            self.attributes("-topmost", True)
             self.lift()
             self.focus_force()
-            if self._rows:
-                self._rows[self._index].focus_set()
             self.grab_set()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass

@@ -5,10 +5,11 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+$releaseTag = "v0.1.3-founder-mvp.2"
 $exe = Join-Path $root "dist\CacheVault.exe"
-$zip = Join-Path $root "dist\release\v0.1.3-founder-mvp\CacheVault-v0.1.3-founder-mvp-windows.zip"
+$zip = Join-Path $root "dist\release\$releaseTag\CacheVault-$releaseTag-windows.zip"
 $testLicense = "C:\secure\cachevault-keys\founder-test-license.json"
-$releaseUrl = "https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/v0.1.3-founder-mvp"
+$releaseUrl = "https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/$releaseTag"
 $landingUrl = "https://z3r0dayzion-install.github.io/cache-vault-landing/"
 
 $results = @()
@@ -24,18 +25,18 @@ Step "Production test license exists" (Test-Path $testLicense) $testLicense
 
 # 2. GitHub release has asset
 try {
-    $rel = gh release view v0.1.3-founder-mvp --repo Z3r0DayZion-install/CacheVault --json assets,url 2>$null | ConvertFrom-Json
+    $rel = gh release view $releaseTag --repo Z3r0DayZion-install/CacheVault --json assets,url 2>$null | ConvertFrom-Json
     $hasZip = ($rel.assets | Where-Object { $_.name -like "*.zip" }).Count -gt 0
-    Step "GitHub Release has ZIP asset" $hasZip $rel.url
+    Step "GitHub Release has ZIP asset ($releaseTag)" $hasZip $rel.url
 } catch {
-    Step "GitHub Release has ZIP asset" $false "Release v0.1.3-founder-mvp not found — run gh release create"
+    Step "GitHub Release has ZIP asset ($releaseTag)" $false "Release $releaseTag not published yet — expected before public launch"
 }
 
 # 3. Landing reachable
 try {
     $resp = Invoke-WebRequest -Uri $landingUrl -UseBasicParsing -TimeoutSec 20
     Step "Landing page HTTP 200" ($resp.StatusCode -eq 200) $landingUrl
-    Step "Landing links to release" ($resp.Content -match "v0.1.3-founder-mvp") ""
+    Step "Landing links to release ($releaseTag)" ($resp.Content -match [regex]::Escape($releaseTag)) ""
 } catch {
     Step "Landing page HTTP 200" $false $_.Exception.Message
 }

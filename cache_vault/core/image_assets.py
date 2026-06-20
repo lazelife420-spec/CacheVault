@@ -217,15 +217,17 @@ def write_clipboard_png(png_bytes: bytes) -> bool:
     except Exception:  # noqa: BLE001
         return False
     try:
+        dib = png_to_dib(png_bytes)
         win32clipboard.OpenClipboard()
         try:
             win32clipboard.EmptyClipboard()
+            # CF_DIB is what most Windows apps (Paint, Word, Discord) expect.
+            win32clipboard.SetClipboardData(win32con.CF_DIB, dib)
             try:
                 png_fmt = win32clipboard.RegisterClipboardFormat("PNG")
                 win32clipboard.SetClipboardData(png_fmt, png_bytes)
             except Exception:  # noqa: BLE001
-                dib = png_to_dib(png_bytes)
-                win32clipboard.SetClipboardData(win32con.CF_DIB, dib)
+                pass
         finally:
             win32clipboard.CloseClipboard()
         return True
