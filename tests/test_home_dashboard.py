@@ -69,11 +69,17 @@ def test_sidebar_proof_items():
 
 
 def test_sidebar_access_items():
-    from cache_vault.ui.filters import NAV_MOBILE_INBOX, NAV_SETTINGS
+    from cache_vault.ui.filters import NAV_FOUNDER, NAV_MOBILE_ACCESS, NAV_MOBILE_INBOX, NAV_SETTINGS
     keys = [k for _h, items in filters_ui.FILTER_GROUPS for k, _l in items]
     assert NAV_MOBILE_INBOX in keys
     assert NAV_MOBILE_ACCESS in keys
     assert NAV_SETTINGS in keys
+    assert NAV_FOUNDER not in keys  # pinned above collapsible groups
+
+
+def test_sidebar_founder_nav_constant():
+    from cache_vault.ui.filters import NAV_FOUNDER
+    assert NAV_FOUNDER == "nav_founder"
 
 
 def test_vault_status_text_honest():

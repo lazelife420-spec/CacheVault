@@ -656,27 +656,28 @@ class CacheVaultApp(ctk.CTk):
             return
         label = (clip.title or clip.preview or "Selected item").splitlines()[0][:28]
         self._selected_action_label.configure(text=f"Selected: {label}")
-        actions: list[tuple[str, Callable[[], None]]] = [
-            ("Send to Macros", lambda: self._send_to_macro_safe(clip.id))
-        ]
+        to_macros = ("To Macros", lambda c=clip: self._send_to_macro_safe(c.id))
         if clip.classification == models.CLASS_LINK:
             actions = [
                 ("Open", lambda c=clip: self._open_clip_link(c.id)),
                 ("Copy Link", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_LINK_ONLY)),
                 ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN)),
                 ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+                to_macros,
             ]
         elif clip.content_type == models.CONTENT_IMAGE:
             actions = [
                 ("Copy Image", lambda c=clip: self._copy_again(c.id)),
                 ("Open", lambda c=clip: self._open_asset_folder(c.id)),
                 ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+                to_macros,
             ]
         elif clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
             actions = [
                 ("Copy", lambda c=clip: self._copy_again(c.id)),
                 ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
                 ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+                to_macros,
             ]
         else:
             actions = [
@@ -684,6 +685,7 @@ class CacheVaultApp(ctk.CTk):
                 ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT)),
                 ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
                 ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
+                to_macros,
             ]
         actions.append(("More", self._keyboard_open_context_menu))
         for text, command in actions[:5]:
@@ -1180,6 +1182,7 @@ class CacheVaultApp(ctk.CTk):
             "export_editable_copy": lambda cid: self._export_clip_proof_mode(cid, "editable_copy"),
             "clip_inspector_context": self.vault.clip_inspector_context,
             "copy_path": self._copy_path,
+            "send_to_macro": self._send_to_macro_safe,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -1707,9 +1710,9 @@ class CacheVaultApp(ctk.CTk):
                 ok = image_assets.clipboard_has_image()
                 self._monitor.note_local_copy_image(png)
                 if ok:
-                    Toast(self, "Image copied to clipboard — paste into an image-capable app like Paint")
+                    Toast(self, brand.TOAST_VAULT_IMAGE_COPIED)
                 else:
-                    Toast(self, "Image copied to clipboard (target apps may not accept images)")
+                    Toast(self, "◈ Image copied to clipboard — paste in an image-capable app")
             return
         content = self.vault.copied_again(clip_id)
         if content is None:
@@ -2392,8 +2395,24 @@ class CacheVaultApp(ctk.CTk):
             return
         if not self._require_founder("macros_advanced"):
             return
+        if not self.vault.settings.vault_macros_setup_completed:
+            from ..core.vault_macros import complete_macro_setup
+            complete_macro_setup(
+                self.vault.settings,
+                record_receipt=self._macro_record_receipt,
+            )
+            self._sync_macro_triggers()
         if self.vault.send_to_macro_safe(clip_id):
-            self._show_toast("Added to Vault Macros.")
+            self._show_toast("Saved to Vault Macros.")
+            self.refresh()
+        else:
+            from tkinter import messagebox
+            messagebox.showinfo(
+                "Vault Macros",
+                "This clip has no text body to save as a macro.\n"
+                "Text clips and links work best.",
+                parent=self,
+            )
 
     def _create_safe_if_allowed(self, name: str):
         if not self._require_founder("safes_advanced"):
@@ -2568,7 +2587,10 @@ class CacheVaultApp(ctk.CTk):
                 "devices": self._open_paired_devices,
                 "receipts": self._open_mobile_receipts,
             },
-            help={"show_guide": self._open_first_use_guide_from_settings},
+            help={
+                "show_guide": self._open_first_use_guide_from_settings,
+                "founder": self._open_founder,
+            },
         )
 
     def _maybe_show_first_use_guide(self) -> None:
@@ -2776,7 +2798,8 @@ class CacheVaultApp(ctk.CTk):
             self._guard_unlocked()
             return
         if clip.content_type == models.CONTENT_IMAGE:
-            self._quick_paste_image_action(clip, action)
+            # Defer until Quick Paste releases keyboard grab / closes cleanly.
+            self.after(80, lambda c=clip, a=action: self._quick_paste_image_action(c, a))
             return
         if clip.classification == models.CLASS_PATH:
             self._quick_paste_copy_path(clip)
@@ -2908,9 +2931,9 @@ class CacheVaultApp(ctk.CTk):
             self._quick_paste_receipt_details(clip, "copy_image"),
         )
         if ok:
-            Toast(self, "Image copied to clipboard — paste into an image-capable app like Paint")
+            Toast(self, brand.TOAST_VAULT_IMAGE_COPIED)
         else:
-            Toast(self, "Image copied to clipboard (target apps may not accept images)")
+            Toast(self, "◈ Image copied to clipboard — paste in an image-capable app")
 
     def _open_image_asset(self, clip_id: str) -> None:
         from ..core import image_assets, pathutil
@@ -3350,7 +3373,7 @@ class CacheVaultApp(ctk.CTk):
             return None
         target_hwnd = self._resolve_macro_target(target_hwnd)
         if not target_hwnd:
-            self._show_toast("No target window — focus an app and try again.")
+            self._show_toast("Macro copied — switch to your app and paste (Ctrl+V).")
             result = self._macro_executor.execute(
                 macro,
                 trigger_type=trigger_type,
@@ -3390,10 +3413,31 @@ class CacheVaultApp(ctk.CTk):
         macro = self._macro_store.get(macro_id)
         if macro is None:
             return
+        if hwnd_belongs_to_widget(foreground_window(), self):
+            self._pending_macro_run_id = macro_id
+            self.withdraw()
+            self.after(220, self._complete_macro_run_from_button)
+            return
+        target = self._resolve_macro_target(None)
+        self._run_macro(macro, self._TRIGGER_MENU_ONLY, "run_button", target)
+
+    def _complete_macro_run_from_button(self) -> None:
+        macro_id = getattr(self, "_pending_macro_run_id", None)
+        self._pending_macro_run_id = None
+        if not macro_id:
+            return
+        macro = self._macro_store.get(macro_id)
+        if macro is None:
+            if self._tray.available:
+                return
+            self.deiconify()
+            return
         target = foreground_window()
         if hwnd_belongs_to_widget(target, self):
             target = None
         self._run_macro(macro, self._TRIGGER_MENU_ONLY, "run_button", target)
+        if not self._tray.available:
+            self.after(400, self._show_window)
 
     def _show_window(self) -> None:
         if not self._alive():

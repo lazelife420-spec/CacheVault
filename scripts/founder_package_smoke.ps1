@@ -10,6 +10,12 @@ if (-not (Test-Path -LiteralPath $exe)) {
     throw "Missing $exe — run packaging\build_exe.ps1 first"
 }
 
+$exeBytes = [System.IO.File]::ReadAllBytes($exe)
+$exeText = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+if ($exeText -notmatch "cache_vault\.ui\.founder") {
+    throw "Packaged exe missing cache_vault.ui.founder — rebuild before release"
+}
+
 $testLicense = "C:\secure\cachevault-keys\founder-test-license.json"
 if (-not (Test-Path -LiteralPath $testLicense)) {
     throw "Missing test license: $testLicense"

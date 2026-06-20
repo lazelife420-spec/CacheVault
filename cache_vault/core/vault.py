@@ -42,16 +42,23 @@ class Vault:
         clip = self.storage.get_clip(clip_id)
         if clip is None:
             return False
-        
+
+        if clip.content_type == models.CONTENT_IMAGE:
+            body = (clip.title or clip.preview or "").strip()
+        else:
+            body = (clip.content or "").strip()
+        if not body:
+            return False
+
         registry = vault_macros.MacroSafeRegistry(self.settings)
         sid = safe_id or registry.default_safe().id
-        
+
         macro = vault_macros.Macro(
             id=models.new_id(),
-            name=clip.title[:64] if clip.title else "New Macro",
-            body=clip.content,
+            name=(clip.title or clip.preview or "New Macro")[:64],
+            body=body,
             safe_id=sid,
-            smart_type=vault_macros.suggest_smart_type(clip.content, clip.title or ""),
+            smart_type=vault_macros.suggest_smart_type(body, clip.title or ""),
         )
         self.macros.upsert(macro)
         self.events.record(

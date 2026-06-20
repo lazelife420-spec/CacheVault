@@ -85,7 +85,6 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (NAV_HTML_BUNDLES, brand.TERM_HTML_BUNDLES),
     ]),
     ("ACCESS", [
-        (NAV_FOUNDER, "Founder"),
         (NAV_MOBILE_INBOX, brand.TERM_MOBILE_INBOX),
         (NAV_MOBILE_ACCESS, brand.TERM_MOBILE_ACCESS),
         (NAV_SETTINGS, "Settings"),
@@ -138,6 +137,12 @@ class FilterNav(ctk.CTkScrollableFrame):
             font=ctk.CTkFont(size=10, weight="bold"),
         )
         seal.pack(fill="x", padx=8, pady=(0, 10))
+
+        # Always visible — license import must not hide behind collapsed ACCESS.
+        self._labels_text[NAV_FOUNDER] = "Founder"
+        founder_label = _NAV_ICONS.get(NAV_FOUNDER, "") + "Founder"
+        self._rows[NAV_FOUNDER] = self._nav_row(self, NAV_FOUNDER, founder_label)
+        self._separator()
 
         for heading, items in FILTER_GROUPS:
             parent = self

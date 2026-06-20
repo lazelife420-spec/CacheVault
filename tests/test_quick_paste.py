@@ -18,10 +18,12 @@ def _clip(**overrides):
 
 
 def test_quick_paste_primary_labels_are_type_aware():
-    assert primary_action_label(_clip()) == "Paste Text"
-    assert primary_action_label(_clip(classification=models.CLASS_LINK)) == "Paste Link"
-    assert primary_action_label(_clip(classification=models.CLASS_PATH)) == "Copy Path"
-    assert primary_action_label(_clip(content_type=models.CONTENT_IMAGE)) == "Copy Image"
+    from cache_vault import brand
+
+    assert primary_action_label(_clip()) == brand.LABEL_COPY_TO_CLIPBOARD
+    assert primary_action_label(_clip(classification=models.CLASS_LINK)) == "Copy Link to Clipboard"
+    assert primary_action_label(_clip(classification=models.CLASS_PATH)) == brand.LABEL_COPY_TO_CLIPBOARD
+    assert primary_action_label(_clip(content_type=models.CONTENT_IMAGE)) == brand.LABEL_COPY_IMAGE_TO_CLIPBOARD
 
 
 def test_quick_paste_keyboard_bindings_are_wired():
@@ -59,19 +61,19 @@ def test_quick_paste_search_filter_uses_metadata_not_body_access():
     assert not quick_paste._matches_query(clip, "missing")
 
 
-def test_quick_paste_image_action_does_not_fake_paste():
+def test_quick_paste_image_action_copies_only_no_auto_paste():
+    from cache_vault import brand
     from cache_vault.ui.shell import CacheVaultApp
 
     image_source = inspect.getsource(CacheVaultApp._quick_paste_image_action)
-    finish_source = inspect.getsource(CacheVaultApp._finish_paste)
+    do_paste_source = inspect.getsource(CacheVaultApp._do_paste)
 
     assert "write_clipboard_png" in image_source
     assert "deliver_ctrl_v" not in image_source
-    assert any(s in image_source for s in ("Copied image to clipboard", "Image copied to clipboard"))
+    assert brand.TOAST_VAULT_IMAGE_COPIED in image_source or "TOAST_VAULT_IMAGE_COPIED" in image_source
+    assert "after(80" in do_paste_source
     assert "ACTION_OPEN" in image_source
     assert "ACTION_SAVE_AS" in image_source
-    assert "Pasted ✓" not in finish_source
-    assert "Paste attempted" in finish_source
 
 
 def test_quick_paste_open_image_uses_asset_file_helper():

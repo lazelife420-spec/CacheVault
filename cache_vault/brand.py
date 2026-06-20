@@ -69,6 +69,12 @@ TERM_MOBILE_INBOX = "Mobile Inbox"
 TERM_INCOMING_FROM_PHONE = "Incoming from Phone"
 TERM_VAULT_ITEM = "Vault Item"
 TERM_INSPECTOR_SEAL = "Item seal / status"
+TERM_QUICK_PASTE = "Quick Paste"
+LABEL_COPY_TO_CLIPBOARD = "Copy to Clipboard"
+LABEL_COPY_IMAGE_TO_CLIPBOARD = "Copy Image to Clipboard"
+QUICK_PASTE_HEADER = "◈ Quick Paste — pull from your vault"
+QUICK_PASTE_HINT = "search · ↑/↓ select · Enter copy · Esc close"
+TOAST_VAULT_IMAGE_COPIED = "◈ Screenshot copied to clipboard — paste wherever you need it"
 
 # Vault / proof language (subtle, businesslike)
 LABEL_ORIGINAL_PROTECTED = "Original protected"

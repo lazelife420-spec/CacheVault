@@ -48,6 +48,7 @@ hiddenimports += [
     "cache_vault.licensing",
     "cache_vault.feature_gate",
     "cache_vault.core.app_receipt",
+    "cache_vault.ui.founder",
     "cache_vault.core.image_assets",
     "cache_vault.core.mobile.bridge",
     "cache_vault.core.mobile.api",

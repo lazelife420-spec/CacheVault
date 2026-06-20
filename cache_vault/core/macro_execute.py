@@ -251,9 +251,12 @@ class MacroExecutor:
                 self._record(macro, trigger_type, trigger_value, result)
                 self._update_macro_after_run(macro, success=False)
                 return result
-            paste = deliver_ctrl_v(target_hwnd) if target_hwnd else PasteResult(False, "no_target_window")
+            if target_hwnd:
+                paste = deliver_ctrl_v(target_hwnd)
+            else:
+                paste = PasteResult(True, "clipboard_only", "")
             clipboard_restored = False
-            if paste.ok and restore:
+            if target_hwnd and paste.ok and restore:
                 time.sleep(0.12)
                 clipboard_restored = restore_clipboard_text(prior_clipboard)
         elif output_mode == OUTPUT_KEYSTROKE:
