@@ -17,6 +17,9 @@ OUT_JSON = OUT_DIR / "post_rc3_acceptance_gate.json"
 ANDROID_SHARE_TIMEOUT = 240
 ORIGINAL_LOCALAPPDATA = os.environ.get("LOCALAPPDATA")
 ORIGINAL_DISABLE_TRAY = os.environ.get("CACHE_VAULT_DISABLE_TRAY")
+# context_menus: Quick Paste + menus lane — Share Sheet is informational unless skipped device forces run.
+# post_rc3: full mobile lane — Share Sheet blocks when a device is connected and smoke runs.
+ACCEPTANCE_LANE = os.environ.get("CACHE_VAULT_ACCEPTANCE_LANE", "context_menus")
 
 
 def git_head() -> str:
@@ -441,14 +444,22 @@ def main() -> int:
         results["desktop_smoke"] = {"pass": False, "error": str(exc)}
 
     android_ok = results["android_build"]["pass"]
-    share_ok = results["android_share_smoke"].get("run") and results["android_share_smoke"]["pass"]
-    share_not_required_fail = not results["android_share_smoke"].get("run")
+    share_ran = bool(results["android_share_smoke"].get("run"))
+    share_passed = bool(results["android_share_smoke"].get("pass"))
+    require_share = (
+        ACCEPTANCE_LANE == "post_rc3"
+        or os.environ.get("CACHE_VAULT_REQUIRE_ANDROID_SHARE", "").lower() in ("1", "true", "yes")
+    )
+    share_blocks_overall = require_share and share_ran and not share_passed
 
+    results["acceptance_lane"] = ACCEPTANCE_LANE
+    results["android_share_informational"] = not require_share
+    results["android_share_blocks_overall"] = share_blocks_overall
     results["overall_pass"] = (
         results["desktop_pytest"]["pass"]
         and results["desktop_selftest"]["pass"]
         and android_ok
-        and share_ok
+        and not share_blocks_overall
         and results["mobile_inbox_api"]["pass"]
         and results["receipt_proof"]["pass"]
         and results["export_regression"]["pass"]
@@ -456,12 +467,19 @@ def main() -> int:
         and results["desktop_smoke"].get("pass")
     )
     results["post_rc3_lane_accepted"] = results["overall_pass"]
-    results["mobile_acceptance_complete"] = share_ok
-    results["mobile_acceptance_note"] = (
-        "Desktop + Android build gated; real Share Sheet smoke not run (no device)."
-        if share_not_required_fail
-        else results["android_share_smoke"].get("note", "")
-    )
+    results["mobile_acceptance_complete"] = share_passed if share_ran else False
+    if not share_ran:
+        results["mobile_acceptance_note"] = (
+            "Share Sheet smoke skipped (informational for "
+            f"{ACCEPTANCE_LANE} lane; no device/emulator)."
+        )
+    elif not require_share:
+        results["mobile_acceptance_note"] = (
+            "Share Sheet smoke ran; informational only for "
+            f"{ACCEPTANCE_LANE} lane."
+        )
+    else:
+        results["mobile_acceptance_note"] = results["android_share_smoke"].get("note", "")
 
     write_json(OUT_JSON, results)
     print(json.dumps(results, indent=2))

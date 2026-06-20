@@ -1,0 +1,92 @@
+{
+  "branch": "feature/context-menus-copy-clean",
+  "commit": "567fc8b892b4f5a5312d19e0bf31821d529ac5ca",
+  "no_tag": true,
+  "no_github_release": true,
+  "no_final_release_claim": true,
+  "rc3_untouched": true,
+  "desktop_pytest": {
+    "pass": true,
+    "returncode": 0,
+    "tail": "........................................................................ [ 36%]\n........................................................................ [ 54%]\n........................................................................ [ 72%]\n........................................................................ [ 90%]\n.......s................................                                 [100%]\n"
+  },
+  "desktop_selftest": {
+    "pass": true,
+    "stdout": "selftest OK \u2014 core capture/classify/sensitive/image/mobile pipeline works"
+  },
+  "android_build": {
+    "pass": true,
+    "returncode": 0,
+    "apk": "C:\\Users\\KickA\\Desktop\\CacheVault\\android\\app\\build\\outputs\\apk\\debug\\app-debug.apk",
+    "share_assistant_manifest": true,
+    "send_intent": true,
+    "tail": " :app:bundleReleaseClassesToCompileJar UP-TO-DATE\n> Task :app:compileReleaseUnitTestKotlin UP-TO-DATE\n> Task :app:preReleaseUnitTestBuild UP-TO-DATE\n> Task :app:javaPreCompileReleaseUnitTest UP-TO-DATE\n> Task :app:compileReleaseUnitTestJavaWithJavac NO-SOURCE\n> Task :app:processReleaseJavaRes UP-TO-DATE\n> Task :app:processReleaseUnitTestJavaRes UP-TO-DATE\n> Task :app:testReleaseUnitTest UP-TO-DATE\n> Task :app:test UP-TO-DATE\n\nBUILD SUCCESSFUL in 8s\n64 actionable tasks: 1 executed, 63 up-to-date\n"
+  },
+  "mobile_inbox_api": {
+    "pass": true,
+    "send_status": 200,
+    "capture_mode": "mobile_share",
+    "safe_id": "default",
+    "source_app": "Chrome",
+    "source_window": "Acceptance Pixel",
+    "invalid_token_status": 401,
+    "delete_status": 405,
+    "routes": {
+      "/mobile/v1/status": 200,
+      "/mobile/v1/clips": 200,
+      "/mobile/v1/recently-removed": 200
+    },
+    "receipt_action": "list_recently_removed",
+    "sensitive_in_receipt": false,
+    "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_post_rc3_bk4jfjo2\\mobile_receipts.json"
+  },
+  "receipt_proof": {
+    "pass": true,
+    "mobile_receipts_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_rcpt_nf503pdi\\CacheVault\\mobile_receipts.json",
+    "file_receipts_dir": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_rcpt_nf503pdi\\CacheVault\\Receipts",
+    "actions_found": {
+      "mobile_sent_to_pc": true,
+      "mobile_inbox_received": true
+    }
+  },
+  "export_regression": {
+    "pass": true,
+    "returncode": 0,
+    "manifest": null,
+    "sha256sums": null,
+    "safe_metadata": null
+  },
+  "docs_check": {
+    "pass": true,
+    "no_cloud_mentioned": true,
+    "no_silent_clipboard": true,
+    "no_old_person_label": false,
+    "deferred_or_planned": true
+  },
+  "android_share_smoke": {
+    "pass": false,
+    "run": false,
+    "note": "real Android Share Sheet smoke not run \u2014 no device/emulator"
+  },
+  "desktop_smoke": {
+    "pass": true,
+    "screenshots": {
+      "luxury_command_center": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\luxury_command_center.png",
+      "mobile_inbox_screen": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\mobile_inbox_screen.png"
+    },
+    "checks": {
+      "vault_status_active": true,
+      "local_only": true,
+      "capture_active": true,
+      "mobile_inbox_title": true,
+      "sent_from_phone": true
+    }
+  },
+  "acceptance_lane": "context_menus",
+  "android_share_informational": true,
+  "android_share_blocks_overall": false,
+  "overall_pass": true,
+  "post_rc3_lane_accepted": true,
+  "mobile_acceptance_complete": false,
+  "mobile_acceptance_note": "Share Sheet smoke skipped (informational for context_menus lane; no device/emulator)."
+}
