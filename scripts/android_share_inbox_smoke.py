@@ -27,6 +27,7 @@ from scripts.android_asset_smoke import (  # noqa: E402
     SHOT_DIR,
     TEST_APK,
     adb,
+    bounds_center,
     bridge_host_port,
     curl_status,
     dismiss_share_sheet,
@@ -38,6 +39,37 @@ from scripts.android_asset_smoke import (  # noqa: E402
     wait_text,
 )
 from scripts.pairing_hot_reload_smoke import ensure_bridge_running, kill_port_listeners  # noqa: E402
+
+# Post–PR #21 Share screen copy (harness only — no UI changes in this lane).
+SHARE_TITLE = "Send to your PC vault"
+SEND_BUTTON = "Send to Cache Vault"
+COPY_BUTTON = "Copy text"
+SHARE_OTHER_BUTTON = "Share with someone else"
+DONE_BUTTON = "Done"
+SENT_STATUS_MARKERS = ("Sent to Cache Vault", "receipt stamped", "Default Safe")
+
+
+def tap_text_lowest(label: str) -> bool:
+    """Tap lowest matching text node (Compose primary buttons)."""
+    xml_text = dump_ui()
+    if not xml_text.strip():
+        return False
+    root = ET.fromstring(xml_text)
+    best: tuple[int, tuple[int, int]] | None = None
+    for node in root.iter("node"):
+        text = node.attrib.get("text") or ""
+        if label.lower() not in text.lower():
+            continue
+        center = bounds_center(node.attrib.get("bounds", ""))
+        if center is None:
+            continue
+        if best is None or center[1] > best[0]:
+            best = (center[1], center)
+    if best is None:
+        return False
+    x, y = best[1]
+    adb("shell", "input", "tap", str(x), str(y), check=False)
+    return True
 
 
 def start_source_bridge() -> None:
@@ -193,21 +225,19 @@ def run_share_flow() -> dict:
     launch_share_sheet()
     screencap("share_smoke_01_simple_mode")
     xml = dump_ui()
-    checks["simple_mode_title"] = "What do you want to do?" in xml
-    checks["button_send_to_pc"] = "Send to PC" in xml
-    checks["button_copy_text"] = "Copy Text" in xml
-    checks["button_share_someone"] = "Share with Someone" in xml
-    checks["button_done"] = "Done" in xml
+    checks["share_screen_title"] = SHARE_TITLE in xml
+    checks["button_send_to_cache_vault"] = SEND_BUTTON in xml
+    checks["button_copy_text"] = COPY_BUTTON in xml
+    checks["button_share_someone"] = SHARE_OTHER_BUTTON in xml
+    checks["button_done"] = DONE_BUTTON in xml
 
-    if not tap_text("Send to PC", timeout=12):
-        raise RuntimeError("Could not tap Send to PC")
-    sent = wait_text("Sent to PC", timeout=15.0)
+    if not tap_text_lowest(SEND_BUTTON):
+        raise RuntimeError(f"Could not tap {SEND_BUTTON}")
+    sent = wait_text("Sent to Cache Vault", timeout=15.0)
     time.sleep(1.0)
     screencap("share_smoke_02_after_send")
     xml_after = dump_ui()
-    checks["status_sent"] = sent or any(
-        s in xml_after for s in ("Sent to PC", "Receipt stamped", "Default Safe")
-    )
+    checks["status_sent"] = sent or any(s in xml_after for s in SENT_STATUS_MARKERS)
     checks["status_failed"] = "Could not send" in xml_after
 
     inbox_after = mobile_inbox_count()
@@ -242,8 +272,8 @@ def run_share_flow() -> dict:
         "clip": clip,
         "receipt_actions": rec_actions,
         "pass": (
-            checks["simple_mode_title"]
-            and checks["button_send_to_pc"]
+            checks["share_screen_title"]
+            and checks["button_send_to_cache_vault"]
             and checks["status_sent"]
             and not checks.get("status_failed", False)
             and checks["inbox_item_created"]

@@ -1,0 +1,32 @@
+{
+  "branch": "feature/android-share-sheet-post-rc3",
+  "lane": "post_rc3",
+  "acceptance_env": "CACHE_VAULT_ACCEPTANCE_LANE=post_rc3",
+  "android_build": "PASS",
+  "android_unit_tests": "PASS",
+  "desktop_bridge_required": true,
+  "device_share_proof_required": true,
+  "manual_screenshots_required": [
+    "share_smoke_01_simple_mode",
+    "share_smoke_02_after_send"
+  ],
+  "manual_screenshots_captured": true,
+  "screenshots": {
+    "share_smoke_01_simple_mode": "visual_smoke/share_smoke_01_simple_mode.png",
+    "share_smoke_02_after_send": "visual_smoke/share_smoke_02_after_send.png"
+  },
+  "receipts": {
+    "share_smoke": "visual_smoke/android_share_inbox_smoke.json",
+    "acceptance_gate": "visual_smoke/post_rc3_acceptance_gate.json"
+  },
+  "acceptance_gate": {
+    "overall_pass": true,
+    "post_rc3_lane_accepted": true,
+    "mobile_acceptance_complete": true,
+    "android_share_smoke_pass": true
+  },
+  "scope": "Prove Android Share Sheet end-to-end on device; no UI redesign; no protocol/security unless bug found.",
+  "capture_script": "scripts/android_share_inbox_smoke.py",
+  "gate_script": "scripts/post_rc3_acceptance_gate.py",
+  "note": "Harness updated for post-PR#21 Send to Cache Vault copy; device proof on R3CW40FY82W."
+}
