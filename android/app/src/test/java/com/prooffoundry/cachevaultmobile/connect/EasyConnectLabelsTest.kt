@@ -7,7 +7,7 @@ import org.junit.Test
 class EasyConnectLabelsTest {
     @Test
     fun connectToMyPcLabel() {
-        assertEquals("Connect to My PC", EasyConnectLabels.CONNECT_TO_MY_PC)
+        assertEquals("Connect to Cache Vault on this PC", EasyConnectLabels.CONNECT_TO_MY_PC)
     }
 
     @Test

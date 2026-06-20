@@ -18,8 +18,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.VaultSectionKind
 import com.prooffoundry.cachevaultmobile.ui.ConnectionState
 import com.prooffoundry.cachevaultmobile.ui.theme.ProofTeal
@@ -86,25 +88,32 @@ fun VaultStatusCard(
             modifier = Modifier
                 .border(
                     width = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                    color = when (connection) {
+                        ConnectionState.CONNECTED -> ProofTeal.copy(alpha = 0.35f)
+                        ConnectionState.OFFLINE,
+                        ConnectionState.REVOKED,
+                        ConnectionState.MOBILE_ACCESS_OFF,
+                        -> MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
+                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                    },
                     shape = RoundedCornerShape(10.dp),
                 )
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "Vault Status",
-                style = MaterialTheme.typography.labelLarge,
+                stringResource(R.string.vault_status_title),
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill("Local Wi-Fi", ProofTeal)
+                StatusPill(stringResource(R.string.vault_status_local_wifi), ProofTeal)
                 when (connection) {
                     ConnectionState.CONNECTED -> {
                         StatusPill("Connected", ProofTeal)
                         StatusPill("Proof recorded", StampGold.copy(alpha = 0.9f))
                     }
-                    ConnectionState.CHECKING -> StatusPill("Loading…", MaterialTheme.colorScheme.onSurfaceVariant)
+                    ConnectionState.CHECKING -> StatusPill("Checking…", MaterialTheme.colorScheme.onSurfaceVariant)
                     ConnectionState.REPAIR_NEEDED -> StatusPill("Re-pair needed", StampGold)
                     ConnectionState.REVOKED -> StatusPill("Device revoked", MaterialTheme.colorScheme.error)
                     ConnectionState.MOBILE_ACCESS_OFF -> StatusPill("Mobile Access off", MaterialTheme.colorScheme.error)
@@ -114,22 +123,31 @@ fun VaultStatusCard(
             when {
                 connection == ConnectionState.CONNECTED && hostLabel.isNotBlank() -> {
                     Text(
-                        hostLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        stringResource(R.string.vault_status_pc, hostLabel),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = ProofTeal,
                     )
                 }
                 connection == ConnectionState.CHECKING -> {
                     Text(
                         "Loading saved clips from your PC…",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                connection == ConnectionState.OFFLINE ||
+                    connection == ConnectionState.MOBILE_ACCESS_OFF -> {
+                    Text(
+                        stringResource(R.string.offline_recovery_steps),
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             if (connection == ConnectionState.REPAIR_NEEDED && onRePair != null) {
                 TextButton(onClick = onRePair) {
-                    Text("Enter new pairing code")
+                    Text(stringResource(R.string.enter_new_pairing_code))
                 }
             }
         }

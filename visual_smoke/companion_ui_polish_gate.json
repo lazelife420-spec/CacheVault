@@ -1,0 +1,15 @@
+{
+  "branch": "feature/companion-ui-polish",
+  "lane": "companion-ui-polish",
+  "android_build": "PASS",
+  "android_unit_tests": "PASS",
+  "backend_protocol_diff": false,
+  "manual_screenshots_required": [
+    "pairing (WelcomeScreen / Easy Connect)",
+    "connected (VaultStatusCard with PC IP)",
+    "send item (SimpleShareScreen — Send to Cache Vault)",
+    "offline/error (DiscoverPc failed or Vault offline state)"
+  ],
+  "manual_screenshots_captured": false,
+  "note": "Capture on device before PR merge; automated gate does not substitute phone screenshots."
+}

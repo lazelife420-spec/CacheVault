@@ -51,9 +51,9 @@ fun connectionOnlyError(error: String?): String? {
 
 fun connectionSubtitle(state: ConnectionState, hostLabel: String): String = when (state) {
     ConnectionState.CONNECTED -> "Connected · ${hostLabel.ifBlank { "PC" }}"
-    ConnectionState.REPAIR_NEEDED -> "Re-pair needed"
-    ConnectionState.REVOKED -> "Device revoked — pair again on PC"
-    ConnectionState.OFFLINE -> "Not connected"
-    ConnectionState.MOBILE_ACCESS_OFF -> "Mobile Access off on PC"
-    ConnectionState.CHECKING -> "Loading…"
+    ConnectionState.REPAIR_NEEDED -> "Re-pair needed — get a fresh code on your PC"
+    ConnectionState.REVOKED -> "Device revoked — pair again on your PC"
+    ConnectionState.OFFLINE -> "Not connected — same Wi-Fi, PC app open, then Retry"
+    ConnectionState.MOBILE_ACCESS_OFF -> "Mobile Access off on your PC"
+    ConnectionState.CHECKING -> "Checking connection…"
 }
