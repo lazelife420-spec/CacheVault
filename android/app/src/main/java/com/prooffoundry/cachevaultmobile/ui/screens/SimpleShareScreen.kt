@@ -21,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,9 +31,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.prooffoundry.cachevaultmobile.R
 
 /** Simple Mode — large buttons, plain language, no technical jargon. */
 @Composable
@@ -58,17 +61,21 @@ fun SimpleShareScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            text = "What do you want to do?",
+            text = stringResource(R.string.share_screen_title),
             style = MaterialTheme.typography.headlineMedium.copy(
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
             ),
         )
         Text(
-            text = if (isConnected) "Connected to $connectionLabel" else "Not connected to PC",
+            text = if (isConnected) {
+                stringResource(R.string.share_connected, connectionLabel)
+            } else {
+                stringResource(R.string.share_not_connected)
+            },
             style = MaterialTheme.typography.bodyLarge,
             color = if (isConnected) {
                 MaterialTheme.colorScheme.primary
@@ -76,6 +83,13 @@ fun SimpleShareScreen(
                 MaterialTheme.colorScheme.error
             },
         )
+        if (!isConnected) {
+            Text(
+                text = stringResource(R.string.offline_recovery_steps),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (imageLabel != null) {
             Text(
                 text = imageLabel,
@@ -89,22 +103,37 @@ fun SimpleShareScreen(
         statusMessage?.let {
             Text(text = it, style = MaterialTheme.typography.titleMedium)
         }
-        SimpleActionButton(
-            text = "Send to PC",
+        PrimaryActionButton(
+            text = stringResource(R.string.send_to_cache_vault),
             enabled = isConnected,
             onClick = {
                 if (sensitiveReason != null) showSensitiveWarning = true else onSendToPc()
             },
         )
         if (!isImage) {
-            SimpleActionButton(text = "Copy Text", onClick = onCopyText)
-            SimpleActionButton(text = "Share with Someone", onClick = onShareWithSomeone)
+            SecondaryActionButton(
+                text = stringResource(R.string.share_copy_text),
+                onClick = onCopyText,
+            )
+            SecondaryActionButton(
+                text = stringResource(R.string.share_with_someone),
+                onClick = onShareWithSomeone,
+            )
         }
-        SimpleActionButton(text = "Done", onClick = onDismiss)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        TextButton(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                stringResource(R.string.share_done),
+                fontSize = 18.sp,
+            )
+        }
         Text(
-            text = "Local-only · paired Send-to-PC · no cloud",
+            text = stringResource(R.string.share_footer),
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 
@@ -123,7 +152,7 @@ fun SimpleShareScreen(
                 TextButton(onClick = {
                     showSensitiveWarning = false
                     onSendToPc()
-                }) { Text("Send anyway") }
+                }) { Text(stringResource(R.string.send_to_cache_vault)) }
             },
             dismissButton = {
                 TextButton(onClick = { showSensitiveWarning = false }) { Text("Cancel") }
@@ -151,7 +180,7 @@ private fun SensitiveBadge(reason: String) {
 }
 
 @Composable
-private fun SimpleActionButton(
+private fun PrimaryActionButton(
     text: String,
     enabled: Boolean = true,
     onClick: () -> Unit,
@@ -165,6 +194,23 @@ private fun SimpleActionButton(
         colors = ButtonDefaults.buttonColors(),
     ) {
         Text(text = text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun SecondaryActionButton(
+    text: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp),
+    ) {
+        Text(text = text, fontSize = 18.sp, fontWeight = FontWeight.Medium)
     }
 }
 

@@ -57,11 +57,11 @@ class ShareAssistantActivity : ComponentActivity() {
                     statusMessage = status,
                     onSendToPc = {
                         if (pairing == null) {
-                            status = "Could not send — not connected"
+                            status = getString(R.string.send_failed_not_connected)
                             return@SimpleShareScreen
                         }
                         scope.launch {
-                            status = "Sending to PC…"
+                            status = getString(R.string.sending_to_vault)
                             try {
                                 val resp = withContext(Dispatchers.IO) {
                                     app.bridgeRepository.client().sendToPc(
@@ -75,11 +75,11 @@ class ShareAssistantActivity : ComponentActivity() {
                                 }
                                 status = sendResultMessage(resp.success, resp.safeName, resp.error)
                             } catch (e: BridgeError.Unauthorized) {
-                                status = "Could not send — pairing expired"
+                                status = getString(R.string.send_failed_pairing)
                             } catch (e: BridgeError.Disabled) {
-                                status = "Could not send — Mobile Access off on PC"
+                                status = getString(R.string.send_failed_mobile_off)
                             } catch (e: Exception) {
-                                status = "Could not send — check connection"
+                                status = getString(R.string.send_failed_connection)
                             }
                         }
                     },
@@ -125,11 +125,11 @@ class ShareAssistantActivity : ComponentActivity() {
                     statusMessage = status,
                     onSendToPc = {
                         if (pairing == null || shared == null) {
-                            status = "Could not send — not connected"
+                            status = getString(R.string.send_failed_not_connected)
                             return@SimpleShareScreen
                         }
                         scope.launch {
-                            status = "Sending image to PC…"
+                            status = getString(R.string.sending_image_to_vault)
                             try {
                                 val resp = withContext(Dispatchers.IO) {
                                     val b64 = Base64.encodeToString(shared.bytes, Base64.NO_WRAP)
@@ -144,11 +144,11 @@ class ShareAssistantActivity : ComponentActivity() {
                                 }
                                 status = sendResultMessage(resp.success, resp.safeName, resp.error)
                             } catch (e: BridgeError.Unauthorized) {
-                                status = "Could not send — pairing expired"
+                                status = getString(R.string.send_failed_pairing)
                             } catch (e: BridgeError.Disabled) {
-                                status = "Could not send — Mobile Access off on PC"
+                                status = getString(R.string.send_failed_mobile_off)
                             } catch (e: Exception) {
-                                status = "Could not send — check connection"
+                                status = getString(R.string.send_failed_connection)
                             }
                         }
                     },
@@ -163,9 +163,9 @@ class ShareAssistantActivity : ComponentActivity() {
 
     private fun sendResultMessage(success: Boolean, safeName: String?, error: String?): String =
         if (success) {
-            "Sent to PC · ${safeName ?: "Default Safe"} · Receipt stamped"
+            getString(R.string.sent_to_vault, safeName ?: "Default Safe")
         } else {
-            "Could not send — ${error ?: "unknown error"}"
+            getString(R.string.send_failed_unknown, error ?: "unknown error")
         }
 
     @Suppress("DEPRECATION")

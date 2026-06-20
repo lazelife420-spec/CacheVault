@@ -337,7 +337,7 @@ class AppViewModel(
             ConnectionState.MOBILE_ACCESS_OFF ->
                 "Turn on Mobile Access in Cache Vault on your PC."
             ConnectionState.OFFLINE ->
-                "Use the same Wi-Fi, confirm the PC IP, and allow Cache Vault through Windows Firewall."
+                "Use the same Wi-Fi as your PC, open Cache Vault on the PC, turn on Mobile Access, then tap Retry."
             ConnectionState.CONNECTED -> "Connection looks good. If a clip fails, refresh the vault list."
             ConnectionState.CHECKING -> "Wait for the status check to finish, then try Refresh."
         }

@@ -83,7 +83,7 @@ class ManualSetupFlowInstrumentedTest {
             Until.findObject(By.desc("manual_setup_connect")),
             8_000,
         ) ?: device.wait(
-            Until.findObject(By.text("Connect to My PC")),
+            Until.findObject(By.text("Connect to Cache Vault on this PC")),
             5_000,
         )
         assertNotNull("Connect button not found", connect)

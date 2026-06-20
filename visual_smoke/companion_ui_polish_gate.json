@@ -1,0 +1,22 @@
+{
+  "branch": "feature/companion-ui-polish",
+  "lane": "companion-ui-polish",
+  "android_build": "PASS",
+  "android_unit_tests": "PASS",
+  "backend_protocol_diff": false,
+  "manual_screenshots_required": [
+    "01_pairing_easy_connect",
+    "02_connected_vault_status",
+    "03_share_send_to_cache_vault",
+    "04_offline_recovery"
+  ],
+  "manual_screenshots_captured": true,
+  "screenshots": {
+    "01_pairing_easy_connect": "visual_smoke/companion_ui_polish/01_pairing_easy_connect.png",
+    "02_connected_vault_status": "visual_smoke/companion_ui_polish/02_connected_vault_status.png",
+    "03_share_send_to_cache_vault": "visual_smoke/companion_ui_polish/03_share_send_to_cache_vault.png",
+    "04_offline_recovery": "visual_smoke/companion_ui_polish/04_offline_recovery.png"
+  },
+  "capture_script": "scripts/companion_ui_polish_screenshots.py",
+  "note": "Captured via adb on connected device; rerun script to refresh."
+}
