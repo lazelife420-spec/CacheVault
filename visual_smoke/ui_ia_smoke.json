@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "groups": [
+    "COMMAND",
+    "VAULT",
+    "REVIEW",
+    "PROOF",
+    "ACCESS",
+    "TIME"
+  ],
+  "nav_item_count": 26,
+  "command_center_label": "Command Center",
+  "editable_copies_label": "Editable Copies / Revisions",
+  "html_bundles_label": "HTML Bundles",
+  "phase5_honest_label": "Included in proof export zip",
+  "screenshots": [
+    "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\ui_ia_command_center.png"
+  ]
+}

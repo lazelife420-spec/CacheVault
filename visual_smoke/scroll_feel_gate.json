@@ -1,0 +1,9 @@
+{
+  "wheel_scroll_lines": 5,
+  "ctk_default_units_per_notch": -20,
+  "cache_vault_units_per_notch": -110,
+  "speed_ratio_vs_ctk": 5.5,
+  "patch_active": true,
+  "feel_gate": "PASS",
+  "note": "Automated gate: OS lines read, patch produces different (typically faster) scroll than CTk delta/6. Human feel vs Explorer/browser: confirm manually on vault list, images grid, settings \u2014 no double-scroll expected."
+}

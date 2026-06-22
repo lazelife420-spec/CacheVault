@@ -1,0 +1,13 @@
+{
+  "win_shift_s_equivalent": "PASS \u2014 CF_DIB clipboard inject (post-snip copy path)",
+  "screenshots_count_increments": "PASS",
+  "preview_asset_available": "PASS",
+  "metadata_sha256_dimensions": "PASS \u2014 sha256=feeac5b343f8\u2026 37\u00d729 132B",
+  "copy_image": "PASS",
+  "paint_paste_equivalent": "PASS \u2014 clipboard readback matches asset",
+  "export_zip_assets": "PASS",
+  "receipts_written": "PASS",
+  "no_cloud_claim": "PASS \u2014 local DB + LOCALAPPDATA assets only",
+  "no_release_tag": "PASS",
+  "live_pc_screenshot_smoke": "PASS"
+}

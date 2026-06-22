@@ -1,0 +1,205 @@
+[
+  {
+    "id": "a1f92dbaa5f24004a1f246ff33957829",
+    "created_at": "2026-06-17T18:41:26.815017+00:00",
+    "event_type": "vault_unlocked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase"
+    }
+  },
+  {
+    "id": "9c4ca462a81c4c99b8de74f289961ea0",
+    "created_at": "2026-06-17T18:41:26.504886+00:00",
+    "event_type": "vault_locked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "manual"
+    }
+  },
+  {
+    "id": "09729234c95046d6a4d5e9a0f3edc6f1",
+    "created_at": "2026-06-17T18:41:22.032444+00:00",
+    "event_type": "vault_unlocked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase"
+    }
+  },
+  {
+    "id": "90897e58ba0042aa9addb0ff1b25685b",
+    "created_at": "2026-06-17T18:41:21.693212+00:00",
+    "event_type": "vault_locked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "auto_lock"
+    }
+  },
+  {
+    "id": "57c172d5c17d425d9aee3a2bdc4945ec",
+    "created_at": "2026-06-17T18:40:21.667104+00:00",
+    "event_type": "vault_lock_settings_changed",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "auto_lock_enabled"
+    }
+  },
+  {
+    "id": "bbe291ef3c8142878b24cf568e68ab30",
+    "created_at": "2026-06-17T18:40:20.684895+00:00",
+    "event_type": "vault_unlocked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase"
+    }
+  },
+  {
+    "id": "ca80bc1ad3ca4b709bce626afccbc589",
+    "created_at": "2026-06-17T18:40:19.532805+00:00",
+    "event_type": "vault_locked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "minimized"
+    }
+  },
+  {
+    "id": "f26625870abb4491ab9e8a0655235b63",
+    "created_at": "2026-06-17T18:40:19.521988+00:00",
+    "event_type": "vault_lock_settings_changed",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "minimize_enabled"
+    }
+  },
+  {
+    "id": "0645924bcd084ea4a7948dfc102ab241",
+    "created_at": "2026-06-17T18:40:18.475197+00:00",
+    "event_type": "vault_unlocked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase"
+    }
+  },
+  {
+    "id": "32a7a453936d428c9bc6098acbcbc182",
+    "created_at": "2026-06-17T18:40:18.158604+00:00",
+    "event_type": "vault_unlock_failed",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "invalid_unlock"
+    }
+  },
+  {
+    "id": "aa3042a1bac94f27accadc583a0d8643",
+    "created_at": "2026-06-17T18:40:17.752565+00:00",
+    "event_type": "vault_locked",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "manual"
+    }
+  },
+  {
+    "id": "6a31840d99b242e7a7805e85282d7752",
+    "created_at": "2026-06-17T18:40:17.746386+00:00",
+    "event_type": "vault_lock_settings_changed",
+    "clip_id": null,
+    "details": {
+      "mode": "passphrase",
+      "reason": "passphrase_enabled"
+    }
+  },
+  {
+    "id": "bde5b6e90be740c0af06a27c1d38cd8f",
+    "created_at": "2026-06-17T18:40:16.593279+00:00",
+    "event_type": "vault_unlocked",
+    "clip_id": null,
+    "details": {
+      "mode": "pin"
+    }
+  },
+  {
+    "id": "3e4a8d71fdfb4c159fab0cdb2e3b845a",
+    "created_at": "2026-06-17T18:40:14.689306+00:00",
+    "event_type": "vault_locked",
+    "clip_id": null,
+    "details": {
+      "mode": "pin",
+      "reason": "startup"
+    }
+  },
+  {
+    "id": "f0eddc58c15343c391f2d50e2a2892dd",
+    "created_at": "2026-06-17T18:40:13.573939+00:00",
+    "event_type": "vault_lock_settings_changed",
+    "clip_id": null,
+    "details": {
+      "mode": "pin",
+      "reason": "startup_enabled"
+    }
+  },
+  {
+    "id": "fb11023df8f6423b9433fa9522734a27",
+    "created_at": "2026-06-17T18:40:12.568227+00:00",
+    "event_type": "vault_unlocked",
+    "clip_id": null,
+    "details": {
+      "mode": "pin"
+    }
+  },
+  {
+    "id": "5ed97d7dcf47454a85636a6cd88a7aae",
+    "created_at": "2026-06-17T18:40:11.755896+00:00",
+    "event_type": "vault_locked",
+    "clip_id": null,
+    "details": {
+      "mode": "pin",
+      "reason": "manual"
+    }
+  },
+  {
+    "id": "02cc9731f03b4133be53b6c34197055e",
+    "created_at": "2026-06-17T18:40:10.743882+00:00",
+    "event_type": "vault_unlocked",
+    "clip_id": null,
+    "details": {
+      "mode": "pin"
+    }
+  },
+  {
+    "id": "c858fe6986f84de4890d5660a6fd1d9e",
+    "created_at": "2026-06-17T18:40:10.434356+00:00",
+    "event_type": "vault_unlock_failed",
+    "clip_id": null,
+    "details": {
+      "mode": "pin",
+      "reason": "invalid_unlock"
+    }
+  },
+  {
+    "id": "b1a7a113d8d44816bde9c6f151f58ed9",
+    "created_at": "2026-06-17T18:40:09.539862+00:00",
+    "event_type": "vault_locked",
+    "clip_id": null,
+    "details": {
+      "mode": "pin",
+      "reason": "manual"
+    }
+  },
+  {
+    "id": "b4d2cf73bce642379393e97ff1957926",
+    "created_at": "2026-06-17T18:40:09.523770+00:00",
+    "event_type": "vault_lock_settings_changed",
+    "clip_id": null,
+    "details": {
+      "mode": "pin",
+      "reason": "pin_enabled"
+    }
+  }
+]

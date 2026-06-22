@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "steps": {
+    "text_captured": true,
+    "text_export_ok": true,
+    "editable_export_ok": true,
+    "html_export_ok": true,
+    "text_zip_exists": true,
+    "manifest_exists": true,
+    "sha256sums_exists": true,
+    "readme_exists": true,
+    "receipts_in_zip": true,
+    "hashes_validate": true,
+    "hash_errors": [],
+    "proof_pack_validates": true,
+    "proof_pack_errors": [],
+    "manifest_has_safe_metadata": true,
+    "original_note_unchanged": true,
+    "original_html_unchanged": true,
+    "original_css_unchanged": true,
+    "export_receipt_exists": true,
+    "export_receipt_has_manifest_flags": true
+  },
+  "manifest_summary": {
+    "safe_id": "5babe5ab19c84899b2095cafe925ac88",
+    "safe_name": "Smoke Work Safe",
+    "capture_mode": "manual_save_hotkey",
+    "auto_saved": false,
+    "receipts_included": true,
+    "sha256sums_included": true
+  },
+  "sample_zip": "C:\\Users\\KickA\\AppData\\Local\\Temp\\tmptou2pt4u\\text-export.zip",
+  "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\tmptou2pt4u\\CacheVault\\Receipts\\2026-06-21\\export_zip_created-ab9440acb113441290b5bb60d8e058f3-20260621-014641.json"
+}

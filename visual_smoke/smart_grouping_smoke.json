@@ -12,7 +12,7 @@
   },
   "folder_receipts": {
     "receipt_type": "smart_folder_bundle",
-    "generated_at": "2026-06-20T21:25:39.852027+00:00",
+    "generated_at": "2026-06-21T01:46:28.104539+00:00",
     "folder_count": 8,
     "total_clips": 5,
     "folders": [
@@ -22,7 +22,7 @@
         "filter_key": "smart:recent",
         "label": "Recent",
         "count": 2,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       },
       {
         "receipt_type": "smart_folder_snapshot",
@@ -30,7 +30,7 @@
         "filter_key": "smart:unused",
         "label": "Unused",
         "count": 0,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       },
       {
         "receipt_type": "smart_folder_snapshot",
@@ -38,7 +38,7 @@
         "filter_key": "smart:mobile_share",
         "label": "From Phone",
         "count": 1,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       },
       {
         "receipt_type": "smart_folder_snapshot",
@@ -46,7 +46,7 @@
         "filter_key": "smart:text",
         "label": "Plain Text",
         "count": 1,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       },
       {
         "receipt_type": "smart_folder_snapshot",
@@ -54,7 +54,7 @@
         "filter_key": "smart:url",
         "label": "URLs",
         "count": 1,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       },
       {
         "receipt_type": "smart_folder_snapshot",
@@ -62,7 +62,7 @@
         "filter_key": "smart:image",
         "label": "Images",
         "count": 0,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       },
       {
         "receipt_type": "smart_folder_snapshot",
@@ -70,7 +70,7 @@
         "filter_key": "smart:code",
         "label": "Code",
         "count": 0,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       },
       {
         "receipt_type": "smart_folder_snapshot",
@@ -78,7 +78,7 @@
         "filter_key": "smart:manual",
         "label": "Manual Saves",
         "count": 0,
-        "generated_at": "2026-06-20T21:25:39.852027+00:00"
+        "generated_at": "2026-06-21T01:46:28.104539+00:00"
       }
     ]
   },

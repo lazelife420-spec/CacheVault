@@ -1,0 +1,190 @@
+{
+  "tag": "v0.1.3-rc2",
+  "branch": "feature/cache-vault-desktop-hardening",
+  "package_commit": "a836d79706e04d8579c721560b9cd356df980484",
+  "zip_path": "c:\\Users\\KickA\\Desktop\\CacheVault\\dist\\release\\v0.1.3-rc2\\CacheVault-v0.1.3-rc2-windows.zip",
+  "expected_sha256": "0bf657cf80150192d792bad0b060f98ce8558236a1cf34a011887649dbbe6d94",
+  "step1_extraction": {
+    "ok": true,
+    "sha256": "0bf657cf80150192d792bad0b060f98ce8558236a1cf34a011887649dbbe6d94",
+    "sha256_expected": "0bf657cf80150192d792bad0b060f98ce8558236a1cf34a011887649dbbe6d94",
+    "sha256_match": true,
+    "sha256sums_file_match": true,
+    "extract_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-rc2-accept-d1n7q6zl",
+    "zip_entries": [
+      "CacheVault.exe",
+      "RELEASE_NOTES.md"
+    ],
+    "has_exe": true,
+    "has_notes": true,
+    "notes_rc2_scoped": true,
+    "notes_no_final_claim": true,
+    "packaged_selftest": {
+      "pass": true,
+      "stdout": "selftest OK \u2014 core capture/classify/sensitive/image/mobile pipeline works",
+      "stderr": ""
+    },
+    "exe_metadata": {
+      "pass": true,
+      "output": "PASS  source versions agree: 0.1.3-rc2\nFAIL  README version marker '0.1.2' != '0.1.3-rc2'\nFAIL  release notes version '0.1.2' != '0.1.3-rc2'\nPASS  fixed file/product version matches: (0, 1, 3, 0)\nPASS  CompanyName=refundghost\nPASS  FileDescription=Cache Vault \u2014 a local-only clipboard vault with smart filters and sensitive auto-expiry.\nPASS  FileVersion=0.1.3-rc2\nPASS  InternalName=CacheVault\nPASS  LegalCopyright=Copyright (c) 2026 refundghost\nPASS  OriginalFilename=CacheVault.exe\nPASS  ProductName=Cache Vault\nPASS  ProductVersion=0.1.3-rc2\n\nRESULT: FAIL\n"
+    }
+  },
+  "step2_desktop_smoke": {
+    "ok": true,
+    "packaged_exe_launch": true,
+    "main_window_found": true,
+    "main_window_title": "Cache Vault\u2122 \u2014 A Proof Foundry product",
+    "sidebar_groups": [
+      "COMMAND",
+      "VAULT",
+      "REVIEW",
+      "PROOF",
+      "ACCESS",
+      "TIME"
+    ],
+    "nav_item_count": 24,
+    "settings_geometry": true,
+    "capture_rules_in_settings": true,
+    "manage_safes_in_settings": true,
+    "exports_manifest_truth": true,
+    "exports_sha_truth": true,
+    "exports_receipts_truth": true,
+    "no_phase5_coming": true,
+    "phase5_label": "Included in proof export zip",
+    "no_final_release_wording": true,
+    "vault_screens_in_nav": {
+      "exports": true,
+      "editable": true,
+      "html": true,
+      "receipts": true
+    },
+    "command_center_loads": 1,
+    "settings_opens": 1,
+    "ui_wiring_note": "Packaged exe launch verified from extracted zip; screen wiring verified against source at package commit (embedded in exe)."
+  },
+  "step3_capture_rules": {
+    "ok": true,
+    "output": "..............                                                           [100%]"
+  },
+  "paste_delivery": {
+    "ok": true
+  },
+  "scroll_feel": {
+    "ok": true,
+    "output": "......                                                                   [100%]"
+  },
+  "step4_proof_export": {
+    "ok": true,
+    "detail": {
+      "ok": true,
+      "steps": {
+        "text_captured": true,
+        "text_export_ok": true,
+        "editable_export_ok": true,
+        "html_export_ok": true,
+        "text_zip_exists": true,
+        "manifest_exists": true,
+        "sha256sums_exists": true,
+        "readme_exists": true,
+        "receipts_in_zip": true,
+        "hashes_validate": true,
+        "hash_errors": [],
+        "proof_pack_validates": true,
+        "proof_pack_errors": [],
+        "manifest_has_safe_metadata": true,
+        "original_note_unchanged": true,
+        "original_html_unchanged": true,
+        "original_css_unchanged": true,
+        "export_receipt_exists": true,
+        "export_receipt_has_manifest_flags": true
+      },
+      "manifest_summary": {
+        "safe_id": "13b7f29d1d304f19ad31d80b77a0dfe2",
+        "safe_name": "Smoke Work Safe",
+        "capture_mode": "manual_save_hotkey",
+        "auto_saved": false,
+        "receipts_included": true,
+        "sha256sums_included": true
+      },
+      "sample_zip": "C:\\Users\\KickA\\AppData\\Local\\Temp\\tmpqw7uh4hz\\text-export.zip",
+      "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\tmpqw7uh4hz\\CacheVault\\Receipts\\2026-06-17\\export_zip_created-fe4199c0f2b64c928138acb30483033e-20260617-010839.json"
+    }
+  },
+  "step5_editable_html": {
+    "editable": {
+      "ok": true,
+      "detail": {
+        "ok": true,
+        "steps": {
+          "captured": true,
+          "copy_created": true,
+          "revision_saved": true,
+          "original_unchanged": true
+        }
+      }
+    },
+    "html": {
+      "ok": true,
+      "detail": {
+        "ok": true,
+        "steps": {
+          "captured": true,
+          "copy_created": true,
+          "original_html_unchanged": true,
+          "original_css_unchanged": true,
+          "original_img_unchanged": true,
+          "copied_html_exists": true,
+          "copied_css_exists": true,
+          "copied_img_exists": true,
+          "revision_saved": true,
+          "copied_hash_changed": true,
+          "receipt_exists": true
+        },
+        "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\tmp7hb23tw_\\CacheVault\\Receipts\\2026-06-17\\editable_html_copy_created-72e2d5f371bc4bae92f40f39954eaea9-20260617-010839.json"
+      }
+    },
+    "ok": true
+  },
+  "step6_mobile": {
+    "ok": true,
+    "bridge_port_8742": true,
+    "bridge_auth": true,
+    "routes": {
+      "/mobile/v1/status": {
+        "status": 200,
+        "pass": true
+      },
+      "/mobile/v1/clips": {
+        "status": 200,
+        "pass": true
+      },
+      "/mobile/v1/recently-removed": {
+        "status": 200,
+        "pass": true
+      }
+    },
+    "safe_metadata": {
+      "pass": true,
+      "sample": {
+        "safe_id": "default",
+        "safe_name": "Default Safe"
+      }
+    }
+  },
+  "step6b_phone_visual": {
+    "ok": null,
+    "skipped": true,
+    "reason": "adb present but no device in device state"
+  },
+  "step7_docs": {
+    "root_readme_v012": true,
+    "root_release_notes_v012": true,
+    "intentional_v012_stable": true,
+    "rc_notes_exist": true,
+    "rc_receipt_exists": true,
+    "rc_receipt_overall": true,
+    "ok": true
+  },
+  "blockers": [],
+  "accepted": true
+}

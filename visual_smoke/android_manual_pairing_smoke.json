@@ -1,0 +1,41 @@
+{
+  "manual_setup_ui": {
+    "pass": true,
+    "host": "192.168.0.11",
+    "port": 8742,
+    "device_id": "manual-pair-gate"
+  },
+  "invalid_token_pass": true,
+  "invalid_token_error": null,
+  "share_flow": {
+    "checks": {
+      "status_sent": true,
+      "inbox_item_created": true,
+      "content_has_url": true,
+      "receipt_logged": true
+    },
+    "inbox_before": 19,
+    "inbox_after": 20,
+    "clip": {
+      "id": "4e15dd067585490da5906bde1a6bfc48",
+      "content": "Cache Vault manual pairing gate \u2014 https://example.com/manual-pairing-gate",
+      "source_app": "Android Share",
+      "source_window": "SM-S911W",
+      "safe_id": "default",
+      "safe_name": "Default Safe",
+      "capture_mode": "mobile_share",
+      "created_at": "2026-06-17T17:48:01.233818+00:00"
+    },
+    "receipt_actions": [
+      "mobile_sent_to_pc"
+    ]
+  },
+  "unauthenticated_send_rejected": true,
+  "pass": true,
+  "screenshots": [
+    "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\mobile_manual_setup.png",
+    "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\share_smoke_01_simple_mode.png",
+    "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\share_smoke_02_after_send.png"
+  ],
+  "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\CacheVault\\mobile_access_receipts.json"
+}

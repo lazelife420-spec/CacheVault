@@ -1,0 +1,12 @@
+{
+  "pairing_hot_reload_accepted": true,
+  "status_code": 200,
+  "device_id": "hot-reload-smoke-phone",
+  "invalid_token_401": true,
+  "invalid_token_code": 401,
+  "bridge_host": "192.168.0.11",
+  "bridge_port": 8742,
+  "exe_restarted": false,
+  "ok": true,
+  "mobile_api_version": "1"
+}

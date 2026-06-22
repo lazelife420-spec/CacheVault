@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "steps": {
+    "notepad_hwnd": true,
+    "clipboard_set": true,
+    "deliver_ctrl_v": true,
+    "target_title": "Untitled - Notepad",
+    "clipboard_has_marker": true
+  }
+}

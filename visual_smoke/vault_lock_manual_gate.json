@@ -1,0 +1,163 @@
+{
+  "profile": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cachevault_vault_lock_gate_kvgifhoz",
+  "screenshots": {
+    "vault_control_strip.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\vault_control_strip.png",
+    "inspector_tabs.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\inspector_tabs.png",
+    "sidebar_collapsed.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\sidebar_collapsed.png",
+    "vault_lock_settings.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\vault_lock_settings.png",
+    "vault_lock_screen.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\vault_lock_screen.png"
+  },
+  "checks": {
+    "fresh_launch_unlocked": {
+      "pass": true,
+      "detail": "fresh profile opens unlocked"
+    },
+    "command_center_active": {
+      "pass": true,
+      "detail": "home"
+    },
+    "control_strip_renders": {
+      "pass": true,
+      "detail": "['Capture: On', 'Mobile: Off', 'Receipts: Stamping', 'Default Safe: default', 'Quick Actions']"
+    },
+    "inspector_tabs_render": {
+      "pass": true,
+      "detail": "['Actions', 'Seal', 'Metadata', 'History']"
+    },
+    "sidebar_collapse_persisted": {
+      "pass": true,
+      "detail": "['VAULT']"
+    },
+    "pin_not_stored_raw": {
+      "pass": true,
+      "detail": "hash/salt present"
+    },
+    "lock_screen_mapped": {
+      "pass": true,
+      "detail": "lock overlay visible"
+    },
+    "preview_cleared_on_lock": {
+      "pass": true,
+      "detail": "preview selection cleared"
+    },
+    "wrong_pin_rejected": {
+      "pass": true,
+      "detail": "Unlock failed."
+    },
+    "correct_pin_unlocks": {
+      "pass": true,
+      "detail": "unlocked"
+    },
+    "quick_paste_blocked_while_locked": {
+      "pass": true,
+      "detail": "quick paste popup not visible"
+    },
+    "macros_blocked_while_locked": {
+      "pass": true,
+      "detail": "macro runner returned before content action"
+    },
+    "locked_navigation_blocked": {
+      "pass": true,
+      "detail": "home"
+    },
+    "tray_has_no_clip_text": {
+      "pass": true,
+      "detail": "Open Cache Vault Quick Paste Pause Capture Resume Capture Clear Sensitive Clips Quit"
+    },
+    "startup_locked_before_update": {
+      "pass": true,
+      "detail": "new app starts locked"
+    },
+    "startup_lock_screen_visible": {
+      "pass": true,
+      "detail": "lock overlay visible after relaunch"
+    },
+    "startup_unlock_success": {
+      "pass": true,
+      "detail": "unlocked after startup"
+    },
+    "passphrase_not_stored_raw": {
+      "pass": true,
+      "detail": "raw passphrase absent"
+    },
+    "wrong_passphrase_rejected": {
+      "pass": true,
+      "detail": "still locked"
+    },
+    "correct_passphrase_unlocks": {
+      "pass": true,
+      "detail": "unlocked"
+    },
+    "minimize_locks": {
+      "pass": true,
+      "detail": "locked after iconify"
+    },
+    "auto_lock_locks": {
+      "pass": true,
+      "detail": "locked after one-minute timeout"
+    },
+    "mobile_routes_after_unlock": {
+      "pass": true,
+      "detail": "{'/mobile/v1/status': 200, '/mobile/v1/clips': 200, '/mobile/v1/recently-removed': 200}"
+    },
+    "mobile_inbox_opens_after_unlock": {
+      "pass": true,
+      "detail": "nav_mobile_inbox"
+    },
+    "mobile_access_opens_after_unlock": {
+      "pass": true,
+      "detail": "nav_mobile_access"
+    },
+    "control_capture_action": {
+      "pass": true,
+      "detail": "capture paused toggled"
+    },
+    "control_mobile_action": {
+      "pass": true,
+      "detail": "nav_mobile_inbox"
+    },
+    "control_receipts_action": {
+      "pass": true,
+      "detail": "nav_stamped_receipts"
+    },
+    "control_lock_now_action": {
+      "pass": true,
+      "detail": "locked from control strip"
+    },
+    "inspector_actions_tab": {
+      "pass": true,
+      "detail": "Actions"
+    },
+    "inspector_seal_tab": {
+      "pass": true,
+      "detail": "Seal"
+    },
+    "inspector_metadata_tab": {
+      "pass": true,
+      "detail": "Metadata"
+    },
+    "inspector_history_tab": {
+      "pass": true,
+      "detail": "History"
+    },
+    "lock_receipt_events_present": {
+      "pass": true,
+      "detail": "['vault_lock_settings_changed', 'vault_locked', 'vault_unlock_failed', 'vault_unlocked']"
+    },
+    "receipts_no_secrets_or_clip_body": {
+      "pass": true,
+      "detail": "no sentinels in lock receipts"
+    },
+    "crash_log_no_secrets": {
+      "pass": true,
+      "detail": "crash log clean"
+    },
+    "no_forbidden_claims": {
+      "pass": true,
+      "detail": "no forbidden claim text in smoke details"
+    }
+  },
+  "receipt_proof_path": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\vault_lock_receipts.json",
+  "crash_log_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cachevault_vault_lock_gate_kvgifhoz\\CacheVault\\crash.log",
+  "overall_pass": true
+}

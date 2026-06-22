@@ -1,0 +1,120 @@
+{
+  "branch": "feature/context-menus-copy-clean",
+  "commit": "567fc8b892b4f5a5312d19e0bf31821d529ac5ca",
+  "crash_log_before": {
+    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\crash.log",
+    "size": 0,
+    "blocks": 0
+  },
+  "app_launch": {
+    "window_exists": true,
+    "title": "Cache Vault\u2122 \u2014 A Proof Foundry product",
+    "settings_vault_macros_section": true
+  },
+  "notepad_hwnd": true,
+  "run_button_crash_regression": {
+    "notepad_text": "Cache Vault smoke signature",
+    "contains_signature": true,
+    "run_count_before": 0,
+    "run_count_after": 1,
+    "run_count_increased": true,
+    "passed": true,
+    "no_error_dialog": true
+  },
+  "text_shortcut": {
+    "notepad_text": "Cache Vault smoke signature",
+    "contains_signature": true
+  },
+  "text_shortcut_multiline": {
+    "notepad_text": "Line one smoke\r\nLine two smoke",
+    "has_line_break": true
+  },
+  "hotkey_macro": {
+    "notepad_text": "Cache Vault hotkey smoke",
+    "contains_hotkey_body": true,
+    "retried": false
+  },
+  "macro_picker": {
+    "picker_opened": 1,
+    "notepad_after_number_key": "Cache Vault smoke signature",
+    "pasted_from_picker": true
+  },
+  "picker_esc_clipboard": {
+    "clipboard_after_esc": "original clipboard smoke",
+    "unchanged_by_esc": true
+  },
+  "clipboard_restore": {
+    "restored_to_marker": true,
+    "clipboard_after": "original clipboard smoke"
+  },
+  "disabled_macro": {
+    "notepad_text": ";sig",
+    "did_not_expand": true
+  },
+  "sensitive_macro": {
+    "blocked_when_declined": true
+  },
+  "regression": {
+    "quick_paste_opened": 1,
+    "capture_binding_count": 3
+  },
+  "crash_log_after": {
+    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\crash.log",
+    "size": 0,
+    "blocks": 0
+  },
+  "crash_log": {
+    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\crash.log",
+    "new_blocks": 0,
+    "benign_only": true,
+    "no_user_dialog": true
+  },
+  "receipts": {
+    "text_shortcut_expanded": {
+      "count": 3,
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\text_shortcut_expanded-e9b6797f-20260620-172919.json",
+      "has_macro_body": false,
+      "leaks_secret": false
+    },
+    "macro_hotkey_executed": {
+      "count": 1,
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\macro_hotkey_executed-0cbac30b-20260620-172928.json",
+      "has_macro_body": false,
+      "leaks_secret": false
+    },
+    "macro_picker_executed": {
+      "count": 2,
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\macro_picker_executed-c277b441-20260620-172934.json",
+      "has_macro_body": false,
+      "leaks_secret": false
+    },
+    "macro_executed": {
+      "count": 0,
+      "latest": null
+    },
+    "macro_blocked_sensitive": {
+      "count": 1,
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\macro_blocked_sensitive-029511d6-20260620-172945.json",
+      "has_macro_body": false,
+      "leaks_secret": false
+    },
+    "macro_disabled_skipped": {
+      "count": 0,
+      "latest": null
+    }
+  },
+  "summary": {
+    "run_button_ok": true,
+    "text_shortcut_ok": true,
+    "multiline_ok": true,
+    "hotkey_ok": true,
+    "picker_ok": true,
+    "esc_clipboard_ok": true,
+    "clipboard_restore_ok": true,
+    "disabled_ok": true,
+    "sensitive_ok": true,
+    "quick_paste_ok": true,
+    "capture_hotkeys_ok": true
+  },
+  "accepted": true
+}

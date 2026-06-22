@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "steps": {
+    "captured": true,
+    "copy_created": true,
+    "original_html_unchanged": true,
+    "original_css_unchanged": true,
+    "original_img_unchanged": true,
+    "copied_html_exists": true,
+    "copied_css_exists": true,
+    "copied_img_exists": true,
+    "revision_saved": true,
+    "copied_hash_changed": true,
+    "receipt_exists": true
+  },
+  "receipt_path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\tmp11f3mt49\\CacheVault\\Receipts\\2026-06-20\\editable_html_copy_created-f503fc0a2c964fa9ae9db3e4997c651b-20260620-070528.json"
+}

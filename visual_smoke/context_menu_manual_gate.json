@@ -1,0 +1,43 @@
+{
+  "screenshots": {
+    "context_menu_vault_item.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\context_menu_vault_item.png",
+    "context_menu_copy_clean.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\context_menu_copy_clean.png",
+    "context_menu_mobile_inbox.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\context_menu_mobile_inbox.png",
+    "context_menu_receipt.png": "C:\\Users\\KickA\\Desktop\\CacheVault\\visual_smoke\\context_menu_receipt.png"
+  },
+  "checks": {
+    "vault_menu_has_copy_clean": {
+      "pass": true,
+      "detail": "['Paste / Copy', 'Copy Clean', 'Add to Favorites', 'Move to Safe\u2026', 'Create Editable Copy', 'Proof', 'separator', 'Remove from History']"
+    },
+    "copy_clean_menu_has_markdown": {
+      "pass": true,
+      "detail": "['Copy Text', 'Copy Plain Text', 'Copy Title + Link', 'Copy Link Only', 'Copy as Markdown', 'Copy for Text Message', 'Copy for Email', 'Copy Phone Number', 'Copy Email Address', 'Copy Address', 'Copy File Path', 'Copy Hash', 'Copy Metadata Summary', 'Copy Source Summary']"
+    },
+    "copy_markdown": {
+      "pass": true,
+      "detail": "[Context Example](https://example.com/context)"
+    },
+    "mobile_menu_has_source_summary": {
+      "pass": true,
+      "detail": "['Paste / Copy', 'Open Link', 'View Mobile Receipt', 'Copy Clean', 'Add to Favorites', 'Move to Safe\u2026', 'Create Editable Copy', 'Proof', 'separator', 'Remove from History']"
+    },
+    "receipt_menu_has_summary": {
+      "pass": true,
+      "detail": "['Copy Receipt Summary', 'Copy Receipt Path', 'Copy Item ID', 'Copy Hash', 'Open Receipt File / Folder', 'Export Proof Zip']"
+    },
+    "receipt_summary_metadata_only": {
+      "pass": true,
+      "detail": "Receipt: c9cdd64b1ba1428c8f4d0247ec7bacbb\nAction: Copied Clean Format\nResult: Success\nItem: Link clip\nClip ID: 22d5b1049adb4bcbb8004684f4d9bf9e\nHash: 810a9aecf14d1ec19c47e547284ff38a3d616a389aeea21668cdfecef17df569\nTimestamp: 2026-06-17T19:54:29.706257+00:00"
+    },
+    "locked": {
+      "pass": true,
+      "detail": "app locked"
+    },
+    "locked_menu_safe_labels": {
+      "pass": true,
+      "detail": "['Unlock Vault', 'Quit']"
+    }
+  },
+  "overall_pass": true
+}
