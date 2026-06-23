@@ -58,8 +58,8 @@ python tools\verify_assets.py    # checks files, ICO sizes, no-gold gate; contac
 ## Trust doctrine
 
 - **Local-only by default.** Everything lives in a local SQLite database.
-- **No account, no ads, no telemetry, no cloud sync.**
-- **No background network calls.** The app never connects to the internet.
+- **No cloud, no accounts, no ads, no telemetry.**
+- **No internet connections.** The app never calls home. Optional LAN bridge is **off by default** and never connects to the internet.
 - **Sensitive clips are masked and auto-expire** (default ON, 10 minutes).
 - Clipboard contents are **never written to logs or printed to the console**.
 

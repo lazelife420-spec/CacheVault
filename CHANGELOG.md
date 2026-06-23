@@ -1,6 +1,45 @@
 # Changelog
 
-## Cache Vault v0.1.3 — Founder MVP
+## Cache Vault v0.1.3 — Founder MVP v0.1.3-founder-mvp.2
+
+Release label: **Founder MVP** · Tag: `v0.1.3-founder-mvp.2`
+
+Hotfix release for Vault Macros, Quick Paste screenshots, and clipboard reliability.
+
+### Fixed
+
+- **Vault Macros setup** — fixed Macro Template Picker crash (`TclError` on focus) during setup.
+- **Vault Macros Run** — withdraws Cache Vault briefly so keystrokes reach the target window; clipboard-only success when no target is focused.
+- **Save to Vault Macros** — preview panel and toolbar path to save clips as macros; auto minimal setup when wizard is incomplete.
+- **Quick Paste screenshots** — image copy sets CF_DIB + PNG for broad app compatibility; copy deferred after Quick Paste closes (no grab conflict).
+- **Quick Paste UX** — branded Copy Image to Clipboard action; screenshots copy to clipboard only (no auto-paste).
+
+### Includes
+
+- All `v0.1.3-founder-mvp.1` Founder discoverability fixes.
+
+---
+
+## Cache Vault v0.1.3 — Founder MVP v0.1.3-founder-mvp.1
+
+Release label: **Founder MVP** · Tag: `v0.1.3-founder-mvp.1`
+
+Hotfix release for Founder screen discoverability and license import reachability.
+
+### Fixed
+
+- Pinned **◆ Founder** above collapsible sidebar groups so the Founder screen remains visible even when sidebar sections are collapsed.
+- Added **Settings → Import License…** so license import remains reachable even if sidebar groups are collapsed.
+- Added an explicit packaging gate to fail release packaging if `cache_vault.ui.founder` is missing from the packaged executable.
+- Added `cache_vault.ui.founder` to PyInstaller hidden imports.
+
+### Why
+
+The previous Founder MVP package included the Founder code, license system, and feature gates, but the Founder page could be hidden when the ACCESS sidebar section was collapsed. That made the paid unlock flow hard to discover.
+
+---
+
+## Cache Vault v0.1.3 — Founder MVP (base build)
 
 Release label: **Founder MVP** · Tag: `v0.1.3-founder-mvp`
 
