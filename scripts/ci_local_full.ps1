@@ -66,8 +66,43 @@ if (-not $preflightOk) {
     exit 2
 }
 
+# --- Conditional Phase B test discovery -------------------------------------
+# Phase B command-center tests and module are not committed yet. If they are
+# present on disk but UNTRACKED, we skip them with a clear note. If they
+# become TRACKED (committed), we run them normally — and CI MUST fail if they
+# fail. This ensures the exclusion is temporary, not a permanent blind spot.
+$phaseBTests = @(
+    "tests/test_command_center.py",
+    "tests/test_command_center_app.py",
+    "tests/test_command_center_ui.py"
+)
+$phaseBModule = "cache_vault/core/command_center.py"
+
+$phaseBIgnore = @()
+$phaseBNotes = @()
+foreach ($pt in $phaseBTests) {
+    $ptPath = Join-Path $Root $pt
+    if (-not (Test-Path $ptPath)) { continue }
+    # git ls-files: returns the path if tracked, nothing if untracked.
+    $gitOut = git ls-files $pt 2>$null
+    $tracked = ($null -ne $gitOut -and $gitOut.Trim() -ne "")
+    if (-not $tracked) {
+        $phaseBIgnore += "--ignore=$pt"
+        $phaseBNotes += "Ignoring untracked Phase B test: $pt"
+    }
+}
+$ccmPath = Join-Path $Root $phaseBModule
+$ccmGitOut = git ls-files $phaseBModule 2>$null
+$ccmTracked = ($null -ne $ccmGitOut -and $ccmGitOut.Trim() -ne "")
+if ($phaseBNotes.Count -gt 0) {
+    Write-Host "`n--- Phase B skip notes ---" -ForegroundColor Yellow
+    foreach ($n in $phaseBNotes) { Write-Host $n -ForegroundColor Yellow }
+    Write-Host "Uncommitted command_center module: $((-not $ccmTracked).ToString().ToLower())"
+    Write-Host "These tests will run when Phase B is committed." -ForegroundColor Yellow
+}
+
 # --- Full suite (authoritative pass/skip counts) ----------------------------
-$fullLog = Invoke-Pytest "full" @()
+$fullLog = Invoke-Pytest "full" $phaseBIgnore
 
 # Parse skip count + reasons from the full run (the authoritative source).
 $skipCount = 0
@@ -78,7 +113,13 @@ $skipReasons = @(Get-Content $fullLog | Select-String -Pattern '^SKIPPED \[\d+\]
 
 # --- Targeted subsets (named gates the team cares about) --------------------
 Invoke-Pytest "founder-critical" @("tests/test_licensing.py", "tests/test_feature_gate.py", "tests/test_app_receipt.py", "tests/test_proof_exports.py") | Out-Null
-Invoke-Pytest "command-center" @("tests/test_command_center.py", "tests/test_command_center_ui.py", "tests/test_command_center_app.py") | Out-Null
+# Command-center gate: skip if tests are untracked, run if tracked, fail if failing.
+if ($ccmTracked) {
+    Invoke-Pytest "command-center" @("tests/test_command_center.py", "tests/test_command_center_ui.py", "tests/test_command_center_app.py") | Out-Null
+} else {
+    Write-Host "command-center: SKIP (Phase B module not committed)"
+    $gates["command-center"] = $true  # not a regression; skip is deliberate
+}
 Invoke-Pytest "quick-paste" @("tests/test_quick_paste.py") | Out-Null
 Invoke-Pytest "receipts-export" @("tests/test_app_receipt.py", "tests/test_export.py", "tests/test_proof_exports.py", "tests/test_receipt_ledger.py", "tests/test_html_bundles.py", "tests/test_drag_export.py", "tests/test_editable_copies.py") | Out-Null
 
@@ -108,6 +149,14 @@ foreach ($s in $smokeScripts) {
 }
 $gates["smokes"] = $smokesOk
 
+# --- Secret/privacy scan -----------------------------------------------------
+Write-Head "secret scan"
+$secretLog = Join-Path $TmpDir "scan_secrets.txt"
+& $Py (Join-Path $Root "scripts\scan_secrets.py") *> $secretLog
+$gates["secrets"] = ($LASTEXITCODE -eq 0)
+$secretSummary = (Get-Content $secretLog | Select-Object -First 1)
+Write-Host "secrets: $secretSummary"
+
 # --- Claim tripwire ----------------------------------------------------------
 Write-Head "claim tripwire"
 $tripLog = Join-Path $TmpDir "scan_claims.txt"
@@ -116,29 +165,76 @@ $gates["claims"] = ($LASTEXITCODE -eq 0)
 $claimsSummary = (Get-Content $tripLog | Select-Object -First 1)
 Write-Host "claims: $claimsSummary"
 
-# --- Packaging verification -------------------------------------------------
-Write-Head "packaging"
+# --- Packaging: build fresh, then verify ------------------------------------
+# The gate is self-contained: it always rebuilds dist\CacheVault.exe before
+# checking it. This means the stale-check and version-truth checks never need
+# a manual -Build — they always see a fresh artifact.
+# CI order: source checks → pytest → compileall → selftest → build/package →
+# stale-exe check → version-truth → packaged smoke → claims → secrets
+Write-Head "packaging: build"
 $exe = Join-Path $Root "dist\CacheVault.exe"
 $packagingState = "SKIP"
-if ($Build) {
-    Write-Host "Rebuilding packaged exe (-Build)..."
-    & pwsh (Join-Path $Root "packaging\build_exe.ps1")
-    if ($LASTEXITCODE -ne 0) { $packagingState = "FAIL" }
+$packagingWarn = ""
+
+Write-Host "Rebuilding packaged exe..."
+$buildResult = & pwsh (Join-Path $Root "packaging\build_exe.ps1") 2>&1
+$buildOk = ($LASTEXITCODE -eq 0)
+if ($buildResult) {
+    $buildResult | Select-Object -Last 3 | ForEach-Object { Write-Host $_ }
 }
+if (-not $buildOk) {
+    Write-Host "BUILD FAILED"
+    $packagingState = "FAIL"
+} elseif (-not (Test-Path $exe)) {
+    Write-Host "BUILD FAILED: no dist\CacheVault.exe produced"
+    $packagingState = "FAIL"
+}
+
 if (Test-Path $exe) {
     $h = (Get-FileHash -Algorithm SHA256 $exe).Hash
     $sizeMB = [math]::Round((Get-Item $exe).Length / 1MB, 1)
     Write-Host "artifact: dist\CacheVault.exe  ${sizeMB} MB"
     Write-Host "sha256:   $h"
+
+    # Stale-exe tripwire: if the automated build succeeds, source can't be
+    # newer. But if someone dropped in a pre-built exe (skipping the build
+    # step), this catches it. Uses mtime — documented as a local guardrail.
+    $exeTime = (Get-Item $exe).LastWriteTimeUtc
+    $newerSrc = Get-ChildItem -Path (Join-Path $Root "cache_vault") -Recurse -Include *.py |
+        Where-Object { $_.LastWriteTimeUtc -gt $exeTime }
+    if ($newerSrc) {
+        $n = $newerSrc.Count
+        $packagingWarn += " STALE($n)"
+        Write-Host "STALE: $n source file(s) newer than exe — build may not have picked them up."
+        $packagingState = "FAIL"
+    }
+
+    # Version truth: exe must embed the pyproject.toml version.
+    # PyInstaller embeds version in the Windows VERSIONINFO resource
+    # (UTF-16LE), so we check both ASCII and Unicode byte sequences.
+    $pyproj = Join-Path $Root "pyproject.toml"
+    $pyText = Get-Content -LiteralPath $pyproj -Raw
+    if ($pyText -match 'version\s*=\s*"([^"]+)"') {
+        $pyVersion = $Matches[1]
+        $exeBytes = [System.IO.File]::ReadAllBytes($exe)
+        $exeAscii = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+        $exeUnicode = [System.Text.Encoding]::Unicode.GetString($exeBytes)
+        $found = ($exeAscii -match [regex]::Escape($pyVersion)) -or
+                 ($exeUnicode -match [regex]::Escape($pyVersion))
+        if (-not $found) {
+            Write-Host "VERSION MISMATCH: exe does not contain pyproject version '$pyVersion'. Wrong build."
+            $packagingWarn += " VER-MISMATCH"
+            $packagingState = "FAIL"
+        }
+    }
+
     if ($packagingState -ne "FAIL") { $packagingState = "PASS" }
-} else {
-    Write-Host "no packaged artifact (run with -Build to produce one)"
 }
 
 # --- Summary ----------------------------------------------------------------
 $pytestOk = $gates["full"] -and $gates["founder-critical"] -and $gates["command-center"] `
     -and $gates["quick-paste"] -and $gates["receipts-export"]
-$requiredOk = $preflightOk -and $pytestOk -and $gates["compileall"] -and $gates["selftest"] -and $gates["smokes"] -and $gates["claims"]
+$requiredOk = $preflightOk -and $pytestOk -and $gates["compileall"] -and $gates["selftest"] -and $gates["smokes"] -and $gates["claims"] -and $gates["secrets"]
 # Packaging only blocks when a build was requested and failed.
 if ($packagingState -eq "FAIL") { $requiredOk = $false }
 
@@ -157,7 +253,8 @@ Write-Host ("compileall: {0}" -f (Mark $gates["compileall"]))
 Write-Host ("selftest: {0}" -f (Mark $gates["selftest"]))
 Write-Host ("smokes: {0}" -f (Mark $gates["smokes"]))
 Write-Host ("claims: {0}" -f (Mark $gates["claims"]))
-Write-Host ("packaging: {0}" -f $packagingState)
+Write-Host ("secrets: {0}" -f (Mark $gates["secrets"]))
+Write-Host ("packaging: {0}{1}" -f $packagingState, $packagingWarn)
 Write-Host ("known skips: {0}" -f $skipText)
 Write-Host "----------------------------------------"
 

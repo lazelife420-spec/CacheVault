@@ -217,8 +217,10 @@ payment/account system.
   clean-env install proven, `scripts/ci_local_full.ps1` one-command gate added.
 - **Phase C.5 Chunk 1 (done 2026-06-25):** atomic writes, `.bak`, corrupt-file
   quarantine, "local-only" → "local-first" wording, CI claim tripwire.
-- **Phase C.5 Chunk 2 (next):** destructive-action confirmations, mobile
-  bridge fail-closed, export/receipt fail-safes, with tests.
+- **Phase C.5 Chunk 2 (done 2026-06-25):** destructive-action confirmations,
+  mobile bridge fail-closed, export/receipt fail-safes, with tests.
+- **Phase C.5 Chunk 3 (done 2026-06-25):** packaging stale-build guardrails,
+  secret/privacy scan, recovery docs (`docs/FAIL_SAFES_AND_RECOVERY.md`).
 - **Phase G:** reconcile remaining "local-only" wording in historical docs;
   complete public claim audit.
 - **Phase E:** capture per-subsystem runtime proof (this audit is code/test
