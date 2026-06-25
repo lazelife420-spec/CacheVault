@@ -223,6 +223,13 @@ class MultiHotkeyListener:
     def available(self) -> bool:
         return _HAS_WIN32
 
+    def registered_ids(self) -> set[int]:
+        """Hotkey ids the OS actually accepted (best-effort snapshot)."""
+        return set(self._registered)
+
+    def clear_bindings(self) -> None:
+        self._bindings.clear()
+
     def set_binding(self, hotkey_id: int, spec: str, on_activate: Callable[[], None]) -> None:
         self._bindings[hotkey_id] = (spec, on_activate)
 
