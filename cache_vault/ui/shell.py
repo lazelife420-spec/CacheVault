@@ -758,14 +758,7 @@ class CacheVaultApp(ctk.CTk):
             return None
         clip = self._selected_clip()
         if clip is not None:
-            from tkinter import messagebox
-            ok = messagebox.askyesno(
-                "Remove from History",
-                "Remove the selected clip from Cache Vault history? It can be restored from Recently Removed.",
-                parent=self,
-            )
-            if ok:
-                self._remove_from_history(clip.id)
+            self._remove_from_history(clip.id)
         return "break"
 
     def _keyboard_open_context_menu(self, event=None):
@@ -1807,28 +1800,37 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
 
     def _expire_now(self, clip_id: str) -> None:
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Expire Now",
+            "Immediately expire this clip? It will be treated as expired "
+            "and may be auto-removed on the next expiry sweep.",
+            parent=self,
+        )
+        if not ok:
+            return
         self.vault.expire_now(clip_id)
         self.refresh()
         self._preview.show(None)
 
     def _remove_from_history(self, clip_id: str) -> None:
-        """Remove a clip from history. Confirms first if it's a favorite.
+        """Remove a clip from history. Confirms for any removal.
 
         Never deletes any real file/folder — only the Cache Vault entry.
         """
         clip = self.vault.storage.get_clip(clip_id)
         if clip is None:
             return
-        if clip.is_pinned:  # favorite — confirm before losing it
-            from tkinter import messagebox
-            ok = messagebox.askyesno(
-                "Remove from History",
-                "This removes the clip from Cache Vault history. It does not "
-                "delete files from your computer.\n\nRemove this favorite?",
-                parent=self,
-            )
-            if not ok:
-                return
+        from tkinter import messagebox
+        suffix = "\n\nIt is a favorite." if clip.is_pinned else ""
+        ok = messagebox.askyesno(
+            "Remove from History",
+            "Remove this clip from Cache Vault history? It can be "
+            f"restored from Recently Removed.{suffix}",
+            parent=self,
+        )
+        if not ok:
+            return
         self.vault.remove_from_history(clip_id)
         self.refresh()
         self._preview.show(None)
