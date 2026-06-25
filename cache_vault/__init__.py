@@ -1,4 +1,4 @@
-"""Cache Vault™ — a local-only clipboard vault.
+"""Cache Vault™ — a local-first clipboard vault.
 
 Keep the cache worth keeping.
 """
@@ -8,7 +8,7 @@ __release_label__ = "Founder MVP"
 __product__ = "Cache Vault"
 __company__ = "refundghost"
 __description__ = (
-    "Cache Vault — a local-only clipboard vault with smart filters "
+    "Cache Vault — a local-first clipboard vault with smart filters "
     "and sensitive auto-expiry."
 )
 __copyright__ = "Copyright (c) 2026 refundghost"

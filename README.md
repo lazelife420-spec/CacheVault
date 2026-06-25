@@ -9,7 +9,7 @@
 **Cache Vault™** is a modern clipboard vault from **The Proof Foundry™**.
 Capture everything. Auto-organize it. Save what matters. Export with receipts.
 
-It is a **local-only** Windows clipboard vault. It saves what you copy,
+It is a **local-first** Windows clipboard vault. It saves what you copy,
 classifies it with smart filters (links, code, commands, paths, emails,
 sensitive secrets), and lets you search, favorite, and organize clips — with
 **Export / Save As**, **Proof Manifests**, and **Stamped Receipts** when you
@@ -57,7 +57,7 @@ python tools\verify_assets.py    # checks files, ICO sizes, no-gold gate; contac
 
 ## Trust doctrine
 
-- **Local-only by default.** Everything lives in a local SQLite database.
+- **Local-first by default.** Everything lives in a local SQLite database.
 - **No cloud, no accounts, no ads, no telemetry.**
 - **No internet connections.** The app never calls home. Optional LAN bridge is **off by default** and never connects to the internet.
 - **Sensitive clips are masked and auto-expire** (default ON, 10 minutes).

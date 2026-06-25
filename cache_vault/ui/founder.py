@@ -150,7 +150,7 @@ class FounderDialog(ctk.CTkToplevel):
             "• local clipboard vault",
             "• search and favorites",
             "• basic organization",
-            "• local-only storage",
+            "• local-first storage",
             "• single-item export (TXT/MD/HTML/JSON)",
             "• Stamped Receipts viewing",
             "",

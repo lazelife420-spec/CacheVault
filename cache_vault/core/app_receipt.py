@@ -17,7 +17,7 @@ from ..feature_gate import FEATURE_LABELS
 from .. import licensing
 
 KNOWN_LIMITATIONS = (
-    "Local-only clipboard vault — no cloud sync in this build.",
+    "Local-first clipboard vault — no cloud sync in this build.",
     "No mobile bridge claim in Founder MVP SKU.",
     "Safes organize clips locally; they are not encryption.",
     "Vault Lock is a UI privacy lock, not file encryption.",
@@ -128,7 +128,7 @@ def export_app_receipt(dest_parent: Path) -> Path:
         + "\n".join(f"- {line}" for line in KNOWN_LIMITATIONS)
         + f"\n\n## Not claimed\n\n"
         + "\n".join(f"- {item}" for item in NOT_CLAIMED)
-        + f"\n\n## Local-only doctrine\n\n"
+        + f"\n\n## Local-first doctrine\n\n"
         f"No cloud sync. No telemetry. No accounts.\n",
         encoding="utf-8",
     )

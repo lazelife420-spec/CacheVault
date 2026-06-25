@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 
+from .. import safe_io
 from .models import MobileAccessReceipt
 
 
@@ -19,20 +20,22 @@ class MobileReceiptLog:
         self.path = Path(path or default_receipts_path())
 
     def record(self, receipt: MobileAccessReceipt) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         rows = self.list_all()
         rows.append(receipt.to_dict())
         # Keep the most recent 500 receipts.
         if len(rows) > 500:
             rows = rows[-500:]
-        self.path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        safe_io.atomic_write_text(self.path, json.dumps(rows, indent=2))
 
     def list_all(self) -> list[dict]:
         if not self.path.exists():
             return []
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except OSError:
+            return []
+        except json.JSONDecodeError:
+            safe_io.quarantine_corrupt(self.path)
             return []
         return data if isinstance(data, list) else []
 

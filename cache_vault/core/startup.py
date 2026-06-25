@@ -1,7 +1,7 @@
 """Optional 'start with Windows' support via the per-user registry Run key.
 
 Per-user (``HKEY_CURRENT_USER``) only — no admin rights, no machine-wide
-changes, fully reversible. Local-only, consistent with the product doctrine.
+changes, fully reversible. Local-first, consistent with the product doctrine.
 """
 
 from __future__ import annotations
