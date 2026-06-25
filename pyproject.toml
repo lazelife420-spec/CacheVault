@@ -5,9 +5,31 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cache-vault"
 version = "0.1.3"
-description = "Cache Vault — a local-only clipboard vault with smart filters and sensitive auto-expiry."
+description = "Cache Vault — a local-first clipboard vault with smart filters and sensitive auto-expiry."
 requires-python = ">=3.10"
 readme = "README.md"
+
+# Runtime dependencies. Kept in lockstep with requirements.txt and the
+# PyInstaller hidden-imports in packaging/cache_vault.spec.
+# cryptography is REQUIRED (offline Ed25519 Founder-license verification);
+# licensing fails closed without it, so a fresh install must pull it here.
+dependencies = [
+    "customtkinter>=5.2.0",
+    "pystray>=0.19.0",
+    "Pillow>=10.0.0",
+    "pywin32>=306; platform_system == 'Windows'",
+    "zeroconf>=0.131.0",
+    "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["cache_vault*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
