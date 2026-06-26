@@ -35,11 +35,22 @@ ACTION_SAVE_AS = "save_as"
 
 
 class QuickPaste(ctk.CTkToplevel):
-    def __init__(self, master, clips: list[Clip], on_choose: Callable[[Clip, str], None]):
+    def __init__(
+        self,
+        master,
+        clips: list[Clip],
+        on_choose: Callable[[Clip, str], None],
+        persist: Callable[[Clip, str], bool] | None = None,
+    ):
         super().__init__(master)
         self._clips = clips
         self._all_clips = clips
         self._on_choose = on_choose
+        # Decides per (clip, action) whether the popup stays open after a
+        # choice. Copy-style actions keep it open so several clips can be
+        # grabbed in a row; paste-into-app actions still close. Default keeps
+        # the legacy close-after-one behaviour.
+        self._persist = persist or (lambda _clip, _action: False)
         self._index = 0
         self._rows: list[ctk.CTkFrame] = []
         self._query_var = ctk.StringVar(value="")
@@ -210,11 +221,26 @@ class QuickPaste(ctk.CTkToplevel):
     def _choose(self, i: int, action: str = ACTION_PRIMARY) -> None:
         if self._closing:
             return
-        if 0 <= i < len(self._clips):
-            clip = self._clips[i]
-            self._closing = True
-            self.destroy()
+        if not (0 <= i < len(self._clips)):
+            return
+        clip = self._clips[i]
+        try:
+            keep_open = bool(self._persist(clip, action))
+        except Exception:  # noqa: BLE001 - never let the policy crash the picker
+            keep_open = False
+        if keep_open:
+            # Copy-style action: run it but leave the popup up so the user can
+            # grab another clip. Re-assert focus/grab since the action may have
+            # briefly touched the clipboard owner.
             self._on_choose(clip, action)
+            if self.winfo_exists():
+                self.after(10, self.focus_popup)
+            return
+        # Paste-into-app (or one-shot) action: close first so our keyboard grab
+        # is released and the target window is foreground before delivery runs.
+        self._closing = True
+        self.destroy()
+        self._on_choose(clip, action)
 
     def focus_popup(self) -> None:
         """Raise the popup above everything and capture keyboard input."""

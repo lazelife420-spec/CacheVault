@@ -73,7 +73,7 @@ TERM_QUICK_PASTE = "Quick Paste"
 LABEL_COPY_TO_CLIPBOARD = "Copy to Clipboard"
 LABEL_COPY_IMAGE_TO_CLIPBOARD = "Copy Image to Clipboard"
 QUICK_PASTE_HEADER = "◈ Quick Paste — pull from your vault"
-QUICK_PASTE_HINT = "search · ↑/↓ select · Enter copy · Esc close"
+QUICK_PASTE_HINT = "search · ↑/↓ select · Enter copy · Ctrl+Enter copy & stay · Esc close"
 TOAST_VAULT_IMAGE_COPIED = "◈ Screenshot copied to clipboard — paste wherever you need it"
 
 # Vault / proof language (subtle, businesslike)

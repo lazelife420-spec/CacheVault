@@ -91,6 +91,99 @@ def test_clip_grid_right_click_selects_before_opening_context_menu():
     assert view._row_by_id["clip-1"].configured[-1]["fg_color"] == brand.ROW_SELECTED_BG
 
 
+def test_clip_list_ctrl_click_toggles_membership():
+    changes = []
+    view = object.__new__(ClipList)
+    view._selected_id = "a"
+    view._selected_ids = {"a"}
+    view._anchor_id = "a"
+    view._render_order = ["a", "b", "c"]
+    view._row_by_id = {"a": FakeWidget(), "b": FakeWidget(), "c": FakeWidget()}
+    view._on_selection_change = changes.append
+
+    view._toggle_select(_clip("b"))
+    assert view._selected_ids == {"a", "b"}
+    assert changes[-1] == ["a", "b"]  # reported in render order
+
+    view._toggle_select(_clip("a"))
+    assert view._selected_ids == {"b"}
+    assert changes[-1] == ["b"]
+
+
+def test_clip_list_shift_click_selects_contiguous_range():
+    changes = []
+    view = object.__new__(ClipList)
+    view._selected_id = "a"
+    view._selected_ids = {"a"}
+    view._anchor_id = "a"
+    view._render_order = ["a", "b", "c", "d"]
+    view._row_by_id = {k: FakeWidget() for k in "abcd"}
+    view._on_selection_change = changes.append
+
+    view._range_select(_clip("c"))
+    assert view._selected_ids == {"a", "b", "c"}
+    assert changes[-1] == ["a", "b", "c"]
+
+
+def test_clip_list_click_dispatches_on_modifier_state():
+    view = object.__new__(ClipList)
+    calls = []
+    view._select = lambda c: calls.append(("select", c.id))
+    view._toggle_select = lambda c: calls.append(("toggle", c.id))
+    view._range_select = lambda c: calls.append(("range", c.id))
+
+    view._click(SimpleNamespace(state=0), _clip("x"))
+    view._click(SimpleNamespace(state=ClipList._CTRL_MASK), _clip("y"))
+    view._click(SimpleNamespace(state=ClipList._SHIFT_MASK), _clip("z"))
+
+    assert calls == [("select", "x"), ("toggle", "y"), ("range", "z")]
+
+
+def test_clip_grid_ctrl_click_toggles_membership():
+    changes = []
+    view = object.__new__(ClipGrid)
+    view._selected_id = "a"
+    view._selected_ids = {"a"}
+    view._anchor_id = "a"
+    view._render_order = ["a", "b", "c"]
+    view._row_by_id = {k: FakeWidget() for k in "abc"}
+    view._name_label_by_id = {k: FakeWidget() for k in "abc"}
+    view._on_selection_change = changes.append
+
+    view._toggle_select(_clip("b"))
+    assert view._selected_ids == {"a", "b"}
+    assert changes[-1] == ["a", "b"]
+
+
+def test_clip_grid_shift_click_selects_contiguous_range():
+    changes = []
+    view = object.__new__(ClipGrid)
+    view._selected_id = "b"
+    view._selected_ids = {"b"}
+    view._anchor_id = "b"
+    view._render_order = ["a", "b", "c", "d"]
+    view._row_by_id = {k: FakeWidget() for k in "abcd"}
+    view._name_label_by_id = {k: FakeWidget() for k in "abcd"}
+    view._on_selection_change = changes.append
+
+    view._range_select(_clip("d"))
+    assert view._selected_ids == {"b", "c", "d"}
+    assert changes[-1] == ["b", "c", "d"]
+
+
+def test_shell_multi_select_bulk_actions_are_wired():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = inspect.getsource(CacheVaultApp)
+
+    assert "_on_clip_selection_change" in source
+    assert "_update_bulk_action_strip" in source
+    assert "def _bulk_copy" in source
+    assert "def _bulk_remove" in source
+    assert "def _bulk_export_proof" in source
+    assert "def _bulk_move_to_safe" in source
+
+
 def test_clip_list_keyboard_context_opens_for_selected_row():
     calls = []
     view = object.__new__(ClipList)
