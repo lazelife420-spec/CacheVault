@@ -110,10 +110,11 @@ class TestCommandCenterApp:
         # Regression: the handler used to read action.safe_target, a field that
         # does not exist on HotkeyAction (only `target` does), which raised
         # AttributeError on every real run and was swallowed as a generic failure.
+        # Covers both the success path and the real-failure path in one app
+        # instance to avoid churning extra Tk interpreters per test process.
         import pyperclip
 
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        monkeypatch.setattr(pyperclip, "paste", lambda: "hello from clipboard")
         app = _make_app(tmp_path)
         try:
             app.withdraw()
@@ -124,42 +125,27 @@ class TestCommandCenterApp:
                              action_type=ACTION_SAVE_CLIPBOARD_TO_SAFE,
                              target=safe_id),
             )
+
+            monkeypatch.setattr(pyperclip, "paste", lambda: "hello from clipboard")
             res = app._command_dispatcher.run(action, trigger_type="hotkey")
             assert res.ok and res.result == RESULT_OK
-
             log = app._command_runlog.recent()
             assert log and log[0].result == RESULT_OK
             assert log[0].error == ""
-        finally:
-            app.destroy()
 
-    def test_save_clipboard_to_safe_reports_real_failure_not_hidden_success(
-        self, tmp_path, monkeypatch,
-    ):
-        import pyperclip
-
-        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        monkeypatch.setattr(pyperclip, "paste", lambda: "")
-        app = _make_app(tmp_path)
-        try:
-            app.withdraw()
-            action = app._command_store.upsert(
-                HotkeyAction(name="Save to Safe", hotkey="ctrl+alt+s",
-                             action_type=ACTION_SAVE_CLIPBOARD_TO_SAFE,
-                             target="default"),
-            )
-            res = app._command_dispatcher.run(action, trigger_type="hotkey")
-            assert not res.ok and res.result == RESULT_FAILED
-            assert "empty clipboard" in res.error
-
-            log = app._command_runlog.recent()
-            assert log and log[0].result == RESULT_FAILED
+            monkeypatch.setattr(pyperclip, "paste", lambda: "")
+            res2 = app._command_dispatcher.run(action, trigger_type="hotkey")
+            assert not res2.ok and res2.result == RESULT_FAILED
+            assert "empty clipboard" in res2.error
+            log2 = app._command_runlog.recent()
+            assert log2 and log2[0].result == RESULT_FAILED
         finally:
             app.destroy()
 
     def test_run_macro_uses_action_target_field(self, tmp_path, monkeypatch):
         # Regression: the handler used to read action.macro_target, a field
-        # that does not exist on HotkeyAction (only `target` does).
+        # that does not exist on HotkeyAction (only `target` does). Covers
+        # both the found-macro and not-found paths in one app instance.
         from cache_vault.core import models
         from cache_vault.core.vault_macros import Macro
 
@@ -180,26 +166,17 @@ class TestCommandCenterApp:
             assert res.ok and res.result == RESULT_OK
             assert len(ran) == 1
             assert ran[0][0].id == macro.id
-
             log = app._command_runlog.recent()
             assert log and log[0].result == RESULT_OK
-        finally:
-            app.destroy()
 
-    def test_run_macro_not_found_is_real_failure(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        app = _make_app(tmp_path)
-        try:
-            app.withdraw()
-            action = app._command_store.upsert(
-                HotkeyAction(name="Run Macro", hotkey="ctrl+alt+m",
+            missing = app._command_store.upsert(
+                HotkeyAction(name="Run Missing Macro", hotkey="ctrl+alt+n",
                              action_type=ACTION_RUN_MACRO, target="missing-macro-id"),
             )
-            res = app._command_dispatcher.run(action, trigger_type="hotkey")
-            assert not res.ok and res.result == RESULT_FAILED
-            assert "macro not found" in res.error
-
-            log = app._command_runlog.recent()
-            assert log and log[0].result == RESULT_FAILED
+            res2 = app._command_dispatcher.run(missing, trigger_type="hotkey")
+            assert not res2.ok and res2.result == RESULT_FAILED
+            assert "macro not found" in res2.error
+            log2 = app._command_runlog.recent()
+            assert log2 and log2[0].result == RESULT_FAILED
         finally:
             app.destroy()
