@@ -10,18 +10,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from cache_vault.core.settings import Settings  # noqa: E402
 from cache_vault.core.storage import VaultStorage  # noqa: E402
 from cache_vault.core.vault import Vault  # noqa: E402
-from tests.tk_support import probe_tk_ui  # noqa: E402
+from tests.tk_support import _tcl_unavailable, probe_tk_ui  # noqa: E402
 
 
 @pytest.fixture(scope="session")
 def tk_root():
-    """Shared CustomTkinter root for UI tests (one Tcl interpreter per session)."""
+    """Shared CustomTkinter root for UI tests (one Tcl interpreter per session).
+
+    The probe may pass on runner images where ``import tkinter`` succeeds but
+    the Tcl runtime raises at ``CTk()`` construction (e.g. Python 3.11/3.13 on
+    windows-2025-vs2026).  A second body-level guard catches those cases.
+    """
     ok, reason = probe_tk_ui()
     if not ok:
         pytest.skip(reason or "Tk UI unavailable")
     import customtkinter as ctk
+    import tkinter as _tk
 
-    root = ctk.CTk()
+    try:
+        root = ctk.CTk()
+    except _tk.TclError as exc:
+        if _tcl_unavailable(exc):
+            pytest.skip(f"Tk/CTk runtime unavailable at fixture construction: {exc}")
+        raise
     root.withdraw()
     yield root
     try:
