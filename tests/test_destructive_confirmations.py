@@ -253,7 +253,7 @@ def test_validate_manifest_passes_valid_manifest():
         "document_type": "cache_vault_proof_export",
         "export_id": "abc-123",
         "export_timestamp": "2025-01-01T00:00:00",
-        "app_version": "0.1.3",
+        "app_version": "0.1.4",
         "manifest_included": True,
         "sha256sums_included": True,
         "items": [{

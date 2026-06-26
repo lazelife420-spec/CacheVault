@@ -2,14 +2,24 @@
 
 ## Unreleased
 
+## Cache Vault v0.1.4
+
+Release label: **v0.1.4** · Public distribution release
+
 ### Added
 
 - **Multi-select clips** — Ctrl+click toggles individual clips and Shift+click selects a contiguous range in both the card list and the metadata grid. The selection action strip switches to bulk mode (Copy All, Export Proof, Move Safe, Remove) when more than one clip is selected; the Delete and Ctrl+C shortcuts act on the whole selection too.
 - **Version visibility** — the Settings dialog now shows the running version/build in its footer and has an **About** button; the About dialog shows the version line as well.
+- **Command Center hardening** — safety guards, action dispatcher reliability, and hotkey registration stability improvements.
+- **Public download path** — landing page and all public surfaces now point to a public distribution repo; unauthenticated download returns 200.
 
 ### Changed
 
 - **Quick Paste** — the picker now stays open after copy-style choices (e.g. Ctrl+Enter) so several clips can be grabbed in a row; it still closes when it auto-pastes into another app.
+
+### Fixed
+
+- **CI stabilization** — Tk headless skip guards hardened for `windows-2025-vs2026` GitHub Actions runner; `test (3.11)`, `test (3.12)`, and `test (3.13)` all green.
 
 ## Cache Vault v0.1.3 — Founder MVP v0.1.3-founder-mvp.2
 

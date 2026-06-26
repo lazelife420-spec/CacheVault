@@ -62,12 +62,15 @@ if ($pyText -match 'version\s*=\s*"([^"]+)"') {
 }
 
 # Verify the built exe contains the correct version string.
+# The PE resource block stores version info as UTF-16LE; ASCII search alone is insufficient.
 $exeBytes = [System.IO.File]::ReadAllBytes($exePath)
-$exeText = [System.Text.Encoding]::ASCII.GetString($exeBytes)
-if ($exeText -notmatch "cache_vault\.ui\.founder") {
+$exeTextAscii = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+$exeTextUtf16 = [System.Text.Encoding]::Unicode.GetString($exeBytes)
+if ($exeTextAscii -notmatch "cache_vault\.ui\.founder") {
     throw "Built exe missing cache_vault.ui.founder — run packaging\build_exe.ps1 from current source"
 }
-if ($exeText -notmatch [regex]::Escape($pyVersion)) {
+$escapedVer = [regex]::Escape($pyVersion)
+if (($exeTextAscii -notmatch $escapedVer) -and ($exeTextUtf16 -notmatch $escapedVer)) {
     throw "Built exe version ($pyVersion expected) not found in binary — may be stale"
 }
 if (-not (Test-Path -LiteralPath $notesPath)) {
