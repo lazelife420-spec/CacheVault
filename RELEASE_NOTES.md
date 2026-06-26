@@ -36,7 +36,7 @@ plus two hotfix iterations for Vault Macros, Quick Paste, and Founder discoverab
 
 | Check | Result |
 |---|---|
-| `pytest -p no:xonsh` | **466 passed, 1 skipped** |
+| `pytest -p no:xonsh` | **545 passed** |
 | `compileall cache_vault` | PASS |
 | `app.py --selftest` | PASS |
 | `founder_package_smoke.ps1` | All 4 checks PASS |
