@@ -39,6 +39,7 @@ for pkg in ("customtkinter", "zeroconf"):
 
 hiddenimports += [
     "pystray._win32",
+    "pyperclip",
     "PIL",
     "PIL.Image",
     "PIL.ImageDraw",
