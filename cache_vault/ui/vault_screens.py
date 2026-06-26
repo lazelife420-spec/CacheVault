@@ -61,6 +61,7 @@ class VaultScreenHost(ctk.CTkFrame):
             "nav_mobile_access": self._build_mobile_access,
             "nav_mobile_inbox": self._build_mobile_inbox,
             "nav_vault_macros": self._build_vault_macros,
+            "nav_hotkey_actions": self._build_hotkey_actions,
         }
         for key, builder in builders.items():
             frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -451,6 +452,148 @@ class VaultScreenHost(ctk.CTkFrame):
 
         filt.configure(command=lambda _v: reload())
         search.bind("<KeyRelease>", lambda _e: reload())
+        parent._refresh = reload  # type: ignore[attr-defined]
+
+    def _build_hotkey_actions(self, parent: ctk.CTkScrollableFrame) -> None:
+        from ..core.command_center import (
+            REG_ACTIVE,
+            REG_CONFLICT,
+            REG_DISABLED,
+            REG_RESERVED,
+            STATUS_LABELS,
+            action_label,
+        )
+
+        title_row = ctk.CTkFrame(parent, fg_color="transparent")
+        title_row.pack(fill="x", pady=(4, 2))
+        ctk.CTkLabel(
+            title_row, text="Hotkey Actions",
+            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
+        ).pack(side="left")
+        ctk.CTkLabel(
+            parent,
+            text="Clipboard-powered automation with proof. "
+                 "Trigger → Action → Target → Options → Receipt.",
+            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
+        ).pack(fill="x", pady=(0, 8))
+
+        tools = ctk.CTkFrame(parent, fg_color="transparent")
+        tools.pack(fill="x", pady=(0, 8))
+        ctk.CTkButton(
+            tools, text="＋ New Hotkey", width=130,
+            command=self._callbacks.get("hotkey_action_new", lambda: None),
+            **theme.primary_button(),
+        ).pack(side="left", padx=2)
+
+        self._hotkey_unavailable = ctk.CTkLabel(
+            parent, text="", anchor="w", justify="left",
+            text_color=brand.STAMP_GOLD, font=theme.body_font(11), wraplength=640,
+        )
+        self._hotkey_list = ctk.CTkFrame(parent, fg_color="transparent")
+        self._hotkey_list.pack(fill="both", expand=True)
+
+        status_colors = {
+            REG_ACTIVE: brand.PROOF_TEAL,
+            REG_DISABLED: brand.MUTED_FG,
+            REG_CONFLICT: brand.WARNING_RED,
+            REG_RESERVED: brand.STAMP_GOLD,
+        }
+
+        def reload() -> None:
+            for w in self._hotkey_list.winfo_children():
+                w.destroy()
+            rows_cb = self._callbacks.get("hotkey_action_list")
+            if not callable(rows_cb):
+                _empty(self._hotkey_list, "Hotkey Actions not wired.")
+                return
+            data = rows_cb()
+            if not data.get("win32_available", True):
+                self._hotkey_unavailable.configure(
+                    text="Global shortcuts need Windows (pywin32). Actions are "
+                         "saved but will not register on this system.",
+                )
+                self._hotkey_unavailable.pack(fill="x", pady=(0, 8))
+            else:
+                self._hotkey_unavailable.pack_forget()
+            rows = data.get("rows", [])
+            if not rows:
+                _empty(
+                    self._hotkey_list,
+                    "No hotkey actions yet. Click “＋ New Hotkey” to bind a "
+                    "shortcut to a safe vault action.",
+                )
+                return
+            for row in rows:
+                a = row["action"]
+                status = row["status"]
+                card = ctk.CTkFrame(
+                    self._hotkey_list, fg_color=brand.SURFACE_BG, corner_radius=8,
+                )
+                card.pack(fill="x", pady=4)
+                head = ctk.CTkFrame(card, fg_color="transparent")
+                head.pack(fill="x", padx=12, pady=(8, 2))
+                ctk.CTkLabel(
+                    head, text=a.name, anchor="w",
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                ).pack(side="left")
+                ctk.CTkLabel(
+                    head, text=STATUS_LABELS.get(status, status), anchor="e",
+                    text_color=status_colors.get(status, brand.STAMP_GOLD),
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                ).pack(side="right")
+                detail = (
+                    f"{a.hotkey_display or '(no shortcut)'} · "
+                    f"{action_label(a.action_type)}"
+                    + (f" → {a.target_label}" if a.target_label else "")
+                    + f" · {a.scope.capitalize()}"
+                )
+                ctk.CTkLabel(
+                    card, text=detail, anchor="w", text_color=brand.MUTED_FG,
+                    font=theme.body_font(10), wraplength=620, justify="left",
+                ).pack(fill="x", padx=12)
+                meta = (
+                    f"Last run: {(a.last_run_at or 'never')[:19].replace('T', ' ')}"
+                    f" · Runs: {a.run_count}"
+                )
+                ctk.CTkLabel(
+                    card, text=meta, anchor="w", text_color=brand.MUTED_FG,
+                    font=theme.body_font(10),
+                ).pack(fill="x", padx=12)
+                if row.get("status_message"):
+                    ctk.CTkLabel(
+                        card, text=row["status_message"], anchor="w",
+                        text_color=status_colors.get(status, brand.STAMP_GOLD),
+                        font=theme.body_font(10), wraplength=620, justify="left",
+                    ).pack(fill="x", padx=12)
+                btns = ctk.CTkFrame(card, fg_color="transparent")
+                btns.pack(fill="x", padx=10, pady=(4, 8))
+                aid = a.id
+                ctk.CTkButton(
+                    btns, text="Run", width=64, height=26,
+                    command=lambda x=aid: self._callbacks.get(
+                        "hotkey_action_run", lambda _: None)(x),
+                    **theme.primary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="Edit", width=64, height=26,
+                    command=lambda x=aid: self._callbacks.get(
+                        "hotkey_action_edit", lambda _: None)(x),
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="Disable" if a.enabled else "Enable",
+                    width=72, height=26,
+                    command=lambda x=aid: self._callbacks.get(
+                        "hotkey_action_toggle", lambda _: None)(x),
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=2)
+                ctk.CTkButton(
+                    btns, text="Delete", width=64, height=26,
+                    command=lambda x=aid: self._callbacks.get(
+                        "hotkey_action_delete", lambda _: None)(x),
+                    **theme.destructive_button(),
+                ).pack(side="left", padx=2)
+
         parent._refresh = reload  # type: ignore[attr-defined]
 
     def _build_editable_copies(self, parent: ctk.CTkScrollableFrame) -> None:

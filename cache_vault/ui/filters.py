@@ -23,6 +23,7 @@ NAV_HTML_BUNDLES = "nav_html_bundles"
 NAV_MOBILE_ACCESS = "nav_mobile_access"
 NAV_MOBILE_INBOX = "nav_mobile_inbox"
 NAV_VAULT_MACROS = "nav_vault_macros"
+NAV_HOTKEY_ACTIONS = "nav_hotkey_actions"
 NAV_FOUNDER = "nav_founder"
 NAV_SETTINGS = "nav_settings"
 
@@ -35,6 +36,7 @@ NAV_SCREEN_KEYS = frozenset({
     NAV_MOBILE_ACCESS,
     NAV_MOBILE_INBOX,
     NAV_VAULT_MACROS,
+    NAV_HOTKEY_ACTIONS,
 })
 
 _NAV_ICONS: dict[str, str] = {
@@ -52,6 +54,7 @@ _NAV_ICONS: dict[str, str] = {
     NAV_MOBILE_ACCESS: "◈ ",
     NAV_MOBILE_INBOX: "↓ ",
     NAV_VAULT_MACROS: "⚡ ",
+    NAV_HOTKEY_ACTIONS: "⌨ ",
     NAV_FOUNDER: "◆ ",
     NAV_SETTINGS: "⚙ ",
 }
@@ -61,6 +64,7 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
         (S.FILTER_HOME, brand.TERM_COMMAND_CENTER),
         (NAV_QUICK_PASTE, "Quick Paste"),
         (NAV_VAULT_MACROS, brand.TERM_VAULT_MACROS),
+        (NAV_HOTKEY_ACTIONS, "Hotkey Actions"),
     ]),
     ("VAULT", [
         (S.FILTER_ALL, "All Clips"),

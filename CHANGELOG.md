@@ -94,7 +94,7 @@ Released from MVP baseline commit `8550a51`.
 
 ### Included
 
-- Local-only Windows clipboard/cache utility.
+- Local-first Windows clipboard/cache utility.
 - Text clipboard capture, smart filters, search, pin/keep/expire/delete, and duplicate collapse.
 - Sensitive masking and auto-expiry.
 - Tray controls and global quick-paste hotkey.

@@ -1,6 +1,6 @@
 # Cache Vault Founder MVP v0.1.3-founder-mvp.2
 
-Cache Vault is a local-only Windows clipboard vault with offline Founder unlock.
+Cache Vault is a local-first Windows clipboard vault with offline Founder unlock.
 This is the current public release. It includes all Founder MVP functionality
 plus two hotfix iterations for Vault Macros, Quick Paste, and Founder discoverability.
 
@@ -26,7 +26,7 @@ plus two hotfix iterations for Vault Macros, Quick Paste, and Founder discoverab
 
 ## Trust
 
-- **Local-only** — no cloud sync, no accounts, no telemetry.
+- **Local-first** — no cloud sync, no accounts, no telemetry.
 - **No internet connections.** Optional LAN bridge is off by default and never calls home.
 - **Offline license verification** — Ed25519 public-key check only; no license server.
 - **Manual Founder license delivery** — no in-app payment in this MVP.

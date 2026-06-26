@@ -50,6 +50,7 @@ from .filters import (
     FilterNav,
     NAV_EDITABLE_COPIES,
     NAV_EXPORTS,
+    NAV_HOTKEY_ACTIONS,
     NAV_HTML_BUNDLES,
     NAV_MOBILE_ACCESS,
     NAV_MOBILE_INBOX,
@@ -91,6 +92,7 @@ HK_ARM_NEXT = 11
 HK_IGNORE_NEXT = 12
 HK_MACRO_MENU = 13
 HK_MACRO_ID_BASE = 100
+HK_COMMAND_ID_BASE = 500
 
 _FOUNDER_NAV_GATES: dict[str, str] = {
     NAV_EXPORTS: "exports_advanced",
@@ -227,6 +229,28 @@ class CacheVaultApp(ctk.CTk):
         self._macro_hotkey_bindings: dict[int, tuple[str, list]] = {}
         self._bind_macro_hotkeys()
         self._macro_hotkeys.start()
+
+        # Command Center — Hotkey Actions (Phase 1).
+        from ..core import command_center as cc
+        from .. import __version__ as _app_version
+        self._cc = cc
+        self._command_store = cc.HotkeyActionStore()
+        self._command_runlog = cc.CommandRunLog()
+        self._command_dispatcher = cc.CommandActionDispatcher(
+            self._command_store,
+            self._command_runlog,
+            self._command_action_handlers(),
+            is_locked=self._locked,
+            confirm=self._confirm_command_action,
+            app_version=_app_version,
+            on_event=self._on_command_run_event,
+        )
+        self._command_hotkeys = MultiHotkeyListener()
+        self._command_hotkey_ids: dict[int, str] = {}
+        # Defer binding so CTk init is fully complete before hotkey registration
+        # accesses widget internals.
+        self.after(100, self._bind_command_hotkeys)
+        self.after(150, self._command_hotkeys.start)
         self._text_shortcut_listener = TextShortcutListener(
             on_match=self._on_text_shortcut_match,
             should_skip=lambda hwnd: hwnd_belongs_to_widget(hwnd, self),
@@ -333,6 +357,8 @@ class CacheVaultApp(ctk.CTk):
             self._capture_hotkeys.stop()
         if hasattr(self, "_macro_hotkeys"):
             self._macro_hotkeys.stop()
+        if hasattr(self, "_command_hotkeys"):
+            self._command_hotkeys.stop()
         if hasattr(self, "_text_shortcut_listener"):
             self._text_shortcut_listener.stop()
         if hasattr(self, "_tray"):
@@ -758,14 +784,7 @@ class CacheVaultApp(ctk.CTk):
             return None
         clip = self._selected_clip()
         if clip is not None:
-            from tkinter import messagebox
-            ok = messagebox.askyesno(
-                "Remove from History",
-                "Remove the selected clip from Cache Vault history? It can be restored from Recently Removed.",
-                parent=self,
-            )
-            if ok:
-                self._remove_from_history(clip.id)
+            self._remove_from_history(clip.id)
         return "break"
 
     def _keyboard_open_context_menu(self, event=None):
@@ -1807,28 +1826,37 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
 
     def _expire_now(self, clip_id: str) -> None:
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Expire Now",
+            "Immediately expire this clip? It will be treated as expired "
+            "and may be auto-removed on the next expiry sweep.",
+            parent=self,
+        )
+        if not ok:
+            return
         self.vault.expire_now(clip_id)
         self.refresh()
         self._preview.show(None)
 
     def _remove_from_history(self, clip_id: str) -> None:
-        """Remove a clip from history. Confirms first if it's a favorite.
+        """Remove a clip from history. Confirms for any removal.
 
         Never deletes any real file/folder — only the Cache Vault entry.
         """
         clip = self.vault.storage.get_clip(clip_id)
         if clip is None:
             return
-        if clip.is_pinned:  # favorite — confirm before losing it
-            from tkinter import messagebox
-            ok = messagebox.askyesno(
-                "Remove from History",
-                "This removes the clip from Cache Vault history. It does not "
-                "delete files from your computer.\n\nRemove this favorite?",
-                parent=self,
-            )
-            if not ok:
-                return
+        from tkinter import messagebox
+        suffix = "\n\nIt is a favorite." if clip.is_pinned else ""
+        ok = messagebox.askyesno(
+            "Remove from History",
+            "Remove this clip from Cache Vault history? It can be "
+            f"restored from Recently Removed.{suffix}",
+            parent=self,
+        )
+        if not ok:
+            return
         self.vault.remove_from_history(clip_id)
         self.refresh()
         self._preview.show(None)
@@ -3498,6 +3526,243 @@ class CacheVaultApp(ctk.CTk):
             is_minimized = False
         if is_minimized:
             self._lock_now(reason="minimized")
+
+    def _command_action_handlers(self) -> dict:
+        import pyperclip
+        from ..core.command_center import (
+            ACTION_LOCK_VAULT,
+            ACTION_OPEN_QUICK_PASTE,
+            ACTION_OPEN_VAULT,
+            ACTION_RUN_MACRO,
+            ACTION_SAVE_CLIPBOARD_TO_SAFE,
+            ACTION_TOGGLE_CAPTURE,
+            RESULT_FAILED,
+        )
+
+        def open_vault(*_args):
+            self._show_window()
+
+        def open_quick_paste(*_args):
+            self._schedule_quick_paste()
+
+        def toggle_capture(*_args):
+            self._set_paused(not self.vault.settings.capture_paused)
+
+        def save_clipboard_to_safe(action):
+            try:
+                text = pyperclip.paste()
+            except Exception:
+                text = ""
+            if not text or not text.strip():
+                return {"ok": False, "error": "empty clipboard"}
+            clip = self.vault.capture(text)
+            if clip is None:
+                return {"ok": False, "error": "capture failed"}
+            self.vault.move_to_safe(clip.id, action.target or self.vault.settings.default_safe_id)
+            self.vault.events.record("clip_move", clip.id, {
+                "safe_id": action.target,
+                "source": "command_center",
+            })
+            self.refresh()
+            return None
+
+        def run_macro(action):
+            macros = self._macro_store.load_all()
+            target = next((m for m in macros if m.id == action.target), None)
+            if target is None:
+                return {"ok": False, "error": "macro not found"}
+            self._run_macro(target, self._TRIGGER_MENU_ONLY, "command_center", None)
+            return None
+
+        def lock_vault(*_args):
+            self._lock_now(reason="command_center")
+            return None
+
+        return {
+            ACTION_OPEN_VAULT: open_vault,
+            ACTION_OPEN_QUICK_PASTE: open_quick_paste,
+            ACTION_TOGGLE_CAPTURE: toggle_capture,
+            ACTION_SAVE_CLIPBOARD_TO_SAFE: save_clipboard_to_safe,
+            ACTION_RUN_MACRO: run_macro,
+            ACTION_LOCK_VAULT: lock_vault,
+        }
+
+    def _confirm_command_action(self, action) -> bool:
+        from tkinter import messagebox
+        return messagebox.askyesno(
+            "Confirm command",
+            f"Run \u201c{action.name}\u201d?\n"
+            "This action is marked as requiring confirmation.",
+            parent=self,
+        )
+
+    def _on_command_run_event(self, entry) -> None:
+        try:
+            self.vault.events.record("command_run", None, {
+                "action": "command_run",
+                "command_name": entry.command_name,
+                "action_type": entry.action_type,
+                "trigger_type": entry.trigger_type,
+                "trigger_value": entry.trigger_value,
+                "result": entry.result,
+                "safe_target": entry.safe_target or None,
+                "dry_run": entry.dry_run,
+                "error": entry.error or None,
+            })
+        except Exception as exc:
+            write_crash("command run event", exc)
+
+    def _command_reserved_specs(self) -> set:
+        reserved = set(self._system_reserved_hotkeys(self.vault.settings))
+        for m in self._macro_store.load_all():
+            if m.trigger_type == self._TRIGGER_HOTKEY and m.trigger_value:
+                reserved.add(normalize_hotkey(m.trigger_value))
+        return reserved
+
+    def _command_safe_options(self) -> list:
+        return [(s["id"], s["name"]) for s in self.vault.list_safes()]
+
+    def _command_macro_options(self) -> list:
+        return [(m.id, m.name) for m in self._macro_store.load_all()]
+
+    def _bind_command_hotkeys(self) -> None:
+        cc = self._cc
+        self._command_hotkeys.clear_bindings()
+        self._command_hotkey_ids.clear()
+        reserved = self._command_reserved_specs()
+        actions = self._command_store.load_all()
+        hid = HK_COMMAND_ID_BASE
+        for action in actions:
+            if not action.enabled or not action.hotkey:
+                continue
+            kind, _msg = cc.diagnose_action_hotkey(
+                action.hotkey, self_id=action.id, other_actions=actions,
+                reserved_specs=reserved,
+                win32_available=self._command_hotkeys.available,
+            )
+            if kind != "ok":
+                continue
+            self._command_hotkeys.set_binding(
+                hid, action.hotkey,
+                on_activate=(lambda aid=action.id: self._schedule_command_action(aid)),
+            )
+            self._command_hotkey_ids[hid] = action.id
+            hid += 1
+
+    def _rebind_command_hotkeys(self) -> None:
+        if getattr(self, "_command_hotkeys", None):
+            self._command_hotkeys.stop()
+        self._command_hotkeys = MultiHotkeyListener()
+        self._command_hotkey_ids = {}
+        self._bind_command_hotkeys()
+        self._command_hotkeys.start()
+        self.after(600, self._refresh_command_registration)
+
+    def _refresh_command_registration(self) -> None:
+        if not self._alive():
+            return
+        if self._filters.active == NAV_HOTKEY_ACTIONS:
+            self._refresh_command_screen()
+
+    def _refresh_command_screen(self) -> None:
+        frame = self._vault_screens._screens.get(NAV_HOTKEY_ACTIONS)
+        refresh = getattr(frame, "_refresh", None)
+        if callable(refresh):
+            refresh()
+
+    def _command_action_rows(self) -> dict:
+        status_rows = self._cc.compute_status_rows(
+            self._command_store.load_all(),
+            reserved_specs=self._command_reserved_specs(),
+            win32_available=self._command_hotkeys.available,
+            registered_ids=self._command_hotkeys.registered_ids(),
+            hotkey_id_by_action={
+                aid: hid for hid, aid in self._command_hotkey_ids.items()
+            },
+        )
+        quiet = (self._cc.REG_ACTIVE, self._cc.REG_DISABLED)
+        rows = [
+            {
+                "action": r.action,
+                "status": r.status,
+                "status_message": "" if r.status in quiet else r.message,
+            }
+            for r in status_rows
+        ]
+        return {"rows": rows, "win32_available": self._command_hotkeys.available}
+
+    def _command_action_new(self) -> None:
+        self._open_command_dialog(None)
+
+    def _command_action_edit(self, action_id: str) -> None:
+        action = self._command_store.get(action_id)
+        if action is not None:
+            self._open_command_dialog(action)
+
+    def _open_command_dialog(self, action) -> None:
+        from .command_center import HotkeyActionDialog
+        HotkeyActionDialog(
+            self, action,
+            safes=self._command_safe_options(),
+            macros=self._command_macro_options(),
+            other_actions=self._command_store.load_all(),
+            reserved_specs=self._command_reserved_specs(),
+            win32_available=self._command_hotkeys.available,
+            on_save=self._command_action_save,
+            on_delete=self._command_action_delete,
+        )
+
+    def _command_action_save(self, action) -> None:
+        self._command_store.upsert(action)
+        self._rebind_command_hotkeys()
+        self.refresh()
+        self._refresh_command_screen()
+
+    def _command_action_delete(self, action_id: str) -> None:
+        from tkinter import messagebox
+        action = self._command_store.get(action_id)
+        name = action.name if action else "this hotkey"
+        if not messagebox.askyesno(
+            "Delete hotkey action", f"Delete \u201c{name}\u201d?", parent=self,
+        ):
+            return
+        self._command_store.delete(action_id)
+        self._rebind_command_hotkeys()
+        self.refresh()
+        self._refresh_command_screen()
+
+    def _command_action_toggle(self, action_id: str) -> None:
+        action = self._command_store.get(action_id)
+        if action is None:
+            return
+        action.enabled = not action.enabled
+        self._command_store.upsert(action)
+        self._rebind_command_hotkeys()
+        self.refresh()
+        self._refresh_command_screen()
+
+    def _command_action_run_button(self, action_id: str) -> None:
+        action = self._command_store.get(action_id)
+        if action is None:
+            return
+        result = self._command_dispatcher.run(
+            action, trigger_type="run_button", trigger_value=action.hotkey,
+        )
+        if result.result == self._cc.RESULT_FAILED:
+            self._show_toast(f"Command failed safely: {result.error}")
+        self._refresh_command_screen()
+
+    def _schedule_command_action(self, action_id: str) -> None:
+        self._call_on_main(lambda: self._run_command_action(action_id))
+
+    def _run_command_action(self, action_id: str) -> None:
+        action = self._command_store.get(action_id)
+        if action is None:
+            return
+        self._command_dispatcher.run(
+            action, trigger_type="hotkey", trigger_value=action.hotkey,
+        )
+        self._refresh_command_screen()
 
     def _quit(self) -> None:
         self._shutting_down = True

@@ -15,9 +15,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from cryptography.hazmat.primitives import serialization
+try:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from cryptography.hazmat.primitives import serialization
+except ImportError:  # pragma: no cover - exercised when the dependency is absent.
+    InvalidSignature = ValueError
+    Ed25519PublicKey = object
+    serialization = None
 
 PRODUCT_ID = "cache-vault"
 EDITION_FOUNDER = "founder"
@@ -66,6 +71,8 @@ def default_license_path() -> Path:
 
 
 def _public_key() -> Ed25519PublicKey:
+    if serialization is None:
+        raise RuntimeError("cryptography is required for license verification")
     return serialization.load_pem_public_key(_FOUNDER_PUBLIC_KEY_PEM)
 
 
@@ -75,6 +82,8 @@ def _canonical_payload_bytes(payload: dict[str, Any]) -> bytes:
 
 def verify_license(payload: dict[str, Any], signature_b64: str) -> bool:
     """Return True when *signature_b64* validates *payload*."""
+    if serialization is None:
+        return False
     try:
         sig = base64.b64decode(signature_b64, validate=True)
         _public_key().verify(sig, _canonical_payload_bytes(payload))

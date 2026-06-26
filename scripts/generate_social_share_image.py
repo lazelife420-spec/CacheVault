@@ -83,7 +83,7 @@ def main() -> None:
     x = 230
     draw.text((x, 150), "Cache Vault", fill=TEXT, font=_font(72, bold=True))
     draw.text((x, 240), "Clipboard vault for serious work", fill=ACCENT2, font=_font(38, bold=True))
-    draw.text((x, 320), "Local-first · No cloud · No subscription", fill=MUTED, font=_font(28))
+    draw.text((x, 320), "Local-first · No cloud account · No subscription", fill=MUTED, font=_font(28))
     draw.text((x, 380), "Free vault + Founder proof workflows", fill=MUTED, font=_font(28))
 
     draw.rounded_rectangle((x, 460, x + 320, 520), radius=14, fill=ACCENT)

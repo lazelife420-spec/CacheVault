@@ -513,6 +513,6 @@ def vault_status_text(summary: dict) -> str:
     capture = "Capture paused" if summary.get("capture_paused") else "Capture active"
     mobile = "Mobile Access on" if summary.get("mobile_enabled") else "Mobile Access off"
     return (
-        f"Local-only · {capture} · Receipts on · {mobile} · "
+        f"Local-first · {capture} · Receipts on · {mobile} · "
         f"{summary.get('all', 0)} saved clips · {summary.get('receipts', 0)} receipts"
     )

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import models
+from . import models, safe_io
 
 # --- Trigger / output --------------------------------------------------------
 TRIGGER_NONE = "none"
@@ -387,7 +387,10 @@ class MacroStore:
             return []
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except OSError:
+            return []
+        except json.JSONDecodeError:
+            safe_io.quarantine_corrupt(self._path)  # preserve, don't overwrite
             return []
         items = data.get("macros") if isinstance(data, dict) else data
         if not isinstance(items, list):
@@ -395,9 +398,10 @@ class MacroStore:
         return [Macro.from_dict(m) for m in items if isinstance(m, dict)]
 
     def save_all(self, macros: list[Macro]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"version": 1, "macros": [m.to_dict() for m in macros]}
-        self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        safe_io.atomic_write_text(
+            self._path, json.dumps(payload, indent=2), keep_backup=True,
+        )
 
     def get(self, macro_id: str) -> Macro | None:
         for m in self.load_all():

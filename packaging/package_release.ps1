@@ -31,10 +31,44 @@ if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Missing built executable: $exePath"
 }
 
+# Stale-exe guard: refuse to package if source changed after the exe was built.
+$exeTime = (Get-Item -LiteralPath $exePath).LastWriteTimeUtc
+$newerSource = Get-ChildItem -Path (Join-Path $root "cache_vault") -Recurse -Include *.py |
+    Where-Object { $_.LastWriteTimeUtc -gt $exeTime }
+if ($newerSource) {
+    $count = $newerSource.Count
+    $example = $newerSource | Select-Object -First 3 | ForEach-Object { $_.Name }
+    throw "Stale executable: $count source file(s) newer than dist\CacheVault.exe ($exeTime). " +
+          "Example: $($example -join ', '). Run packaging\build_exe.ps1 first."
+}
+
+# Version truth: pyproject.toml version must match tag.
+$pyproject = Join-Path $root "pyproject.toml"
+$pyText = Get-Content -LiteralPath $pyproject -Raw
+if ($pyText -match 'version\s*=\s*"([^"]+)"') {
+    $pyVersion = $Matches[1]
+    $cleanTag = $tagName -replace '^v', ''
+    if ($cleanTag -ne $pyVersion) {
+        throw "Version mismatch: tag '$tagName' -> '$cleanTag' but pyproject.toml has '$pyVersion'"
+    }
+} elseif ($pyText -match "version\s*=\s*'([^']+)'") {
+    $pyVersion = $Matches[1]
+    $cleanTag = $tagName -replace '^v', ''
+    if ($cleanTag -ne $pyVersion) {
+        throw "Version mismatch: tag '$tagName' -> '$cleanTag' but pyproject.toml has '$pyVersion'"
+    }
+} else {
+    throw "Could not find version in pyproject.toml"
+}
+
+# Verify the built exe contains the correct version string.
 $exeBytes = [System.IO.File]::ReadAllBytes($exePath)
 $exeText = [System.Text.Encoding]::ASCII.GetString($exeBytes)
 if ($exeText -notmatch "cache_vault\.ui\.founder") {
     throw "Built exe missing cache_vault.ui.founder — run packaging\build_exe.ps1 from current source"
+}
+if ($exeText -notmatch [regex]::Escape($pyVersion)) {
+    throw "Built exe version ($pyVersion expected) not found in binary — may be stale"
 }
 if (-not (Test-Path -LiteralPath $notesPath)) {
     throw "Missing release notes file: $notesPath"

@@ -86,6 +86,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.resizable(False, True)
         self.minsize(520, 540)
         self._settings = settings
+        self._settings_was_enabled = bool(settings.mobile_access_enabled)
         self._on_save = on_save
         self._mobile = mobile or {}
         self._help = help or {}
@@ -693,6 +694,20 @@ class SettingsDialog(ctk.CTkToplevel):
                 1024, min(65535, int(self._mobile_port.get())))
         except ValueError:
             pass
+        # Guard: confirm before disabling Mobile Access when paired devices exist.
+        was_enabled = getattr(self, "_settings_was_enabled", True)
+        if was_enabled and not self._settings.mobile_access_enabled and self._settings.paired_devices:
+            from tkinter import messagebox
+            count = len(self._settings.paired_devices)
+            ok = messagebox.askyesno(
+                "Disable Mobile Access",
+                f"You have {count} paired device(s). Disabling Mobile Access "
+                "will stop the local bridge and devices will no longer connect.\n\n"
+                "Disable Mobile Access?",
+                parent=self,
+            )
+            if not ok:
+                return
         self._on_save(self._settings)
         self.destroy()
 

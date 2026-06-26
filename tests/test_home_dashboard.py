@@ -86,7 +86,7 @@ def test_vault_status_text_honest():
     text = vault_status_text({
         "all": 5, "receipts": 3, "capture_paused": False, "mobile_enabled": False,
     })
-    assert "Local-only" in text
+    assert "Local-first" in text
     assert "Mobile Access off" in text
     assert "encryption" not in text.lower()
     assert "cloud" not in text.lower()

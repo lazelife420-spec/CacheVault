@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
+from . import safe_io
+
 
 def default_settings_path() -> Path:
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
@@ -101,8 +103,14 @@ class Settings:
             return cls()
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except OSError:
             return cls()
+        except json.JSONDecodeError:
+            # Preserve the broken file instead of silently overwriting it.
+            safe_io.quarantine_corrupt(path)
+            fresh = cls()
+            fresh._persist_path = path
+            return fresh
         known = {f for f in cls().__dict__}
         s = cls(**{k: v for k, v in data.items() if k in known})
         try:
@@ -192,8 +200,9 @@ class Settings:
     def save(self, path: str | os.PathLike | None = None) -> None:
         path = Path(path or getattr(self, "_persist_path", None) or default_settings_path())
         self._persist_path = path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+        safe_io.atomic_write_text(
+            path, json.dumps(asdict(self), indent=2), keep_backup=True,
+        )
 
     def is_app_excluded(self, app_name: str | None) -> bool:
         if not app_name:
