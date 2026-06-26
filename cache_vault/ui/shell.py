@@ -304,6 +304,8 @@ class CacheVaultApp(ctk.CTk):
             "<Control-c>": lambda e: self._keyboard_copy_selected(e),
             "<Control-C>": lambda e: self._keyboard_copy_selected(e),
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
+            "<Control-a>": lambda e: self._keyboard_select_all(e),
+            "<Control-A>": lambda e: self._keyboard_select_all(e),
             "<Delete>": lambda e: self._keyboard_remove_selected(e),
             "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
             "<Menu>": lambda e: self._keyboard_open_context_menu(e),
@@ -620,6 +622,16 @@ class CacheVaultApp(ctk.CTk):
         )
         self._selected_action_label.pack(side="left", padx=(0, 4))
         self._selected_action_buttons: list[ctk.CTkButton] = []
+        # Persistent discoverability hint (lives outside the button list so it
+        # survives strip rebuilds). Shows the multi-select shortcut when 0/1 is
+        # selected; the action label shows "N selected" once a set is active.
+        self._selection_hint_label = ctk.CTkLabel(
+            self._toolbar_row3,
+            text=brand.SELECTION_HINT,
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=10),
+        )
+        self._selection_hint_label.pack(side="left", padx=(6, 0))
         self._update_selected_action_strip(None)
 
     def _control_strip_callbacks(self) -> dict:
@@ -654,6 +666,7 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
+        self._set_selection_hint(brand.SELECTION_HINT)
         if self._locked() or clip is None:
             self._selected_action_label.configure(text="No item selected")
             return
@@ -704,12 +717,29 @@ class CacheVaultApp(ctk.CTk):
             self._selected_action_buttons.append(btn)
 
     def _clear_selection(self) -> None:
+        # Use clear_selection (not set_selected(None)) so a multi-row selection
+        # is fully repainted, not just the single anchor row.
+        self._list.clear_selection()
+        self._grid.clear_selection()
         self._selected_clip_ids = []
         self._selected_clip_id = None
-        self._list.set_selected(None)
-        self._grid.set_selected(None)
         self._home.set_selected(None)
         self._update_selected_action_strip(None)
+
+    def _keyboard_select_all(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        if not self._visible_clip_ids:
+            return "break"
+        view = self._grid if self._view_mode == "grid" else self._list
+        # Only act when the clip view is actually on screen (not the dashboard).
+        try:
+            if not view.winfo_ismapped():
+                return "break"
+        except Exception:  # noqa: BLE001
+            return "break"
+        view.select_all()
+        return "break"
 
     def _bulk_copy(self) -> None:
         if not self._guard_unlocked():
@@ -1795,10 +1825,10 @@ class CacheVaultApp(ctk.CTk):
             self.focus_set()
             return
 
-        # 4. Clear selection if in list
-        if self._selected_clip_id:
-            self._selected_clip_id = None
-            self.refresh()
+        # 4. Clear selection (single or multi) without re-rendering the list.
+        if self._selected_clip_ids or self._selected_clip_id:
+            self._clear_selection()
+            self._preview.show(None)
             return
 
     def _on_clip_select(self, clip) -> None:
@@ -1838,6 +1868,11 @@ class CacheVaultApp(ctk.CTk):
             self._preview.set_usage_events(self.vault.clip_usage_events(primary.id))
         self._preview.show(primary)
 
+    def _set_selection_hint(self, text: str) -> None:
+        label = getattr(self, "_selection_hint_label", None)
+        if label is not None:
+            label.configure(text=text)
+
     def _update_bulk_action_strip(self, ids: list[str]) -> None:
         """Render the action strip for a multi-clip selection."""
         if not hasattr(self, "_selected_action_frame"):
@@ -1846,8 +1881,11 @@ class CacheVaultApp(ctk.CTk):
             btn.destroy()
         self._selected_action_buttons = []
         if self._locked() or not ids:
+            self._set_selection_hint(brand.SELECTION_HINT)
             self._selected_action_label.configure(text="No item selected")
             return
+        # Count is carried by the label; drop the hint to keep the strip compact.
+        self._set_selection_hint("")
         self._selected_action_label.configure(text=f"{len(ids)} selected")
         actions = [
             ("Copy All", self._bulk_copy),
@@ -2020,6 +2058,15 @@ class CacheVaultApp(ctk.CTk):
             finally:
                 tooltip.after_menu_close()
             return
+        # Bulk menu: right-clicking a row that's part of a multi-selection acts
+        # on the whole set. Right-clicking elsewhere collapses to single (the
+        # view already re-selected just that row before calling us).
+        if len(self._selected_clip_ids) > 1 and clip.id in self._selected_clip_ids:
+            try:
+                self._open_bulk_clip_menu(list(self._selected_clip_ids), x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
+            return
         menu = tk.Menu(self, tearoff=0)
         dispatch = {
             "copy_again": lambda: self._copy_again(clip.id),
@@ -2047,6 +2094,28 @@ class CacheVaultApp(ctk.CTk):
             copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
             clip.id,
             {"surface": "clip", "classification": clip.classification},
+        )
+        try:
+            menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
+        finally:
+            menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _open_bulk_clip_menu(self, ids: list[str], x_root: int, y_root: int) -> None:
+        """Context menu for a multi-clip selection — actions target the whole set."""
+        import tkinter as tk
+
+        n = len(ids)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=f"Copy {n} clips to clipboard", command=self._bulk_copy)
+        menu.add_command(label=f"Export proof for {n} clips…", command=self._bulk_export_proof)
+        menu.add_command(label=f"Move {n} clips to Safe…", command=self._bulk_move_to_safe)
+        menu.add_separator()
+        menu.add_command(label=f"Remove {n} clips from history…", command=self._bulk_remove)
+        self.vault.events.record(
+            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
+            None,
+            {"surface": "clip_bulk", "count": n},
         )
         try:
             menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc

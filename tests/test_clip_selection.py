@@ -171,6 +171,69 @@ def test_clip_grid_shift_click_selects_contiguous_range():
     assert changes[-1] == ["b", "c", "d"]
 
 
+def test_clip_list_select_all_and_clear():
+    changes = []
+    view = object.__new__(ClipList)
+    view._selected_id = None
+    view._selected_ids = set()
+    view._anchor_id = None
+    view._render_order = ["a", "b", "c"]
+    view._row_by_id = {k: FakeWidget() for k in "abc"}
+    view._on_selection_change = changes.append
+
+    view.select_all()
+    assert view._selected_ids == {"a", "b", "c"}
+    assert changes[-1] == ["a", "b", "c"]
+    assert view.has_selection()
+
+    view.clear_selection()
+    assert view._selected_ids == set()
+    assert changes[-1] == []
+    assert not view.has_selection()
+
+
+def test_clip_grid_select_all_and_clear():
+    changes = []
+    view = object.__new__(ClipGrid)
+    view._selected_id = None
+    view._selected_ids = set()
+    view._anchor_id = None
+    view._render_order = ["a", "b", "c"]
+    view._row_by_id = {k: FakeWidget() for k in "abc"}
+    view._name_label_by_id = {k: FakeWidget() for k in "abc"}
+    view._on_selection_change = changes.append
+
+    view.select_all()
+    assert view._selected_ids == {"a", "b", "c"}
+    assert changes[-1] == ["a", "b", "c"]
+
+    view.clear_selection()
+    assert view._selected_ids == set()
+    assert changes[-1] == []
+
+
+def test_clip_list_select_all_empty_is_noop():
+    view = object.__new__(ClipList)
+    view._selected_ids = set()
+    view._render_order = []
+    view._row_by_id = {}
+    view._on_selection_change = lambda ids: (_ for _ in ()).throw(AssertionError("should not fire"))
+    view.select_all()  # no rows → must not notify or raise
+    assert view._selected_ids == set()
+
+
+def test_shell_select_all_and_clear_are_wired():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    source = inspect.getsource(CacheVaultApp)
+
+    assert "<Control-a>" in source
+    assert "_keyboard_select_all" in source
+    assert "winfo_ismapped" in source
+    assert "def _clear_selection" in source
+    assert "clear_selection()" in source
+
+
 def test_shell_multi_select_bulk_actions_are_wired():
     from cache_vault.ui.shell import CacheVaultApp
 
@@ -182,6 +245,40 @@ def test_shell_multi_select_bulk_actions_are_wired():
     assert "def _bulk_remove" in source
     assert "def _bulk_export_proof" in source
     assert "def _bulk_move_to_safe" in source
+
+
+def test_shell_selection_hint_is_wired():
+    from cache_vault import brand
+    from cache_vault.ui.shell import CacheVaultApp
+
+    assert brand.SELECTION_HINT == "Ctrl/Shift-click to select multiple"
+
+    single = inspect.getsource(CacheVaultApp._update_selected_action_strip)
+    bulk = inspect.getsource(CacheVaultApp._update_bulk_action_strip)
+
+    # Hint shows for none/single selection, hides for multi (count takes over).
+    assert "_set_selection_hint(brand.SELECTION_HINT)" in single
+    assert '_set_selection_hint("")' in bulk
+    assert 'text=f"{len(ids)} selected"' in bulk
+
+
+def test_shell_context_menu_is_bulk_aware():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    open_menu = inspect.getsource(CacheVaultApp._open_clip_menu)
+    bulk_menu = inspect.getsource(CacheVaultApp._open_bulk_clip_menu)
+
+    # Branches to the bulk menu only when >1 selected AND the clicked row is in it.
+    assert "len(self._selected_clip_ids) > 1" in open_menu
+    assert "clip.id in self._selected_clip_ids" in open_menu
+    assert "_open_bulk_clip_menu" in open_menu
+
+    # Bulk menu targets the whole set via the _bulk_* methods and names the count.
+    assert "self._bulk_copy" in bulk_menu
+    assert "self._bulk_export_proof" in bulk_menu
+    assert "self._bulk_move_to_safe" in bulk_menu
+    assert "self._bulk_remove" in bulk_menu
+    assert "{n}" in bulk_menu  # labels state how many clips are affected
 
 
 def test_clip_list_keyboard_context_opens_for_selected_row():

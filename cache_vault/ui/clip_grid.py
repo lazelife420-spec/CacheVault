@@ -244,6 +244,27 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._repaint_selection()
         self._notify_selection_change()
 
+    def select_all(self) -> None:
+        """Select every rendered row (Ctrl+A), reported via on_selection_change."""
+        if not self._render_order:
+            return
+        self._selected_ids = set(self._render_order)
+        self._selected_id = self._render_order[-1]
+        self._anchor_id = self._render_order[0]
+        self._repaint_selection()
+        self._notify_selection_change()
+
+    def clear_selection(self) -> None:
+        """Deselect everything (Esc) and repaint all rows."""
+        self._selected_ids = set()
+        self._selected_id = None
+        self._anchor_id = None
+        self._repaint_selection()
+        self._notify_selection_change()
+
+    def has_selection(self) -> bool:
+        return bool(self._selected_ids)
+
     def _notify_selection_change(self) -> None:
         callback = getattr(self, "_on_selection_change", None)
         if callback is not None:
