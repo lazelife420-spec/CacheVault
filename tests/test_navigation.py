@@ -3,9 +3,19 @@ import pytest
 from cache_vault.ui.shell import CacheVaultApp
 from cache_vault.core.storage import FILTER_ALL, FILTER_SEARCH_ALL
 from cache_vault.ui.filters import NAV_SETTINGS, NAV_STAMPED_RECEIPTS
-from tests.tk_support import probe_tk_ui
+from tests.tk_support import probe_tk_ui, _tcl_unavailable  # noqa: PLC2701
 
 OK, REASON = probe_tk_ui()
+
+
+def _make_app(vault):
+    try:
+        return CacheVaultApp(vault=vault)
+    except Exception as exc:  # noqa: BLE001
+        if _tcl_unavailable(exc):
+            pytest.skip(f"Tk runtime unavailable at app construction: {exc}")
+        raise
+
 
 @pytest.mark.skipif(not OK, reason=REASON)
 class TestNavigation:
@@ -16,7 +26,7 @@ class TestNavigation:
         from cache_vault.core import storage as S
         
         vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
-        app = CacheVaultApp(vault=vault)
+        app = _make_app(vault)
         try:
             app.withdraw()
             
@@ -46,7 +56,7 @@ class TestNavigation:
         from cache_vault.core import storage as S
         
         vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
-        app = CacheVaultApp(vault=vault)
+        app = _make_app(vault)
         try:
             app.withdraw()
             app._nav_history = [] # Reset for easier testing
@@ -90,7 +100,7 @@ class TestNavigation:
         from cache_vault.core.vault import Vault
         
         vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
-        app = CacheVaultApp(vault=vault)
+        app = _make_app(vault)
         try:
             app.withdraw()
             
@@ -106,7 +116,7 @@ class TestNavigation:
         from cache_vault.core.vault import Vault
         
         vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
-        app = CacheVaultApp(vault=vault)
+        app = _make_app(vault)
         try:
             app.withdraw()
             
