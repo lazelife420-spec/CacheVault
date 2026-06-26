@@ -7,7 +7,7 @@ You are at the seller stage. No new features until first purchase works end-to-e
 | Surface | URL |
 |---|---|
 | Landing | https://z3r0dayzion-install.github.io/cache-vault-landing/ |
-| Release | https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/v0.1.3-founder-mvp |
+| Release | https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/v0.1.3-founder-mvp.2 |
 | Landing repo | https://github.com/Z3r0DayZion-install/cache-vault-landing |
 
 ## Path map
@@ -76,7 +76,7 @@ Also update `docs/index.html` Buy button hrefs and commit to CacheVault.
 ```powershell
 $env:FOUNDER_PURCHASE_URL = "https://cashdominion.gumroad.com/l/eojmeb"
 pwsh packaging\build_exe.ps1
-pwsh packaging\package_release.ps1 -Tag v0.1.3-founder-mvp
+pwsh packaging\package_release.ps1 -Tag v0.1.3-founder-mvp.2
 ```
 
 Rebuild release only if you need **Copy Purchase Link** in the app to match checkout.

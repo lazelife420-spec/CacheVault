@@ -2,11 +2,11 @@
   <img src="assets/cache-vault-lockup.png" width="520" alt="Cache Vault — keep the cache worth keeping">
 </p>
 
-# Cache Vault™
+# Cache Vault by The Proof Foundry™
 
-> A Proof Foundry product — proof-first software forged for builders.
+> Proof-first software forged for builders.
 
-**Cache Vault™** is a modern clipboard vault from **The Proof Foundry™**.
+**Cache Vault by The Proof Foundry™** is a modern clipboard vault.
 Capture everything. Auto-organize it. Save what matters. Export with receipts.
 
 It is a **local-first** Windows clipboard vault. It saves what you copy,
@@ -15,13 +15,13 @@ sensitive secrets), and lets you search, favorite, and organize clips — with
 **Export / Save As**, **Proof Manifests**, and **Stamped Receipts** when you
 need evidence, not promises.
 
-Cache Vault does not pretend to be magic. No cloud sync, no accounts, no
-telemetry — local-first, user-control-first, reversible before risky.
+Cache Vault does not pretend to be magic. No cloud account. No subscription.
+Local-first, user-control-first, reversible before risky.
 
 ## Download / verify release
 
 Download the packaged Windows build from the [latest GitHub
-Release](https://github.com/Z3r0DayZion-install/CacheVault/releases/latest).
+Release](https://github.com/Z3r0DayZion-install/cache-vault-landing/releases/latest).
 
 After downloading the release zip, compute its SHA256 hash in PowerShell:
 
@@ -58,8 +58,8 @@ python tools\verify_assets.py    # checks files, ICO sizes, no-gold gate; contac
 ## Trust doctrine
 
 - **Local-first by default.** Everything lives in a local SQLite database.
-- **No cloud, no accounts, no ads, no telemetry.**
-- **No internet connections.** The app never calls home. Optional LAN bridge is **off by default** and never connects to the internet.
+- **No cloud account. No subscription. No ads, no telemetry.**
+- Optional LAN bridge is **off by default** and never connects to the internet.
 - **Sensitive clips are masked and auto-expire** (default ON, 10 minutes).
 - Clipboard contents are **never written to logs or printed to the console**.
 

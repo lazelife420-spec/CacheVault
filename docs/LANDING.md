@@ -50,7 +50,7 @@ Live: https://z3r0dayzion-install.github.io/cache-vault-landing/
 
 | Button | Current target |
 |---|---|
-| Download Free | [v0.1.3-founder-mvp release](https://github.com/Z3r0DayZion-install/CacheVault/releases/tag/v0.1.3-founder-mvp) |
+| Download Free | [v0.1.3-founder-mvp.2 release](https://github.com/Z3r0DayZion-install/cache-vault-landing/releases/tag/v0.1.3-founder-mvp.2) |
 | Buy Founder | [Gumroad checkout](https://cashdominion.gumroad.com/l/eojmeb) |
 
 ## Before first sale
