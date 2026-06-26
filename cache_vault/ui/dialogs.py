@@ -15,6 +15,15 @@ from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
 from .vault_lock import LOCK_STYLES
 
 
+def version_line() -> str:
+    """Human-readable version/build string, e.g. 'Version 0.1.3 · Founder MVP'."""
+    from .. import __release_label__, __version__
+
+    label = (__release_label__ or "").strip()
+    base = f"Version {__version__}"
+    return f"{base} · {label}" if label else base
+
+
 def _bring_to_front(win: ctk.CTkToplevel, master, *, modal: bool) -> None:
     """Raise a CustomTkinter toplevel above its parent and focus it.
 
@@ -48,6 +57,9 @@ class AboutDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text=brand.PRODUCT_NAME,
                      font=ctk.CTkFont(size=20, weight="bold"),
                      text_color=brand.PROOF_TEAL).pack(anchor="w", padx=20, pady=(18, 2))
+        ctk.CTkLabel(self, text=version_line(), anchor="w",
+                     text_color=brand.STAMP_GOLD,
+                     font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", padx=20)
         ctk.CTkLabel(self, text=brand.PRODUCT_BYLINE, anchor="w",
                      text_color=brand.MUTED_FG,
                      font=ctk.CTkFont(size=12)).pack(anchor="w", padx=20)
@@ -128,6 +140,13 @@ class SettingsDialog(ctk.CTkToplevel):
                       **theme.primary_button()).pack(side="right", padx=(8, 0))
         ctk.CTkButton(footer, text="Cancel", command=self.destroy,
                       **theme.secondary_button()).pack(side="right")
+        about_cb = self._help.get("about")
+        if about_cb:
+            ctk.CTkButton(footer, text="About", width=70, command=about_cb,
+                          **theme.secondary_button()).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(footer, text=version_line(), anchor="w",
+                     text_color=brand.MUTED_FG,
+                     font=ctk.CTkFont(size=11)).pack(side="left")
 
         body = ctk.CTkScrollableFrame(self)
         body.pack(side="top", fill="both", expand=True, padx=8, pady=(4, 4))

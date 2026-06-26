@@ -14,13 +14,19 @@ from . import theme
 
 class ClipList(ctk.CTkScrollableFrame):
     def __init__(self, master, on_select: Callable[[Clip], None],
-                 on_context: Callable[[Clip, int, int], None] | None = None, **kw):
+                 on_context: Callable[[Clip, int, int], None] | None = None,
+                 on_selection_change: Callable[[list[str]], None] | None = None, **kw):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._on_context = on_context
+        self._on_selection_change = on_selection_change
         self._rows: list[ctk.CTkFrame] = []
         self._row_by_id: dict[str, ctk.CTkFrame] = {}
         self._selected_id: str | None = None
+        # Multi-selection: full set plus the rendered order and the range anchor.
+        self._selected_ids: set[str] = set()
+        self._render_order: list[str] = []
+        self._anchor_id: str | None = None
         self._collapsed_groups: set[tuple[str, str]] = set()
         self._last_clips: list[Clip] = []
         self._last_empty_message: str | None = None
@@ -41,6 +47,7 @@ class ClipList(ctk.CTkScrollableFrame):
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
+        self._render_order.clear()
         self._empty.pack_forget()
 
         if not clips:
@@ -74,6 +81,7 @@ class ClipList(ctk.CTkScrollableFrame):
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
+        self._render_order.clear()
         self._empty.pack_forget()
 
         if not clips:
@@ -157,13 +165,16 @@ class ClipList(ctk.CTkScrollableFrame):
         )
 
     def _build_row(self, clip: Clip) -> ctk.CTkFrame:
-        selected = clip.id == self._selected_id
+        selected = clip.id in self._selected_ids or clip.id == self._selected_id
         row = ctk.CTkFrame(
             self, corner_radius=8,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
+            border_width=1 if selected else 0,
+            border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
         row.pack(fill="x", padx=4, pady=2)
         self._row_by_id[clip.id] = row
+        self._render_order.append(clip.id)
 
         badge = clip_metadata.format_label(clip.classification, clip.content_type).upper()
         if clip.is_sensitive:
@@ -254,31 +265,120 @@ class ClipList(ctk.CTkScrollableFrame):
         ).pack(side="left", padx=(0, 6), pady=2)
 
     def _bind_clip_events(self, widget, clip: Clip) -> None:
-        widget.bind("<Button-1>", lambda _e, c=clip: self._select(c), add="+")
+        widget.bind("<Button-1>", lambda e, c=clip: self._click(e, c), add="+")
+        widget.bind("<Control-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
+        widget.bind("<Shift-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c), add="+")
         for child in widget.winfo_children():
             self._bind_clip_events(child, clip)
 
+    # Tk event.state modifier bit masks.
+    _CTRL_MASK = 0x0004
+    _SHIFT_MASK = 0x0001
+
+    def _click(self, event, clip: Clip) -> str:
+        state = getattr(event, "state", 0) or 0
+        if state & self._CTRL_MASK:
+            self._toggle_select(clip)
+        elif state & self._SHIFT_MASK:
+            self._range_select(clip)
+        else:
+            self._select(clip)
+        return "break"
+
     def _context(self, event, clip: Clip) -> None:
-        self._select(clip)
+        # Right-clicking inside an existing multi-selection keeps the set so the
+        # menu can act on all of it; otherwise it selects just this row.
+        selected_ids = getattr(self, "_selected_ids", set())
+        if clip.id not in selected_ids or len(selected_ids) <= 1:
+            self._select(clip)
         if self._on_context is not None:
             self._on_context(clip, event.x_root, event.y_root)
 
     def _select(self, clip: Clip) -> None:
+        # Plain click: single selection, reported via on_select.
         previous_id = self._selected_id
         self._selected_id = clip.id
+        self._selected_ids = {clip.id}
+        self._anchor_id = clip.id
         self._apply_selection(previous_id, clip.id)
         self._on_select(clip)
+
+    def _toggle_select(self, clip: Clip) -> None:
+        # Ctrl+click: add/remove from the set, reported via on_selection_change.
+        if clip.id in self._selected_ids:
+            self._selected_ids.discard(clip.id)
+            if self._selected_id == clip.id:
+                self._selected_id = next(iter(self._selected_ids), None)
+        else:
+            self._selected_ids.add(clip.id)
+            self._selected_id = clip.id
+        self._anchor_id = clip.id
+        self._repaint_selection()
+        self._notify_selection_change()
+
+    def _range_select(self, clip: Clip) -> None:
+        # Shift+click: select the contiguous range from the anchor.
+        anchor = self._anchor_id if self._anchor_id in self._render_order else None
+        if anchor is None or clip.id not in self._render_order:
+            self._select(clip)
+            return
+        start = self._render_order.index(anchor)
+        end = self._render_order.index(clip.id)
+        lo, hi = (start, end) if start <= end else (end, start)
+        self._selected_ids = set(self._render_order[lo:hi + 1])
+        self._selected_id = clip.id
+        self._repaint_selection()
+        self._notify_selection_change()
+
+    def select_all(self) -> None:
+        """Select every rendered row (Ctrl+A), reported via on_selection_change."""
+        if not self._render_order:
+            return
+        self._selected_ids = set(self._render_order)
+        self._selected_id = self._render_order[-1]
+        self._anchor_id = self._render_order[0]
+        self._repaint_selection()
+        self._notify_selection_change()
+
+    def clear_selection(self) -> None:
+        """Deselect everything (Esc) and repaint all rows."""
+        self._selected_ids = set()
+        self._selected_id = None
+        self._anchor_id = None
+        self._repaint_selection()
+        self._notify_selection_change()
+
+    def has_selection(self) -> bool:
+        return bool(self._selected_ids)
+
+    def _notify_selection_change(self) -> None:
+        callback = getattr(self, "_on_selection_change", None)
+        if callback is not None:
+            order = getattr(self, "_render_order", [])
+            ordered = [cid for cid in order if cid in self._selected_ids]
+            callback(ordered)
+
+    def _repaint_selection(self) -> None:
+        for clip_id, row in self._row_by_id.items():
+            is_selected = clip_id in self._selected_ids
+            row.configure(
+                fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
+                border_width=1 if is_selected else 0,
+                border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+            )
 
     def set_selected(self, clip_id: str | None) -> None:
         previous_id = self._selected_id
         self._selected_id = clip_id
+        self._selected_ids = {clip_id} if clip_id is not None else set()
+        self._anchor_id = clip_id
         if clip_id is not None:
             self._apply_selection(previous_id, clip_id)
         elif previous_id:
             row = self._row_by_id.get(previous_id)
             if row is not None:
-                row.configure(fg_color=brand.ROW_BG)
+                row.configure(fg_color=brand.ROW_BG, border_width=0)
 
     def open_context_for_selected(self, clip: Clip) -> None:
         row = self._row_by_id.get(clip.id)

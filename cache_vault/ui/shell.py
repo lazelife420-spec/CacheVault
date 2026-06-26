@@ -148,6 +148,7 @@ class CacheVaultApp(ctk.CTk):
         self._main_thread_calls: queue.SimpleQueue = queue.SimpleQueue()
         self._view_mode = "cards"
         self._selected_clip_id: str | None = None
+        self._selected_clip_ids: list[str] = []
         self._visible_clip_ids: list[str] = []
         self._sort_key = models.SORT_NEWEST_ADDED
         self._date_added_preset: str | None = None
@@ -327,6 +328,8 @@ class CacheVaultApp(ctk.CTk):
             "<Control-c>": lambda e: self._keyboard_copy_selected(e),
             "<Control-C>": lambda e: self._keyboard_copy_selected(e),
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
+            "<Control-a>": lambda e: self._keyboard_select_all(e),
+            "<Control-A>": lambda e: self._keyboard_select_all(e),
             "<Delete>": lambda e: self._keyboard_remove_selected(e),
             "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
             "<Menu>": lambda e: self._keyboard_open_context_menu(e),
@@ -487,12 +490,14 @@ class CacheVaultApp(ctk.CTk):
         self._list = ClipList(
             self._center, on_select=self._on_clip_select,
             on_context=self._open_clip_menu,
+            on_selection_change=self._on_clip_selection_change,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._grid = ClipGrid(
             self._center, on_select=self._on_clip_select,
             on_sort=self._set_sort,
             on_context=self._open_clip_menu,
+            on_selection_change=self._on_clip_selection_change,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._home.grid(row=1, column=0, sticky="nsew")
@@ -643,6 +648,16 @@ class CacheVaultApp(ctk.CTk):
         )
         self._selected_action_label.pack(side="left", padx=(0, 4))
         self._selected_action_buttons: list[ctk.CTkButton] = []
+        # Persistent discoverability hint (lives outside the button list so it
+        # survives strip rebuilds). Shows the multi-select shortcut when 0/1 is
+        # selected; the action label shows "N selected" once a set is active.
+        self._selection_hint_label = ctk.CTkLabel(
+            self._toolbar_row3,
+            text=brand.SELECTION_HINT,
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=10),
+        )
+        self._selection_hint_label.pack(side="left", padx=(6, 0))
         self._update_selected_action_strip(None)
 
     def _control_strip_callbacks(self) -> dict:
@@ -677,6 +692,7 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
+        self._set_selection_hint(brand.SELECTION_HINT)
         if self._locked() or clip is None:
             self._selected_action_label.configure(text="No item selected")
             return
@@ -726,6 +742,130 @@ class CacheVaultApp(ctk.CTk):
             btn.pack(side="left", padx=2)
             self._selected_action_buttons.append(btn)
 
+    def _clear_selection(self) -> None:
+        # Use clear_selection (not set_selected(None)) so a multi-row selection
+        # is fully repainted, not just the single anchor row.
+        self._list.clear_selection()
+        self._grid.clear_selection()
+        self._selected_clip_ids = []
+        self._selected_clip_id = None
+        self._home.set_selected(None)
+        self._update_selected_action_strip(None)
+
+    def _keyboard_select_all(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        if not self._visible_clip_ids:
+            return "break"
+        view = self._grid if self._view_mode == "grid" else self._list
+        # Only act when the clip view is actually on screen (not the dashboard).
+        try:
+            if not view.winfo_ismapped():
+                return "break"
+        except Exception:  # noqa: BLE001
+            return "break"
+        view.select_all()
+        return "break"
+
+    def _bulk_copy(self) -> None:
+        if not self._guard_unlocked():
+            return
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+        parts: list[str] = []
+        skipped = 0
+        for clip_id in ids:
+            clip = self.vault.storage.get_clip(clip_id)
+            if clip is None:
+                continue
+            if clip.content_type == models.CONTENT_IMAGE:
+                skipped += 1
+                continue
+            content = self.vault.copied_again(clip_id)
+            if content:
+                parts.append(content)
+        if not parts:
+            self._show_toast("Nothing to copy from the selection.")
+            return
+        combined = "\n\n".join(parts)
+        self.clipboard_clear()
+        self.clipboard_append(combined)
+        self._monitor.note_local_copy(combined)
+        msg = f"Copied {len(parts)} clips to clipboard"
+        if skipped:
+            msg += f" ({skipped} image{'s' if skipped != 1 else ''} skipped)"
+        self._show_toast(msg)
+
+    def _bulk_export_proof(self) -> None:
+        if not self._guard_unlocked():
+            return
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+        if not self._require_founder("proof_pack_export"):
+            return
+        from tkinter import filedialog
+
+        from ..core.exports import export_zip_basename
+
+        dest = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export proof zip",
+            defaultextension=".zip",
+            initialfile=export_zip_basename(),
+            filetypes=[("Zip archive", "*.zip")],
+        )
+        if dest:
+            self.vault.export_proof_zip(ids, dest, mode="auto")
+            self.refresh()
+            self._show_toast(f"Exported proof for {len(ids)} clips.")
+
+    def _bulk_move_to_safe(self) -> None:
+        if not self._guard_unlocked():
+            return
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+
+        def pick(safe_id: str, safe_name: str) -> None:
+            moved = 0
+            for clip_id in ids:
+                if self.vault.move_to_safe(clip_id, safe_id):
+                    moved += 1
+            self.refresh()
+            self._show_toast(f"Moved {moved} clips to {safe_name}.")
+
+        SafePickerDialog(
+            self, self.vault.settings,
+            title="Move to Safe",
+            on_pick=pick,
+            on_create=self._create_safe_if_allowed,
+        )
+
+    def _bulk_remove(self) -> None:
+        if not self._guard_unlocked():
+            return
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+        from tkinter import messagebox
+
+        ok = messagebox.askyesno(
+            "Remove from History",
+            f"Remove {len(ids)} clips from Cache Vault history? "
+            "They can be restored from Recently Removed.\n\n"
+            "This does not delete any files from your computer.",
+            parent=self,
+        )
+        if not ok:
+            return
+        for clip_id in ids:
+            self.vault.remove_from_history(clip_id)
+        self._clear_selection()
+        self.refresh()
+        self._preview.show(None)
+
     def _keyboard_focus_is_text_input(self, event=None) -> bool:
         widget = getattr(event, "widget", None)
         if widget is None:
@@ -766,6 +906,9 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_copy_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if len(self._selected_clip_ids) > 1:
+            self._bulk_copy()
+            return "break"
         clip = self._selected_clip()
         if clip is not None:
             self._copy_again(clip.id)
@@ -782,6 +925,9 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_remove_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if len(self._selected_clip_ids) > 1:
+            self._bulk_remove()
+            return "break"
         clip = self._selected_clip()
         if clip is not None:
             self._remove_from_history(clip.id)
@@ -811,6 +957,7 @@ class CacheVaultApp(ctk.CTk):
         tooltip.set_tooltips_locked(True)
         self._vault_locked = True
         self._selected_clip_id = None
+        self._selected_clip_ids = []
         self._visible_clip_ids = []
         self._render_locked_surface()
         self._lock_screen.set_mode(self.vault.settings.vault_lock_mode)
@@ -1278,6 +1425,9 @@ class CacheVaultApp(ctk.CTk):
                 query = self._build_query()
                 clips = self.vault.list_clips(query)
                 self._visible_clip_ids = [c.id for c in clips]
+                self._selected_clip_ids = [
+                    cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
+                ]
                 if self._selected_clip_id not in self._visible_clip_ids:
                     self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
                 empty_msg = self._empty_message(active, clips, query)
@@ -1694,16 +1844,17 @@ class CacheVaultApp(ctk.CTk):
             self.focus_set()
             return
 
-        # 4. Clear selection if in list
-        if self._selected_clip_id:
-            self._selected_clip_id = None
-            self.refresh()
+        # 4. Clear selection (single or multi) without re-rendering the list.
+        if self._selected_clip_ids or self._selected_clip_id:
+            self._clear_selection()
+            self._preview.show(None)
             return
 
     def _on_clip_select(self, clip) -> None:
         if not self._guard_unlocked():
             return
         self._selected_clip_id = getattr(clip, "id", None)
+        self._selected_clip_ids = [self._selected_clip_id] if self._selected_clip_id else []
         self._list.set_selected(self._selected_clip_id)
         self._grid.set_selected(self._selected_clip_id)
         self._home.set_selected(self._selected_clip_id)
@@ -1711,6 +1862,67 @@ class CacheVaultApp(ctk.CTk):
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
+
+    def _on_clip_selection_change(self, ids: list[str]) -> None:
+        """Multi-selection (Ctrl/Shift click) reported from the list/grid.
+
+        Unlike ``_on_clip_select`` this does NOT call ``set_selected`` on the
+        originating view — that would collapse the painted multi-selection back
+        to a single row. The view has already painted itself; here we only sync
+        shell state, the preview (showing the primary/most-recent row), and the
+        action strip (bulk when more than one is selected).
+        """
+        if not self._guard_unlocked():
+            return
+        self._selected_clip_ids = list(ids)
+        primary_id = ids[-1] if ids else None
+        self._selected_clip_id = primary_id
+        self._home.set_selected(primary_id)
+        primary = self.vault.storage.get_clip(primary_id) if primary_id else None
+        if len(ids) > 1:
+            self._update_bulk_action_strip(self._selected_clip_ids)
+        else:
+            self._update_selected_action_strip(primary)
+        if primary is not None:
+            self._preview.set_usage_events(self.vault.clip_usage_events(primary.id))
+        self._preview.show(primary)
+
+    def _set_selection_hint(self, text: str) -> None:
+        label = getattr(self, "_selection_hint_label", None)
+        if label is not None:
+            label.configure(text=text)
+
+    def _update_bulk_action_strip(self, ids: list[str]) -> None:
+        """Render the action strip for a multi-clip selection."""
+        if not hasattr(self, "_selected_action_frame"):
+            return
+        for btn in getattr(self, "_selected_action_buttons", []):
+            btn.destroy()
+        self._selected_action_buttons = []
+        if self._locked() or not ids:
+            self._set_selection_hint(brand.SELECTION_HINT)
+            self._selected_action_label.configure(text="No item selected")
+            return
+        # Count is carried by the label; drop the hint to keep the strip compact.
+        self._set_selection_hint("")
+        self._selected_action_label.configure(text=f"{len(ids)} selected")
+        actions = [
+            ("Copy All", self._bulk_copy),
+            ("Export Proof", self._bulk_export_proof),
+            ("Move Safe", self._bulk_move_to_safe),
+            ("Remove", self._bulk_remove),
+        ]
+        for text, command in actions:
+            btn = ctk.CTkButton(
+                self._selected_action_frame,
+                text=text,
+                width=92,
+                height=24,
+                command=command,
+                **theme.secondary_button(),
+            )
+            btn.pack(side="left", padx=2)
+            self._selected_action_buttons.append(btn)
 
     def _copy_again(self, clip_id: str) -> None:
         if not self._guard_unlocked():
@@ -1874,6 +2086,15 @@ class CacheVaultApp(ctk.CTk):
             finally:
                 tooltip.after_menu_close()
             return
+        # Bulk menu: right-clicking a row that's part of a multi-selection acts
+        # on the whole set. Right-clicking elsewhere collapses to single (the
+        # view already re-selected just that row before calling us).
+        if len(self._selected_clip_ids) > 1 and clip.id in self._selected_clip_ids:
+            try:
+                self._open_bulk_clip_menu(list(self._selected_clip_ids), x_root, y_root)
+            finally:
+                tooltip.after_menu_close()
+            return
         menu = tk.Menu(self, tearoff=0)
         dispatch = {
             "copy_again": lambda: self._copy_again(clip.id),
@@ -1901,6 +2122,28 @@ class CacheVaultApp(ctk.CTk):
             copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
             clip.id,
             {"surface": "clip", "classification": clip.classification},
+        )
+        try:
+            menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
+        finally:
+            menu.grab_release()
+            tooltip.after_menu_close()
+
+    def _open_bulk_clip_menu(self, ids: list[str], x_root: int, y_root: int) -> None:
+        """Context menu for a multi-clip selection — actions target the whole set."""
+        import tkinter as tk
+
+        n = len(ids)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=f"Copy {n} clips to clipboard", command=self._bulk_copy)
+        menu.add_command(label=f"Export proof for {n} clips…", command=self._bulk_export_proof)
+        menu.add_command(label=f"Move {n} clips to Safe…", command=self._bulk_move_to_safe)
+        menu.add_separator()
+        menu.add_command(label=f"Remove {n} clips from history…", command=self._bulk_remove)
+        self.vault.events.record(
+            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
+            None,
+            {"surface": "clip_bulk", "count": n},
         )
         try:
             menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
@@ -2636,6 +2879,7 @@ class CacheVaultApp(ctk.CTk):
             help={
                 "show_guide": self._open_first_use_guide_from_settings,
                 "founder": self._open_founder,
+                "about": self._open_about,
             },
         )
 
@@ -2831,10 +3075,37 @@ class CacheVaultApp(ctk.CTk):
             clips = sorted(self.vault.list_clips(), key=lambda c: c.created_at,
                            reverse=True)[: self.vault.settings.quick_paste_count]
             self.vault.events.record("quick_paste_opened", None, {"count": len(clips)})
-            self._quick_paste = QuickPaste(self, clips, on_choose=self._do_paste)
+            self._quick_paste = QuickPaste(
+                self, clips, on_choose=self._do_paste,
+                persist=self._quick_paste_should_persist,
+            )
         except Exception as exc:  # noqa: BLE001
             write_crash("quick paste", exc)
             raise
+
+    def _quick_paste_should_persist(self, clip, action: str = "primary") -> bool:
+        """Keep the Quick Paste popup open after copy-style choices.
+
+        Copy-only actions never move focus, so the popup can stay up and let the
+        user grab several clips in a row. Actions that deliver into another app
+        (auto-paste) or open a file/folder dialog must still close so focus and
+        the keyboard grab are released first.
+        """
+        if action == ACTION_COPY_ONLY:
+            return True
+        if action in (ACTION_OPEN, ACTION_SAVE_AS, ACTION_ALTERNATE):
+            return False
+        # ACTION_PRIMARY from here on.
+        if getattr(clip, "content_type", None) == models.CONTENT_IMAGE:
+            return False
+        if getattr(clip, "classification", None) == models.CLASS_PATH:
+            return True  # _quick_paste_copy_path only copies, never delivers
+        settings = self.vault.settings
+        target = getattr(self, "_paste_target", None)
+        will_deliver = bool(
+            settings.auto_paste and target and not hwnd_belongs_to_widget(target, self)
+        )
+        return not will_deliver
 
     def _do_paste(self, clip, action: str = "primary") -> None:
         if clip is None:
