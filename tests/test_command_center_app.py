@@ -2,7 +2,11 @@ import pytest
 
 from cache_vault.core.command_center import (
     ACTION_LOCK_VAULT,
+    ACTION_RUN_MACRO,
+    ACTION_SAVE_CLIPBOARD_TO_SAFE,
     ACTION_TOGGLE_CAPTURE,
+    RESULT_FAILED,
+    RESULT_OK,
     HotkeyAction,
 )
 from cache_vault.ui.filters import NAV_HOTKEY_ACTIONS
@@ -99,5 +103,103 @@ class TestCommandCenterApp:
             )
             res2 = app._command_dispatcher.run(lock, trigger_type="hotkey")
             assert res2.ok
+        finally:
+            app.destroy()
+
+    def test_save_clipboard_to_safe_uses_action_target_field(self, tmp_path, monkeypatch):
+        # Regression: the handler used to read action.safe_target, a field that
+        # does not exist on HotkeyAction (only `target` does), which raised
+        # AttributeError on every real run and was swallowed as a generic failure.
+        import pyperclip
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(pyperclip, "paste", lambda: "hello from clipboard")
+        app = _make_app(tmp_path)
+        try:
+            app.withdraw()
+            safes = app.vault.list_safes()
+            safe_id = safes[0]["id"] if safes else app.vault.settings.default_safe_id
+            action = app._command_store.upsert(
+                HotkeyAction(name="Save to Safe", hotkey="ctrl+alt+s",
+                             action_type=ACTION_SAVE_CLIPBOARD_TO_SAFE,
+                             target=safe_id),
+            )
+            res = app._command_dispatcher.run(action, trigger_type="hotkey")
+            assert res.ok and res.result == RESULT_OK
+
+            log = app._command_runlog.recent()
+            assert log and log[0].result == RESULT_OK
+            assert log[0].error == ""
+        finally:
+            app.destroy()
+
+    def test_save_clipboard_to_safe_reports_real_failure_not_hidden_success(
+        self, tmp_path, monkeypatch,
+    ):
+        import pyperclip
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(pyperclip, "paste", lambda: "")
+        app = _make_app(tmp_path)
+        try:
+            app.withdraw()
+            action = app._command_store.upsert(
+                HotkeyAction(name="Save to Safe", hotkey="ctrl+alt+s",
+                             action_type=ACTION_SAVE_CLIPBOARD_TO_SAFE,
+                             target="default"),
+            )
+            res = app._command_dispatcher.run(action, trigger_type="hotkey")
+            assert not res.ok and res.result == RESULT_FAILED
+            assert "empty clipboard" in res.error
+
+            log = app._command_runlog.recent()
+            assert log and log[0].result == RESULT_FAILED
+        finally:
+            app.destroy()
+
+    def test_run_macro_uses_action_target_field(self, tmp_path, monkeypatch):
+        # Regression: the handler used to read action.macro_target, a field
+        # that does not exist on HotkeyAction (only `target` does).
+        from cache_vault.core import models
+        from cache_vault.core.vault_macros import Macro
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        app = _make_app(tmp_path)
+        try:
+            app.withdraw()
+            macro = app._macro_store.upsert(
+                Macro(id=models.new_id(), name="Test Macro", body="hello"),
+            )
+            action = app._command_store.upsert(
+                HotkeyAction(name="Run Macro", hotkey="ctrl+alt+m",
+                             action_type=ACTION_RUN_MACRO, target=macro.id),
+            )
+            ran = []
+            monkeypatch.setattr(app, "_run_macro", lambda *a, **k: ran.append(a))
+            res = app._command_dispatcher.run(action, trigger_type="hotkey")
+            assert res.ok and res.result == RESULT_OK
+            assert len(ran) == 1
+            assert ran[0][0].id == macro.id
+
+            log = app._command_runlog.recent()
+            assert log and log[0].result == RESULT_OK
+        finally:
+            app.destroy()
+
+    def test_run_macro_not_found_is_real_failure(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        app = _make_app(tmp_path)
+        try:
+            app.withdraw()
+            action = app._command_store.upsert(
+                HotkeyAction(name="Run Macro", hotkey="ctrl+alt+m",
+                             action_type=ACTION_RUN_MACRO, target="missing-macro-id"),
+            )
+            res = app._command_dispatcher.run(action, trigger_type="hotkey")
+            assert not res.ok and res.result == RESULT_FAILED
+            assert "macro not found" in res.error
+
+            log = app._command_runlog.recent()
+            assert log and log[0].result == RESULT_FAILED
         finally:
             app.destroy()

@@ -3558,9 +3558,9 @@ class CacheVaultApp(ctk.CTk):
             clip = self.vault.capture(text)
             if clip is None:
                 return {"ok": False, "error": "capture failed"}
-            self.vault.set_safe(clip.id, action.safe_target or self.vault.settings.default_safe_id)
+            self.vault.move_to_safe(clip.id, action.target or self.vault.settings.default_safe_id)
             self.vault.events.record("clip_move", clip.id, {
-                "safe_id": action.safe_target,
+                "safe_id": action.target,
                 "source": "command_center",
             })
             self.refresh()
@@ -3568,7 +3568,7 @@ class CacheVaultApp(ctk.CTk):
 
         def run_macro(action):
             macros = self._macro_store.load_all()
-            target = next((m for m in macros if m.id == action.macro_target), None)
+            target = next((m for m in macros if m.id == action.target), None)
             if target is None:
                 return {"ok": False, "error": "macro not found"}
             self._run_macro(target, self._TRIGGER_MENU_ONLY, "command_center", None)

@@ -522,7 +522,14 @@ class CommandActionDispatcher:
             )
 
         if not dry_run and (spec.destructive or spec.needs_confirmation):
-            if self._confirm is not None and not self._confirm(action):
+            if self._confirm is None:
+                return self._record(
+                    action, RESULT_FAILED, trigger_type, tv, dry_run,
+                    message="Confirmation required but no confirmation handler is configured.",
+                    error="confirmation_unavailable",
+                    live=False,
+                )
+            if not self._confirm(action):
                 return self._record(
                     action, RESULT_BLOCKED, trigger_type, tv, dry_run,
                     message="Cancelled at confirmation", error="cancelled",

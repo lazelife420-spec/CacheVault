@@ -280,6 +280,55 @@ def test_destructive_action_requires_confirmation(store, runlog):
         cc.ACTION_SPECS[ACTION_LOCK_VAULT] = spec
 
 
+def test_destructive_action_runs_when_confirmed(store, runlog):
+    ran = []
+    a = store.upsert(HotkeyAction(name="Danger", hotkey="ctrl+alt+k",
+                                  action_type=ACTION_LOCK_VAULT))
+    spec = cc.ACTION_SPECS[ACTION_LOCK_VAULT]
+    cc.ACTION_SPECS[ACTION_LOCK_VAULT] = cc.ActionSpec(
+        spec.key, spec.label, implemented=True, needs_confirmation=True,
+    )
+    try:
+        d = _dispatcher(
+            store, runlog, {ACTION_LOCK_VAULT: lambda act: ran.append(act)},
+            confirm=lambda act: True,
+        )
+        res = d.run(a)
+        assert res.ok and res.result == RESULT_OK
+        assert len(ran) == 1
+    finally:
+        cc.ACTION_SPECS[ACTION_LOCK_VAULT] = spec
+
+
+def test_destructive_action_fails_closed_without_confirm_handler(store, runlog):
+    # No confirm callback wired at all: a destructive/needs-confirmation action
+    # must never run unguarded, regardless of what the (missing) confirm would say.
+    ran = []
+    a = store.upsert(HotkeyAction(name="Danger", hotkey="ctrl+alt+k",
+                                  action_type=ACTION_LOCK_VAULT))
+    spec = cc.ACTION_SPECS[ACTION_LOCK_VAULT]
+    cc.ACTION_SPECS[ACTION_LOCK_VAULT] = cc.ActionSpec(
+        spec.key, spec.label, implemented=True, needs_confirmation=True,
+    )
+    try:
+        d = _dispatcher(store, runlog, {ACTION_LOCK_VAULT: lambda act: ran.append(act)})
+        res = d.run(a)
+        assert not res.ok and res.result == RESULT_FAILED
+        assert ran == []
+        assert runlog.recent()[0].error == "confirmation_unavailable"
+    finally:
+        cc.ACTION_SPECS[ACTION_LOCK_VAULT] = spec
+
+
+def test_non_destructive_action_runs_without_confirm_handler(store, runlog):
+    calls = []
+    a = store.upsert(HotkeyAction(name="QP", hotkey="ctrl+alt+v",
+                                  action_type=ACTION_OPEN_QUICK_PASTE))
+    d = _dispatcher(store, runlog, {ACTION_OPEN_QUICK_PASTE: lambda act: calls.append(act)})
+    res = d.run(a)
+    assert res.ok and len(calls) == 1
+
+
 def test_run_macro_target_passed_to_handler(store, runlog):
     seen = {}
     a = store.upsert(HotkeyAction(name="Sig", hotkey="ctrl+alt+m",

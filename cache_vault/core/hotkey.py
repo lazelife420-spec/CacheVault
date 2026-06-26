@@ -166,12 +166,18 @@ class HotkeyListener:
     def stop(self) -> None:
         if not _HAS_WIN32 or not self._hwnd:
             return
-        try:
-            if self._registered:
+        thread = self._thread
+        if self._registered:
+            try:
                 win32gui.UnregisterHotKey(self._hwnd, 1)
-            win32gui.PostMessage(self._hwnd, win32con.WM_CLOSE, 0, 0)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            win32gui.PostMessage(self._hwnd, win32con.WM_DESTROY, 0, 0)
         except Exception:  # noqa: BLE001
             pass
+        if thread is not None:
+            thread.join(timeout=2.0)
 
     def _run(self) -> None:  # pragma: no cover - needs Windows desktop
         def wndproc(hwnd, msg, wparam, lparam):
@@ -204,6 +210,9 @@ class HotkeyListener:
             except Exception:  # noqa: BLE001 - hotkey may be taken by another app
                 self._registered = False
         win32gui.PumpMessages()
+        self._hwnd = None
+        self._registered = False
+        self._thread = None
 
 
 class MultiHotkeyListener:
@@ -244,12 +253,18 @@ class MultiHotkeyListener:
     def stop(self) -> None:
         if not _HAS_WIN32 or not self._hwnd:
             return
-        try:
-            for hid in list(self._registered):
+        thread = self._thread
+        for hid in list(self._registered):
+            try:
                 win32gui.UnregisterHotKey(self._hwnd, hid)
-            win32gui.PostMessage(self._hwnd, win32con.WM_CLOSE, 0, 0)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            win32gui.PostMessage(self._hwnd, win32con.WM_DESTROY, 0, 0)
         except Exception:  # noqa: BLE001
             pass
+        if thread is not None:
+            thread.join(timeout=2.0)
 
     def _run(self) -> None:  # pragma: no cover - needs Windows desktop
         def wndproc(hwnd, msg, wparam, lparam):
@@ -288,6 +303,9 @@ class MultiHotkeyListener:
             except Exception:  # noqa: BLE001
                 pass
         win32gui.PumpMessages()
+        self._hwnd = None
+        self._registered.clear()
+        self._thread = None
 
 
 def focus_and_paste(hwnd) -> bool:
