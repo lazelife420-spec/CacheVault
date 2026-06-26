@@ -1,6 +1,7 @@
 """Desktop Mobile Access bridge — read-only API, pairing, receipts."""
 
 import json
+import time
 
 import pytest
 from unittest.mock import MagicMock
@@ -238,12 +239,18 @@ def test_revoked_device_rejected(vault, mobile_bridge):
 
 
 def test_bridge_starts_when_enabled(vault, mobile_bridge):
+    # _start() kicks off discovery.start() on its own background thread (so
+    # zeroconf registration latency never blocks sync()); the assertion must
+    # wait for that thread to run rather than checking immediately.
     _enable(vault)
     discovery = MagicMock()
     bridge = MobileBridge(vault, receipt_log=mobile_bridge.receipts, discovery=discovery)
     bridge.sync(vault.settings)
     try:
         assert bridge.is_running is True
+        deadline = time.monotonic() + 2.0
+        while discovery.start.call_count == 0 and time.monotonic() < deadline:
+            time.sleep(0.02)
         discovery.start.assert_called_once()
     finally:
         bridge.stop()
