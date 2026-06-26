@@ -30,7 +30,7 @@ plus two hotfix iterations for Vault Macros, Quick Paste, and Founder discoverab
 - **No internet connections.** Optional LAN bridge is off by default and never calls home.
 - **Offline license verification** — Ed25519 public-key check only; no license server.
 - **Manual Founder license delivery** — no in-app payment in this MVP.
-- Windows executable is **unsigned**. Verify against `SHA256SUMS.txt` before running.
+- Windows executable is **unsigned**. Verify against `SHA256SUMS.txt` from the public `cache-vault-landing` release repo before running.
 
 ## Verification
 

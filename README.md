@@ -21,7 +21,7 @@ Local-first, user-control-first, reversible before risky.
 ## Download / verify release
 
 Download the packaged Windows build from the [latest GitHub
-Release](https://github.com/Z3r0DayZion-install/CacheVault/releases/latest).
+Release](https://github.com/Z3r0DayZion-install/cache-vault-landing/releases/latest).
 
 After downloading the release zip, compute its SHA256 hash in PowerShell:
 
