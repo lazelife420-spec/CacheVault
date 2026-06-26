@@ -61,6 +61,7 @@ Live: https://z3r0dayzion-install.github.io/cache-vault-landing/
    $env:FOUNDER_PURCHASE_URL = "https://your-checkout-url"
    ```
 3. Verify release zip SHA256 on the page matches the published asset.
+   v0.1.4 ZIP SHA256: `07d6049153c5f4fd980990099a27062ffce5304fe8d5c73a41fbbb0d6874fa4a`
 
 ## Legacy
 
