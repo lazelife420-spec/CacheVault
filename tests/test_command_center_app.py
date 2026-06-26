@@ -1,5 +1,7 @@
 import pytest
 
+from tests.tk_support import _tcl_unavailable  # noqa: PLC2701
+
 from cache_vault.core.command_center import (
     ACTION_LOCK_VAULT,
     ACTION_RUN_MACRO,
@@ -22,7 +24,12 @@ def _make_app(tmp_path):
     from cache_vault.ui.shell import CacheVaultApp
 
     vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
-    return CacheVaultApp(vault=vault)
+    try:
+        return CacheVaultApp(vault=vault)
+    except Exception as exc:  # noqa: BLE001
+        if _tcl_unavailable(exc):
+            pytest.skip(f"Tk runtime unavailable at app construction: {exc}")
+        raise
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
