@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cache Vault — Changelog</title>
+  <meta name="description" content="Release notes for Cache Vault, the local-first Windows clipboard vault — what was added, changed, and fixed in each version." />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="canonical" href="https://lazelife420-spec.github.io/CacheVault/changelog.html" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='56' fill='%23141d28'/%3E%3Crect x='96' y='18' width='64' height='26' rx='10' fill='%232dd4bf'/%3E%3Ccircle cx='128' cy='128' r='66' fill='%230c121a' stroke='%232dd4bf' stroke-width='15'/%3E%3Ccircle cx='128' cy='128' r='28' fill='%235eead4'/%3E%3C/svg%3E" type="image/svg+xml" />
+
+  <style>
+    :root {
+      --bg: #07111f;
+      --card: rgba(255,255,255,.075);
+      --text: #f6f8fb;
+      --muted: #b8c2d6;
+      --line: rgba(255,255,255,.14);
+      --accent: #62d4ff;
+      --accent2: #8cffb6;
+      --warn: #ffd166;
+      --radius: 24px;
+      --max: 1120px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 18% 8%, rgba(98,212,255,.20), transparent 32rem),
+        radial-gradient(circle at 82% 18%, rgba(140,255,182,.14), transparent 30rem),
+        linear-gradient(180deg, #07111f 0%, #0b1220 48%, #07111f 100%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    a { color: var(--accent); }
+
+    .wrap { width: min(var(--max), calc(100% - 40px)); margin: 0 auto; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(16px);
+      background: rgba(7,17,31,.78);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; min-height: 74px; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: -.02em; text-decoration: none; color: var(--text); }
+    .mark {
+      width: 38px; height: 38px; border-radius: 12px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, rgba(98,212,255,.95), rgba(140,255,182,.9));
+      color: #06111f; font-weight: 900; box-shadow: 0 10px 30px rgba(98,212,255,.25);
+    }
+    .nav-links { display: flex; gap: 18px; align-items: center; color: var(--muted); font-size: 14px; }
+    .nav-links a { text-decoration: none; color: var(--muted); }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--text); }
+
+    .head { padding: 56px 0 8px; }
+    .content { max-width: 800px; padding-bottom: 96px; }
+    h1 { font-size: clamp(36px, 5vw, 56px); line-height: 1; letter-spacing: -.05em; margin: 0 0 10px; }
+    .lead { color: var(--muted); font-size: 19px; margin: 0; }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      color: var(--accent2); background: rgba(140,255,182,.10);
+      border: 1px solid rgba(140,255,182,.18);
+      padding: 8px 12px; border-radius: 999px;
+      font-size: 13px; font-weight: 800; margin-bottom: 20px;
+    }
+
+    .release {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 28px 30px;
+      margin-top: 22px;
+    }
+    .release.current { border-color: rgba(140,255,182,.30); background: linear-gradient(135deg, rgba(140,255,182,.07), rgba(98,212,255,.05)); }
+
+    .release h2 { font-size: 26px; letter-spacing: -.03em; margin: 0 0 6px; }
+    .release .meta { color: var(--muted); font-size: 14px; margin: 0 0 6px; }
+    .release .tagline { color: #d7deec; margin: 8px 0 0; }
+
+    .badge {
+      display: inline-block; vertical-align: middle; margin-left: 10px;
+      font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+      color: #06111f; background: var(--accent2); padding: 4px 9px; border-radius: 999px;
+    }
+
+    h3 { font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); margin: 22px 0 10px; }
+    h3.changed { color: var(--warn); }
+    h3.fixed { color: var(--accent2); }
+    h3.neutral { color: var(--muted); }
+
+    ul { color: #d7deec; padding-left: 22px; margin: 0; display: grid; gap: 9px; }
+    li strong { color: var(--text); }
+
+    code {
+      color: #dce7ff; background: rgba(255,255,255,.08);
+      padding: 2px 6px; border-radius: 7px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em;
+    }
+
+    .links { margin: 16px 0 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+
+    footer { border-top: 1px solid var(--line); padding: 28px 0; color: var(--muted); font-size: 14px; }
+    .footer-inner { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+    footer a { color: var(--muted); }
+
+    @media (max-width: 900px) { .nav-links { display: none; } }
+  </style>
+</head>
+
+<body>
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html" aria-label="Cache Vault home">
+        <span class="mark">CV</span>
+        <span>Cache Vault</span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html#free">Free</a>
+        <a href="index.html#founder">Founder</a>
+        <a href="docs.html">Docs</a>
+        <a href="changelog.html" class="active">Changelog</a>
+        <a href="index.html#download">Download</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="wrap content">
+    <div class="head">
+      <div class="eyebrow">Release notes</div>
+      <h1>Changelog</h1>
+      <p class="lead">What was added, changed, and fixed in each release of Cache Vault.</p>
+    </div>
+
+    <section class="release current">
+      <h2>v0.1.4 <span class="badge">Current</span></h2>
+      <p class="meta">Public distribution release</p>
+      <div class="links">
+        <a href="https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.1.4">GitHub release</a>
+        <a href="https://proof-foundry-downloads.s3.us-east-1.amazonaws.com/releases/v0.1.4/CacheVault-v0.1.4-windows.zip">S3 direct download</a>
+      </div>
+      <h3>Added</h3>
+      <ul>
+        <li><strong>Multi-select clips</strong> — Ctrl+click toggles individual clips and Shift+click selects a contiguous range in both the card list and the metadata grid. The selection action strip switches to bulk mode (Copy All, Export Proof, Move Safe, Remove) when more than one clip is selected; the Delete and Ctrl+C shortcuts act on the whole selection too.</li>
+        <li><strong>Version visibility</strong> — the Settings dialog now shows the running version/build in its footer and has an <strong>About</strong> button; the About dialog shows the version line as well.</li>
+        <li><strong>Command Center hardening</strong> — safety guards, action dispatcher reliability, and hotkey registration stability improvements.</li>
+        <li><strong>Public download path</strong> — landing page and all public surfaces now point to a public distribution repo; unauthenticated download returns 200.</li>
+      </ul>
+      <h3 class="changed">Changed</h3>
+      <ul>
+        <li><strong>Quick Paste</strong> — the picker now stays open after copy-style choices (e.g. Ctrl+Enter) so several clips can be grabbed in a row; it still closes when it auto-pastes into another app.</li>
+      </ul>
+      <h3 class="fixed">Fixed</h3>
+      <ul>
+        <li><strong>CI stabilization</strong> — Tk headless skip guards hardened for the <code>windows-2025-vs2026</code> GitHub Actions runner; <code>test (3.11)</code>, <code>test (3.12)</code>, and <code>test (3.13)</code> all green.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v0.1.3 — Founder MVP</h2>
+      <p class="meta">Tag: <code>v0.1.3-founder-mvp.2</code> · Hotfix for Vault Macros, Quick Paste screenshots, and clipboard reliability</p>
+      <h3 class="fixed">Fixed</h3>
+      <ul>
+        <li><strong>Vault Macros setup</strong> — fixed Macro Template Picker crash (<code>TclError</code> on focus) during setup.</li>
+        <li><strong>Vault Macros Run</strong> — withdraws Cache Vault briefly so keystrokes reach the target window; clipboard-only success when no target is focused.</li>
+        <li><strong>Save to Vault Macros</strong> — preview panel and toolbar path to save clips as macros; auto minimal setup when wizard is incomplete.</li>
+        <li><strong>Quick Paste screenshots</strong> — image copy sets CF_DIB + PNG for broad app compatibility; copy deferred after Quick Paste closes (no grab conflict).</li>
+        <li><strong>Quick Paste UX</strong> — branded Copy Image to Clipboard action; screenshots copy to clipboard only (no auto-paste).</li>
+      </ul>
+      <h3 class="neutral">Includes</h3>
+      <ul>
+        <li>All <code>v0.1.3-founder-mvp.1</code> Founder discoverability fixes.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v0.1.3 — Founder MVP (discoverability hotfix)</h2>
+      <p class="meta">Tag: <code>v0.1.3-founder-mvp.1</code> · Founder screen discoverability and license import reachability</p>
+      <h3 class="fixed">Fixed</h3>
+      <ul>
+        <li>Pinned <strong>◆ Founder</strong> above collapsible sidebar groups so the Founder screen remains visible even when sidebar sections are collapsed.</li>
+        <li>Added <strong>Settings → Import License…</strong> so license import remains reachable even if sidebar groups are collapsed.</li>
+        <li>Added an explicit packaging gate to fail release packaging if <code>cache_vault.ui.founder</code> is missing from the packaged executable.</li>
+        <li>Added <code>cache_vault.ui.founder</code> to PyInstaller hidden imports.</li>
+      </ul>
+      <h3 class="neutral">Why</h3>
+      <ul>
+        <li>The previous Founder MVP package included the Founder code, license system, and feature gates, but the Founder page could be hidden when the ACCESS sidebar section was collapsed. That made the paid unlock flow hard to discover.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v0.1.3 — Founder MVP (base build)</h2>
+      <p class="meta">Tag: <code>v0.1.3-founder-mvp</code></p>
+      <h3>Added</h3>
+      <ul>
+        <li>Offline Ed25519 Founder license verification (Free + Founder editions).</li>
+        <li>Founder unlock UI (sidebar → Founder).</li>
+        <li>Central feature gate for advanced exports, proof packs, HTML bundles, editable copies, macros, safes, and review filters.</li>
+        <li>App proof receipt export.</li>
+        <li>Founder purchase/license docs and landing page.</li>
+      </ul>
+      <h3 class="changed">Changed</h3>
+      <ul>
+        <li>Package version <code>0.1.3</code>; Founder MVP carried by release tag and display label.</li>
+        <li>Advanced power workflows require a valid Founder license; core capture/search/favorite/copy remain free.</li>
+      </ul>
+      <h3 class="neutral">Trust</h3>
+      <ul>
+        <li>No cloud sync, no license server, no accounts in this MVP.</li>
+        <li>Manual Founder license delivery only.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v0.1.2</h2>
+      <p class="meta">Released from commit <code>6cbb20d</code></p>
+      <h3 class="changed">Changed</h3>
+      <ul>
+        <li>Windows file-version and product metadata embedded in the packaged exe.</li>
+        <li>Version consistency across source, packaging metadata, README, and release notes.</li>
+        <li>Packaged-exe metadata verification added to local checks and the release workflow.</li>
+      </ul>
+      <h3 class="fixed">Fixed</h3>
+      <ul>
+        <li>Settings dialog action buttons no longer clip; actions stay visible.</li>
+      </ul>
+      <h3 class="neutral">Verification</h3>
+      <ul>
+        <li>Unit tests: 64 passing · 12 required asset files present · ICO sizes 16/24/32/48/128/256 px · primary icon teal only.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v0.1.1</h2>
+      <p class="meta">Released from commit <code>4896121</code></p>
+      <ul>
+        <li>Proves the tag-driven automated release lane (test, package, checksum, verify, publish) with the shipped MVP intact.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v0.1.0 — MVP</h2>
+      <p class="meta">Released from MVP baseline commit <code>8550a51</code></p>
+      <h3 class="neutral">Included</h3>
+      <ul>
+        <li>Local-first Windows clipboard/cache utility.</li>
+        <li>Text clipboard capture, smart filters, search, pin/keep/expire/delete, and duplicate collapse.</li>
+        <li>Sensitive masking and auto-expiry.</li>
+        <li>Tray controls and global quick-paste hotkey.</li>
+        <li>Packaged Windows executable.</li>
+        <li>Reproducible teal primary brand assets with verification gates.</li>
+      </ul>
+      <h3 class="neutral">Verification</h3>
+      <ul>
+        <li>Unit tests: 57 passing · 12 required asset files present · ICO sizes 16/24/32/48/128/256 px · primary icon teal only · gold cash edition variant-only.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span>Cache Vault by The Proof Foundry™</span>
+      <span><a href="index.html">Home</a> · <a href="docs.html">Docs</a> · Build it. Prove it. Ship it.</span>
+    </div>
+  </footer>
+</body>
+</html>

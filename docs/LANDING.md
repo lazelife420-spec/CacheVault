@@ -7,7 +7,11 @@ Sales surface for **Cache Vault v0.1.4**.
 | File | Purpose |
 |---|---|
 | `docs/index.html` | Single-page landing (Free vs Founder, proof, download) |
+| `docs/docs.html` | Install & user guide (rendered from README) |
+| `docs/changelog.html` | Release notes (rendered from CHANGELOG.md) |
 | `docs/.nojekyll` | Disables Jekyll so GitHub Pages serves static HTML |
+
+`index.html` canonical/OG URLs point at the live host `https://lazelife420-spec.github.io/CacheVault/`. `docs.html` and `changelog.html` are linked from the landing nav and footer.
 
 Source template: `cache_vault_github_pages_landing.zip` (integrated 2026-06-20).
 
