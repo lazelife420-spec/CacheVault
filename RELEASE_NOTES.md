@@ -33,8 +33,7 @@ improvements.
 
 ### Public download path fixed (PR #35)
 
-Landing page and all public surfaces now point to the public `cache-vault-landing`
-distribution repo. Unauthenticated download returns 200.
+Landing page and all public surfaces now point to the public `lazelife420-spec/CacheVault` mirror repo. Unauthenticated download returns 200.
 
 ### CI stabilization (PR #36)
 
@@ -54,7 +53,7 @@ See `CHANGELOG.md` for the full entry.
   server.
 - **Manual Founder license delivery** — no in-app payment in this build.
 - Windows executable is **unsigned**. Verify against `SHA256SUMS.txt` from the
-  public `cache-vault-landing` release before running.
+  public `lazelife420-spec/CacheVault` release before running.
 
 ## Verification
 
