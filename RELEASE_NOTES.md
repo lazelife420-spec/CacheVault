@@ -1,36 +1,59 @@
-# Cache Vault Founder MVP v0.1.3-founder-mvp.2
+# Cache Vault v0.1.4
 
-Cache Vault is a local-first Windows clipboard vault with offline Founder unlock.
+**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.
+No cloud account. No subscription.
+
 This is the current public release. It includes all Founder MVP functionality
-plus two hotfix iterations for Vault Macros, Quick Paste, and Founder discoverability.
+plus the improvements shipped in PR #33–#37.
 
-## Changes since v0.1.2
+## What is new in v0.1.4
 
-### v0.1.3-founder-mvp (base)
-- Offline Ed25519 Founder license verification (Free + Founder editions).
-- Founder unlock UI (sidebar → ◆ Founder).
-- Central feature gate for advanced exports, proof packs, HTML bundles, editable copies, macros, safes, and review filters.
-- App proof receipt export.
+### Multi-select clips (PR #34)
 
-### v0.1.3-founder-mvp.1 (hotfix)
-- Pinned ◆ Founder above collapsible sidebar groups — always visible.
-- Added Settings → Import License… for license import reachability.
-- Packaging gate: fails if `cache_vault.ui.founder` missing from frozen build.
+Ctrl+click toggles individual clips and Shift+click selects a contiguous range
+in both the card list and the metadata grid. The selection action strip switches
+to bulk mode (Copy All, Export Proof, Move Safe, Remove) when more than one clip
+is selected. The Delete and Ctrl+C shortcuts act on the whole selection too.
 
-### v0.1.3-founder-mvp.2 (hotfix)
-- Fixed Vault Macros Template Picker crash on focus.
-- Vault Macros Run: withdraws app so keystrokes reach target window.
-- Save to Vault Macros from preview panel and toolbar.
-- Quick Paste screenshots: CF_DIB + PNG for broad app compatibility.
-- Quick Paste: Copy Image to Clipboard action; copy deferred after picker closes.
+### Version visibility (PR #34)
+
+The Settings dialog now shows the running version/build in its footer and has an
+**About** button. The About dialog shows the version line as well.
+
+### Quick Paste improvement (PR #34)
+
+The picker now stays open after copy-style choices (e.g. Ctrl+Enter) so several
+clips can be grabbed in a row. It still closes when it auto-pastes into another
+app.
+
+### Command Center hardening (PR #33)
+
+Safety guards, action dispatcher reliability, and hotkey registration stability
+improvements.
+
+### Public download path fixed (PR #35)
+
+Landing page and all public surfaces now point to the public `lazelife420-spec/CacheVault` mirror repo. Unauthenticated download returns 200.
+
+### CI stabilization (PR #36)
+
+Tk headless skip guards hardened for the `windows-2025-vs2026` GitHub Actions
+runner image. All three matrix legs (3.11, 3.12, 3.13) are green.
+
+## Changes since v0.1.3-founder-mvp.2
+
+See `CHANGELOG.md` for the full entry.
 
 ## Trust
 
 - **Local-first** — no cloud sync, no accounts, no telemetry.
-- **No internet connections.** Optional LAN bridge is off by default and never calls home.
-- **Offline license verification** — Ed25519 public-key check only; no license server.
-- **Manual Founder license delivery** — no in-app payment in this MVP.
-- Windows executable is **unsigned**. Verify against `SHA256SUMS.txt` from the public `cache-vault-landing` release repo before running.
+- **No internet connections.** Optional LAN bridge is off by default and never
+  calls home.
+- **Offline license verification** — Ed25519 public-key check only; no license
+  server.
+- **Manual Founder license delivery** — no in-app payment in this build.
+- Windows executable is **unsigned**. Verify against `SHA256SUMS.txt` from the
+  public `lazelife420-spec/CacheVault` release before running.
 
 ## Verification
 
@@ -40,9 +63,11 @@ plus two hotfix iterations for Vault Macros, Quick Paste, and Founder discoverab
 | `compileall cache_vault` | PASS |
 | `app.py --selftest` | PASS |
 | `founder_package_smoke.ps1` | All 4 checks PASS |
-| `dist\CacheVault.exe` SHA256 | `47F2B324A5151B4D4FF29F209EDAA0788EEA6D5FC4071DBB04DC613009340611` |
+| GitHub Actions matrix | 3.11 ✓ · 3.12 ✓ · 3.13 ✓ |
+| `dist\CacheVault.exe` SHA256 | `CEEA23AD7ADBAF83B1CF8EF6E5DBF049873B9EEBB8A338D30FA048DA8D72816C` |
+| ZIP SHA256 | `07d6049153c5f4fd980990099a27062ffce5304fe8d5c73a41fbbb0d6874fa4a` |
 
 ## Artifacts
 
-- `CacheVault-v0.1.3-founder-mvp.2-windows.zip`
+- `CacheVault-v0.1.4-windows.zip`
 - `SHA256SUMS.txt`

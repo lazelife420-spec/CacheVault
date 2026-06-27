@@ -1,6 +1,6 @@
 # Cache Vault — GitHub Pages landing
 
-Sales surface for **Cache Vault Founder MVP v0.1.3**.
+Sales surface for **Cache Vault v0.1.4**.
 
 ## Files
 
@@ -16,10 +16,10 @@ Source template: `cache_vault_github_pages_landing.zip` (integrated 2026-06-20).
 **Public landing (GitHub Pages — live):**
 
 ```text
-https://z3r0dayzion-install.github.io/cache-vault-landing/
+https://lazelife420-spec.github.io/CacheVault/
 ```
 
-Repo: [github.com/Z3r0DayZion-install/cache-vault-landing](https://github.com/Z3r0DayZion-install/cache-vault-landing)
+Repo: [github.com/lazelife420-spec/CacheVault](https://github.com/lazelife420-spec/CacheVault)
 
 **In-repo copy** (`docs/index.html`) — Pages not enabled on the private CacheVault repo (plan limit). Use the public landing repo above for sales.
 
@@ -44,13 +44,13 @@ pwsh scripts\deploy-github-pages-landing.ps1 `
   -CheckoutUrl "https://your-checkout-url"
 ```
 
-Live: https://z3r0dayzion-install.github.io/cache-vault-landing/
+Live: https://lazelife420-spec.github.io/CacheVault/
 
 ## Wired links
 
 | Button | Current target |
 |---|---|
-| Download Free | [v0.1.3-founder-mvp.2 release](https://github.com/Z3r0DayZion-install/cache-vault-landing/releases/tag/v0.1.3-founder-mvp.2) |
+| Download Free | [v0.1.4 release](https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.1.4) |
 | Buy Founder | [Gumroad checkout](https://cashdominion.gumroad.com/l/eojmeb) |
 
 ## Before first sale
@@ -61,6 +61,7 @@ Live: https://z3r0dayzion-install.github.io/cache-vault-landing/
    $env:FOUNDER_PURCHASE_URL = "https://your-checkout-url"
    ```
 3. Verify release zip SHA256 on the page matches the published asset.
+   v0.1.4 ZIP SHA256: `07d6049153c5f4fd980990099a27062ffce5304fe8d5c73a41fbbb0d6874fa4a`
 
 ## Legacy
 

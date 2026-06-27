@@ -21,7 +21,7 @@ Local-first, user-control-first, reversible before risky.
 ## Download / verify release
 
 Download the packaged Windows build from the [latest GitHub
-Release](https://github.com/Z3r0DayZion-install/cache-vault-landing/releases/latest).
+Release](https://github.com/lazelife420-spec/CacheVault/releases/latest).
 
 After downloading the release zip, compute its SHA256 hash in PowerShell:
 
@@ -227,7 +227,7 @@ auto-paste behaviour are configurable in Settings; the hotkey re-registers
 live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
 dedicated message-loop thread (requires pywin32).
 
-## Honest scope & limitations (v0.1.3 Founder MVP)
+## Honest scope & limitations (v0.1.4)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
