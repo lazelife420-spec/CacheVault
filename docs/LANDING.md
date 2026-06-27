@@ -11,7 +11,7 @@ Sales surface for **Cache Vault v0.1.4**.
 | `docs/changelog.html` | Release notes (rendered from CHANGELOG.md) |
 | `docs/.nojekyll` | Disables Jekyll so GitHub Pages serves static HTML |
 
-`index.html` canonical/OG URLs point at the live host `https://lazelife420-spec.github.io/CacheVault/`. `docs.html` and `changelog.html` are linked from the landing nav and footer.
+Canonical/OG URLs point at the live custom domain `https://theprooffoundry.com/` (the `github.io` URL 301-redirects there). `docs.html` and `changelog.html` are linked from the landing nav and footer. GitHub Pages source: `master` / `/docs` (HTTPS enforced; `docs/CNAME` holds the custom domain).
 
 Source template: `cache_vault_github_pages_landing.zip` (integrated 2026-06-20).
 
