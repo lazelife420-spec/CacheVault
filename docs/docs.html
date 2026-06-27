@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cache Vault — Install &amp; User Guide</title>
+  <meta name="description" content="Install, run, and use Cache Vault — the local-first Windows clipboard vault. Setup, first run, organizing and exporting clips, search syntax, sensitive handling, and quick paste." />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="canonical" href="https://lazelife420-spec.github.io/CacheVault/docs.html" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='56' fill='%23141d28'/%3E%3Crect x='96' y='18' width='64' height='26' rx='10' fill='%232dd4bf'/%3E%3Ccircle cx='128' cy='128' r='66' fill='%230c121a' stroke='%232dd4bf' stroke-width='15'/%3E%3Ccircle cx='128' cy='128' r='28' fill='%235eead4'/%3E%3C/svg%3E" type="image/svg+xml" />
+
+  <style>
+    :root {
+      --bg: #07111f;
+      --bg2: #0b1220;
+      --card: rgba(255,255,255,.075);
+      --text: #f6f8fb;
+      --muted: #b8c2d6;
+      --line: rgba(255,255,255,.14);
+      --accent: #62d4ff;
+      --accent2: #8cffb6;
+      --warn: #ffd166;
+      --shadow: 0 24px 90px rgba(0,0,0,.38);
+      --radius: 24px;
+      --max: 1120px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 18% 8%, rgba(98,212,255,.20), transparent 32rem),
+        radial-gradient(circle at 82% 18%, rgba(140,255,182,.14), transparent 30rem),
+        linear-gradient(180deg, #07111f 0%, #0b1220 48%, #07111f 100%);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    a { color: var(--accent); }
+
+    .wrap { width: min(var(--max), calc(100% - 40px)); margin: 0 auto; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(16px);
+      background: rgba(7,17,31,.78);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .nav-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      min-height: 74px; gap: 18px;
+    }
+
+    .brand {
+      display: flex; align-items: center; gap: 12px;
+      font-weight: 800; letter-spacing: -.02em;
+      text-decoration: none; color: var(--text);
+    }
+
+    .mark {
+      width: 38px; height: 38px; border-radius: 12px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, rgba(98,212,255,.95), rgba(140,255,182,.9));
+      color: #06111f; font-weight: 900;
+      box-shadow: 0 10px 30px rgba(98,212,255,.25);
+    }
+
+    .nav-links { display: flex; gap: 18px; align-items: center; color: var(--muted); font-size: 14px; }
+    .nav-links a { text-decoration: none; color: var(--muted); }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--text); }
+
+    .docwrap {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 48px;
+      padding: 56px 0 96px;
+      align-items: start;
+    }
+
+    .toc {
+      position: sticky; top: 98px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 22px;
+    }
+    .toc h4 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+    .toc a { text-decoration: none; color: var(--muted); font-size: 14px; }
+    .toc a:hover { color: var(--text); }
+
+    .content { max-width: 760px; }
+
+    h1 { font-size: clamp(36px, 5vw, 56px); line-height: 1; letter-spacing: -.05em; margin: 0 0 10px; }
+    .lead { color: var(--muted); font-size: 19px; margin: 0 0 8px; }
+    h2 {
+      font-size: clamp(26px, 3.4vw, 36px);
+      letter-spacing: -.035em; margin: 52px 0 14px;
+      padding-top: 12px; border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 19px; letter-spacing: -.02em; margin: 28px 0 8px; }
+    p { color: #d7deec; margin: 0 0 14px; }
+    ul.body, ol.body { color: #d7deec; padding-left: 22px; margin: 0 0 16px; display: grid; gap: 8px; }
+
+    code {
+      color: #dce7ff; background: rgba(255,255,255,.08);
+      padding: 2px 6px; border-radius: 7px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .92em;
+    }
+
+    pre {
+      background: rgba(6,17,31,.72);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      overflow-x: auto;
+      margin: 0 0 18px;
+    }
+    pre code { background: none; padding: 0; color: #cfe1ff; font-size: 13.5px; line-height: 1.6; }
+
+    table { width: 100%; border-collapse: collapse; margin: 0 0 18px; font-size: 14.5px; }
+    th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+    th { color: var(--text); font-weight: 800; }
+    td { color: var(--muted); }
+    td code { white-space: nowrap; }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      color: var(--accent2); background: rgba(140,255,182,.10);
+      border: 1px solid rgba(140,255,182,.18);
+      padding: 8px 12px; border-radius: 999px;
+      font-size: 13px; font-weight: 800; margin-bottom: 20px;
+    }
+
+    .notice {
+      padding: 16px 18px; border: 1px solid rgba(255,209,102,.25);
+      border-radius: 16px; background: rgba(255,209,102,.08);
+      color: #ffe0a3; margin: 6px 0 20px;
+    }
+    .notice strong { color: #fff0cf; }
+
+    footer { border-top: 1px solid var(--line); padding: 28px 0; color: var(--muted); font-size: 14px; }
+    .footer-inner { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+    footer a { color: var(--muted); }
+
+    @media (max-width: 900px) {
+      .docwrap { grid-template-columns: 1fr; gap: 24px; }
+      .toc { position: static; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+
+<body>
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html" aria-label="Cache Vault home">
+        <span class="mark">CV</span>
+        <span>Cache Vault</span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html#free">Free</a>
+        <a href="index.html#founder">Founder</a>
+        <a href="docs.html" class="active">Docs</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="index.html#download">Download</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="wrap docwrap">
+    <aside class="toc" aria-label="On this page">
+      <h4>On this page</h4>
+      <ul>
+        <li><a href="#download">Download &amp; verify</a></li>
+        <li><a href="#install">Install &amp; run</a></li>
+        <li><a href="#build">Build a standalone .exe</a></li>
+        <li><a href="#first-run">First run</a></li>
+        <li><a href="#startup">Start with Windows</a></li>
+        <li><a href="#organize">Organize &amp; export</a></li>
+        <li><a href="#search">Search syntax</a></li>
+        <li><a href="#sensitive">Sensitive handling</a></li>
+        <li><a href="#quick-paste">Quick paste</a></li>
+        <li><a href="#data">Where data lives</a></li>
+        <li><a href="#scope">Scope &amp; limitations</a></li>
+      </ul>
+    </aside>
+
+    <article class="content">
+      <div class="eyebrow">v0.1.4 · Windows</div>
+      <h1>Install &amp; User Guide</h1>
+      <p class="lead">Everything you need to install, run, and get real work out of Cache Vault — the local-first Windows clipboard vault.</p>
+
+      <h2 id="download">Download &amp; verify release</h2>
+      <p>Download the packaged Windows build from the <a href="https://github.com/lazelife420-spec/CacheVault/releases/latest">latest GitHub Release</a>. After downloading the release zip, compute its SHA256 hash in PowerShell:</p>
+      <pre><code>Get-FileHash .\CacheVault-*.zip -Algorithm SHA256</code></pre>
+      <p>Compare the reported hash against <code>SHA256SUMS.txt</code> from the same release. If the values match, the archive matches the published release artifact.</p>
+      <div class="notice"><strong>v0.1.4 ZIP SHA256:</strong> <code>07d6049153c5f4fd980990099a27062ffce5304fe8d5c73a41fbbb0d6874fa4a</code></div>
+
+      <h2 id="install">Install &amp; run</h2>
+      <p>To run from source (a Python checkout):</p>
+      <pre><code># from the repo root
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python app.py</code></pre>
+      <p>Headless sanity check (no window — used by CI):</p>
+      <pre><code>python app.py --selftest</code></pre>
+
+      <h2 id="build">Build a standalone .exe</h2>
+      <pre><code>pwsh packaging\build_exe.ps1     # -> dist\CacheVault.exe (one-file, windowed)</code></pre>
+      <p>The build bundles CustomTkinter's theme assets. Verify the build headlessly with <code>dist\CacheVault.exe --selftest</code>. The packaged exe also stamps Windows file/product metadata from the source version; verify it with <code>python tools\verify_exe_metadata.py --exe dist\CacheVault.exe</code>.</p>
+
+      <h2 id="first-run">First run</h2>
+      <p>Cache Vault runs as a tray app. The teal tray icon shows the app is running. Closing the window hides it to the tray; use the tray menu's <strong>Quit</strong> action to stop capture, remove the tray icon, and exit cleanly.</p>
+      <p>The single tray menu offers: <strong>Open Cache Vault · Pause Capture · Resume Capture · Clear Sensitive Clips · Quit</strong>.</p>
+      <p>The global quick-paste hotkey defaults to <code>Ctrl+Shift+V</code> (Win+V is reserved by Windows).</p>
+
+      <h2 id="startup">Start with Windows</h2>
+      <p>Settings → <strong>Start Cache Vault with Windows</strong> adds a per-user <code>HKCU\…\CurrentVersion\Run</code> entry (no admin rights, fully reversible). For a dev checkout it launches <code>pythonw app.py</code>; for a packaged build it launches the exe directly.</p>
+
+      <h2 id="organize">Organize &amp; export</h2>
+      <p>Right-click any clip for <strong>Copy Again</strong>, <strong>Add/Remove Favorites</strong>, <strong>Move to Collection…</strong>, <strong>Export / Save As…</strong>, <strong>Open</strong> / <strong>Reveal in Explorer</strong> (local path clips only), and <strong>Remove from History</strong>.</p>
+      <p>Sidebar sections: All Clips, Favorites, Collections (virtual app folders — one DB, not separate vaults), and Recently Removed (Restore or Permanently Remove).</p>
+      <p>Export a single clip as <code>.txt</code> / <code>.md</code> / <code>.html</code> / <code>.json</code>, or a whole view / collection as an organized folder or zip (<code>index.html</code>, <code>manifest.json</code> as <strong>Proof Manifest</strong>, <code>stamped_receipt.txt</code>, <code>clips/</code>). Path clips export a <strong>reference + metadata only</strong> by default; real files are copied into <code>files/</code> only if you tick <em>Include file copies</em>, and originals are never moved or deleted.</p>
+      <div class="notice"><strong>If it matters, keep the receipt.</strong> Settings → <strong>History limit</strong> prunes oldest non-favorite clips to Recently Removed when exceeded (<code>0</code> = unlimited). Favorites always survive pruning.</div>
+
+      <h2 id="search">Search syntax</h2>
+      <pre><code>type:link github      type:code python      source:cursor
+sensitive:true        pinned:true           &lt;free text&gt;</code></pre>
+      <p>Unknown <code>key:value</code> tokens fall back to free-text search. Search is substring (<code>LIKE</code>) matching, not a full-text index — fine for MVP volumes.</p>
+      <h3>Smart filters</h3>
+      <p>Rule-based, no AI. Each clip gets one primary type plus tags:</p>
+      <ul class="body">
+        <li><strong>Links</strong> — <code>http(s)://</code> and conservative bare domains.</li>
+        <li><strong>Files / Paths</strong> — <code>C:\…</code>, <code>D:\…</code>, UNC <code>\\server\share</code>, quoted paths.</li>
+        <li><strong>Code</strong> — keywords / braces / multi-line indentation heuristics.</li>
+        <li><strong>Commands</strong> — leading <code>git</code>, <code>python</code>, <code>npm</code>, <code>winget</code>, <code>docker</code>, … (a <code>git clone https://…</code> is a <strong>command</strong>, not a link).</li>
+        <li><strong>Emails / Phone numbers</strong> — conservative regex to avoid over-detecting.</li>
+        <li><strong>Sensitive</strong> — API keys, tokens, JWTs, private keys, credit-card numbers (Luhn-checked), recovery/one-time codes, and high-entropy secrets.</li>
+      </ul>
+
+      <h2 id="sensitive">Sensitive handling</h2>
+      <p>Sensitive clips get a <strong>masked preview</strong>, an explicit <strong>Reveal</strong> action, an <strong>auto-expiry timer</strong> (default ON, 10 minutes), and a one-click <strong>Clear Sensitive Clips</strong>. On expiry the secret content is scrubbed from the database; the row survives only as an <em>Expired</em> entry and an event-log line — <strong>the event log never stores the secret</strong>. Clipboard contents are never written to logs or printed to the console.</p>
+
+      <h2 id="quick-paste">Quick paste (global hotkey)</h2>
+      <p>Press <code>Ctrl+Shift+V</code> anywhere to pop up a quick picker of your most recent clips, no matter which app is focused:</p>
+      <ul class="body">
+        <li><code>↑</code> / <code>↓</code> move the selection, <code>1</code>–<code>9</code> jump straight to a row</li>
+        <li><code>Enter</code> pastes the highlighted clip, <code>Esc</code> cancels</li>
+      </ul>
+      <p>Choosing a clip copies it and — if <strong>Auto-paste</strong> is on (default) — restores focus to the app you were in and sends <code>Ctrl+V</code> for you. The hotkey and auto-paste behaviour are configurable in Settings; the hotkey re-registers live when you change it.</p>
+
+      <h2 id="data">Where data lives</h2>
+      <p>Local app data stays under <code>%LOCALAPPDATA%\CacheVault\</code>:</p>
+      <table>
+        <tr><th>What</th><th>Path</th></tr>
+        <tr><td>Database</td><td><code>%LOCALAPPDATA%\CacheVault\cache_vault.db</code></td></tr>
+        <tr><td>Settings</td><td><code>%LOCALAPPDATA%\CacheVault\settings.json</code></td></tr>
+      </table>
+      <p>Everything lives in a local SQLite database. No cloud account, no subscription, no ads, no telemetry. The optional LAN bridge is off by default and never connects to the internet.</p>
+
+      <h2 id="scope">Honest scope &amp; limitations (v0.1.4)</h2>
+      <p><strong>Implemented:</strong> text clipboard capture, smart filters, search, pin/keep/expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray, global quick-paste hotkey (<code>Ctrl+Shift+V</code>) with auto-paste, local event log.</p>
+      <p><strong>Not implemented (by design, for this MVP):</strong> cloud sync, accounts, browser extension, mobile app, OCR, AI classification, remote backup, image/file capture, payment/licensing.</p>
+      <h3>Tradeoffs we're honest about</h3>
+      <ul class="body">
+        <li><strong>Search is substring (<code>LIKE</code>) matching</strong>, not a full-text index. An FTS index can come later.</li>
+        <li><strong>Clip content is stored as plain text</strong> in the local database. The schema isolates <code>content</code> so encryption can be added later without migration. We do <strong>not</strong> claim encryption today.</li>
+        <li><strong>Clipboard monitoring prefers event-based capture</strong> via <code>AddClipboardFormatListener</code> (pywin32). If pywin32 is unavailable it falls back to throttled polling (default 800ms).</li>
+        <li><strong>Source app/window detection is best-effort</strong> and degrades to "unknown" without crashing when it can't be determined.</li>
+      </ul>
+    </article>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span>Cache Vault by The Proof Foundry™</span>
+      <span><a href="index.html">Home</a> · <a href="changelog.html">Changelog</a> · Build it. Prove it. Ship it.</span>
+    </div>
+  </footer>
+</body>
+</html>
