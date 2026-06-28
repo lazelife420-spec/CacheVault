@@ -40,7 +40,7 @@ def source_domain(source_url: str | None) -> str | None:
         return None
     try:
         host = urlparse(source_url).netloc
-        return host.lower().lstrip("www.") or None
+        return host.lower().removeprefix("www.") or None
     except Exception:  # noqa: BLE001
         return None
 

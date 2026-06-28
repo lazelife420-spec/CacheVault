@@ -63,3 +63,35 @@ def test_capability_registry_keeps_trust_features_core_and_pro_planned():
     assert CAPABILITIES["encrypted_safes"].available is False
     text = "\n".join(f"{cap.label} {cap.note}" for cap in CAPABILITIES.values())
     assert not has_forbidden_claims(text)
+
+
+# -- BUG-3 regression: rename must preserve all customization fields --
+
+def test_safe_rename_preserves_customization():
+    settings = Settings()
+    registry = SafeRegistry(settings)
+    safe = registry.create("Original")
+    registry.update_customization(
+        safe.id,
+        icon="OG",
+        accent="#FF0000",
+        description="Important safe",
+        favorite=True,
+        receipt_label="Original receipt",
+        visual_style="work",
+    )
+    renamed = registry.rename(safe.id, "Renamed")
+    assert renamed is not None
+    assert renamed.name == "Renamed"
+    assert renamed.icon == "OG"
+    assert renamed.accent == "#FF0000"
+    assert renamed.description == "Important safe"
+    assert renamed.favorite is True
+    assert renamed.receipt_label == "Original receipt"
+    assert renamed.visual_style == "work"
+    # Verify persistence round-trip
+    loaded = SafeRegistry(settings).resolve(safe.id)
+    assert loaded is not None
+    assert loaded.name == "Renamed"
+    assert loaded.icon == "OG"
+    assert loaded.accent == "#FF0000"

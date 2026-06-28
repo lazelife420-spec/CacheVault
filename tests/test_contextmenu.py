@@ -161,3 +161,46 @@ def test_shell_has_safe_context_menu():
     assert "Set as Default Safe" in src
     assert "Copy Safe Summary" in src
     assert "Export Safe Proof Zip" in src
+
+
+# -- BUG-4 regression: "Mark Keep" must use a distinct key and dispatch --
+
+def test_mark_keep_has_distinct_menu_key():
+    """Favorite toggle and Mark Keep must not share the 'toggle_favorite' key."""
+    organize = _children(clip_menu_items(_clip("x")), "organize")
+    by_label = {i.label: i for i in organize}
+    assert by_label["Add to Favorites"].key == "toggle_favorite"
+    assert by_label["Mark Keep"].key == "mark_keep"
+
+
+def test_menu_keys_are_unique():
+    """No two leaf menu items may share a dispatch key (would cause ambiguity)."""
+    for clip in (
+        _clip("plain", classification=models.CLASS_PLAIN),
+        _clip("https://example.com", classification=models.CLASS_LINK),
+        _clip("img", content_type=models.CONTENT_IMAGE, classification=models.CLASS_IMAGE),
+    ):
+        keys = _all_keys(clip_menu_items(clip))
+        # Drop the structural group keys; check the actionable leaves are unique.
+        assert len(keys) == len(set(keys)), f"duplicate menu key in {keys}"
+
+
+def test_clip_menu_dispatch_wires_mark_keep():
+    """The clip context-menu dispatch must handle 'mark_keep' (else KeyError)."""
+    from cache_vault.ui.shell import CacheVaultApp
+
+    src = inspect.getsource(CacheVaultApp._open_clip_menu)
+    assert '"mark_keep": lambda: self._mark_keep(clip.id)' in src
+
+
+def test_mark_keep_handler_sets_kept_flag(vault):
+    """Choosing Mark Keep performs the intended action: it sets is_kept, not favorite."""
+    clip = vault.capture("keep me")
+    assert clip.is_kept is False
+    assert clip.is_pinned is False
+
+    vault.mark_keep(clip.id)
+
+    reloaded = vault.storage.get_clip(clip.id)
+    assert reloaded.is_kept is True
+    assert reloaded.is_pinned is False  # must NOT toggle favorite (the old bug)

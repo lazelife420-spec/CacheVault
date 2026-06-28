@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import ctypes
 import logging
+from ctypes import wintypes
 from typing import Callable
 
 try:
-    import win32con
-    import win32gui
-    import ctypes
-    from ctypes import wintypes
-
+    _user32 = ctypes.windll.user32  # Windows only
     _HAS_WIN32 = True
-except ImportError:
+except (AttributeError, OSError):
+    _user32 = None
     _HAS_WIN32 = False
 
 logger = logging.getLogger(__name__)
@@ -23,14 +22,36 @@ XBUTTON1 = 0x0001
 XBUTTON2 = 0x0002
 GWLP_WNDPROC = -4
 
+# Pointer-sized signed integer (LONG_PTR / LRESULT). Using the *Ptr* variants
+# below is mandatory on 64-bit Python: the legacy SetWindowLong/GetWindowLong
+# truncate WndProc pointers to 32 bits and corrupt the window subclass.
+LONG_PTR = ctypes.c_ssize_t
+
 if _HAS_WIN32:
     WNDPROC_TYPE = ctypes.WINFUNCTYPE(
-        ctypes.c_ssize_t,  # LRESULT
+        LONG_PTR,          # LRESULT
         wintypes.HWND,     # HWND
         wintypes.UINT,     # UINT
         wintypes.WPARAM,   # WPARAM
         wintypes.LPARAM    # LPARAM
     )
+
+    # SetWindowLongPtrW/GetWindowLongPtrW only exist on 64-bit user32; on 32-bit
+    # Windows they are header macros for the *W variants, so fall back to those.
+    _set_window_long = getattr(_user32, "SetWindowLongPtrW", None) or _user32.SetWindowLongW
+    _get_window_long = getattr(_user32, "GetWindowLongPtrW", None) or _user32.GetWindowLongW
+    _set_window_long.argtypes = [wintypes.HWND, ctypes.c_int, LONG_PTR]
+    _set_window_long.restype = LONG_PTR
+    _get_window_long.argtypes = [wintypes.HWND, ctypes.c_int]
+    _get_window_long.restype = LONG_PTR
+    _user32.CallWindowProcW.argtypes = [
+        LONG_PTR, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+    ]
+    _user32.CallWindowProcW.restype = LONG_PTR
+    _user32.DefWindowProcW.argtypes = [
+        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+    ]
+    _user32.DefWindowProcW.restype = LONG_PTR
 
 class WinMouseHandler:
     """Hooks a window's WndProc to listen for physical side-mouse buttons."""
@@ -47,11 +68,12 @@ class WinMouseHandler:
             return
 
         try:
-            # We must keep a reference to the callback to prevents GC
+            # We must keep a reference to the callback to prevent GC.
             self._new_wndproc_ptr = WNDPROC_TYPE(self._wndproc)
-            
-            # Subclass the window
-            res = win32gui.SetWindowLong(self._hwnd, GWLP_WNDPROC, self._new_wndproc_ptr)
+            new_ptr = ctypes.cast(self._new_wndproc_ptr, ctypes.c_void_p).value
+
+            # Subclass the window (pointer-safe on 64-bit).
+            res = _set_window_long(self._hwnd, GWLP_WNDPROC, new_ptr)
             if res:
                 self._old_wndproc = res
                 self._active = True
@@ -72,13 +94,13 @@ class WinMouseHandler:
         
         # Fallback to original wndproc
         if self._old_wndproc:
-            return win32gui.CallWindowProc(self._old_wndproc, hwnd, msg, wparam, lparam)
-        return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+            return _user32.CallWindowProcW(self._old_wndproc, hwnd, msg, wparam, lparam)
+        return _user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
     def stop(self) -> None:
         if self._active and self._old_wndproc:
             try:
-                win32gui.SetWindowLong(self._hwnd, GWLP_WNDPROC, self._old_wndproc)
+                _set_window_long(self._hwnd, GWLP_WNDPROC, self._old_wndproc)
                 logger.info("Native mouse handler detached.")
             except Exception as exc:
                 logger.error("Error detaching native mouse handler: %s", exc)

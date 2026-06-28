@@ -100,7 +100,7 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
             "Remove from Favorites" if clip.is_pinned else "Add to Favorites",
         ),
         MenuItem(
-            "toggle_favorite",
+            "mark_keep",
             "Mark Keep",
             enabled=not clip.is_pinned,
         ),

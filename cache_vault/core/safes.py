@@ -198,9 +198,9 @@ class SafeRegistry:
         user = self._user_safes()
         for i, s in enumerate(user):
             if s.id == safe_id:
-                user[i] = Safe(
-                    id=s.id, name=name, builtin=False, created_at=s.created_at,
-                )
+                data = s.to_dict()
+                data["name"] = name
+                user[i] = Safe.from_dict(data)
                 self._persist_user(user)
                 return user[i]
         return None

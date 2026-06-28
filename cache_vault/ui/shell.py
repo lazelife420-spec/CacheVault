@@ -2102,6 +2102,7 @@ class CacheVaultApp(ctk.CTk):
             "open_asset_folder": lambda: self._open_asset_folder(clip.id),
             "drag_out": lambda: self._drag_out_clip(clip.id),
             "toggle_favorite": lambda: self._toggle_favorite(clip.id),
+            "mark_keep": lambda: self._mark_keep(clip.id),
             "move_safe": lambda: self._move_to_safe(clip.id),
             "send_to_macro_safe": lambda: self._send_to_macro_safe(clip.id),
             "create_editable_copy": lambda: self._create_editable_copy(clip.id),
