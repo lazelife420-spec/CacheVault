@@ -9,11 +9,16 @@
 
 ## Summary
 
-This hotfix lane fixed five audit-confirmed correctness bugs (BUG-1, BUG-3,
-BUG-4, BUG-5, BUG-6), added regression tests for each, and verified the full
-local CI gate set with a fresh packaged exe. The `storage.py` locking issue
-(BUG-2) was intentionally **not** touched — it is a separate concurrency lane
-with its own regression requirements.
+This hotfix lane fixed four audit-confirmed correctness bugs (BUG-1, BUG-3,
+BUG-4, BUG-5), added regression tests for each, and verified the full local CI
+gate set with a fresh packaged exe.
+
+Two audit items were intentionally **not** shipped:
+- **BUG-2** (`storage.py` unused lock) — deferred to a dedicated concurrency
+  lane with its own regression requirements.
+- **BUG-6** (`win_mouse.py` 64-bit window-long) — **reverted after it caused a
+  UI freeze** (see "Regression found and reverted" below). It is deferred to a
+  proper redesign using `SetWindowSubclass`.
 
 ---
 
@@ -55,13 +60,39 @@ with its own regression requirements.
   unit test drives a fake `_user32` to assert the unhook + `WM_QUIT` post + thread
   join contract, so there is no message-loop hang risk.
 
-### BUG-6 — `win_mouse.py` used 32-bit `SetWindowLong`/`GetWindowLong`
+### BUG-6 — `win_mouse.py` used 32-bit `SetWindowLong`/`GetWindowLong` (REVERTED — DEFERRED)
 - **File:** `cache_vault/core/win_mouse.py`
-- **Fix:** Reworked the WndProc subclassing to use pointer-safe
-  `SetWindowLongPtrW`/`GetWindowLongPtrW` via `ctypes`, with `LONG_PTR`
-  (`c_ssize_t`) arg/return types, `CallWindowProcW`/`DefWindowProcW` prototypes,
-  and a 32-bit fallback to the `*W` variants. The WndProc callback is passed as a
-  full pointer-sized value, eliminating pointer truncation on 64-bit Python.
+- **Status:** Attempted, then **reverted**. The pointer-safe rewrite is correct
+  in isolation, but it exposed a latent design problem that froze the app.
+- **Deferred to:** a dedicated lane using the documented, reentrancy-safe
+  `SetWindowSubclass` / `RemoveWindowSubclass` (comctl32) mechanism instead of
+  raw `SetWindowLongPtr` subclassing of the live Tk root.
+
+---
+
+## Regression Found and Reverted (BUG-6)
+
+**Symptom:** After the initial hotfix commit, the app froze when copying
+multiple clips.
+
+**Root cause:** `win_mouse.WinMouseHandler` subclasses the **live Tk root
+window's WndProc** (`shell.py` → `install_mouse_handler(self, ...)` →
+`root.winfo_id()`) and runs a Python callback on the UI thread for *every*
+window message. The pre-hotfix code passed a `ctypes` callback object to
+`win32gui.SetWindowLong`, which requires an `int`, so the call **always raised
+`TypeError` and was swallowed** — the subclass never actually installed and the
+side-button navigation feature was inert.
+
+The BUG-6 "fix" made the subclass install successfully for the first time. That
+newly routed every UI message — including the **synchronous clipboard messages
+that bulk copy triggers** (`clipboard_clear` / `clipboard_append`) — through a
+Python WndProc holding the GIL, which deadlocked/froze the UI.
+
+**Resolution:** `win_mouse.py` was restored to its pre-hotfix (commit
+`dd03b57`) state, returning the app to its known-stable behavior (side-button
+nav remains inert, exactly as before this lane). The accompanying
+`tests/test_win_mouse.py` was removed. A correct fix requires `SetWindowSubclass`
+and live GUI validation, which is out of scope for a stability hotfix.
 
 ---
 
@@ -74,7 +105,9 @@ with its own regression requirements.
 | `cache_vault/core/contextmenu.py` | BUG-4 fix (distinct `mark_keep` key) |
 | `cache_vault/ui/shell.py` | BUG-4 follow-through (`mark_keep` dispatch wiring) |
 | `cache_vault/core/macro_shortcut_listener.py` | BUG-5 fix (`WM_QUIT` post + thread join) |
-| `cache_vault/core/win_mouse.py` | BUG-6 fix (pointer-safe window-long APIs) |
+
+> `cache_vault/core/win_mouse.py` was modified for BUG-6 and then reverted to
+> its pre-hotfix state; it carries no net change in this lane.
 
 ## Tests Added
 
@@ -84,7 +117,9 @@ with its own regression requirements.
 | `tests/test_customization_architecture.py` | BUG-3: rename preserves customization + persistence round-trip |
 | `tests/test_contextmenu.py` | BUG-4: distinct `mark_keep` key, unique menu keys, dispatch wiring, behavioral `mark_keep` sets `is_kept` (not favorite) |
 | `tests/test_macro_shortcut_listener.py` (new) | BUG-5: `stop()` posts `WM_QUIT`, idempotent no-op without hook, thread join — fake `_user32`, no real hook |
-| `tests/test_win_mouse.py` (new) | BUG-6: `LONG_PTR` is pointer-sized, source uses `*Ptr*` APIs, no legacy `win32gui.SetWindowLong`/`GetWindowLong` calls |
+
+> `tests/test_win_mouse.py` was added for BUG-6 and then removed along with the
+> BUG-6 revert.
 
 ---
 
@@ -96,10 +131,9 @@ pytest -p no:xonsh \
   tests/test_clip_labels_grouping.py \
   tests/test_customization_architecture.py \
   tests/test_contextmenu.py \
-  tests/test_macro_shortcut_listener.py \
-  tests/test_win_mouse.py
+  tests/test_macro_shortcut_listener.py
 ```
-Result: **PASS** (41 tests).
+Result: **PASS**.
 
 > Note: the audit's suggested command named `tests/test_clip_metadata.py` and
 > `tests/test_safes.py`, which do not exist in this repo. The actual BUG-1 and
@@ -110,7 +144,8 @@ Result: **PASS** (41 tests).
 ```
 python -m pytest -p no:xonsh
 ```
-Result: **559 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
+Result: **557 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
+(Was 559 before the BUG-6 revert removed its 2 tests.)
 
 ### compileall
 ```
@@ -129,7 +164,7 @@ Result: **PASS** — `selftest OK — core capture/classify/sensitive/image/mobi
 pwsh scripts/ci_local_full.ps1
 ```
 Result: **CACHE VAULT LOCAL CI: PASS**
-- pytest: PASS (full: 559 passed)
+- pytest: PASS (full: 557 passed)
 - founder-critical: PASS | command-center: PASS | quick-paste: PASS | receipts-export: PASS
 - compileall: PASS
 - selftest: PASS
@@ -152,7 +187,10 @@ re-run and packaging rebuilt the exe cleanly.
 
 ### Fresh exe
 - `dist/CacheVault.exe` — 41.1 MB
-- SHA256: `4A76AC11F2FF47C70A366870C8389688CB04023FAB6B778E0E23092C086B691D`
+- SHA256: `EF17BB58017151A56EC2A2DD93D1C121C65BF683D4A4561A808A488D9E32A03B`
+  (rebuilt after the BUG-6 revert; the earlier
+  `4A76AC11F2FF47C70A366870C8389688CB04023FAB6B778E0E23092C086B691D` build
+  included the BUG-6 change that froze multi-clip copy)
 
 ---
 
@@ -162,5 +200,7 @@ re-run and packaging rebuilt the exe cleanly.
 - **No tag, release, or public posting** was created or published.
 - **`storage.py` locking (BUG-2) was intentionally not touched** — it is a
   separate concurrency pass requiring its own regression tests.
+- **BUG-6 (`win_mouse.py`) was reverted** after it froze multi-clip copy; it is
+  deferred to a `SetWindowSubclass` redesign lane with live GUI validation.
 - No Settings/UI polish work was started.
 - This lane stops here per instruction.
