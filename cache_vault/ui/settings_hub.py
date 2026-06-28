@@ -6,7 +6,8 @@ automatically renders fields defined in module manifests.
 
 from __future__ import annotations
 
-from typing import Callable
+import dataclasses
+from typing import Callable, Any
 
 import customtkinter as ctk
 
@@ -29,30 +30,32 @@ class SettingsHub(ctk.CTkToplevel):
     ):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings Hub")
-        self.geometry("800x600")
-        self.minsize(600, 500)
+        self.geometry("900x700")
+        self.minsize(700, 500)
 
         self._settings = settings
         self._registry = registry
         self._on_save = on_save
         self._selected_category_id: str | None = None
-        self._field_widgets: dict[str, ctk.CTkBaseClass] = {}
+        
+        # Mapping: field.key -> (variable, widget)
+        self._field_bindings: dict[str, tuple[Any, ctk.CTkBaseClass]] = {}
 
         # --- Layout ---
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
         # Sidebar (Categories)
-        self._sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self._sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
         self._sidebar.grid(row=0, column=0, sticky="nsew")
         self._sidebar.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(
             self._sidebar,
             text="Settings",
-            font=ctk.CTkFont(size=18, weight="bold"),
+            font=ctk.CTkFont(size=20, weight="bold"),
             text_color=brand.PROOF_TEAL,
-        ).grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+        ).grid(row=0, column=0, padx=20, pady=(30, 20), sticky="w")
 
         self._category_list = ctk.CTkScrollableFrame(self._sidebar, fg_color="transparent")
         self._category_list.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
@@ -64,36 +67,50 @@ class SettingsHub(ctk.CTkToplevel):
         self._main_content.grid_rowconfigure(1, weight=1)
 
         # Header (Search)
-        self._header = ctk.CTkFrame(self._main_content, height=60, fg_color="transparent")
-        self._header.grid(row=0, column=0, sticky="ew", padx=20, pady=(10, 0))
+        self._header = ctk.CTkFrame(self._main_content, height=80, fg_color="transparent")
+        self._header.grid(row=0, column=0, sticky="ew", padx=30, pady=(20, 10))
         
         self._search_var = ctk.StringVar()
         self._search_var.trace_add("write", self._on_search_change)
         self._search_entry = ctk.CTkEntry(
             self._header,
-            placeholder_text="Search settings...",
+            placeholder_text="Search settings (e.g. 'hotkey', 'phone')...",
             textvariable=self._search_var,
-            width=300,
+            width=400,
+            height=35,
         )
-        self._search_entry.pack(side="left", pady=10)
+        self._search_entry.pack(side="left")
 
         # Scrollable Settings Area
         self._settings_scroll = ctk.CTkScrollableFrame(self._main_content, fg_color="transparent")
-        self._settings_scroll.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        self._settings_scroll.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
 
         # Footer (Actions)
-        self._footer = ctk.CTkFrame(self._main_content, height=60, fg_color="transparent")
-        self._footer.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
+        self._footer = ctk.CTkFrame(self._main_content, height=70, fg_color="transparent")
+        self._footer.grid(row=2, column=0, sticky="ew", padx=30, pady=20)
 
         ctk.CTkButton(
-            self._footer, text="Save Changes", command=self._save, **theme.primary_button()
-        ).pack(side="right", padx=(10, 0))
+            self._footer, 
+            text="Save Changes", 
+            command=self._save, 
+            height=35,
+            **theme.primary_button()
+        ).pack(side="right", padx=(15, 0))
+        
         ctk.CTkButton(
-            self._footer, text="Cancel", command=self.destroy, **theme.secondary_button()
+            self._footer, 
+            text="Cancel", 
+            command=self.destroy, 
+            height=35,
+            **theme.secondary_button()
         ).pack(side="right")
 
         self._refresh_categories()
-        self._select_category(self._registry.settings_categories()[0].id)
+        
+        # Default selection
+        cats = self._registry.settings_categories()
+        if cats:
+            self._select_category(cats[0].id)
 
     def _refresh_categories(self):
         """Render the category list in the sidebar."""
@@ -102,223 +119,274 @@ class SettingsHub(ctk.CTkToplevel):
 
         categories = self._registry.settings_categories()
         for cat in categories:
+            is_selected = cat.id == self._selected_category_id
+            
             btn = ctk.CTkButton(
                 self._category_list,
                 text=f"{cat.icon}  {cat.label}" if cat.icon else cat.label,
                 anchor="w",
-                fg_color="transparent",
-                text_color=brand.MUTED_FG,
+                fg_color=brand.ROW_SELECTED_BG if is_selected else "transparent",
+                text_color=brand.PROOF_TEAL if is_selected else brand.MUTED_FG,
                 hover_color=brand.ROW_SELECTED_BG,
+                height=35,
+                corner_radius=8,
                 command=lambda c=cat.id: self._select_category(c),
             )
-            btn.pack(fill="x", padx=5, pady=2)
-            if cat.id == self._selected_category_id:
-                btn.configure(fg_color=brand.ROW_SELECTED_BG, text_color=brand.PROOF_TEAL)
+            btn.pack(fill="x", padx=10, pady=2)
 
     def _select_category(self, category_id: str):
         """Switch the main view to the specified category."""
         self._selected_category_id = category_id
         self._refresh_categories()
+        # If searching, we don't clear the search, but if search is empty, we render the category
         if not self._search_var.get().strip():
-            self._render_settings()
+            self._render_category_view(category_id)
 
     def _on_search_change(self, *args):
         """Handle search input and filter settings."""
-        query = self._search_var.get().lower().strip()
+        query = self._search_var.get().strip()
         if not query:
-            self._render_settings()
+            if self._selected_category_id:
+                self._render_category_view(self._selected_category_id)
             return
         
         self._render_search_results(query)
 
-    def _render_settings(self):
+    def _render_category_view(self, category_id: str):
         """Render all fields and status rows for the selected category."""
-        for widget in self._settings_scroll.winfo_children():
-            widget.destroy()
+        self._clear_settings_area()
 
-        if not self._selected_category_id:
-            return
-
-        cat = next((c for c in self._registry.settings_categories() if c.id == self._selected_category_id), None)
+        cat = next((c for c in self._registry.settings_categories() if c.id == category_id), None)
         if not cat:
             return
 
-        # Render Category Header
+        # Title
         ctk.CTkLabel(
             self._settings_scroll,
             text=cat.label,
-            font=ctk.CTkFont(size=20, weight="bold"),
+            font=ctk.CTkFont(size=24, weight="bold"),
         ).pack(anchor="w", padx=10, pady=(10, 20))
 
-        # Render Status Rows if any
-        status_rows = [r for mod in self._registry.all() if mod.id == self._selected_category_id for r in mod.get_status_rows()] if any(mod.id == self._selected_category_id for mod in self._registry.all()) else []
-        if status_rows:
-            status_frame = ctk.CTkFrame(self._settings_scroll)
-            status_frame.pack(fill="x", padx=10, pady=(0, 20))
-            for row in status_rows:
-                self._render_status_row(status_frame, row)
+        # Status Section (if any)
+        # Find the module that owns this category (if any) to get its status rows
+        module = next((m for m in self._registry.all() if m.id == category_id), None)
+        if module:
+            status_rows = module.get_status_rows()
+            if status_rows:
+                self._render_status_card(status_rows)
 
         # Group fields by their 'group' attribute
-        grouped_fields: dict[str, list[SettingsField]] = {}
-        for field in cat.fields:
-            group = field.group or "General"
-            grouped_fields.setdefault(group, []).append(field)
+        groups: dict[str, list[SettingsField]] = {}
+        for f in cat.fields:
+            g_name = f.group or "General"
+            groups.setdefault(g_name, []).append(f)
 
-        for group, fields in grouped_fields.items():
-            group_frame = ctk.CTkFrame(self._settings_scroll, fg_color="transparent")
-            group_frame.pack(fill="x", padx=10, pady=(0, 20))
-            
-            ctk.CTkLabel(
-                group_frame,
-                text=group.upper(),
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color=brand.MUTED_FG,
-            ).pack(anchor="w", pady=(0, 10))
-
-            for field in fields:
-                self._render_field(group_frame, field)
+        for g_name, fields in groups.items():
+            self._render_group_card(g_name, fields)
 
     def _render_search_results(self, query: str):
         """Render fields that match the search query across all categories."""
-        for widget in self._settings_scroll.winfo_children():
-            widget.destroy()
+        self._clear_settings_area()
 
         ctk.CTkLabel(
             self._settings_scroll,
-            text=f"Search Results for '{query}'",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            text=f"Search Results for \"{query}\"",
+            font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(anchor="w", padx=10, pady=(10, 20))
 
-        matches_found = False
-        for cat in self._registry.settings_categories():
-            cat_matches = [
-                f for f in cat.fields 
-                if query in f.label.lower() or query in (f.description or "").lower() or query in f.key.lower()
-            ]
-            if cat_matches:
-                matches_found = True
-                ctk.CTkLabel(
-                    self._settings_scroll,
-                    text=cat.label,
-                    font=ctk.CTkFont(size=13, weight="bold"),
-                    text_color=brand.PROOF_TEAL,
-                ).pack(anchor="w", padx=10, pady=(10, 5))
-                
-                for field in cat_matches:
-                    self._render_field(self._settings_scroll, field)
-
-        if not matches_found:
+        results = self._registry.search_settings(query)
+        if not results:
             ctk.CTkLabel(
                 self._settings_scroll,
-                text="No settings found matching your search.",
+                text="No matching settings found.",
                 text_color=brand.MUTED_FG,
-            ).pack(anchor="w", padx=10, pady=20)
+                font=ctk.CTkFont(size=14),
+            ).pack(anchor="w", padx=20, pady=20)
+            return
 
-    def _render_status_row(self, parent: ctk.CTkFrame, row: StatusRow):
-        """Render a single status row (read-only info)."""
-        row_frame = ctk.CTkFrame(parent, fg_color="transparent", height=30)
-        row_frame.pack(fill="x", padx=10, pady=2)
+        # Group results by category label for display
+        by_cat: dict[str, list[SettingsField]] = {}
+        for cat_label, field in results:
+            by_cat.setdefault(cat_label, []).append(field)
+
+        for cat_label, fields in by_cat.items():
+            ctk.CTkLabel(
+                self._settings_scroll,
+                text=cat_label,
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=brand.PROOF_TEAL,
+            ).pack(anchor="w", padx=10, pady=(10, 5))
+            
+            # For search results, we just render the fields directly in a frame
+            search_frame = ctk.CTkFrame(self._settings_scroll, fg_color="transparent")
+            search_frame.pack(fill="x", padx=10, pady=(0, 20))
+            for f in fields:
+                self._render_field_row(search_frame, f)
+
+    def _clear_settings_area(self):
+        for widget in self._settings_scroll.winfo_children():
+            widget.destroy()
+        # Note: we don't clear self._field_bindings here because we want to keep
+        # values if the user switches categories and back. 
+        # Actually, for a skeleton, we can just re-render and lose unsaved changes 
+        # or manage a local 'draft' settings object.
+        # Let's keep it simple: re-render from the current _settings object.
+
+    def _render_status_card(self, rows: list[StatusRow]):
+        card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
+        card.pack(fill="x", padx=10, pady=(0, 20))
         
-        ctk.CTkLabel(row_frame, text=row.label, font=ctk.CTkFont(size=12)).pack(side="left")
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=15)
         
-        value = row.get_value()
-        val_label = ctk.CTkLabel(
-            row_frame, 
-            text=str(value),
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=brand.PROOF_TEAL if row.level == "info" else brand.MUTED_FG
-        )
-        val_label.pack(side="right")
-
-    def _render_field(self, parent: ctk.CTkFrame, field: SettingsField):
-        """Render a single settings field based on its type."""
-        field_frame = ctk.CTkFrame(parent, fg_color=brand.ROW_BG, corner_radius=6)
-        field_frame.pack(fill="x", pady=4)
-        
-        inner = ctk.CTkFrame(field_frame, fg_color="transparent")
-        inner.pack(fill="x", padx=15, pady=10)
-
-        text_container = ctk.CTkFrame(inner, fg_color="transparent")
-        text_container.pack(side="left", fill="both", expand=True)
-
         ctk.CTkLabel(
-            text_container,
+            inner,
+            text="LIVE STATUS",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=brand.MUTED_FG,
+        ).pack(anchor="w", pady=(0, 10))
+
+        for row in rows:
+            row_frame = ctk.CTkFrame(inner, fg_color="transparent")
+            row_frame.pack(fill="x", pady=4)
+            
+            ctk.CTkLabel(row_frame, text=row.label, font=ctk.CTkFont(size=13)).pack(side="left")
+            
+            # Value with level-based color
+            val_color = brand.MUTED_FG
+            if row.level == "ok": val_color = brand.PROOF_TEAL
+            elif row.level == "warning": val_color = "#E6A23C"
+            elif row.level == "error": val_color = "#F56C6C"
+            elif row.level == "info": val_color = brand.PROOF_TEAL
+
+            val_text = row.value_getter()
+            ctk.CTkLabel(
+                row_frame, 
+                text=val_text,
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color=val_color
+            ).pack(side="right")
+
+    def _render_group_card(self, group_name: str, fields: list[SettingsField]):
+        card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
+        card.pack(fill="x", padx=10, pady=(0, 20))
+        
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=15)
+        
+        ctk.CTkLabel(
+            inner,
+            text=group_name.upper(),
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=brand.MUTED_FG,
+        ).pack(anchor="w", pady=(0, 10))
+
+        for f in fields:
+            self._render_field_row(inner, f)
+
+    def _render_field_row(self, parent: ctk.CTkFrame, field: SettingsField):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=8)
+        
+        # Left side: Label & Description
+        info_col = ctk.CTkFrame(row, fg_color="transparent")
+        info_col.pack(side="left", fill="both", expand=True)
+        
+        ctk.CTkLabel(
+            info_col,
             text=field.label,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ctk.CTkFont(size=14, weight="bold"),
             anchor="w",
         ).pack(fill="x")
 
         if field.description:
             ctk.CTkLabel(
-                text_container,
+                info_col,
                 text=field.description,
-                font=ctk.CTkFont(size=11),
+                font=ctk.CTkFont(size=12),
                 text_color=brand.MUTED_FG,
                 anchor="w",
-                wraplength=400,
+                wraplength=450,
                 justify="left",
             ).pack(fill="x")
 
-        # Widget placement based on type
-        current_val = getattr(self._settings, field.key, None)
+        # Right side: Control
+        control_col = ctk.CTkFrame(row, fg_color="transparent")
+        control_col.pack(side="right", padx=(20, 0))
+
+        current_val = getattr(self._settings, field.key, field.default)
         
         if field.field_type == "toggle":
             var = ctk.BooleanVar(value=bool(current_val))
-            sw = ctk.CTkSwitch(inner, text="", variable=var, width=50)
-            sw.pack(side="right")
-            self._field_widgets[field.key] = sw
+            sw = ctk.CTkSwitch(control_col, text="", variable=var, width=50)
+            sw.pack()
+            self._field_bindings[field.key] = (var, sw)
+            
         elif field.field_type == "number":
-            entry = ctk.CTkEntry(inner, width=80)
-            entry.insert(0, str(current_val if current_val is not None else ""))
-            entry.pack(side="right")
-            self._field_widgets[field.key] = entry
+            var = ctk.StringVar(value=str(current_val))
+            entry = ctk.CTkEntry(control_col, textvariable=var, width=100)
+            entry.pack()
+            self._field_bindings[field.key] = (var, entry)
+            
         elif field.field_type == "text":
-            entry = ctk.CTkEntry(inner, width=200)
-            entry.insert(0, str(current_val if current_val is not None else ""))
-            entry.pack(side="right")
-            self._field_widgets[field.key] = entry
+            var = ctk.StringVar(value=str(current_val))
+            entry = ctk.CTkEntry(control_col, textvariable=var, width=250)
+            entry.pack()
+            self._field_bindings[field.key] = (var, entry)
+            
         elif field.field_type == "choice" and field.choices:
-            combo = ctk.CTkComboBox(inner, values=field.choices, width=150)
-            combo.set(str(current_val))
-            combo.pack(side="right")
-            self._field_widgets[field.key] = combo
+            var = ctk.StringVar(value=str(current_val))
+            combo = ctk.CTkComboBox(control_col, values=field.choices, variable=var, width=180)
+            combo.pack()
+            self._field_bindings[field.key] = (var, combo)
+            
         elif field.field_type == "hotkey":
-            entry = ctk.CTkEntry(inner, width=150)
-            entry.insert(0, str(current_val if current_val is not None else ""))
-            entry.pack(side="right")
-            self._field_widgets[field.key] = entry
+            var = ctk.StringVar(value=str(current_val))
+            entry = ctk.CTkEntry(control_col, textvariable=var, width=180)
+            entry.pack()
+            # In a real app, this might be a specialized hotkey recorder widget
+            self._field_bindings[field.key] = (var, entry)
+            
         elif field.field_type == "readonly":
             ctk.CTkLabel(
-                inner,
+                control_col,
                 text=str(current_val),
-                font=ctk.CTkFont(size=12, weight="bold"),
+                font=ctk.CTkFont(size=13, weight="bold"),
                 text_color=brand.MUTED_FG,
-            ).pack(side="right")
+            ).pack()
 
     def _collect_settings(self) -> Settings:
-        """Collect values from all widgets into a new Settings object."""
-        # Create a copy of the current settings
-        import dataclasses
-        new_settings = dataclasses.replace(self._settings)
+        """Collect values from all bindings into a new Settings object."""
+        # Start with the original settings
+        new_data = dataclasses.asdict(self._settings)
         
-        for key, widget in self._field_widgets.items():
-            if isinstance(widget, ctk.CTkSwitch):
-                setattr(new_settings, key, bool(widget.get()))
-            elif isinstance(widget, ctk.CTkEntry):
-                val = widget.get()
-                # Basic type conversion based on original setting type
-                orig_val = getattr(self._settings, key)
-                if isinstance(orig_val, int):
-                    try:
-                        setattr(new_settings, key, int(val))
-                    except ValueError:
-                        pass
-                else:
-                    setattr(new_settings, key, val)
-            elif isinstance(widget, ctk.CTkComboBox):
-                setattr(new_settings, key, widget.get())
+        for key, (var, widget) in self._field_bindings.items():
+            val = var.get()
+            
+            # Type conversion based on the original field type in Settings
+            # or the expected type from the schema.
+            orig_val = getattr(self._settings, key, None)
+            
+            if isinstance(orig_val, bool):
+                new_data[key] = bool(val)
+            elif isinstance(orig_val, int):
+                try:
+                    new_data[key] = int(val)
+                except (ValueError, TypeError):
+                    pass
+            elif isinstance(orig_val, float):
+                try:
+                    new_data[key] = float(val)
+                except (ValueError, TypeError):
+                    pass
+            else:
+                new_data[key] = val
         
-        return new_settings
+        # Filter out keys that aren't in the Settings dataclass (just in case)
+        valid_keys = {f.name for f in dataclasses.fields(Settings)}
+        filtered_data = {k: v for k, v in new_data.items() if k in valid_keys}
+        
+        return Settings(**filtered_data)
 
     def _save(self):
         """Collect settings and trigger the save callback."""

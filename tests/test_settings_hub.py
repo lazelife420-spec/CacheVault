@@ -5,13 +5,19 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+import pytest
 import customtkinter as ctk
 
 from cache_vault.core.settings import Settings
 from cache_vault.modules.registry import build_default_registry
 from cache_vault.ui.settings_hub import SettingsHub
+from tk_support import probe_tk_ui
+
+# Check if UI tests can run in this environment
+TK_OK, TK_REASON = probe_tk_ui()
 
 
+@pytest.mark.skipif(not TK_OK, reason=TK_REASON)
 class TestSettingsHub(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -26,7 +32,10 @@ class TestSettingsHub(unittest.TestCase):
         self.on_save = MagicMock()
 
     def tearDown(self):
-        self.root.destroy()
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def test_settings_hub_construction(self):
         """Verify SettingsHub can be constructed without crashing."""
@@ -53,6 +62,7 @@ class TestSettingsHub(unittest.TestCase):
         
         # Search for something known to exist, e.g., "mobile"
         hub._search_var.set("mobile")
+        # Trace might not fire instantly in tests without mainloop, call handler manually
         hub._on_search_change()
         
         # Check that we are rendering search results
@@ -69,11 +79,13 @@ class TestSettingsHub(unittest.TestCase):
         
         # The 'general' category is selected by default, which contains 'start_with_windows'
         key = "start_with_windows"
-        self.assertIn(key, hub._field_widgets)
-        widget = hub._field_widgets[key]
+        self.assertIn(key, hub._field_bindings)
+        var, widget = hub._field_bindings[key]
+        
         if isinstance(widget, ctk.CTkSwitch):
             widget.select()
-            self.root.update()
+            # Ensure the variable is updated
+            self.assertTrue(var.get())
                 
         new_settings = hub._collect_settings()
         self.assertTrue(new_settings.start_with_windows)
