@@ -533,6 +533,7 @@ class CacheVaultApp(ctk.CTk):
                 "mobile_report": self._mobile_access_report,
                 "pair_android": lambda: self._open_pair_android(),
                 "mobile_settings": self._open_settings,
+                "revoke_all_mobile": self._revoke_all_mobile_and_refresh,
                 "macro_list": self._macro_list_rows,
                 "macro_edit": self._macro_edit,
                 "macro_new_template": self._macro_new_template,
@@ -1234,6 +1235,7 @@ class CacheVaultApp(ctk.CTk):
             "pairing_status": pairing,
             "last_connection": last_connection,
             "routes": routes,
+            "mdns_advertising": self._mobile_bridge.discovery.is_advertising,
         }
 
     def _navigate_filter(self, key: str) -> None:
@@ -3015,6 +3017,7 @@ class CacheVaultApp(ctk.CTk):
             port=int(s.mobile_access_port or 8742),
             bind_host=(s.mobile_access_bind_host or DEFAULT_BIND_HOST),
             receipts=self._mobile_bridge.receipts.recent(20),
+            mdns_advertising=self._mobile_bridge.discovery.is_advertising,
         )
 
     def _revoke_all_and_pair(self, device_id: str, name: str) -> tuple[str, str]:
@@ -3031,6 +3034,10 @@ class CacheVaultApp(ctk.CTk):
 
     def _revoke_mobile_device(self, device_id: str) -> None:
         self._mobile_bridge.revoke_device(device_id)
+
+    def _revoke_all_mobile_and_refresh(self) -> None:
+        self._mobile_bridge.revoke_all_active()
+        self._navigate_screen(NAV_MOBILE_ACCESS)
 
     def _open_mobile_receipts(self) -> None:
         MobileAccessReceiptsDialog(

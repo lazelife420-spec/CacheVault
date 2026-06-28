@@ -47,6 +47,7 @@ def connection_doctor_report(
     port: int = DEFAULT_MOBILE_PORT,
     bind_host: str = DEFAULT_BIND_HOST,
     receipts: list[dict] | None = None,
+    mdns_advertising: bool = False,
 ) -> dict:
     """Structured Connection Doctor state for Settings / Pair dialogs."""
     receipts = receipts or []
@@ -77,20 +78,28 @@ def connection_doctor_report(
         "last_request": last_line,
         "suggested_fix": suggested,
         "latest_receipt": latest,
+        "mdns_advertising": mdns_advertising,
     }
 
 
 def connection_doctor_text(report: dict) -> str:
     """Plain-text Connection Doctor block for dialogs."""
+    mdns = "Yes" if report.get("mdns_advertising") else "No"
     lines = [
         "Connection Doctor",
         "",
         f"Mobile Access: {report['mobile_access']}",
         f"Bridge: {report['bridge']}",
         f"Port: {report['port']}",
+        f"LAN discovery (mDNS): {mdns}",
     ]
     if report.get("recommended_ip"):
         lines.append(f"Recommended IP: {report['recommended_ip']}")
+    if not report.get("mdns_advertising"):
+        lines.append(
+            "mDNS not advertising. Phone auto-discovery won't work. "
+            "Use manual IP entry on the phone instead."
+        )
     lines.append(f"Last phone request: {report['last_request']}")
     if report.get("suggested_fix"):
         lines.append(f"Suggested fix: {report['suggested_fix']}")

@@ -794,6 +794,7 @@ class VaultScreenHost(ctk.CTkFrame):
                 ("Bridge enabled", "Yes" if summary.get("mobile_enabled") else "No"),
                 ("Local IP", report.get("local_ip", "—")),
                 ("Port", str(summary.get("mobile_port", 8742))),
+                ("LAN discovery", "Active" if report.get("mdns_advertising") else "Not advertising"),
                 ("Pairing status", report.get("pairing_status", "—")),
                 ("Paired devices", str(summary.get("paired_count", 0))),
                 ("Android companion", brand.MOBILE_PRODUCT_NAME),
@@ -833,6 +834,12 @@ class VaultScreenHost(ctk.CTkFrame):
                 command=self._callbacks["pair_android"],
                 **theme.primary_button(),
             ).pack(side="left", padx=(0, 6))
+            if summary.get("paired_count"):
+                ctk.CTkButton(
+                    btns, text="Revoke All Devices",
+                    command=self._callbacks["revoke_all_mobile"],
+                    **theme.destructive_button(),
+                ).pack(side="left", padx=(0, 6))
             ctk.CTkButton(
                 btns, text="Mobile Settings",
                 command=self._callbacks["mobile_settings"],
