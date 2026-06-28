@@ -9,7 +9,6 @@ simply unavailable (the rest of the app is unaffected).
 from __future__ import annotations
 
 import threading
-import time
 from typing import Callable, Optional
 
 try:  # pragma: no cover - optional dependency / Windows only

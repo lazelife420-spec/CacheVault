@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import webbrowser
 from io import BytesIO
 from typing import Callable

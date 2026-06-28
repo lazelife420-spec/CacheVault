@@ -223,6 +223,10 @@ def test_merge_usage_history(storage):
     v.review_duplicates(group, "keep_newest", merge_history=True)
     kept = storage.get_clip(b.id)
     assert kept.use_count >= 5
+    # BUG-11 regression: merge_usage_history must widen the keeper's
+    # created_at to the *earliest* first-saved date across all merged
+    # copies so the "First Saved" field reflects the true origin.
+    assert kept.created_at <= min(a.created_at, b.created_at)
 
 
 def test_duplicate_review_writes_receipt(storage):

@@ -9,9 +9,9 @@
 
 ## Summary
 
-This hotfix lane fixed four audit-confirmed correctness bugs (BUG-1, BUG-3,
-BUG-4, BUG-5), added regression tests for each, and verified the full local CI
-gate set with a fresh packaged exe.
+This hotfix lane fixed seven audit-confirmed correctness bugs (BUG-1, BUG-3,
+BUG-4, BUG-5, BUG-8, BUG-10, BUG-11), added regression tests, and verified the
+full local CI gate set with a fresh packaged exe.
 
 Two audit items were intentionally **not** shipped:
 - **BUG-2** (`storage.py` unused lock) — deferred to a dedicated concurrency
@@ -19,6 +19,10 @@ Two audit items were intentionally **not** shipped:
 - **BUG-6** (`win_mouse.py` 64-bit window-long) — **reverted after it caused a
   UI freeze** (see "Regression found and reverted" below). It is deferred to a
   proper redesign using `SetWindowSubclass`.
+
+Additionally, the pass removed **11 genuinely dead imports** across 8 files
+(via pyflakes audit) and resolved one dead-local variable that pointed to a
+real logic bug (the BUG-11 `first_saved` write-through gap).
 
 ---
 
@@ -159,6 +163,38 @@ cap renders exactly `MAX_VISIBLE_CLIPS` rows with the correct `more_count`.
 
 ---
 
+## First-Use Guide Close Didn't Destroy the Window (BUG-8)
+
+**Symptom (audit-found):** Clicking the X button on the first-use guide (when
+not opened from Settings) called `_on_action("start")` but never called
+`self.destroy()`. The dialog stayed open, and the only way to proceed was to
+click a button inside it.
+
+**Fix:** Added `self.destroy()` after the action callback in the non-settings
+branch of `_close_only()` in `first_use_guide.py`.
+
+**Test:** `test_first_use_guide.py::test_close_destroys_window` — source-level
+assertion that both branches of `_close_only` contain `self.destroy()`.
+
+---
+
+## Duplicate Merge Didn't Widen the Keeper's First-Saved Date (BUG-11)
+
+**Symptom (audit-found):** `_merge_usage_into` in `duplicates.py` computed
+`first_saved = min(…)` across all merged clips, but the UPDATE statement never
+wrote it — only `use_count`, `copied_count`, `last_used_at`, `updated_at`.
+Merging duplicate-usage history failed to roll back the keeper's `created_at`
+to the earliest copy, leaving the "First Saved" field unchanged despite the
+docstring promising to "widen date range."
+
+**Fix:** Added `created_at = ?` to the UPDATE and passed `first_saved` in the
+parameter tuple.
+
+**Test:** `test_home_dashboard.py::test_merge_usage_history` now asserts the
+keeper's `created_at` is `<=` the minimum of all merged clips.
+
+---
+
 ## Regression Found and Reverted (BUG-6)
 
 **Symptom:** After the initial hotfix commit, the app froze when copying
@@ -196,6 +232,16 @@ and live GUI validation, which is out of scope for a stability hotfix.
 | `cache_vault/core/macro_shortcut_listener.py` | BUG-5 fix (`WM_QUIT` post + thread join) |
 | `cache_vault/ui/clip_list.py` | BUG-10: `more_count` footer on render cap |
 | `cache_vault/ui/clip_grid.py` | BUG-10: `more_count` footer on render cap |
+| `cache_vault/ui/first_use_guide.py` | BUG-8: `_close_only` destroys the window in both branches |
+| `cache_vault/core/duplicates.py` | BUG-11: `_merge_usage_into` writes `first_saved` to `created_at` in the UPDATE |
+| `cache_vault/core/app_receipt.py` | Dead import: remove unused `os` |
+| `cache_vault/core/hotkey.py` | Dead import: remove unused `time` |
+| `cache_vault/core/paste_delivery.py` | Dead imports: remove unused `Callable`, `Optional` |
+| `cache_vault/core/macro_execute.py` | Dead import: remove unused `field` |
+| `cache_vault/core/vault_macros.py` | Dead imports: remove unused `datetime`, `timezone` |
+| `cache_vault/core/mobile/api.py` | Dead imports: remove unused `search`, `FILTER_*` constants |
+| `cache_vault/core/mobile/models.py` | Dead import: remove unused `field` |
+| `cache_vault/ui/preview.py` | Dead import: remove unused `os` |
 
 > `cache_vault/core/win_mouse.py` was modified for BUG-6 and then reverted to
 > its pre-hotfix state; it carries no net change in this lane.
@@ -209,6 +255,8 @@ and live GUI validation, which is out of scope for a stability hotfix.
 | `tests/test_contextmenu.py` | BUG-4: distinct `mark_keep` key, unique menu keys, dispatch wiring, behavioral `mark_keep` sets `is_kept` (not favorite) |
 | `tests/test_macro_shortcut_listener.py` (new) | BUG-5: `stop()` posts `WM_QUIT`, idempotent no-op without hook, thread join — fake `_user32`, no real hook |
 | `tests/test_clip_render_cap.py` (new) | BUG-10: cap constant is safe; large history renders exactly `MAX_VISIBLE_CLIPS` rows with correct `more_count` |
+| `tests/test_first_use_guide.py` | BUG-8: `_close_only` has `self.destroy()` in both branches |
+| `tests/test_home_dashboard.py` | BUG-11: `test_merge_usage_history` asserts `created_at` widened to earliest |
 
 > `tests/test_win_mouse.py` was added for BUG-6 and then removed along with the
 > BUG-6 revert.
@@ -236,9 +284,10 @@ Result: **PASS**.
 ```
 python -m pytest -p no:xonsh
 ```
-Result: **560 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
-(559 with BUG-6 tests → 557 after the BUG-6 revert → 558 after the BUG-9
-menu-leak test → 560 after adding the BUG-10 render-cap tests.)
+Result: **561 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
+(559 with BUG-6 tests → 557 after the BUG-6 revert → 558 after BUG-9
+menu-leak → 560 after BUG-10 render-cap → 561 after BUG-8 close-destroy
+and BUG-11 merge-widening tests.)
 
 ### compileall
 ```
@@ -257,7 +306,7 @@ Result: **PASS** — `selftest OK — core capture/classify/sensitive/image/mobi
 pwsh scripts/ci_local_full.ps1
 ```
 Result: **CACHE VAULT LOCAL CI: PASS**
-- pytest: PASS (full: 560 passed)
+- pytest: PASS (full: 561 passed)
 - founder-critical: PASS | command-center: PASS | quick-paste: PASS | receipts-export: PASS
 - compileall: PASS
 - selftest: PASS
@@ -280,9 +329,10 @@ re-run and packaging rebuilt the exe cleanly.
 
 ### Fresh exe
 - `dist/CacheVault.exe` — 41.1 MB
-- SHA256: `F002FF5B18B49781D3A0324B2D407472731625CBBE32B6BBA373DA37F0B315C8`
-  (rebuilt after the BUG-10 render-cap fix)
+- SHA256: `7A56B8AA6B1C106F9E7363D817F2561F86B72375C0DF5CDF7DFF8E0529389874`
+  (rebuilt after BUG-8/11 fixes + dead-import cleanup)
 - Prior builds in this lane:
+  - `F002FF5B18B49781D3A0324B2D407472731625CBBE32B6BBA373DA37F0B315C8` — after BUG-10 render-cap fix
   - `E2AEAD2D862D8BEFB259D70EDC140D1E84174FA70F45069D66B7F376A6CE181A` — after BUG-9 menu-destroy fix
   - `EF17BB58017151A56EC2A2DD93D1C121C65BF683D4A4561A808A488D9E32A03B` — after BUG-6 revert
   - `4A76AC11F2FF47C70A366870C8389688CB04023FAB6B778E0E23092C086B691D` — froze copy (BUG-6 active); superseded

@@ -121,8 +121,8 @@ def _merge_usage_into(storage: VaultStorage, keeper: Clip, others: list[Clip]) -
     last_used = max(last_used_vals)
     storage.conn.execute(
         "UPDATE clips SET use_count = ?, copied_count = ?, "
-        "last_used_at = ?, updated_at = ? WHERE id = ?",
-        (total_use, total_copied, last_used, models.now_iso(), keeper.id),
+        "created_at = ?, last_used_at = ?, updated_at = ? WHERE id = ?",
+        (total_use, total_copied, first_saved, last_used, models.now_iso(), keeper.id),
     )
     storage.conn.commit()
 
