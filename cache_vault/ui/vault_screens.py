@@ -8,7 +8,7 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import clip_metadata, models
-from ..core.editable_copies import KIND_HTML_BUNDLE, load_bundle_meta
+from ..core.editable_copies import load_bundle_meta
 from . import theme
 from .guide_copy import (
     EMPTY_EXPORTS,
@@ -26,7 +26,6 @@ from .receipt_ledger import (
     filter_rows,
     format_detail_text,
     format_list_line,
-    humanize_action,
     rows_from_events,
     shorten_hash,
 )

@@ -14,7 +14,6 @@ from .vault_macros import Macro, TRIGGER_TEXT_SHORTCUT
 
 try:
     import win32api  # type: ignore
-    import win32gui  # type: ignore
 
     _HAS_WIN32 = True
 except Exception:  # noqa: BLE001

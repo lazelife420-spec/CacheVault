@@ -8,14 +8,13 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import models
-from ..core.lan_ip import advanced_lan_ipv4, lan_ip_guidance, list_lan_ipv4, recommended_lan_ipv4
+from ..core.lan_ip import advanced_lan_ipv4, list_lan_ipv4, recommended_lan_ipv4
 from ..core.mobile.connection_doctor import connection_doctor_text
 from ..core.mobile.models import DEFAULT_MOBILE_PORT
 from . import theme
 from .pairing_help import (
     PAIRING_ERROR,
     PAIRING_PLACEHOLDER,
-    mask_token,
     pairing_copy_all_text,
     pairing_success_text,
     normalize_device_name,

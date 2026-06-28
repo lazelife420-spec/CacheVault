@@ -82,7 +82,7 @@ def display(value: str | None, *, fallback: str = "—") -> str:
 
 def _time_bucket(iso: str) -> str:
     """Bucket an ISO timestamp into Today/Yesterday/This Week/Older."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
 
     if not iso:
         return "Older"

@@ -22,7 +22,6 @@ from ..core.vault_macros import (
     STARTER_MACRO_SAFES,
     complete_macro_setup,
     normalize_hotkey,
-    suggest_smart_type,
 )
 from . import theme
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym

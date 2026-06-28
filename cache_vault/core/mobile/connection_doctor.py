@@ -28,7 +28,6 @@ def format_last_request(receipt: dict | None) -> str:
         return "No phone requests yet"
     result = receipt.get("result") or "?"
     reason = receipt.get("reason") or ""
-    route = receipt.get("route") or ""
     if result == "ok":
         action = receipt.get("action") or "request"
         return f"ok — {action}"

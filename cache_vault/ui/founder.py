@@ -9,7 +9,7 @@ from typing import Callable
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-from .. import __version__, brand
+from .. import brand
 from ..core import app_receipt
 from ..feature_gate import founder_feature_label
 from .. import licensing

@@ -1048,12 +1048,7 @@ class EventLogDialog(ctk.CTkToplevel):
             FILTER_ALL,
             ReceiptRow,
             export_rows,
-            filter_rows,
-            format_detail_text,
-            format_list_line,
             format_receipt_copy,
-            rows_from_events,
-            shorten_hash,
         )
 
         super().__init__(master)

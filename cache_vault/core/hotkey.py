@@ -12,7 +12,6 @@ import threading
 from typing import Callable, Optional
 
 try:  # pragma: no cover - optional dependency / Windows only
-    import win32api  # type: ignore
     import win32con  # type: ignore
     import win32gui  # type: ignore
     _HAS_WIN32 = True

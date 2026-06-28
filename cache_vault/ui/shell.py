@@ -18,7 +18,6 @@ import sys
 import threading
 import traceback
 from pathlib import Path
-from typing import Callable
 
 import customtkinter as ctk
 
@@ -3460,7 +3459,6 @@ class CacheVaultApp(ctk.CTk):
     def _macro_list_rows(self, filter_key: str, query: str) -> list[dict]:
         from ..core.vault_macros import (
             MacroSafeRegistry,
-            SMART_TYPE_LABELS,
             apply_macro_filter,
             inspector_warnings,
             search_macros,
@@ -3522,7 +3520,6 @@ class CacheVaultApp(ctk.CTk):
 
     def _macro_edit(self, macro_id: str) -> None:
         from .macro_dialogs import MacroEditDialog
-        from ..core import models
         from ..core.vault_macros import MacroSafeRegistry
         macro = self._macro_store.get(macro_id)
         if macro is None:
@@ -3877,7 +3874,6 @@ class CacheVaultApp(ctk.CTk):
             ACTION_RUN_MACRO,
             ACTION_SAVE_CLIPBOARD_TO_SAFE,
             ACTION_TOGGLE_CAPTURE,
-            RESULT_FAILED,
         )
 
         def open_vault(*_args):

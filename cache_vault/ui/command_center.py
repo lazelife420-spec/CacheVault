@@ -7,7 +7,6 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core.hotkey import parse_hotkey
 from ..core.command_center import (
     ACTION_SPECS,
     HotkeyAction,
