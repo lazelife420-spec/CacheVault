@@ -45,6 +45,10 @@ from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SafePickerDialog, SettingsDialog,
 )
+try:
+    from .settings_hub import SettingsHub
+except ImportError:
+    SettingsHub = None
 from .filters import (
     FilterNav,
     NAV_EDITABLE_COPIES,
@@ -2924,6 +2928,22 @@ class CacheVaultApp(ctk.CTk):
         return external
 
     def _open_settings(self) -> None:
+        # Prefer the new registry-backed Settings Hub (Chunk C2).
+        if SettingsHub is not None:
+            try:
+                from ..modules.registry import build_default_registry
+                registry = build_default_registry()
+                SettingsHub(
+                    self,
+                    self.vault.settings,
+                    registry,
+                    on_save=self._apply_settings,
+                )
+                return
+            except Exception:
+                # Fallback to old dialog if hub construction fails.
+                pass
+
         SettingsDialog(
             self, self.vault.settings, on_save=self._apply_settings,
             mobile={
