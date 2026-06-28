@@ -193,6 +193,23 @@ def test_clip_menu_dispatch_wires_mark_keep():
     assert '"mark_keep": lambda: self._mark_keep(clip.id)' in src
 
 
+def test_context_menus_are_destroyed_after_use():
+    """Every popup menu must be destroyed to avoid leaking Tk menu handles.
+
+    Leaked menus eventually trigger 'No more menus can be allocated', which
+    breaks bulk copy and every other context menu.
+    """
+    from cache_vault.ui.shell import CacheVaultApp
+
+    src = inspect.getsource(CacheVaultApp)
+    # The freeing helper must exist and actually destroy the menu.
+    helper = inspect.getsource(CacheVaultApp._destroy_menu)
+    assert "menu.destroy()" in helper
+    # Every popup site (one grab_release per popup) must pair with a destroy.
+    assert src.count("menu.grab_release()") == src.count("self._destroy_menu(menu)")
+    assert src.count("self._destroy_menu(menu)") >= 6
+
+
 def test_mark_keep_handler_sets_kept_flag(vault):
     """Choosing Mark Keep performs the intended action: it sets is_kept, not favorite."""
     clip = vault.capture("keep me")

@@ -2129,6 +2129,7 @@ class CacheVaultApp(ctk.CTk):
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
+            self._destroy_menu(menu)
 
     def _open_bulk_clip_menu(self, ids: list[str], x_root: int, y_root: int) -> None:
         """Context menu for a multi-clip selection — actions target the whole set."""
@@ -2151,6 +2152,7 @@ class CacheVaultApp(ctk.CTk):
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
+            self._destroy_menu(menu)
 
     def _add_menu_items(self, menu, items, dispatch: dict, clip_id: str) -> None:
         import tkinter as tk
@@ -2186,6 +2188,21 @@ class CacheVaultApp(ctk.CTk):
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
+            self._destroy_menu(menu)
+
+    @staticmethod
+    def _destroy_menu(menu) -> None:
+        """Free a popup menu (and its submenus) after use.
+
+        Context menus are recreated on every right-click. Without destroying
+        them, Tk leaks menu handles until the process hits the Windows USER
+        object limit and raises ``TclError: No more menus can be allocated``,
+        which then breaks every subsequent menu (including bulk copy).
+        """
+        try:
+            menu.destroy()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _popup_menu(self, menu, x_root: int, y_root: int) -> None:
         tooltip.before_menu_open()
@@ -2194,6 +2211,7 @@ class CacheVaultApp(ctk.CTk):
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
+            self._destroy_menu(menu)
 
     def _add_nav_command(self, menu, label: str, command) -> None:
         menu.add_command(label=label, command=command)
@@ -2329,6 +2347,7 @@ class CacheVaultApp(ctk.CTk):
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
+            self._destroy_menu(menu)
 
     def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
         import tkinter as tk
@@ -2381,6 +2400,7 @@ class CacheVaultApp(ctk.CTk):
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
+            self._destroy_menu(menu)
 
     def _set_default_safe(self, safe_id: str) -> None:
         if not safe_id:

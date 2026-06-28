@@ -70,6 +70,42 @@ Two audit items were intentionally **not** shipped:
 
 ---
 
+## Follow-up Stability Fix — Context-menu handle leak (BUG-9)
+
+**Symptom (user-reported):** After using the app for a while, multi-clip copy
+"doesn't actually copy anything" — the bulk action appears dead.
+
+**Diagnosis:** `%LOCALAPPDATA%\CacheVault\crash.log` showed the real error:
+```
+TclError: No more menus can be allocated.
+  cache_vault\ui\shell.py, in _open_bulk_clip_menu
+  tkinter\__init__.py, in __init__   (tk.Menu)
+```
+Every right-click built a fresh `tk.Menu` (a parent plus ~6 submenus) that was
+**never destroyed**. Over a session this exhausts the per-process Windows USER
+object / menu-handle quota. Once exhausted, *no* new menu can be created — so
+the bulk-copy context menu fails to build and the "Copy N clips" action never
+runs. This is a pre-existing leak (the copy code itself is unchanged), unrelated
+to the BUG-1/3/4/5 edits, surfaced by cumulative use.
+
+**Fix:** Added `CacheVaultApp._destroy_menu()` and call it in the `finally` of
+every popup site (`_open_clip_menu`, `_open_bulk_clip_menu`, `_open_locked_menu`,
+`_popup_menu`, `_open_receipt_menu`, `_open_safe_menu`). Destroying the parent
+menu also frees its submenus, reclaiming all handles per right-click. On Windows
+`tk_popup` is modal, so the selected command has already run by the time the
+`finally` executes — destruction is safe and does not cancel the action.
+
+**Test:** `tests/test_contextmenu.py::test_context_menus_are_destroyed_after_use`
+asserts the helper destroys the menu and that every `grab_release()` popup is
+balanced by a `_destroy_menu(menu)` call (source-level, no Tk needed).
+
+> Note: the same crash log also shows a benign `iconbitmap ... not defined`
+> warning on dialog creation (CustomTkinter icon path inside the PyInstaller
+> `_MEI` temp dir). It is cosmetic, does not affect copy, and is left for a
+> separate cleanup.
+
+---
+
 ## Regression Found and Reverted (BUG-6)
 
 **Symptom:** After the initial hotfix commit, the app froze when copying
@@ -144,8 +180,9 @@ Result: **PASS**.
 ```
 python -m pytest -p no:xonsh
 ```
-Result: **557 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
-(Was 559 before the BUG-6 revert removed its 2 tests.)
+Result: **558 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
+(559 with BUG-6 tests → 557 after the BUG-6 revert → 558 after adding the
+BUG-9 menu-leak regression test.)
 
 ### compileall
 ```
@@ -164,7 +201,7 @@ Result: **PASS** — `selftest OK — core capture/classify/sensitive/image/mobi
 pwsh scripts/ci_local_full.ps1
 ```
 Result: **CACHE VAULT LOCAL CI: PASS**
-- pytest: PASS (full: 557 passed)
+- pytest: PASS (full: 558 passed)
 - founder-critical: PASS | command-center: PASS | quick-paste: PASS | receipts-export: PASS
 - compileall: PASS
 - selftest: PASS
@@ -187,10 +224,11 @@ re-run and packaging rebuilt the exe cleanly.
 
 ### Fresh exe
 - `dist/CacheVault.exe` — 41.1 MB
-- SHA256: `EF17BB58017151A56EC2A2DD93D1C121C65BF683D4A4561A808A488D9E32A03B`
-  (rebuilt after the BUG-6 revert; the earlier
-  `4A76AC11F2FF47C70A366870C8389688CB04023FAB6B778E0E23092C086B691D` build
-  included the BUG-6 change that froze multi-clip copy)
+- SHA256: `E2AEAD2D862D8BEFB259D70EDC140D1E84174FA70F45069D66B7F376A6CE181A`
+  (rebuilt after the BUG-9 context-menu leak fix)
+- Prior builds in this lane:
+  - `EF17BB58017151A56EC2A2DD93D1C121C65BF683D4A4561A808A488D9E32A03B` — after BUG-6 revert
+  - `4A76AC11F2FF47C70A366870C8389688CB04023FAB6B778E0E23092C086B691D` — froze copy (BUG-6 active); superseded
 
 ---
 
