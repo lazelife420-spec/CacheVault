@@ -11,6 +11,7 @@ from ..core import startup, vault_lock
 from ..core.hotkey import DEFAULT_HOTKEY_BINDINGS, diagnose_hotkey_spec, normalize_hotkey
 from ..core.settings import Settings
 from . import theme
+from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
 from .vault_lock import LOCK_STYLES
 
@@ -91,7 +92,8 @@ class AboutDialog(ctk.CTkToplevel):
 
 class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None],
-                 *, mobile: dict | None = None, help: dict | None = None):
+                 *, mobile: dict | None = None, help: dict | None = None,
+                 external_hotkeys: dict[str, str] | None = None):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
         self.geometry("520x720")
@@ -102,8 +104,12 @@ class SettingsDialog(ctk.CTkToplevel):
         self._on_save = on_save
         self._mobile = mobile or {}
         self._help = help or {}
+        self._external_hotkeys = external_hotkeys or {}
         self._hk_entries: dict[str, ctk.CTkEntry] = {}
         self._hk_status: dict[str, ctk.CTkLabel] = {}
+        self._hk_record_btns: dict[str, ctk.CTkButton] = {}
+        self._recording_role: str | None = None
+        self._held: set[str] = set()
 
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
@@ -483,9 +489,17 @@ class SettingsDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             row, text=title, font=ctk.CTkFont(size=12, weight="bold"),
         ).pack(side="left", anchor="w")
-        entry = ctk.CTkEntry(row, width=160, placeholder_text="Ctrl+Shift+V")
+        controls = ctk.CTkFrame(row, fg_color="transparent")
+        controls.pack(side="right")
+        entry = ctk.CTkEntry(controls, width=160, placeholder_text="Ctrl+Shift+V")
         entry.insert(0, value)
-        entry.pack(side="right")
+        entry.pack(side="left")
+        record_btn = ctk.CTkButton(
+            controls, text="Record", width=70,
+            command=lambda r=role: self._toggle_record(r),
+            **theme.secondary_button(),
+        )
+        record_btn.pack(side="left", padx=(6, 0))
         ctk.CTkLabel(
             block, text=hint, anchor="w", justify="left",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
@@ -496,8 +510,56 @@ class SettingsDialog(ctk.CTkToplevel):
         status.pack(anchor="w", pady=(2, 0))
         self._hk_entries[role] = entry
         self._hk_status[role] = status
+        self._hk_record_btns[role] = record_btn
         entry.bind("<KeyRelease>", lambda _e: self._refresh_hotkey_statuses())
         return entry
+
+    def _toggle_record(self, role: str) -> None:
+        if self._recording_role == role:
+            self._stop_record()
+            return
+        if self._recording_role is not None:
+            self._stop_record()
+        self._recording_role = role
+        self._held.clear()
+        self._hk_record_btns[role].configure(text="Press keys…")
+        self.bind("<KeyPress>", self._on_hk_key_press)
+        self.bind("<KeyRelease>", self._on_hk_key_release)
+        self.focus_set()
+
+    def _stop_record(self) -> None:
+        role = self._recording_role
+        self._recording_role = None
+        if role and role in self._hk_record_btns:
+            self._hk_record_btns[role].configure(text="Record")
+        self.unbind("<KeyPress>")
+        self.unbind("<KeyRelease>")
+
+    def _on_hk_key_press(self, event):
+        role = self._recording_role
+        if role is None:
+            return None
+        mod = _MODIFIER_KEYSYMS.get(event.keysym)
+        if mod:
+            self._held.add(mod)
+            return "break"
+        key = _normalize_keysym(event.keysym)
+        if key is None:
+            return "break"
+        order = [m for m in ("ctrl", "alt", "shift", "win") if m in self._held]
+        spec = "+".join(order + [key])
+        entry = self._hk_entries[role]
+        entry.delete(0, "end")
+        entry.insert(0, spec)
+        self._stop_record()
+        self._refresh_hotkey_statuses()
+        return "break"
+
+    def _on_hk_key_release(self, event):
+        mod = _MODIFIER_KEYSYMS.get(event.keysym)
+        if mod:
+            self._held.discard(mod)
+        return "break"
 
     def _collect_hotkey_specs(self) -> dict[str, str]:
         return {role: entry.get().strip() for role, entry in self._hk_entries.items()}
@@ -508,11 +570,14 @@ class SettingsDialog(ctk.CTkToplevel):
             "ok": brand.PROOF_TEAL,
             "invalid": brand.WARNING_RED,
             "duplicate": brand.WARNING_RED,
+            "conflict": brand.WARNING_RED,
             "unavailable": brand.STAMP_GOLD,
             "reserved": brand.STAMP_GOLD,
         }
         for role, entry in self._hk_entries.items():
-            kind, message = diagnose_hotkey_spec(entry.get(), role, specs)
+            kind, message = diagnose_hotkey_spec(
+                entry.get(), role, specs, external_specs=self._external_hotkeys,
+            )
             label = self._hk_status[role]
             label.configure(text=message, text_color=colors.get(kind, brand.MUTED_FG))
 

@@ -281,11 +281,14 @@ class CacheVaultApp(ctk.CTk):
         # Tray last — callbacks marshal through _call_on_main (pystray runs off-thread).
         self._tray = TrayController(
             on_open=lambda: self._call_on_main(self._show_window),
-            on_pause=lambda: self._call_on_main(lambda: self._set_paused(True)),
-            on_resume=lambda: self._call_on_main(lambda: self._set_paused(False)),
+            on_toggle_pause=lambda: self._call_on_main(
+                lambda: self._set_paused(not self.vault.settings.capture_paused)
+            ),
+            is_paused=lambda: bool(self.vault.settings.capture_paused),
             on_clear_sensitive=lambda: self._call_on_main(self._clear_sensitive),
             on_quit=lambda: self._call_on_main(self._quit),
             on_quick_paste=lambda: self._call_on_main(self._schedule_quick_paste),
+            on_macro_menu=lambda: self._call_on_main(self._schedule_macro_menu),
         )
         self._tray.start()
 
@@ -536,6 +539,12 @@ class CacheVaultApp(ctk.CTk):
                 "macro_new_template": self._macro_new_template,
                 "macro_setup": self._open_macro_setup,
                 "macro_run": self._macro_run,
+                "hotkey_action_list": self._command_action_rows,
+                "hotkey_action_new": self._command_action_new,
+                "hotkey_action_edit": self._command_action_edit,
+                "hotkey_action_run": self._command_action_run_button,
+                "hotkey_action_toggle": self._command_action_toggle,
+                "hotkey_action_delete": self._command_action_delete,
                 "copy_clip": self._copy_again,
                 "open_link": self._open_clip_link,
                 "export_proof": self._export_clip_proof,
@@ -2902,6 +2911,17 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(None)
 
     # --- dialogs -----------------------------------------------------------
+    def _settings_external_hotkeys(self) -> dict[str, str]:
+        """Macro/Hotkey-Action combos so Settings can flag capture-key clashes."""
+        external: dict[str, str] = {}
+        for m in self._macro_store.load_all():
+            if m.trigger_type == self._TRIGGER_HOTKEY and (m.trigger_value or "").strip():
+                external[m.trigger_value] = f"macro “{m.name}”"
+        for a in self._command_store.load_all():
+            if getattr(a, "enabled", True) and getattr(a, "hotkey", "").strip():
+                external[a.hotkey] = f"hotkey action “{a.name}”"
+        return external
+
     def _open_settings(self) -> None:
         SettingsDialog(
             self, self.vault.settings, on_save=self._apply_settings,
@@ -2915,6 +2935,7 @@ class CacheVaultApp(ctk.CTk):
                 "founder": self._open_founder,
                 "about": self._open_about,
             },
+            external_hotkeys=self._settings_external_hotkeys(),
         )
 
     def _maybe_show_first_use_guide(self) -> None:
@@ -3490,6 +3511,15 @@ class CacheVaultApp(ctk.CTk):
             lines.append("Last run: FAILED")
         return "\n".join(lines)
 
+    def _macro_editor_context(self, macro_id: str | None) -> tuple[list, set]:
+        macros = self._macro_store.load_all()
+        other = [m for m in macros if m.id != macro_id]
+        reserved = set(self._system_reserved_hotkeys(self.vault.settings))
+        for a in self._command_store.load_all():
+            if getattr(a, "enabled", True) and getattr(a, "hotkey", ""):
+                reserved.add(normalize_hotkey(a.hotkey))
+        return other, reserved
+
     def _macro_edit(self, macro_id: str) -> None:
         from .macro_dialogs import MacroEditDialog
         from ..core import models
@@ -3510,8 +3540,10 @@ class CacheVaultApp(ctk.CTk):
             self._sync_macro_triggers()
             self.refresh()
 
+        other, reserved = self._macro_editor_context(macro_id)
         MacroEditDialog(
-            self, macro=macro, registry=MacroSafeRegistry(self.vault.settings), on_save=on_save,
+            self, macro=macro, registry=MacroSafeRegistry(self.vault.settings),
+            on_save=on_save, other_macros=other, reserved_specs=reserved,
         )
 
     def _macro_new_template(self) -> None:
@@ -3535,7 +3567,11 @@ class CacheVaultApp(ctk.CTk):
                 self._sync_macro_triggers()
                 self.refresh()
 
-            MacroEditDialog(self, macro=macro, registry=registry, on_save=on_save)
+            other, reserved = self._macro_editor_context(macro.id)
+            MacroEditDialog(
+                self, macro=macro, registry=registry, on_save=on_save,
+                other_macros=other, reserved_specs=reserved,
+            )
 
         MacroTemplatePicker(self, on_pick=on_pick)
 

@@ -106,10 +106,16 @@ def diagnose_hotkey_spec(
     all_specs: dict[str, str],
     *,
     win32_available: bool | None = None,
+    external_specs: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     """Return ``(kind, message)`` for settings UI status labels.
 
-    *kind* is one of: ``ok``, ``invalid``, ``duplicate``, ``unavailable``, ``reserved``.
+    *kind* is one of: ``ok``, ``invalid``, ``duplicate``, ``conflict``,
+    ``unavailable``, ``reserved``.
+
+    ``external_specs`` maps a raw hotkey string (e.g. a Vault Macro or Hotkey
+    Action combo) to a human label describing its owner. A match reports a
+    ``conflict`` so the user knows the shortcut is already claimed elsewhere.
     """
     if win32_available is None:
         win32_available = _HAS_WIN32
@@ -126,6 +132,10 @@ def diagnose_hotkey_spec(
     ]
     if dup_roles:
         return "duplicate", "Same shortcut used elsewhere in Cache Vault"
+    if external_specs:
+        for other_spec, label in external_specs.items():
+            if other_spec and _canonical_key(other_spec) == canon_key:
+                return "conflict", f"Already used by {label}"
     if not win32_available:
         return "unavailable", "Global shortcuts need Windows (pywin32)"
     if canon_key in _WINDOWS_RESERVED_DISPLAY:

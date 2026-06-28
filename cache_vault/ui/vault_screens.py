@@ -406,7 +406,19 @@ class VaultScreenHost(ctk.CTkFrame):
             fk = filter_map.get(filt.get(), MACRO_FILTER_ALL)
             rows = macros_cb(fk, search.get())
             if not rows:
-                _empty(self._macro_list, "No macros match this filter.")
+                first_use = fk == MACRO_FILTER_ALL and not search.get().strip()
+                if first_use:
+                    _empty(
+                        self._macro_list,
+                        "No macros yet.\n\n"
+                        "Vault Macros are reusable snippets — signatures, replies, "
+                        "addresses, code, commands — that you paste by hotkey, text "
+                        "shortcut, or the macro menu.\n\n"
+                        "Click “New from template” to create your first one, then set "
+                        "a hotkey combo in the editor to paste it anywhere.",
+                    )
+                else:
+                    _empty(self._macro_list, "No macros match this filter or search.")
                 return
             for row in rows[:60]:
                 m = row["macro"]
@@ -519,8 +531,13 @@ class VaultScreenHost(ctk.CTkFrame):
             if not rows:
                 _empty(
                     self._hotkey_list,
-                    "No hotkey actions yet. Click “＋ New Hotkey” to bind a "
-                    "shortcut to a safe vault action.",
+                    "No hotkey actions yet.\n\n"
+                    "Hotkey Actions bind a global keyboard shortcut to a safe "
+                    "vault action — for example, press Ctrl+Alt+V to paste a "
+                    "saved macro, or a combo to copy the latest clip.\n\n"
+                    "Click “＋ New Hotkey” to record a shortcut, pick an action "
+                    "and target, then save. Every run is stamped to your "
+                    "receipts.",
                 )
                 return
             for row in rows:
@@ -617,7 +634,12 @@ class VaultScreenHost(ctk.CTkFrame):
             if not records:
                 _empty(
                     self._copies_list,
-                    "No editable copies yet. Create one from a file clip to protect the original.",
+                    "No editable copies yet.\n\n"
+                    "An editable copy is a safe, separate working file made from a "
+                    "saved file clip — your original stays untouched and "
+                    "hash-verified.\n\n"
+                    "Select a file clip, then choose “Make Editable Copy” to start "
+                    "one. Each saved revision is stamped to your receipts.",
                 )
                 return
             for rec in records:
@@ -686,7 +708,12 @@ class VaultScreenHost(ctk.CTkFrame):
             if not records:
                 _empty(
                     self._html_list,
-                    "No HTML bundles yet. Create one from a local .html or .htm file.",
+                    "No HTML bundles yet.\n\n"
+                    "An HTML bundle copies a local .html or .htm page plus its local "
+                    "assets (images, CSS, scripts) into one editable package. Remote "
+                    "assets are skipped and listed so you know what was left out.\n\n"
+                    "Select a local HTML file clip, then choose “Make HTML Bundle” to "
+                    "create one.",
                 )
                 return
             for rec in records:

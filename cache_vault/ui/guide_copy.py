@@ -67,19 +67,26 @@ TOOLTIP_VAULT_MACROS = (
 )
 
 EMPTY_STAMPED_RECEIPTS = (
-    "No receipts yet. Receipts appear when Cache Vault saves, receives, exports, "
-    "edits, or removes items."
+    "No receipts yet.\n\n"
+    "Receipts are your local proof ledger — each one records what happened, when, "
+    "and which item was involved. They appear automatically when Cache Vault saves, "
+    "receives, exports, edits, or removes items.\n\n"
+    "Save or copy something to see your first receipt here."
 )
 EMPTY_MOBILE_INBOX = (
-    "Nothing from your phone yet. Pair Cache Vault Mobile, then tap Share on Android "
-    "and choose Send to PC."
+    "Nothing from your phone yet.\n\n"
+    "Your Mobile Inbox holds items shared from Android over your local network. "
+    "Pair Cache Vault Mobile first, then tap Share on Android and choose Send to PC."
 )
 EMPTY_SAFES = (
-    "Safes help organize your vault. Start with Default Safe, then add more when needed."
+    "Safes help organize your vault into local sections (not encryption). "
+    "Start with Default Safe, then add more when you need to keep things apart."
 )
 EMPTY_EXPORTS = (
-    "No proof exports yet. Export a proof zip when you want a portable bundle "
-    "with receipts and hashes."
+    "No proof exports yet.\n\n"
+    "A proof export bundles selected items with their receipts, a manifest, and "
+    "SHA256 hashes so you can verify later exactly what happened.\n\n"
+    "Click Export to create your first portable proof zip."
 )
 
 NAV_TOOLTIPS: dict[str, str] = {
