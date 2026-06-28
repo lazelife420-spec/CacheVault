@@ -106,6 +106,59 @@ balanced by a `_destroy_menu(menu)` call (source-level, no Tk needed).
 
 ---
 
+## Root-Cause Stability Fix — Uncapped clip list exhausts USER objects (BUG-10)
+
+**Symptom (user-reported, persisted after BUG-9):** Multi-clip copy still froze
+and "doesn't actually copy anything," and `crash.log` still showed
+`No more menus can be allocated` at `_open_bulk_clip_menu` — in a build that
+**already contained** the BUG-9 fix (confirmed by the traceback line number),
+within ~105 seconds of a fresh start.
+
+**Why BUG-9 was not the real cause:** Empirical instrumentation of the real app
+(monkeypatching `tkinter.Menu`/`BaseWidget` create+destroy) proved there is **no
+menu or widget leak** in refresh, clip-capture, navigation, or the context-menu
+paths — live menus stay flat at 10, and a standalone probe creating+destroying
+6,000 clip-style menus never exhausts (Tk 8.6.15 reuses menu command IDs). The
+BUG-9 `destroy()` is correct and worth keeping, but it was a red herring for
+this symptom.
+
+**Actual root cause — scale, not a leak:** `ClipList`/`ClipGrid` render **one
+row per clip with no cap and no virtualization**. Measured cost on this machine:
+each row is **~45 Tk widgets / ~18 `CTkCanvas`**, and on Windows *every* Tk
+widget is a USER object (HWND). Per-row slope ≈ 47 widgets:
+
+| Clips rendered | `CTkCanvas` HWNDs | Total Tk widgets |
+|---|---|---|
+| 10 | 769 | 2,062 |
+| 60 | 1,669 | 4,412 |
+| 110 | 2,569 | 6,762 |
+| **570 (real vault)** | **~10,800** | **~28,000** |
+
+Windows caps USER objects at ~10,000 per process. The user's vault holds **570
+clips**, so the list alone needs ~28,000 HWNDs — it exhausts the quota
+**mid-render** (around ~180 rows), which both freezes the render and makes the
+*next* `tk.Menu(...)` raise `No more menus can be allocated`. This is exactly why
+it "worked so good earlier" (smaller history) and degraded as the history grew.
+
+**Fix:** Cap how many rows are materialised at `MAX_VISIBLE_CLIPS = 120`
+(`shell.py`). `refresh()` renders the first 120 of the matching set, sets
+`_visible_clip_ids` to that capped set (so selection/range/select-all stay
+consistent), and passes the remainder as `more_count` to the list/grid. Both
+views render a muted footer: *"+ N more not shown — search, filter, or sort to
+bring older clips into view."* 120 rows ≈ ~7,200 widgets, leaving comfortable
+headroom under the 10k quota for menus, dialogs, and the preview pane. Older
+clips remain fully reachable via search/filters/sort.
+
+**Validation against the real vault:** Pointing the app at a copy of the user's
+`cache_vault.db` (561 matching clips), `refresh()` now caps `_visible_clip_ids`
+to 120, reports `more_count = 441`, and renders all 120 rows without exhaustion.
+
+**Test:** `tests/test_clip_render_cap.py` — asserts the cap constant is in a safe
+range, and (behaviorally, when Tk is available) that a history larger than the
+cap renders exactly `MAX_VISIBLE_CLIPS` rows with the correct `more_count`.
+
+---
+
 ## Regression Found and Reverted (BUG-6)
 
 **Symptom:** After the initial hotfix commit, the app froze when copying
@@ -139,8 +192,10 @@ and live GUI validation, which is out of scope for a stability hotfix.
 | `cache_vault/core/clip_metadata.py` | BUG-1 fix (`removeprefix`) |
 | `cache_vault/core/safes.py` | BUG-3 fix (preserve customization on rename) |
 | `cache_vault/core/contextmenu.py` | BUG-4 fix (distinct `mark_keep` key) |
-| `cache_vault/ui/shell.py` | BUG-4 follow-through (`mark_keep` dispatch wiring) |
+| `cache_vault/ui/shell.py` | BUG-4 follow-through (`mark_keep` dispatch wiring); BUG-9 `_destroy_menu()`; BUG-10 `MAX_VISIBLE_CLIPS` render cap |
 | `cache_vault/core/macro_shortcut_listener.py` | BUG-5 fix (`WM_QUIT` post + thread join) |
+| `cache_vault/ui/clip_list.py` | BUG-10: `more_count` footer on render cap |
+| `cache_vault/ui/clip_grid.py` | BUG-10: `more_count` footer on render cap |
 
 > `cache_vault/core/win_mouse.py` was modified for BUG-6 and then reverted to
 > its pre-hotfix state; it carries no net change in this lane.
@@ -153,6 +208,7 @@ and live GUI validation, which is out of scope for a stability hotfix.
 | `tests/test_customization_architecture.py` | BUG-3: rename preserves customization + persistence round-trip |
 | `tests/test_contextmenu.py` | BUG-4: distinct `mark_keep` key, unique menu keys, dispatch wiring, behavioral `mark_keep` sets `is_kept` (not favorite) |
 | `tests/test_macro_shortcut_listener.py` (new) | BUG-5: `stop()` posts `WM_QUIT`, idempotent no-op without hook, thread join — fake `_user32`, no real hook |
+| `tests/test_clip_render_cap.py` (new) | BUG-10: cap constant is safe; large history renders exactly `MAX_VISIBLE_CLIPS` rows with correct `more_count` |
 
 > `tests/test_win_mouse.py` was added for BUG-6 and then removed along with the
 > BUG-6 revert.
@@ -180,9 +236,9 @@ Result: **PASS**.
 ```
 python -m pytest -p no:xonsh
 ```
-Result: **558 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
-(559 with BUG-6 tests → 557 after the BUG-6 revert → 558 after adding the
-BUG-9 menu-leak regression test.)
+Result: **560 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
+(559 with BUG-6 tests → 557 after the BUG-6 revert → 558 after the BUG-9
+menu-leak test → 560 after adding the BUG-10 render-cap tests.)
 
 ### compileall
 ```
@@ -201,7 +257,7 @@ Result: **PASS** — `selftest OK — core capture/classify/sensitive/image/mobi
 pwsh scripts/ci_local_full.ps1
 ```
 Result: **CACHE VAULT LOCAL CI: PASS**
-- pytest: PASS (full: 558 passed)
+- pytest: PASS (full: 560 passed)
 - founder-critical: PASS | command-center: PASS | quick-paste: PASS | receipts-export: PASS
 - compileall: PASS
 - selftest: PASS
@@ -224,9 +280,10 @@ re-run and packaging rebuilt the exe cleanly.
 
 ### Fresh exe
 - `dist/CacheVault.exe` — 41.1 MB
-- SHA256: `E2AEAD2D862D8BEFB259D70EDC140D1E84174FA70F45069D66B7F376A6CE181A`
-  (rebuilt after the BUG-9 context-menu leak fix)
+- SHA256: `F002FF5B18B49781D3A0324B2D407472731625CBBE32B6BBA373DA37F0B315C8`
+  (rebuilt after the BUG-10 render-cap fix)
 - Prior builds in this lane:
+  - `E2AEAD2D862D8BEFB259D70EDC140D1E84174FA70F45069D66B7F376A6CE181A` — after BUG-9 menu-destroy fix
   - `EF17BB58017151A56EC2A2DD93D1C121C65BF683D4A4561A808A488D9E32A03B` — after BUG-6 revert
   - `4A76AC11F2FF47C70A366870C8389688CB04023FAB6B778E0E23092C086B691D` — froze copy (BUG-6 active); superseded
 

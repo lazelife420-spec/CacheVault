@@ -51,12 +51,30 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._rows_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._rows_frame.pack(fill="both", expand=True, padx=4)
         self._render_job: str | None = None
+        self._more_count: int = 0
+        self._more_label: ctk.CTkLabel | None = None
         self._empty = ctk.CTkLabel(
             self._rows_frame,
             text="No clips match this filter.\nTry All Clips or clear filters.",
             text_color=brand.MUTED_FG, justify="center", font=theme.body_font(12),
         )
         self._build_header()
+
+    def _show_more_footer(self) -> None:
+        if self._more_count <= 0:
+            return
+        text = (
+            f"+ {self._more_count} more not shown — search, filter, or sort "
+            "to bring older clips into view."
+        )
+        if self._more_label is None or not self._more_label.winfo_exists():
+            self._more_label = ctk.CTkLabel(
+                self._rows_frame, text=text, text_color=brand.MUTED_FG,
+                justify="center", font=theme.body_font(10), wraplength=420,
+            )
+        else:
+            self._more_label.configure(text=text)
+        self._more_label.pack(pady=(8, 14))
 
     def _build_header(self) -> None:
         for w in self._header.winfo_children():
@@ -112,8 +130,9 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 pass
             self._render_job = None
 
-    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
+    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, more_count: int = 0) -> None:
         self.cancel_render()
+        self._more_count = more_count
         for w in self._rows_frame.winfo_children():
             if w is not self._empty:
                 w.destroy()
@@ -142,6 +161,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
         else:
             self._render_job = None
+            self._show_more_footer()
 
     def _build_row(self, clip: Clip) -> None:
         selected = clip.id in self._selected_ids or clip.id == self._selected_id

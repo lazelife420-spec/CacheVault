@@ -87,6 +87,13 @@ from .scroll_patch import install_windows_scroll_patch, scroll_config_from_setti
 from .win_scroll import refresh_windows_scroll_cache
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
+
+# Each rendered clip row is a deep CustomTkinter widget tree (~45 Tk widgets,
+# each a Windows USER object/HWND). Windows caps USER objects at ~10,000 per
+# process, so rendering an unbounded history exhausts the quota and makes Tk
+# raise "No more menus can be allocated" on the next menu/dialog. Cap the
+# number of rows we materialise; older items stay reachable via search/filters.
+MAX_VISIBLE_CLIPS = 120
 HK_MANUAL_SAVE = 10
 HK_ARM_NEXT = 11
 HK_IGNORE_NEXT = 12
@@ -1423,7 +1430,10 @@ class CacheVaultApp(ctk.CTk):
             else:
                 self._show_clips()
                 query = self._build_query()
-                clips = self.vault.list_clips(query)
+                all_clips = self.vault.list_clips(query)
+                total_clips = len(all_clips)
+                clips = all_clips[:MAX_VISIBLE_CLIPS]
+                more_count = total_clips - len(clips)
                 self._visible_clip_ids = [c.id for c in clips]
                 self._selected_clip_ids = [
                     cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
@@ -1433,7 +1443,9 @@ class CacheVaultApp(ctk.CTk):
                 empty_msg = self._empty_message(active, clips, query)
                 if self._view_mode == "grid":
                     self._grid.set_selected(self._selected_clip_id)
-                    self._grid.render_batched(clips, empty_message=empty_msg)
+                    self._grid.render_batched(
+                        clips, empty_message=empty_msg, more_count=more_count,
+                    )
                     self._grid.set_selected(self._selected_clip_id)
                 else:
                     self._list.set_selected(self._selected_clip_id)
@@ -1441,13 +1453,14 @@ class CacheVaultApp(ctk.CTk):
                         clips,
                         empty_message=empty_msg,
                         group_by=self._group_by_for_view(active, query),
+                        more_count=more_count,
                     )
                     self._list.set_selected(self._selected_clip_id)
                 self._update_selected_action_strip(
                     self.vault.storage.get_clip(self._selected_clip_id)
                     if self._selected_clip_id else None,
                 )
-                clip_count = len(clips)
+                clip_count = total_clips
 
             summary["shown"] = clip_count
             summary["default_safe"] = self.vault.settings.default_safe_id

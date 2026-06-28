@@ -32,10 +32,28 @@ class ClipList(ctk.CTkScrollableFrame):
         self._last_empty_message: str | None = None
         self._last_group_by: str | None = None
         self._render_job: str | None = None
+        self._more_count: int = 0
+        self._more_label: ctk.CTkLabel | None = None
         self._empty = ctk.CTkLabel(
             self, text="No clips yet.\nCopy something and it will appear here.",
             text_color=brand.MUTED_FG, justify="center",
         )
+
+    def _show_more_footer(self) -> None:
+        if self._more_count <= 0:
+            return
+        text = (
+            f"+ {self._more_count} more not shown — search, filter, or sort "
+            "to bring older clips into view."
+        )
+        if self._more_label is None or not self._more_label.winfo_exists():
+            self._more_label = ctk.CTkLabel(
+                self, text=text, text_color=brand.MUTED_FG, justify="center",
+                font=theme.body_font(10), wraplength=420,
+            )
+        else:
+            self._more_label.configure(text=text)
+        self._more_label.pack(pady=(8, 14))
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
         self.cancel_render()
@@ -61,6 +79,7 @@ class ClipList(ctk.CTkScrollableFrame):
 
         for clip in clips:
             self._rows.append(self._build_row(clip))
+        self._show_more_footer()
 
     def cancel_render(self) -> None:
         if self._render_job:
@@ -70,11 +89,12 @@ class ClipList(ctk.CTkScrollableFrame):
                 pass
             self._render_job = None
 
-    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
+    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None, more_count: int = 0) -> None:
         self.cancel_render()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
+        self._more_count = more_count
 
         for widget in list(self.winfo_children()):
             if widget is not self._empty:
@@ -116,6 +136,7 @@ class ClipList(ctk.CTkScrollableFrame):
             self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
         else:
             self._render_job = None
+            self._show_more_footer()
 
     def _render_next_batch_flat(self, pending: list[tuple[str, any]], start_idx: int, batch_size: int) -> None:
         end_idx = min(start_idx + batch_size, len(pending))
@@ -130,6 +151,7 @@ class ClipList(ctk.CTkScrollableFrame):
             self._render_job = self.after(10, lambda: self._render_next_batch_flat(pending, end_idx, batch_size))
         else:
             self._render_job = None
+            self._show_more_footer()
 
     def _build_group_header(self, group_by: str, title: str, count: int) -> None:
         style = clip_accents.group_header_accent(group_by, title)
