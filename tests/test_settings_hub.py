@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-import pytest
 import customtkinter as ctk
 
 from cache_vault.core.settings import Settings
@@ -17,7 +16,6 @@ from tk_support import probe_tk_ui
 TK_OK, TK_REASON = probe_tk_ui()
 
 
-@pytest.mark.skipif(not TK_OK, reason=TK_REASON)
 class TestSettingsHub(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -25,6 +23,8 @@ class TestSettingsHub(unittest.TestCase):
         ctk.set_appearance_mode("dark")
 
     def setUp(self):
+        if not TK_OK:
+            self.skipTest(TK_REASON)
         self.root = ctk.CTk()
         self.root.withdraw()  # Don't show the main window
         self.settings = Settings()
@@ -33,7 +33,8 @@ class TestSettingsHub(unittest.TestCase):
 
     def tearDown(self):
         try:
-            self.root.destroy()
+            if hasattr(self, "root"):
+                self.root.destroy()
         except Exception:
             pass
 
