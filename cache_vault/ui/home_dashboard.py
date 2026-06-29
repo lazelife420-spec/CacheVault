@@ -143,6 +143,10 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             font=theme.body_font(12),
         ).pack(fill="x", pady=(0, 14))
 
+        # Create persistent toolbar host
+        self._batch_toolbar_host = ctk.CTkFrame(self._body, fg_color="transparent")
+        self._batch_toolbar_host.pack(fill="x", pady=0)
+
         # Redraw batch actions toolbar if we have selected items
         self._update_batch_toolbar()
 
@@ -169,22 +173,27 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._proof_access_section(summary)
 
     def _update_batch_toolbar(self) -> None:
-        if self._batch_frame and self._batch_frame.winfo_exists():
-            self._batch_frame.destroy()
-            self._batch_frame = None
-
-        if not self._selected_ids:
+        if not hasattr(self, "_batch_toolbar_host") or not self._batch_toolbar_host:
             return
 
+        for child in self._batch_toolbar_host.winfo_children():
+            child.destroy()
+
+        if not self._selected_ids:
+            self._batch_toolbar_host.pack_configure(pady=0)
+            self._batch_frame = None
+            return
+
+        self._batch_toolbar_host.pack_configure(pady=(0, 12))
+
         self._batch_frame = ctk.CTkFrame(
-            self._body,
+            self._batch_toolbar_host,
             fg_color=brand.PANEL_BG,
             border_width=2,
             border_color=brand.PROOF_TEAL,
             corner_radius=8,
         )
-        # Pack right after the subtitle/hero text
-        self._batch_frame.pack(fill="x", pady=(0, 12), before=self._body.winfo_children()[2])
+        self._batch_frame.pack(fill="x")
 
         inner = ctk.CTkFrame(self._batch_frame, fg_color="transparent")
         inner.pack(fill="x", padx=12, pady=8)
