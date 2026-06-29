@@ -456,9 +456,12 @@ class CacheVaultApp(ctk.CTk):
                       command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
                       **theme.secondary_button()
                       ).grid(row=0, column=2, padx=4)
+        ctk.CTkButton(top, text="⚡ Regex Macros", width=120, command=self._open_regex_macros,
+                      **theme.secondary_button()
+                      ).grid(row=0, column=3, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
-                      ).grid(row=0, column=3, padx=(4, 12))
+                      ).grid(row=0, column=4, padx=(4, 12))
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
@@ -2633,6 +2636,10 @@ class CacheVaultApp(ctk.CTk):
             if getattr(a, "enabled", True) and getattr(a, "hotkey", "").strip():
                 external[a.hotkey] = f"hotkey action “{a.name}”"
         return external
+
+    def _open_regex_macros(self) -> None:
+        from .regex_macro_dialog import RegexMacroDialog
+        RegexMacroDialog(self)
 
     def _open_settings(self) -> None:
         # Prefer the new registry-backed Settings Hub (Chunk C2).

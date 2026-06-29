@@ -1,14 +1,18 @@
-"""Regex Macro Preview and Transformation Engine.
-
-Enables safe, opt-in regex-based transformations and preview before execution.
-"""
-
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from cache_vault.core import models
+
+
+def regex_macros_path() -> Path:
+    """Resolve the default local JSON file path for regex macros."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return Path(base) / "CacheVault" / "regex_macros.json"
 
 
 @dataclass
@@ -133,3 +137,56 @@ def build_macro_receipt_payload(
         "output_sha256": output_sha256,
         "transfer_status": "completed",
     }
+
+
+def validate_macro(macro: RegexMacro) -> str | None:
+    """Validate macro configuration and return an error message, or None if valid."""
+    if not macro.macro_id or not macro.macro_id.strip():
+        return "Missing macro_id"
+    if not macro.name or not macro.name.strip():
+        return "Missing name"
+    if macro.pattern is None or not macro.pattern.strip():
+        return "Missing pattern"
+    if macro.replacement is None:
+        return "Missing replacement"
+    try:
+        re.compile(macro.pattern)
+    except re.error as e:
+        return f"Invalid regex pattern: {e}"
+    return None
+
+
+def load_regex_macros() -> list[RegexMacro]:
+    """Load, validate, and return the list of persisted regex macros."""
+    path = regex_macros_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        out = []
+        for raw in data:
+            try:
+                # Basic validation for required fields
+                if not all(k in raw for k in ("macro_id", "name", "enabled", "pattern", "replacement")):
+                    continue
+                macro = RegexMacro.from_dict(raw)
+                out.append(macro)
+            except Exception:
+                continue
+        return out
+    except Exception:
+        return []
+
+
+def save_regex_macros(macros: list[RegexMacro]) -> None:
+    """Persist the list of regex macros to the local JSON file."""
+    path = regex_macros_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        raw = [m.to_dict() for m in macros]
+        path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
