@@ -216,6 +216,7 @@ class Clip:
     safe_id: str = "default"
     safe_name: str = "Default Safe"
     capture_mode: str = CAPTURE_AUTO
+    is_saved_to_phone: bool = False
 
     @property
     def first_saved_at(self) -> str:

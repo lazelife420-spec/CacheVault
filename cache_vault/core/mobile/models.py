@@ -18,6 +18,17 @@ MOBILE_API_VERSION = "1"
 # When Mobile Access is enabled and bind host is empty, listen on all interfaces.
 DEFAULT_BIND_HOST = "0.0.0.0"
 
+# Honest product terminology for the mobile foundation.
+PHONE_VAULT_LABEL = "Phone Vault"
+MOBILE_INBOX_LABEL = "Mobile Inbox"
+FROM_PHONE_LABEL = "From Phone"
+SAVED_TO_PHONE_LABEL = "Saved to Phone"
+ON_PC_LABEL = "On PC"
+LAN_PAIRED_LABEL = "LAN paired"
+
+TRANSFER_STATUS_COMPLETED = "completed"
+TRANSFER_STATUS_FAILED = "failed"
+
 
 def hash_token(token: str) -> str:
     """SHA-256 fingerprint of a device token. Plaintext is never stored."""
@@ -85,3 +96,30 @@ class MobileAccessReceipt:
             kw["suggested_fix"] = suggested_fix_for_reason(reason)
         return cls(timestamp=models.now_iso(), action=action, route=route,
                    result=result, **kw)
+
+
+def is_mobile_inbox_clip(clip) -> bool:
+    """True when a clip belongs in the desktop Mobile Inbox."""
+    return getattr(clip, "capture_mode", None) == models.CAPTURE_MOBILE_SHARE
+
+
+def is_from_phone_clip(clip) -> bool:
+    """True when a clip originated on a paired phone."""
+    return getattr(clip, "capture_mode", None) in (
+        models.CAPTURE_MOBILE,
+        models.CAPTURE_MOBILE_SHARE,
+    )
+
+
+def pc_status_labels(clip, *, storage=None) -> list[str]:
+    """Return status labels backed only by persisted or explicit data."""
+    labels: list[str] = []
+    if storage and hasattr(clip, "id") and storage.has_clip_asset(clip.id):
+        labels.append(ON_PC_LABEL)
+    if is_from_phone_clip(clip):
+        labels.append(FROM_PHONE_LABEL)
+    if bool(getattr(clip, "is_saved_to_phone", False)):
+        labels.append(SAVED_TO_PHONE_LABEL)
+    if bool(getattr(clip, "lan_paired", False)):
+        labels.append(LAN_PAIRED_LABEL)
+    return labels

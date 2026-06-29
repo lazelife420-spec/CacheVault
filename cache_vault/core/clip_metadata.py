@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlparse
 
 from . import models
+from .mobile import models as mobile_models
 
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -148,19 +149,14 @@ def status_badges(clip, storage=None) -> list[str]:
 
     - On PC: Asset exists in local storage
     - From Phone: Captured via mobile share
+    - Saved to Phone: Explicitly marked as saved to mobile device
     - Proof Recorded: Content hash exists
+    - LAN paired: Device currently paired over local network (placeholder for D4)
     """
-    badges = []
-    if storage and hasattr(clip, "id") and storage.has_clip_asset(clip.id):
-        badges.append("On PC")
-    
-    mode = getattr(clip, "capture_mode", None)
-    if mode in (models.CAPTURE_MOBILE, models.CAPTURE_MOBILE_SHARE):
-        badges.append("From Phone")
-    
+    badges = mobile_models.pc_status_labels(clip, storage=storage)
     if getattr(clip, "content_hash", None):
         badges.append("Proof Recorded")
-    
+
     return badges
 
 

@@ -20,6 +20,7 @@ from .events import EventLog
 from .models import Clip
 from .settings import Settings
 from .storage import VaultStorage
+from .mobile.models import is_mobile_inbox_clip
 
 
 class Vault:
@@ -454,9 +455,12 @@ class Vault:
         return clip
 
     def list_mobile_inbox(self, *, limit: int = 200) -> list[Clip]:
-        return self.storage.list_by_capture_mode(
-            models.CAPTURE_MOBILE_SHARE, limit=limit,
-        )
+        return [
+            clip for clip in self.storage.list_by_capture_mode(
+                models.CAPTURE_MOBILE_SHARE, limit=limit,
+            )
+            if is_mobile_inbox_clip(clip)
+        ]
 
     def capture_image(
         self,
