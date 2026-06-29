@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Cache Vault Companion",
+  "version": "0.1.0",
+  "description": "Chrome extension to collect links from active tabs and send them to Cache Vault.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "clipboardWrite",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
