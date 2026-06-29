@@ -196,8 +196,8 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
             SettingsField("vault_lock_reduced_motion", "Reduced motion", "toggle",
                           "Reduce lock screen animations"),
             SettingsField("vault_lock_show_local_only",
-                          "Show 'Vault sealed \u00b7 Local only'", "toggle",
-                          "Display the local-only seal on the lock screen"),
+                          "Show 'Vault sealed \u00b7 Local-first'", "toggle",
+                          "Display the local-first seal on the lock screen"),
         ],
     ),
     SettingsCategory(

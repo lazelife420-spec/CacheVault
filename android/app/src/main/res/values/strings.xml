@@ -47,7 +47,7 @@
     <string name="loading_clips">Loading saved clips…</string>
     <string name="device_revoked_body">This phone was rejected by the PC.\nGenerate a fresh pairing code on the PC and re-pair.</string>
     <string name="image_asset_placeholder">Tap View to load this screenshot from your PC.</string>
-    <string name="no_cloud">Local-only. No cloud sync. Your PC stays the source of truth.</string>
+    <string name="no_cloud">Local-first. No cloud sync. Your PC stays the source of truth.</string>
 
     <string name="vault_status_title">Connection status</string>
     <string name="vault_status_pc">PC at %1$s</string>
@@ -57,7 +57,7 @@
     <string name="share_screen_title">Send to your PC vault</string>
     <string name="share_not_connected">Not connected to your PC vault</string>
     <string name="share_connected">Connected to %1$s</string>
-    <string name="share_footer">Local-only · saved on your PC · no cloud sync</string>
+    <string name="share_footer">Local-first · saved on your PC · no cloud sync</string>
     <string name="share_done">Done</string>
     <string name="share_copy_text">Copy text</string>
     <string name="share_with_someone">Share with someone else</string>

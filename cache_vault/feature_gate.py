@@ -14,7 +14,7 @@ FEATURE_LABELS: dict[str, str] = {
     "html_bundle_export": "HTML bundle export",
     "editable_copies_advanced": "Editable copy workflows",
     "smart_filters_advanced": "Advanced review filters",
-    "macros_advanced": "Vault Macros",
+    "macros_advanced": "Snippet Macros",
     "safes_advanced": "Custom Safes",
 }
 

@@ -233,7 +233,7 @@ dedicated message-loop thread (requires pywin32).
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
 global quick-paste hotkey (`Ctrl+Shift+V`) with auto-paste, local event log,
 screenshot capture, multi-select batch copy/export, Proof Manifest exports,
-Vault Macros, Safes, Collections, mobile LAN bridge (developer mode),
+Snippet Macros, Safes, Collections, mobile LAN bridge (developer mode),
 browser extension companion (developer mode).
 
 **Not implemented (by design, for this release):** cloud sync, accounts,

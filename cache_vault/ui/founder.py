@@ -161,9 +161,9 @@ class FounderDialog(ctk.CTkToplevel):
             "• editable copy workflows",
             "• Snippet Macros and custom Safes",
             "• advanced review filters",
-            "• future Founder updates",
+            "• Founder-track updates",
             "",
-            "One-time early price: $19 lifetime",
+            "One-time early price: $19 one-time Founder license",
             "",
         ]
         if status.state == licensing.LicenseState.FOUNDER_VALID:
