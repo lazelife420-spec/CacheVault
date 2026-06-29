@@ -20,6 +20,7 @@ import traceback
 from pathlib import Path
 
 import customtkinter as ctk
+from tkinter import filedialog
 
 from .. import brand
 from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, search, vault_lock
@@ -2048,34 +2049,208 @@ class CacheVaultApp(ctk.CTk):
     def _bulk_copy_images(self) -> None:
         if not self._guard_unlocked():
             return
-        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
-        clips = [c for c in clips if c is not None]
-        from ..core.selection import analyze_selection
-        summary = analyze_selection(clips)
-        self._show_toast(summary.get_toast_message("copy"))
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+
+        image_ids = []
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is not None and clip.content_type == models.CONTENT_IMAGE:
+                image_ids.append(cid)
+
+        if not image_ids:
+            self._show_toast("No screenshots selected to copy.")
+            return
+
+        first_id = image_ids[0]
+        png = self.vault.copied_again_image(first_id)
+        if not png:
+            self._show_toast("Failed to copy screenshot.")
+            return
+
+        from ..core import image_assets
+        if image_assets.write_clipboard_png(png):
+            self._monitor.note_local_copy_image(png)
+            if len(image_ids) > 1:
+                self._show_toast(f"Copied primary image to clipboard; use Save PNGs or Export ZIP for the remaining {len(image_ids) - 1} images.")
+            else:
+                self._show_toast("Copied screenshot to clipboard.")
+        else:
+            self._show_toast("Clipboard copy not supported in this environment.")
 
     def _bulk_save_images(self) -> None:
         if not self._guard_unlocked():
             return
-        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
-        clips = [c for c in clips if c is not None]
-        from ..core.selection import analyze_selection
-        summary = analyze_selection(clips)
-        self._show_toast(summary.get_toast_message("save_png"))
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+
+        dest = filedialog.askdirectory(parent=self, title="Save Screenshots As PNG")
+        if not dest:
+            return
+
+        from pathlib import Path
+        from ..core import image_assets
+        from ..core.editable_copies import write_file_receipt
+
+        saved_count = 0
+        failed_count = 0
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is None or clip.content_type != models.CONTENT_IMAGE:
+                continue
+            loaded = self.vault.storage.load_clip_asset_bytes(cid)
+            if not loaded:
+                failed_count += 1
+                continue
+            png_bytes, _ = loaded
+
+            filename = image_assets.make_smart_filename(clip)
+            if not filename.lower().endswith(".png"):
+                filename += ".png"
+            target_path = Path(dest) / filename
+            final_path = image_assets.next_available_path(target_path)
+
+            try:
+                final_path.write_bytes(png_bytes)
+                saved_count += 1
+            except Exception:
+                failed_count += 1
+
+        if saved_count > 0:
+            msg = f"Saved {saved_count} screenshots to {dest}"
+            if failed_count:
+                msg += f" ({failed_count} failed)"
+            self._show_toast(msg)
+
+            # Record event/receipt
+            meta = {
+                "action": "desktop_batch_save_images",
+                "source": "desktop",
+                "count": saved_count,
+                "transfer_status": "completed",
+                "timestamp": models.now_iso(),
+                "success": True,
+            }
+            write_file_receipt("desktop_batch_save_images", meta)
+            self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
+        else:
+            self._show_toast("Failed to save screenshots.")
 
     def _bulk_export_zip(self) -> None:
         if not self._guard_unlocked():
             return
-        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
-        clips = [c for c in clips if c is not None]
-        from ..core.selection import analyze_selection
-        summary = analyze_selection(clips)
-        self._show_toast(summary.get_toast_message("export"))
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+
+        dest_zip = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export Screenshots as ZIP",
+            defaultextension=".zip",
+            filetypes=[("ZIP Archive", "*.zip")],
+        )
+        if not dest_zip:
+            return
+
+        import zipfile
+        from pathlib import Path
+        from ..core import image_assets
+        from ..core.editable_copies import write_file_receipt
+
+        saved_count = 0
+        failed_count = 0
+
+        try:
+            with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+                for cid in ids:
+                    clip = self.vault.storage.get_clip(cid)
+                    if clip is None or clip.content_type != models.CONTENT_IMAGE:
+                        continue
+                    loaded = self.vault.storage.load_clip_asset_bytes(cid)
+                    if not loaded:
+                        failed_count += 1
+                        continue
+                    png_bytes, _ = loaded
+
+                    filename = image_assets.make_smart_filename(clip)
+                    if not filename.lower().endswith(".png"):
+                        filename += ".png"
+
+                    base_name = Path(filename).stem
+                    ext = Path(filename).suffix
+                    arcname = filename
+                    idx = 1
+                    while arcname in zf.namelist():
+                        arcname = f"{base_name}_{idx}{ext}"
+                        idx += 1
+
+                    zf.writestr(arcname, png_bytes)
+                    saved_count += 1
+
+            if saved_count > 0:
+                msg = f"Exported {saved_count} screenshots to {dest_zip}"
+                if failed_count:
+                    msg += f" ({failed_count} failed)"
+                self._show_toast(msg)
+
+                # Record event/receipt
+                meta = {
+                    "action": "desktop_batch_export_zip",
+                    "source": "desktop",
+                    "count": saved_count,
+                    "transfer_status": "completed",
+                    "timestamp": models.now_iso(),
+                    "success": True,
+                }
+                write_file_receipt("desktop_batch_export_zip", meta)
+                self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
+            else:
+                self._show_toast("Failed to export screenshots to ZIP.")
+        except Exception as e:
+            self._show_toast(f"ZIP export error: {e}")
 
     def _bulk_copy_paths(self) -> None:
         if not self._guard_unlocked():
             return
-        self._show_toast("Copied file paths to clipboard.")
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+
+        from ..core import image_assets
+        from ..core.editable_copies import write_file_receipt
+
+        paths = []
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is not None and clip.content_type == models.CONTENT_IMAGE:
+                rec = self.vault.storage.get_asset_record(cid)
+                if rec:
+                    p = image_assets.assets_dir() / rec.storage_name
+                    paths.append(str(p))
+
+        if not paths:
+            self._show_toast("No screenshots selected to copy paths.")
+            return
+
+        combined = "\n".join(paths)
+        self.clipboard_clear()
+        self.clipboard_append(combined)
+        self._monitor.note_local_copy(combined)
+        self._show_toast(f"Copied {len(paths)} file paths to clipboard.")
+
+        # Record event/receipt
+        meta = {
+            "action": "desktop_batch_copy_paths",
+            "source": "desktop",
+            "count": len(paths),
+            "transfer_status": "completed",
+            "timestamp": models.now_iso(),
+            "success": True,
+        }
+        write_file_receipt("desktop_batch_copy_paths", meta)
+        self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
 
     def _bulk_view_proof(self) -> None:
         if not self._guard_unlocked():
@@ -2085,11 +2260,39 @@ class CacheVaultApp(ctk.CTk):
     def _bulk_export_bundle(self) -> None:
         if not self._guard_unlocked():
             return
-        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
-        clips = [c for c in clips if c is not None]
-        from ..core.selection import analyze_selection
-        summary = analyze_selection(clips)
-        self._show_toast(summary.get_toast_message("export"))
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+
+        dest_zip = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export Mixed Bundle as ZIP",
+            defaultextension=".zip",
+            filetypes=[("ZIP Archive", "*.zip")],
+        )
+        if not dest_zip:
+            return
+
+        from ..core.editable_copies import write_file_receipt
+
+        res = self.vault.export_proof_zip(ids, dest_zip)
+        if res and getattr(res, "success", False):
+            self._show_toast(f"Exported mixed bundle to {dest_zip}")
+
+            # Record event/receipt
+            meta = {
+                "action": "desktop_batch_export_bundle",
+                "source": "desktop",
+                "count": len(ids),
+                "transfer_status": "completed",
+                "timestamp": models.now_iso(),
+                "success": True,
+            }
+            write_file_receipt("desktop_batch_export_bundle", meta)
+            self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
+        else:
+            err = getattr(res, "error", "unknown error")
+            self._show_toast(f"Export failed: {err}")
 
     def _bulk_copy_text_links(self) -> None:
         self._bulk_copy_format("plain")
