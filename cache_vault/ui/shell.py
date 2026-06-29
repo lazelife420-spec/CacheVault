@@ -788,34 +788,7 @@ class CacheVaultApp(ctk.CTk):
         return "break"
 
     def _bulk_copy(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-        parts: list[str] = []
-        skipped = 0
-        for clip_id in ids:
-            clip = self.vault.storage.get_clip(clip_id)
-            if clip is None:
-                continue
-            if clip.content_type == models.CONTENT_IMAGE:
-                skipped += 1
-                continue
-            content = self.vault.copied_again(clip_id)
-            if content:
-                parts.append(content)
-        if not parts:
-            self._show_toast("Nothing to copy from the selection.")
-            return
-        combined = "\n\n".join(parts)
-        self.clipboard_clear()
-        self.clipboard_append(combined)
-        self._monitor.note_local_copy(combined)
-        msg = f"Copied {len(parts)} clips to clipboard"
-        if skipped:
-            msg += f" ({skipped} image{'s' if skipped != 1 else ''} skipped)"
-        self._show_toast(msg)
+        self._bulk_copy_format("plain")
 
     def _bulk_export_proof(self) -> None:
         if not self._guard_unlocked():
@@ -1986,12 +1959,86 @@ class CacheVaultApp(ctk.CTk):
     def _bulk_copy_format(self, format_name: str) -> None:
         if not self._guard_unlocked():
             return
-        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
-        clips = [c for c in clips if c is not None]
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+
+        clips = []
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is not None:
+                clips.append(clip)
+
+        if not clips:
+            self._show_toast("Nothing to copy.")
+            return
+
         from ..core.selection import analyze_selection
+        from ..core.formatter import format_batch_links, make_batch_link_receipt
+        from ..core.editable_copies import write_file_receipt
         summary = analyze_selection(clips)
-        self._bulk_copy()
-        self._show_toast(summary.get_toast_message("copy", format_name))
+
+        has_images = summary.image_count > 0
+        has_text_or_links = (summary.link_count + summary.text_count) > 0
+
+        if not has_text_or_links:
+            self._show_toast("Use Copy PNGs for screenshot selections.")
+            return
+
+        if summary.selection_class == "link_only":
+            combined = format_batch_links(clips, format_name)
+        else:
+            parts = []
+            for clip in clips:
+                if clip.content_type == models.CONTENT_IMAGE:
+                    continue
+                elif getattr(clip, "classification", None) == models.CLASS_LINK:
+                    formatted_link = format_batch_links([clip], format_name)
+                    parts.append(formatted_link)
+                else:
+                    content = self.vault.copied_again(clip.id)
+                    if content:
+                        parts.append(content)
+            if format_name in ("markdown", "numbered"):
+                combined = "\n".join(parts)
+            else:
+                combined = "\n\n".join(parts)
+
+        self.clipboard_clear()
+        self.clipboard_append(combined)
+        self._monitor.note_local_copy(combined)
+
+        if summary.selection_class == "link_only":
+            if format_name == "plain":
+                toast_msg = f"Copied {summary.link_count} links"
+            else:
+                toast_msg = f"Copied {summary.link_count} links as {format_name.capitalize()}"
+        elif summary.selection_class == "text_only":
+            toast_msg = f"Copied {summary.text_count} text clips"
+        else:
+            total_copied = summary.link_count + summary.text_count
+            toast_msg = f"Copied {total_copied} text/link clips"
+
+        if has_images:
+            toast_msg += f" ({summary.image_count} image{'s' if summary.image_count != 1 else ''} skipped)"
+
+        self._show_toast(toast_msg)
+
+        # Record receipt metadata
+        breakdown = f"{summary.link_count} links · {summary.image_count} screenshots · {summary.text_count} text clips"
+        meta = make_batch_link_receipt(
+            action="desktop_batch_copy",
+            source="desktop",
+            count=summary.selected_count,
+            format_type=format_name,
+            transfer_status="completed",
+        )
+        meta["breakdown"] = breakdown
+        meta["timestamp"] = models.now_iso()
+        meta["success"] = True
+
+        write_file_receipt("desktop_batch_copy", meta)
+        self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
 
     def _bulk_create_receipt(self, summary) -> None:
         if not self._guard_unlocked():
@@ -2045,33 +2092,7 @@ class CacheVaultApp(ctk.CTk):
         self._show_toast(summary.get_toast_message("export"))
 
     def _bulk_copy_text_links(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-        clips = [self.vault.storage.get_clip(cid) for cid in ids]
-        clips = [c for c in clips if c is not None]
-        parts = []
-        skipped = 0
-        for clip in clips:
-            if clip.content_type == models.CONTENT_IMAGE:
-                skipped += 1
-            else:
-                content = self.vault.copied_again(clip.id)
-                if content:
-                    parts.append(content)
-        if not parts:
-            self._show_toast("No text or links to copy.")
-            return
-        combined = "\n\n".join(parts)
-        self.clipboard_clear()
-        self.clipboard_append(combined)
-        self._monitor.note_local_copy(combined)
-        msg = f"Copied {len(parts)} text/link items to clipboard"
-        if skipped:
-            msg += f" ({skipped} image{'s' if skipped != 1 else ''} skipped)"
-        self._show_toast(msg)
+        self._bulk_copy_format("plain")
 
     def _copy_again(self, clip_id: str) -> None:
         if not self._guard_unlocked():
