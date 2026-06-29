@@ -111,11 +111,13 @@ class FilterNav(ctk.CTkScrollableFrame):
         *,
         settings: Settings | None = None,
         on_safe_context: Callable[[dict, int, int], None] | None = None,
+        on_collection_context: Callable[[str, int, int], None] | None = None,
         **kw,
     ):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._on_safe_context = on_safe_context
+        self._on_collection_context = on_collection_context
         self._settings = settings
         self._collapsed = set(getattr(settings, "sidebar_collapsed_sections", []) or [])
         self._active = S.FILTER_HOME
@@ -301,17 +303,28 @@ class FilterNav(ctk.CTkScrollableFrame):
         for key in list(self._labels):
             if key.startswith(S.COLLECTION_PREFIX):
                 del self._labels[key]
-                del self._counts[key]
+                if key in self._counts:
+                    del self._counts[key]
         if not collections:
             self._collections_empty.pack(fill="x", padx=14, pady=2)
         else:
             self._collections_empty.pack_forget()
             for col in collections:
-                key = S.COLLECTION_PREFIX + col["name"]
-                row = self._nav_row(self._collections_frame, key, f"  {col['name']}")
+                name = col["name"]
+                key = S.COLLECTION_PREFIX + name
+                row = self._nav_row(self._collections_frame, key, f"  {name}")
                 self._collection_rows[key] = row
                 self._counts[key].configure(text=str(col["count"]))
+                # Right-click on a collection row → context menu
+                row.bind("<Button-3>", lambda e, n=name: self._collection_context(e, n))
+                for child in row.winfo_children():
+                    child.bind("<Button-3>", lambda e, n=name: self._collection_context(e, n))
         self._highlight()
+
+    def _collection_context(self, event, name: str) -> None:
+        if self._on_collection_context is None:
+            return
+        self._on_collection_context(name, event.x_root, event.y_root)
 
     def update_safes(self, safes: list[dict]) -> None:
         for row in self._safe_rows.values():
