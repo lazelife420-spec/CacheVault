@@ -80,6 +80,90 @@ def display(value: str | None, *, fallback: str = "—") -> str:
     return text if text else fallback
 
 
+def human_timestamp(iso: str) -> str:
+    """Format ISO timestamp into a human-readable string.
+
+    Example outputs:
+    - Today · 1:24 PM
+    - Yesterday · 8:13 PM
+    - Jun 27 · 10:27 PM
+    - Dec 12, 2023 · 9:00 AM
+    """
+    from datetime import datetime
+
+    if not iso:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except Exception:
+        return iso[:16].replace("T", " ")
+
+    # Normalize 'now' to match dt's timezone-awareness
+    if dt.tzinfo is None:
+        now = datetime.now()
+    else:
+        now = datetime.now(dt.tzinfo)
+
+    time_str = dt.strftime("%I:%M %p").lstrip("0")
+    if now.date() == dt.date():
+        return f"Today · {time_str}"
+    
+    from datetime import timedelta
+    if (now.date() - dt.date()) == timedelta(days=1):
+        return f"Yesterday · {time_str}"
+    
+    if now.year == dt.year:
+        return f"{dt.strftime('%b %d')} · {time_str}"
+    
+    return f"{dt.strftime('%b %d, %Y')} · {time_str}"
+
+
+def date_group_header(iso: str) -> str:
+    """Return a header label for date grouping (Today, Yesterday, Jun 27)."""
+    from datetime import datetime, timedelta
+
+    if not iso:
+        return "Older"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except Exception:
+        return "Older"
+
+    if dt.tzinfo is None:
+        now = datetime.now()
+    else:
+        now = datetime.now(dt.tzinfo)
+
+    if now.date() == dt.date():
+        return "Today"
+    if (now.date() - dt.date()) == timedelta(days=1):
+        return "Yesterday"
+    if now.year == dt.year:
+        return dt.strftime("%b %d")
+    return dt.strftime("%b %d, %Y")
+
+
+def status_badges(clip, storage=None) -> list[str]:
+    """Derive status badges based on real data.
+
+    - On PC: Asset exists in local storage
+    - From Phone: Captured via mobile share
+    - Proof Recorded: Content hash exists
+    """
+    badges = []
+    if storage and hasattr(clip, "id") and storage.has_clip_asset(clip.id):
+        badges.append("On PC")
+    
+    mode = getattr(clip, "capture_mode", None)
+    if mode in (models.CAPTURE_MOBILE, models.CAPTURE_MOBILE_SHARE):
+        badges.append("From Phone")
+    
+    if getattr(clip, "content_hash", None):
+        badges.append("Proof Recorded")
+    
+    return badges
+
+
 def _time_bucket(iso: str) -> str:
     """Bucket an ISO timestamp into Today/Yesterday/This Week/Older."""
     from datetime import datetime, timedelta
@@ -101,7 +185,7 @@ def _time_bucket(iso: str) -> str:
     delta = now - dt
     if delta < timedelta(days=1) and now.date() == dt.date():
         return "Today"
-    if delta < timedelta(days=2) and (now - timedelta(days=1)).date() == dt.date():
+    if delta < timedelta(days=2) and (now.date() - dt.date()) == timedelta(days=1):
         return "Yesterday"
     if delta < timedelta(days=7):
         return "This Week"

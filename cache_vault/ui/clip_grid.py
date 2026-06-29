@@ -139,6 +139,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._row_by_id.clear()
         self._name_label_by_id.clear()
         self._render_order.clear()
+        self._current_group = None
         if not clips:
             self._empty.configure(
                 text=empty_message or (
@@ -164,14 +165,25 @@ class ClipGrid(ctk.CTkScrollableFrame):
             self._show_more_footer()
 
     def _build_row(self, clip: Clip) -> None:
+        # Date grouping
+        group = clip_metadata.date_group_header(clip.created_at)
+        if group != self._current_group:
+            self._current_group = group
+            header = ctk.CTkLabel(
+                self._rows_frame, text=group,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=brand.STAMP_GOLD, anchor="w",
+            )
+            header.pack(fill="x", padx=10, pady=(12, 4))
+
         selected = clip.id in self._selected_ids or clip.id == self._selected_id
         row = ctk.CTkFrame(
-            self._rows_frame, corner_radius=4, height=34,
+            self._rows_frame, corner_radius=6, height=40,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
             border_width=1 if selected else 0,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
-        row.pack(fill="x", pady=2)
+        row.pack(fill="x", pady=2, padx=4)
         self._row_by_id[clip.id] = row
         self._render_order.append(clip.id)
         for col, (key, _label, weight) in enumerate(COLUMNS):
@@ -184,7 +196,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 font=ctk.CTkFont(size=11, weight="bold" if key == "name" else "normal"),
                 text_color=brand.PROOF_TEAL if key == "name" and selected else brand.MUTED_FG,
             )
-            lbl.grid(row=0, column=col, sticky="ew", padx=6, pady=6)
+            lbl.grid(row=0, column=col, sticky="ew", padx=8, pady=8)
             if key == "name":
                 self._name_label_by_id[clip.id] = lbl
         self._bind_clip_events(row, clip)
@@ -204,11 +216,16 @@ class ClipGrid(ctk.CTkScrollableFrame):
         preview_type = clip_metadata.format_label(clip.classification, clip.content_type).upper()
         if clip.duplicate_of:
             preview_type += " · DUP"
+        
+        badges = clip_metadata.status_badges(clip)
+        if badges:
+            preview_type += f" · {' · '.join(badges)}"
+
         return {
             "name": name[:36] + ("…" if len(name) > 36 else ""),
             "type": preview_type,
-            "added": _short(clip.created_at),
-            "used": _short(clip.date_used or clip.updated_at),
+            "added": clip_metadata.human_timestamp(clip.created_at),
+            "used": clip_metadata.human_timestamp(clip.date_used or clip.updated_at),
             "source": clip_metadata.display(clip.source_app)[:16],
             "favorite": "★" if clip.is_pinned else "",
             "proof": clip_metadata.shorten_hash(clip.content_hash),

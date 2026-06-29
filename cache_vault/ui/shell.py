@@ -1370,6 +1370,7 @@ class CacheVaultApp(ctk.CTk):
             "clip_inspector_context": self.vault.clip_inspector_context,
             "copy_path": self._copy_path,
             "send_to_macro": self._send_to_macro_safe,
+            "get_storage": lambda: self.vault.storage,
         }
 
     # --- data refresh ------------------------------------------------------

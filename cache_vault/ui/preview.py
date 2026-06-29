@@ -310,7 +310,12 @@ class PreviewPanel(ctk.CTkFrame):
         type_label = clip_metadata.format_label(clip.classification, clip.content_type)
         safety = "Sensitive — masked in lists" if clip.is_sensitive else "Standard"
         self._title.configure(text=title)
+        
+        # Collect badges based on metadata and storage status
         badges = []
+        storage = self._actions.get("get_storage", lambda: None)()
+        badges.extend(clip_metadata.status_badges(clip, storage))
+        
         ctx_fn = self._actions.get("clip_inspector_context")
         ctx = ctx_fn(clip.id) if ctx_fn else None
         if ctx and ctx.get("original_protected"):
@@ -322,8 +327,7 @@ class PreviewPanel(ctk.CTkFrame):
                 badges.append(brand.LABEL_EDITABLE_COPY)
         if ctx and ctx.get("receipt_count", 0):
             badges.append(brand.LABEL_RECEIPT_STAMPED)
-        if clip.content_hash:
-            badges.append(brand.LABEL_HASH_VERIFIED)
+        
         sub = f"{type_label} · {safety}"
         if badges:
             sub += " · " + " · ".join(badges)
@@ -447,8 +451,8 @@ class PreviewPanel(ctk.CTkFrame):
         ctx = ctx_fn(clip.id) if ctx_fn else None
         lines = [
             f"Item ID:      {clip.id}",
-            f"First Saved:  {clip.created_at.replace('T', ' ')[:19]}",
-            f"Last Used:    {(clip.date_used or clip.updated_at).replace('T', ' ')[:19]}",
+            f"First Saved:  {clip_metadata.human_timestamp(clip.created_at)}",
+            f"Last Used:    {clip_metadata.human_timestamp(clip.date_used or clip.updated_at)}",
             f"Use Count:    {clip.use_count}",
             f"Source App:   {clip_metadata.display(clip.source_app)}",
             f"Window:       {clip_metadata.display(clip.source_window)}",
@@ -463,11 +467,11 @@ class PreviewPanel(ctk.CTkFrame):
             lines.append(f"Receipts:     {ctx.get('receipt_count', 0)}")
             if ctx.get("last_pasted"):
                 lines.append(
-                    f"Last Pasted:  {ctx['last_pasted'].replace('T', ' ')[:19]}"
+                    f"Last Pasted:  {clip_metadata.human_timestamp(ctx['last_pasted'])}"
                 )
             if ctx.get("last_exported"):
                 lines.append(
-                    f"Last Exported:{ctx['last_exported'].replace('T', ' ')[:19]}"
+                    f"Last Exported:{clip_metadata.human_timestamp(ctx['last_exported'])}"
                 )
             if ctx.get("original_protected"):
                 lines.append(f"Status:       {brand.LABEL_ORIGINAL_PROTECTED}")
@@ -507,8 +511,8 @@ class PreviewPanel(ctk.CTkFrame):
 
     def _usage_text(self, clip: Clip) -> str:
         lines = [
-            f"First Saved:   {clip.created_at.replace('T', ' ')[:19]}",
-            f"Last Used:     {(clip.date_used or clip.updated_at).replace('T', ' ')[:19]}",
+            f"First Saved:   {clip_metadata.human_timestamp(clip.created_at)}",
+            f"Last Used:     {clip_metadata.human_timestamp(clip.date_used or clip.updated_at)}",
             f"Used:          {clip.use_count} times",
             f"Copied Again:  {clip.copied_count}",
         ]
@@ -520,7 +524,7 @@ class PreviewPanel(ctk.CTkFrame):
             lines.append("")
             lines.append("Copied on:")
             for ev in copied[:8]:
-                ts = (ev.get("created_at") or "")[:19].replace("T", " ")
+                ts = clip_metadata.human_timestamp(ev.get("created_at") or "")
                 lines.append(f"  {ts}")
         return "\n".join(lines)
 
