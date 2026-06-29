@@ -11,6 +11,9 @@ from cache_vault.core.regex_macros import (
     apply_macro,
     build_macro_receipt_payload,
 )
+from cache_vault.core.settings import Settings
+from cache_vault.core.storage import VaultStorage
+from cache_vault.core.vault import Vault
 
 
 def test_macro_preview_valid():
@@ -200,12 +203,136 @@ def test_disabled_macro_preview_behavior():
     assert res["after"] == "my REDACTED key"
 
 
-def test_no_live_capture_applies_macros():
-    # Make sure we don't accidentally import or invoke regex_macros in vault.py/shell.py yet.
-    # Let's inspect vault.py's capture methods to verify they don't call apply_macro.
-    from pathlib import Path
-    vault_py = Path(__file__).parent.parent / "cache_vault" / "core" / "vault.py"
-    content = vault_py.read_text(encoding="utf-8")
-    assert "apply_macro" not in content
-    assert "regex_macros" not in content
+def test_capture_applies_macros_integration(tmp_path, monkeypatch):
+    test_json = tmp_path / "regex_macros.json"
+    monkeypatch.setattr("cache_vault.core.regex_macros.regex_macros_path", lambda: test_json)
+
+    macro = RegexMacro(
+        macro_id="macro-c1",
+        name="Redact IP",
+        enabled=True,
+        pattern=r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+        replacement="[REDACTED IP]",
+        content_types=["plain"],
+        safe_scope=["Dev"],
+    )
+    from cache_vault.core.regex_macros import save_regex_macros
+    save_regex_macros([macro])
+
+    settings = Settings()
+    settings.user_safes.append({"id": "Dev", "name": "Dev", "icon": "💼", "accent": "blue"})
+    storage = VaultStorage(":memory:")
+    vault = Vault(storage, settings)
+
+    clip = vault.capture("connect to 192.168.1.1 now", safe_id="Dev")
+    assert clip is not None
+    assert clip.content == "connect to 192.168.1.1 now"
+
+    clips = storage.list_clips()
+    assert len(clips) == 2
+
+    transformed = [c for c in clips if c.id != clip.id][0]
+    assert transformed.content == "connect to [REDACTED IP] now"
+    assert transformed.duplicate_of == clip.id
+    assert "macro-transformed" in transformed.tags
+    assert f"original:{clip.id}" in transformed.tags
+    assert transformed.title == "[Macro: Redact IP] connect to 192.168.1.1 now"
+
+    events = vault.events.recent()
+    macro_evts = [e for e in events if e["event_type"] == "macro_transform"]
+    assert len(macro_evts) == 1
+    evt = macro_evts[0]
+    assert evt["details"]["macro_id"] == "macro-c1"
+    assert evt["details"]["original_clip_id"] == clip.id
+    assert evt["details"]["transformed_clip_id"] == transformed.id
+    assert evt["details"]["matched"] is True
+    assert evt["details"]["transformed"] is True
+
+
+def test_capture_applies_macros_disabled(tmp_path, monkeypatch):
+    test_json = tmp_path / "regex_macros.json"
+    monkeypatch.setattr("cache_vault.core.regex_macros.regex_macros_path", lambda: test_json)
+
+    macro = RegexMacro(
+        macro_id="macro-c2",
+        name="Redact IP",
+        enabled=False,
+        pattern=r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+        replacement="[REDACTED IP]",
+    )
+    from cache_vault.core.regex_macros import save_regex_macros
+    save_regex_macros([macro])
+
+    storage = VaultStorage(":memory:")
+    vault = Vault(storage, Settings())
+
+    clip = vault.capture("connect to 192.168.1.1 now")
+    assert clip is not None
+    assert clip.content == "connect to 192.168.1.1 now"
+
+    clips = storage.list_clips()
+    assert len(clips) == 1
+
+
+def test_capture_applies_macros_unmatched_or_invalid(tmp_path, monkeypatch):
+    test_json = tmp_path / "regex_macros.json"
+    monkeypatch.setattr("cache_vault.core.regex_macros.regex_macros_path", lambda: test_json)
+
+    macro_unmatched = RegexMacro(
+        macro_id="macro-c3",
+        name="Redact IP",
+        enabled=True,
+        pattern=r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+        replacement="[REDACTED IP]",
+    )
+    macro_invalid = RegexMacro(
+        macro_id="macro-c4",
+        name="Invalid Pattern",
+        enabled=True,
+        pattern=r"[0-9",
+        replacement="",
+    )
+    from cache_vault.core.regex_macros import save_regex_macros
+    save_regex_macros([macro_unmatched, macro_invalid])
+
+    storage = VaultStorage(":memory:")
+    vault = Vault(storage, Settings())
+
+    clip = vault.capture("no IP addresses here")
+    assert clip is not None
+
+    clips = storage.list_clips()
+    assert len(clips) == 1
+
+    events = vault.events.recent()
+    warnings = [e for e in events if e["event_type"] == "macro_warning"]
+    assert len(warnings) == 1
+    assert warnings[0]["details"]["macro_id"] == "macro-c4"
+    assert "Invalid regex pattern" in warnings[0]["details"]["error"]
+
+
+def test_capture_applies_macros_scope_mismatch(tmp_path, monkeypatch):
+    test_json = tmp_path / "regex_macros.json"
+    monkeypatch.setattr("cache_vault.core.regex_macros.regex_macros_path", lambda: test_json)
+
+    macro = RegexMacro(
+        macro_id="macro-c5",
+        name="Redact IP",
+        enabled=True,
+        pattern=r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+        replacement="[REDACTED IP]",
+        safe_scope=["Dev"],
+    )
+    from cache_vault.core.regex_macros import save_regex_macros
+    save_regex_macros([macro])
+
+    storage = VaultStorage(":memory:")
+    vault = Vault(storage, Settings())
+
+    clip = vault.capture("connect to 192.168.1.1 now")
+    assert clip is not None
+
+    clips = storage.list_clips()
+    assert len(clips) == 1
+
 
