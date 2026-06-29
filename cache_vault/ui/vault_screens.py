@@ -52,6 +52,7 @@ class VaultScreenHost(ctk.CTkFrame):
         self._callbacks = callbacks
         self._screens: dict[str, ctk.CTkScrollableFrame] = {}
         self._active: str | None = None
+        self._receipts_filter_hint: str | None = None
         builders = {
             "nav_stamped_receipts": self._build_receipts,
             "nav_exports": self._build_exports,
@@ -77,6 +78,9 @@ class VaultScreenHost(ctk.CTkFrame):
         refresh = getattr(self._screens[key], "_refresh", None)
         if callable(refresh):
             refresh()
+
+    def set_receipts_filter_hint(self, filter_name: str | None) -> None:
+        self._receipts_filter_hint = filter_name
 
     def hide(self) -> None:
         if self._active and self._active in self._screens:
@@ -112,6 +116,16 @@ class VaultScreenHost(ctk.CTkFrame):
         detail.configure(state="disabled")
 
         def reload() -> None:
+            hint = getattr(self, "_receipts_filter_hint", None)
+            if hint:
+                from .receipt_ledger import FILTERS
+                if hint in FILTERS:
+                    filt.set(hint)
+                else:
+                    search.delete(0, "end")
+                    search.insert(0, hint)
+                self._receipts_filter_hint = None
+
             for w in list_frame.winfo_children():
                 w.destroy()
             vault = self._callbacks["vault"]()
@@ -352,7 +366,7 @@ class VaultScreenHost(ctk.CTkFrame):
         macro_title_row = ctk.CTkFrame(parent, fg_color="transparent")
         macro_title_row.pack(fill="x", pady=(4, 2))
         macro_title = ctk.CTkLabel(
-            macro_title_row, text=brand.TERM_VAULT_MACROS,
+            macro_title_row, text=brand.TERM_SNIPPET_MACROS,
             font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
         )
         macro_title.pack(side="left")
@@ -400,7 +414,7 @@ class VaultScreenHost(ctk.CTkFrame):
                 w.destroy()
             macros_cb = self._callbacks.get("macro_list")
             if not callable(macros_cb):
-                _empty(self._macro_list, "Vault Macros not wired.")
+                _empty(self._macro_list, "Snippet Macros not wired.")
                 return
             fk = filter_map.get(filt.get(), MACRO_FILTER_ALL)
             rows = macros_cb(fk, search.get())
@@ -410,7 +424,7 @@ class VaultScreenHost(ctk.CTkFrame):
                     _empty(
                         self._macro_list,
                         "No macros yet.\n\n"
-                        "Vault Macros are reusable snippets — signatures, replies, "
+                        "Snippet Macros are reusable snippets — signatures, replies, "
                         "addresses, code, commands — that you paste by hotkey, text "
                         "shortcut, or the macro menu.\n\n"
                         "Click “New from template” to create your first one, then set "

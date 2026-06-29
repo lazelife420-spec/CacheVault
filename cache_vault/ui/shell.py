@@ -135,13 +135,86 @@ class CacheVaultApp(ctk.CTk):
             if "invalid command name" in err_text:
                 return
         try:
-            from tkinter import messagebox
-            messagebox.showerror(
-                "Cache Vault — Error",
-                f"Something went wrong.\n\nDetails were saved to:\n{path}",
-                parent=self if self._alive() else None,
-            )
+            self._show_crash_dialog(exc, val, tb, path)
         except Exception:  # noqa: BLE001
+            try:
+                from tkinter import messagebox
+                messagebox.showerror(
+                    "Cache Vault — Error",
+                    f"Something went wrong.\n\nDetails were saved to:\n{path}",
+                    parent=self if self._alive() else None,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _show_crash_dialog(self, exc, val, tb, path) -> None:
+        try:
+            if not self._alive():
+                return
+            from tkinter import messagebox
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Cache Vault — Application Error")
+            dialog.geometry("500x220")
+            dialog.resizable(False, False)
+            dialog.attributes("-topmost", True)
+            dialog.grab_set()
+
+            dialog.columnconfigure(0, weight=1)
+            dialog.columnconfigure(1, weight=1)
+            dialog.columnconfigure(2, weight=1)
+
+            ctk.CTkLabel(
+                dialog,
+                text="⚠️ Application Error",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=brand.WARNING_RED,
+            ).grid(row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(15, 5))
+
+            err_summary = str(val)[:120] + ("..." if len(str(val)) > 120 else "")
+            ctk.CTkLabel(
+                dialog,
+                text=f"An unexpected error occurred: {err_summary}\n\n"
+                     f"Details have been saved to:\n{path}",
+                font=ctk.CTkFont(size=11),
+                justify="left",
+                wraplength=460,
+            ).grid(row=1, column=0, columnspan=3, sticky="w", padx=20, pady=5)
+
+            tb_str = "".join(traceback.format_exception(exc, val, tb))
+
+            def _copy():
+                self.clipboard_clear()
+                self.clipboard_append(tb_str)
+                messagebox.showinfo("Copied", "Error traceback copied to clipboard.", parent=dialog)
+
+            def _open_log():
+                import os
+                try:
+                    os.startfile(path)
+                except Exception:
+                    pass
+
+            ctk.CTkButton(
+                dialog,
+                text="Copy Error",
+                command=_copy,
+                **theme.secondary_button(),
+            ).grid(row=2, column=0, padx=(20, 5), pady=(15, 10), sticky="ew")
+
+            ctk.CTkButton(
+                dialog,
+                text="Open Crash Log",
+                command=_open_log,
+                **theme.secondary_button(),
+            ).grid(row=2, column=1, padx=5, pady=(15, 10), sticky="ew")
+
+            ctk.CTkButton(
+                dialog,
+                text="Continue",
+                command=dialog.destroy,
+                **theme.primary_button(),
+            ).grid(row=2, column=2, padx=(5, 20), pady=(15, 10), sticky="ew")
+        except Exception:
             pass
 
     def __init__(self, vault: Vault | None = None):
@@ -456,7 +529,7 @@ class CacheVaultApp(ctk.CTk):
                       command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
                       **theme.secondary_button()
                       ).grid(row=0, column=2, padx=4)
-        ctk.CTkButton(top, text="⚡ Regex Macros", width=120, command=self._open_regex_macros,
+        ctk.CTkButton(top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
                       **theme.secondary_button()
                       ).grid(row=0, column=3, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
@@ -2432,12 +2505,12 @@ class CacheVaultApp(ctk.CTk):
             )
             self._sync_macro_triggers()
         if self.vault.send_to_macro_safe(clip_id):
-            self._show_toast("Saved to Vault Macros.")
+            self._show_toast("Saved to Snippet Macros.")
             self.refresh()
         else:
             from tkinter import messagebox
             messagebox.showinfo(
-                "Vault Macros",
+                "Snippet Macros",
                 "This clip has no text body to save as a macro.\n"
                 "Text clips and links work best.",
                 parent=self,
@@ -2639,7 +2712,10 @@ class CacheVaultApp(ctk.CTk):
 
     def _open_regex_macros(self) -> None:
         from .regex_macro_dialog import RegexMacroDialog
-        RegexMacroDialog(self, on_view_receipts=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
+        def _view():
+            self._vault_screens.set_receipts_filter_hint("Capture Rules")
+            self._navigate_screen(NAV_STAMPED_RECEIPTS)
+        RegexMacroDialog(self, on_view_receipts=_view)
 
     def _open_settings(self) -> None:
         # Prefer the new registry-backed Settings Hub (Chunk C2).
@@ -3411,7 +3487,7 @@ class CacheVaultApp(ctk.CTk):
             self._open_macro_picker(
                 paste_target=target,
                 filter_macros=enabled,
-                title="Vault Macros — choose hotkey match",
+                title="Snippet Macros — choose hotkey match",
             )
 
     def _on_text_shortcut_match(self, macro, shortcut: str, backspace_count: int, hwnd) -> None:
@@ -3439,13 +3515,13 @@ class CacheVaultApp(ctk.CTk):
         *,
         paste_target=None,
         filter_macros=None,
-        title: str = "Vault Macros",
+        title: str = "Snippet Macros",
     ) -> None:
         if not self._alive():
             return
         ok, _reason = self._macro_executor.execution_allowed()
         if not ok:
-            self._show_toast("Vault Macros are disabled or setup is incomplete.")
+            self._show_toast("Snippet Macros are disabled or setup is incomplete.")
             return
         try:
             existing = getattr(self, "_macro_picker", None)

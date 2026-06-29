@@ -188,7 +188,7 @@ class VaultControlStrip(ctk.CTkFrame):
         self._quick = ctk.CTkOptionMenu(
             self,
             width=150,
-            values=["Quick Actions", "Quick Paste", "Vault Macros",
+            values=["Quick Actions", "Quick Paste", "Snippet Macros",
                     "Export Selected", "Show First-Use Guide", "Lock Vault"],
             command=self._quick_action,
         )
@@ -243,7 +243,7 @@ class VaultControlStrip(ctk.CTkFrame):
     def _quick_action(self, choice: str) -> None:
         mapping = {
             "Quick Paste": "quick_paste",
-            "Vault Macros": "vault_macros",
+            "Snippet Macros": "vault_macros",
             "Export Selected": "export_selected",
             "Show First-Use Guide": "show_first_use_guide",
             "Lock Vault": "lock_now",

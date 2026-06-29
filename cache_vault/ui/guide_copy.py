@@ -62,7 +62,7 @@ TOOLTIP_HASH_PROOF = (
     "Hashes help prove a file or item has not changed since the receipt/export was created."
 )
 TOOLTIP_VAULT_MACROS = (
-    "Vault Macros let you paste reusable snippets by hotkey, shortcut, or picker. "
+    "Snippet Macros let you paste reusable snippets by hotkey, shortcut, or picker. "
     "Macro actions can stamp receipts."
 )
 

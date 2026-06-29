@@ -63,7 +63,7 @@ FILTER_GROUPS: list[tuple[str | None, list[tuple[str, str]]]] = [
     ("COMMAND", [
         (S.FILTER_HOME, brand.TERM_COMMAND_CENTER),
         (NAV_QUICK_PASTE, "Quick Paste"),
-        (NAV_VAULT_MACROS, brand.TERM_VAULT_MACROS),
+        (NAV_VAULT_MACROS, brand.TERM_SNIPPET_MACROS),
         (NAV_HOTKEY_ACTIONS, "Hotkey Actions"),
     ]),
     ("VAULT", [

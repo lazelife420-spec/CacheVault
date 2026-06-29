@@ -159,7 +159,7 @@ class FounderDialog(ctk.CTkToplevel):
             "• proof-pack exports",
             "• HTML bundles",
             "• editable copy workflows",
-            "• Vault Macros and custom Safes",
+            "• Snippet Macros and custom Safes",
             "• advanced review filters",
             "• future Founder updates",
             "",

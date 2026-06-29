@@ -355,9 +355,9 @@ def test_dialog_status_resolution():
     status_invalid = RegexMacroDialog._get_macro_status(dialog, macro_invalid)
     status_live = RegexMacroDialog._get_macro_status(dialog, macro_live)
 
-    assert status_disabled == "Disabled"
-    assert status_invalid == "Invalid pattern"
-    assert status_live == "Enabled for live capture"
+    assert status_disabled == "DISABLED"
+    assert status_invalid == "INVALID"
+    assert status_live == "LIVE"
 
 
 def test_disable_all_macros_action(tmp_path, monkeypatch):

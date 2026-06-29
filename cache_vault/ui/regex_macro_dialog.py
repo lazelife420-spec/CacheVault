@@ -1,6 +1,6 @@
-"""Regex Macro Persistence and Preview UI.
+"""Capture Rules (Regex Macros) Persistence and Preview UI.
 
-Allows users to manage and preview regex-based content transformations.
+Allows users to manage and preview regex-based content transformations safely.
 """
 
 from __future__ import annotations
@@ -21,11 +21,11 @@ from cache_vault.core.regex_macros import (
 
 
 class RegexMacroDialog(ctk.CTkToplevel):
-    """Dialog surface for managing and test-previewing regex macros."""
+    """Dialog surface for managing and test-previewing regex capture rules."""
 
     def __init__(self, master, on_view_receipts: Callable[[], None] | None = None) -> None:
         super().__init__(master)
-        self.title("Cache Vault — Regex Macros Preview & Safety Hub")
+        self.title("Cache Vault — Capture Rules Preview & Safety Hub")
         self.geometry("900x700")
         self.minsize(850, 600)
         self.resizable(True, True)
@@ -48,7 +48,7 @@ class RegexMacroDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             banner,
-            text="⚡ Enabled macros create separate transformed copies during capture. Originals are never changed.",
+            text="⚡ Enabled rules create separate transformed copies during capture. Originals are never changed.",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=brand.STAMP_GOLD,
         ).pack(side="left", padx=15, pady=8)
@@ -56,13 +56,13 @@ class RegexMacroDialog(ctk.CTkToplevel):
         if self._on_view_receipts:
             ctk.CTkButton(
                 banner,
-                text="View Macro Receipts",
+                text="View Capture Rule Receipts",
                 command=self._on_view_receipts,
-                width=150,
+                width=190,
                 **theme.secondary_button(),
             ).pack(side="right", padx=15, pady=6)
 
-        # --- Left Panel: Macro List ---
+        # --- Left Panel: Rules List ---
         left_panel = ctk.CTkFrame(self, fg_color="transparent")
         left_panel.grid(row=1, column=0, sticky="nsew", padx=(12, 6), pady=(4, 12))
         left_panel.grid_rowconfigure(1, weight=1)
@@ -70,7 +70,7 @@ class RegexMacroDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             left_panel,
-            text="Macros",
+            text="Capture Rules",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=brand.PROOF_TEAL,
         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
@@ -133,7 +133,7 @@ class RegexMacroDialog(ctk.CTkToplevel):
         ).grid(row=1, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 10))
 
         # Fields: Name
-        ctk.CTkLabel(self.form_card, text="Macro Name").grid(row=2, column=0, sticky="e", padx=16, pady=4)
+        ctk.CTkLabel(self.form_card, text="Rule Name").grid(row=2, column=0, sticky="e", padx=16, pady=4)
         self.name_entry = ctk.CTkEntry(self.form_card)
         self.name_entry.grid(row=2, column=1, sticky="ew", padx=16, pady=4)
         self.name_entry.bind("<KeyRelease>", self._on_field_change)
@@ -252,11 +252,11 @@ class RegexMacroDialog(ctk.CTkToplevel):
 
     def _get_macro_status(self, macro: RegexMacro) -> str:
         if not macro.enabled:
-            return "Disabled"
+            return "DISABLED"
         err = validate_macro(macro)
         if err:
-            return "Invalid pattern"
-        return "Enabled for live capture"
+            return "INVALID"
+        return "LIVE"
 
     def _refresh_list(self) -> None:
         # Clear list frame
@@ -268,10 +268,10 @@ class RegexMacroDialog(ctk.CTkToplevel):
             row.pack(fill="x", pady=2, padx=4)
 
             status = self._get_macro_status(macro)
-            name = macro.name or "Unnamed Macro"
-            if status == "Disabled":
+            name = macro.name or "Unnamed Rule"
+            if status == "DISABLED":
                 name += " (Disabled)"
-            elif status == "Invalid pattern":
+            elif status == "INVALID":
                 name += " (Invalid)"
 
             btn = ctk.CTkButton(
@@ -283,8 +283,10 @@ class RegexMacroDialog(ctk.CTkToplevel):
             )
             btn.pack(side="left", fill="x", expand=True)
 
-            if status == "Invalid pattern":
+            if status == "INVALID":
                 btn.configure(text_color=brand.WARNING_RED)
+            elif status == "LIVE":
+                btn.configure(text_color=brand.PROOF_TEAL)
 
             if self._selected_macro and self._selected_macro.macro_id == macro.macro_id:
                 btn.configure(fg_color=theme.nav_active_bg())
@@ -328,12 +330,12 @@ class RegexMacroDialog(ctk.CTkToplevel):
             return
 
         status = self._get_macro_status(self._selected_macro)
-        if status == "Disabled":
-            self.status_val_lbl.configure(text="Disabled", text_color=brand.MUTED_FG)
-        elif status == "Invalid pattern":
-            self.status_val_lbl.configure(text="Invalid pattern", text_color=brand.WARNING_RED)
+        if status == "DISABLED":
+            self.status_val_lbl.configure(text="DISABLED", text_color=brand.MUTED_TEXT)
+        elif status == "INVALID":
+            self.status_val_lbl.configure(text="INVALID PATTERN", text_color=brand.WARNING_RED)
         else:
-            self.status_val_lbl.configure(text="Enabled for live capture", text_color=brand.PROOF_TEAL)
+            self.status_val_lbl.configure(text="LIVE", text_color=brand.PROOF_TEAL)
 
     def _enable_form(self) -> None:
         self.name_entry.configure(state="normal")
@@ -371,8 +373,8 @@ class RegexMacroDialog(ctk.CTkToplevel):
         if self.enabled_var.get() and not self._selected_macro.enabled:
             ok = messagebox.askyesno(
                 "Confirm Enable Live Capture",
-                "Enabled macros create separate transformed copies during capture. Originals are never changed.\n\n"
-                "Are you sure you want to enable this macro for live capture?",
+                "Enabled rules create separate transformed copies during capture. Originals are never changed.\n\n"
+                "Are you sure you want to enable this rule for live capture?",
                 parent=self,
             )
             if not ok:
@@ -384,7 +386,7 @@ class RegexMacroDialog(ctk.CTkToplevel):
     def _on_add_macro(self) -> None:
         new_macro = RegexMacro(
             macro_id=str(uuid.uuid4()),
-            name="New Macro",
+            name="New Capture Rule",
             enabled=False,  # default disabled for safety confirmations
             pattern="",
             replacement="",
@@ -410,7 +412,7 @@ class RegexMacroDialog(ctk.CTkToplevel):
     def _on_disable_all(self) -> None:
         if not self._macros:
             return
-        if not messagebox.askyesno("Disable All Macros", "Are you sure you want to disable all macros?", parent=self):
+        if not messagebox.askyesno("Disable All Rules", "Are you sure you want to disable all capture rules?", parent=self):
             return
         for m in self._macros:
             m.enabled = False

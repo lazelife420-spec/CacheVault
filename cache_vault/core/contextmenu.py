@@ -144,7 +144,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             "Mark Keep",
             enabled=not clip.is_pinned,
         ),
-        MenuItem("send_to_macro_safe", "Send to Vault Macros", separator_before=True),
+        MenuItem("send_to_macro_safe", "Send to Snippet Macros", separator_before=True),
     ]
 
     proof_children = [

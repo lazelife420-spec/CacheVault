@@ -245,7 +245,7 @@ class SettingsDialog(ctk.CTkToplevel):
             settings.quick_paste_hotkey, "quick_paste",
         )
         self._macro_menu_hk = self._hotkey_row(
-            body, "Macro menu", "Open the Vault Macros picker.",
+            body, "Macro menu", "Open the Snippet Macros picker.",
             settings.macro_menu_hotkey, "macro_menu",
         )
 
@@ -294,7 +294,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
         self._minutes.pack(anchor="w", padx=8, pady=4, fill="x")
 
-        section("Vault Macros")
+        section("Snippet Macros")
         ctk.CTkLabel(
             body,
             text="Live macro hotkeys, text shortcuts, and paste/type delivery.\n"
@@ -302,7 +302,7 @@ class SettingsDialog(ctk.CTkToplevel):
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
-        self._vault_macros_on = ctk.CTkSwitch(body, text="Enable Vault Macros")
+        self._vault_macros_on = ctk.CTkSwitch(body, text="Enable Snippet Macros")
         self._vault_macros_on.pack(anchor="w", padx=8, pady=4)
         if settings.vault_macros_enabled:
             self._vault_macros_on.select()
@@ -606,7 +606,7 @@ class SettingsDialog(ctk.CTkToplevel):
             "Save next copy — save only the next Ctrl+C, then stop.",
             "Skip capture — ignore the next clipboard change once.",
             "Quick Paste menu — open recent clips and paste one.",
-            "Macro menu — open saved Vault Macros.",
+            "Macro menu — open saved Snippet Macros.",
             "",
             "Defaults:",
         ]

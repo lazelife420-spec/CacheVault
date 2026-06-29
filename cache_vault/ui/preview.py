@@ -621,8 +621,8 @@ class PreviewPanel(ctk.CTkFrame):
         add("Mark Keep", "mark_keep", **theme.secondary_button())
         add("Copy Metadata", "copy_metadata", **theme.secondary_button())
         if self._actions.get("send_to_macro"):
-            section("Vault Macros")
-            add("Save to Vault Macros", "send_to_macro", **theme.primary_button())
+            section("Snippet Macros")
+            add("Save to Snippet Macros", "send_to_macro", **theme.primary_button())
 
         section("Export")
         from ..core import pathutil

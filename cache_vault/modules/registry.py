@@ -127,13 +127,13 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
             SettingsField("quick_paste_hotkey", "Quick Paste menu", "hotkey",
                           "Open the recent-clips picker anywhere"),
             SettingsField("macro_menu_hotkey", "Macro menu", "hotkey",
-                          "Open the Vault Macros picker"),
+                          "Open the Snippet Macros picker"),
         ],
     ),
     SettingsCategory(
-        id="macros", label="Vault Macros", icon="\u26A1",
+        id="macros", label="Snippet Macros", icon="\u26A1",
         fields=[
-            SettingsField("vault_macros_enabled", "Enable Vault Macros", "toggle",
+            SettingsField("vault_macros_enabled", "Enable Snippet Macros", "toggle",
                           "Master switch for macros"),
             SettingsField("macro_text_shortcuts_enabled", "Text shortcuts", "toggle",
                           "Enable text shortcut expansion"),

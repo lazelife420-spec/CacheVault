@@ -59,7 +59,7 @@ class VaultMacrosSetupDialog(ctk.CTkToplevel):
         record_receipt: Callable[[str, dict], None] | None = None,
     ):
         super().__init__(master)
-        self.title("Set up Vault Macros")
+        self.title("Set up Snippet Macros")
         self.geometry("520x680")
         self.resizable(False, True)
         self.minsize(520, 560)
@@ -83,7 +83,7 @@ class VaultMacrosSetupDialog(ctk.CTkToplevel):
         scroll.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(
-            scroll, text="Set up Vault Macros",
+            scroll, text="Set up Snippet Macros",
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(anchor="w", pady=(4, 2))
         ctk.CTkLabel(
@@ -193,7 +193,7 @@ class MacroEditDialog(ctk.CTkToplevel):
         reserved_specs: set[str] | frozenset[str] | None = None,
     ):
         super().__init__(master)
-        self.title(f"{brand.TERM_VAULT_MACROS} — Edit")
+        self.title(f"{brand.TERM_SNIPPET_MACROS} — Edit")
         self.geometry("520x780")
         self.resizable(False, True)
         self.minsize(520, 600)
@@ -467,7 +467,7 @@ class MacroEditDialog(ctk.CTkToplevel):
 class MacroTemplatePicker(ctk.CTkToplevel):
     def __init__(self, master, *, on_pick: Callable[[str], None]):
         super().__init__(master)
-        self.title(f"{brand.TERM_VAULT_MACROS} — New from template")
+        self.title(f"{brand.TERM_SNIPPET_MACROS} — New from template")
         self.geometry("420x360")
         self.resizable(False, False)
         self._on_pick = on_pick
