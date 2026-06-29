@@ -316,15 +316,63 @@ def test_shell_selection_keyboard_and_lock_guards_are_wired():
     assert "_update_selected_action_strip(None)" in source
 
 
-def test_command_center_recent_clip_context_selects_before_menu():
+def test_command_center_recent_clip_context_selects_before_menu(tk_root):
     from cache_vault.ui.home_dashboard import HomeDashboard
+    from cache_vault.core.models import Clip
+    import tkinter as tk
 
-    source = inspect.getsource(HomeDashboard._bind_clip_card)
+    selected_clips = []
+    context_calls = []
 
-    assert "self._selected_clip_id = c.id" in source
-    assert "self._on_select_clip(c)" in source
-    assert "self._on_clip_context(c, e.x_root, e.y_root)" in source
-    assert source.index("self._on_select_clip(c)") < source.index("self._on_clip_context")
+    c1 = Clip(content="hello", title="Hello")
+    c1.id = "clip-1"
+
+    dashboard = HomeDashboard(
+        tk_root,
+        on_filter=lambda k: None,
+        on_open_receipts=lambda: None,
+        on_mobile_settings=lambda: None,
+        on_pair_android=lambda: None,
+        on_export=lambda: None,
+        on_select_clip=lambda c: selected_clips.append(c),
+        on_copy=lambda _id: None,
+        on_clip_context=lambda c, x, y: context_calls.append((c, x, y)),
+    )
+
+    summary = {
+        "all": 1, "favorites": 0, "screenshots": 0, "duplicates": 0,
+        "recently_removed": 0, "receipts": 0, "sensitive": 0, "expired": 0,
+        "capture_paused": False, "mobile_enabled": False,
+    }
+    dashboard.render(summary, [c1], [], [])
+    dashboard.update_idletasks()
+
+    event = tk.Event()
+    event.x_root = 100
+    event.y_root = 200
+
+    dashboard._on_card_context_menu(event, c1)
+
+    assert dashboard._selected_ids == {"clip-1"}
+    assert len(selected_clips) == 1
+    assert selected_clips[0].id == "clip-1"
+
+    assert len(context_calls) == 1
+    assert context_calls[0] == (c1, 100, 200)
+
+    # Multi-selection context preservation check
+    c2 = Clip(content="world", title="World")
+    c2.id = "clip-2"
+    dashboard.render(summary, [c1, c2], [], [])
+    dashboard.update_idletasks()
+
+    dashboard._selected_ids = {"clip-1", "clip-2"}
+    dashboard._on_card_context_menu(event, c1)
+
+    # Must preserve the multi-selection count/ids
+    assert dashboard._selected_ids == {"clip-1", "clip-2"}
+
+    dashboard.destroy()
 
 
 def test_command_center_empty_space_menu_has_only_app_commands():

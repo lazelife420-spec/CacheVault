@@ -239,6 +239,8 @@ class HomeDashboard(ctk.CTkScrollableFrame):
                 ("Move Safe", "move_safe"),
             ]
 
+        ordered_selected = [cid for cid in self._render_order if cid in self._selected_ids]
+
         # Standard action buttons
         for text, act in actions:
             if self._on_batch_action:
@@ -247,7 +249,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
                     text=text,
                     width=80,
                     height=24,
-                    command=lambda a=act: self._on_batch_action(a, list(self._selected_ids)),
+                    command=lambda a=act: self._on_batch_action(a, ordered_selected),
                     **theme.secondary_button(),
                 ).pack(side="left", padx=2)
 
@@ -258,7 +260,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
                 text="Delete",
                 width=60,
                 height=24,
-                command=lambda: self._on_batch_action("delete", list(self._selected_ids)),
+                command=lambda: self._on_batch_action("delete", ordered_selected),
                 **theme.destructive_button(),
             ).pack(side="left", padx=2)
 
@@ -688,10 +690,6 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._bind_clip_card(card, clip)
 
     def _bind_clip_card(self, card, clip: Clip) -> None:
-        # Static analysis test requirements:
-        # self._selected_clip_id = c.id
-        # self._on_select_clip(c)
-        # self._on_clip_context(c, e.x_root, e.y_root)
         def click(e, c=clip) -> str:
             self._on_card_click(e, c)
             return "break"
