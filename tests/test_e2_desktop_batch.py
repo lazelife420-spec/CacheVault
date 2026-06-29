@@ -81,8 +81,9 @@ def test_desktop_multi_link_copy_plain():
     assert event_type == models.EVENT_COPIED_AGAIN
     assert payload["count"] == 2
     assert payload["format"] == "plain"
-    assert payload["success"] is True
-    assert payload["breakdown"] == "2 links · 0 screenshots · 0 text clips"
+    assert payload["action"] == "batch_copy_selected"
+    assert payload["transfer_status"] == "completed"
+    assert payload["item_breakdown"] == {"links": 2, "text": 0, "images": 0}
 
 
 def test_desktop_multi_link_copy_markdown():
@@ -171,6 +172,10 @@ def test_desktop_mixed_selection_with_screenshots_skips_honest():
     # Toast indicates skipped screenshot
     assert app._toasts[0] == "Copied 1 text/link clips (1 image skipped)"
 
-    # Events shows breakdown
     event = vault.events.records[0][2]
-    assert event["breakdown"] == "1 links · 1 screenshots · 0 text clips"
+    assert event["action"] == "batch_copy_text_parts"
+    assert event["transfer_status"] == "partial"
+    assert event["copied_count"] == 1
+    assert event["skipped_count"] == 1
+    assert event["skipped_types"] == ["image"]
+    assert event["item_breakdown"] == {"links": 1, "text": 0, "images": 1}

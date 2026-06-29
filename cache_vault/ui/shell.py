@@ -2026,19 +2026,41 @@ class CacheVaultApp(ctk.CTk):
         self._show_toast(toast_msg)
 
         # Record receipt metadata
-        breakdown = f"{summary.link_count} links · {summary.image_count} screenshots · {summary.text_count} text clips"
-        meta = make_batch_link_receipt(
-            action="desktop_batch_copy",
-            source="desktop",
-            count=summary.selected_count,
-            format_type=format_name,
-            transfer_status="completed",
-        )
-        meta["breakdown"] = breakdown
-        meta["timestamp"] = models.now_iso()
-        meta["success"] = True
+        item_breakdown = {
+            "links": summary.link_count,
+            "text": summary.text_count,
+            "images": summary.image_count,
+        }
 
-        write_file_receipt("desktop_batch_copy", meta)
+        if has_images:
+            meta = {
+                "action": "batch_copy_text_parts",
+                "source": "desktop",
+                "count": summary.selected_count,
+                "copied_count": summary.link_count + summary.text_count,
+                "skipped_count": summary.image_count,
+                "skipped_types": ["image"],
+                "item_breakdown": item_breakdown,
+                "format": format_name,
+                "transfer_status": "partial",
+                "timestamp": models.now_iso(),
+                "success": True,
+            }
+            action_name = "batch_copy_text_parts"
+        else:
+            meta = {
+                "action": "batch_copy_selected",
+                "source": "desktop",
+                "count": summary.selected_count,
+                "format": format_name,
+                "item_breakdown": item_breakdown,
+                "transfer_status": "completed",
+                "timestamp": models.now_iso(),
+                "success": True,
+            }
+            action_name = "batch_copy_selected"
+
+        write_file_receipt(action_name, meta)
         self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
 
     def _bulk_create_receipt(self, summary) -> None:
@@ -2126,14 +2148,18 @@ class CacheVaultApp(ctk.CTk):
 
             # Record event/receipt
             meta = {
-                "action": "desktop_batch_save_images",
+                "action": "batch_export_images",
                 "source": "desktop",
                 "count": saved_count,
-                "transfer_status": "completed",
+                "format": "png",
+                "item_breakdown": {
+                    "images": saved_count,
+                },
+                "transfer_status": "completed" if failed_count == 0 else "partial",
                 "timestamp": models.now_iso(),
-                "success": True,
+                "success": failed_count == 0,
             }
-            write_file_receipt("desktop_batch_save_images", meta)
+            write_file_receipt("batch_export_images", meta)
             self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
         else:
             self._show_toast("Failed to save screenshots.")
@@ -2197,14 +2223,18 @@ class CacheVaultApp(ctk.CTk):
 
                 # Record event/receipt
                 meta = {
-                    "action": "desktop_batch_export_zip",
+                    "action": "batch_export_images",
                     "source": "desktop",
                     "count": saved_count,
-                    "transfer_status": "completed",
+                    "format": "zip",
+                    "item_breakdown": {
+                        "images": saved_count,
+                    },
+                    "transfer_status": "completed" if failed_count == 0 else "partial",
                     "timestamp": models.now_iso(),
-                    "success": True,
+                    "success": failed_count == 0,
                 }
-                write_file_receipt("desktop_batch_export_zip", meta)
+                write_file_receipt("batch_export_images", meta)
                 self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
             else:
                 self._show_toast("Failed to export screenshots to ZIP.")
@@ -2280,15 +2310,29 @@ class CacheVaultApp(ctk.CTk):
             self._show_toast(f"Exported mixed bundle to {dest_zip}")
 
             # Record event/receipt
+            from ..core.selection import analyze_selection
+            clips = []
+            for cid in ids:
+                c = self.vault.storage.get_clip(cid)
+                if c is not None:
+                    clips.append(c)
+            summary = analyze_selection(clips)
+
             meta = {
-                "action": "desktop_batch_export_bundle",
+                "action": "batch_export_bundle",
                 "source": "desktop",
                 "count": len(ids),
+                "format": "zip",
+                "item_breakdown": {
+                    "links": summary.link_count,
+                    "text": summary.text_count,
+                    "images": summary.image_count,
+                },
                 "transfer_status": "completed",
                 "timestamp": models.now_iso(),
                 "success": True,
             }
-            write_file_receipt("desktop_batch_export_bundle", meta)
+            write_file_receipt("batch_export_bundle", meta)
             self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
         else:
             err = getattr(res, "error", "unknown error")
