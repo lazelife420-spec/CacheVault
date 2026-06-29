@@ -317,7 +317,7 @@ class Vault:
         clip.last_used_at = clip.created_at
 
         self.storage.add_clip(clip)
-        if device_id == "cli-device":
+        if device_id == models.CLI_DEVICE_ID:
             from .editable_copies import write_file_receipt
             payload = {
                 "action": "cli_push",
@@ -433,7 +433,7 @@ class Vault:
         )
         self.storage.save_clip_asset(record, image_bytes)
 
-        if device_id == "cli-device":
+        if device_id == models.CLI_DEVICE_ID:
             from .editable_copies import write_file_receipt
             payload = {
                 "action": "cli_push",

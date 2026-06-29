@@ -128,6 +128,10 @@ ACTION_MOBILE_INBOX_RECEIVED = "mobile_inbox_received"
 
 PREVIEW_MAX_CHARS = 200
 
+# Developer CLI constants
+CLI_DEVICE_ID = "cli-device"
+CLI_DEVICE_NAME = "Developer CLI"
+
 # Sort keys for list/grid views
 SORT_NEWEST_ADDED = "newest_added"
 SORT_OLDEST_ADDED = "oldest_added"

@@ -258,7 +258,7 @@ def _record_received(
     warning: str | None,
     device: PairedDevice | None = None,
 ) -> InboxSendResult:
-    if device and device.device_id == "cli-device":
+    if device and device.device_id == models.CLI_DEVICE_ID:
         # Event and receipt are already logged in vault.capture_mobile_share / capture_mobile_image_share
         pass
     else:

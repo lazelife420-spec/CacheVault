@@ -22,6 +22,7 @@ def load_bridge_config() -> tuple[str, int, bool]:
         settings = Settings.load()
         port = settings.mobile_access_port or 8742
         host = settings.mobile_access_bind_host or "127.0.0.1"
+        host = host.strip()
         if not host or host == "0.0.0.0":
             host = "127.0.0.1"
         enabled = bool(settings.mobile_access_enabled)
@@ -62,18 +63,18 @@ def get_auth_token_or_pair() -> tuple[str, str]:
 
     if not device_paired:
         # Automatically pair the CLI locally
-        device_id = "cli-device"
+        device_id = models.CLI_DEVICE_ID
         token = new_device_token()
         device = PairedDevice(
             device_id=device_id,
-            device_name="Developer CLI",
+            device_name=models.CLI_DEVICE_NAME,
             created_at=models.now_iso(),
             token_hash=hash_token(token),
         )
         # Clear out any existing duplicate CLI device configurations
         settings.paired_devices = [
             d for d in settings.paired_devices
-            if d.get("device_id") != "cli-device"
+            if d.get("device_id") != models.CLI_DEVICE_ID
         ]
         settings.paired_devices.append(device.to_dict())
         settings.save()
@@ -82,6 +83,7 @@ def get_auth_token_or_pair() -> tuple[str, str]:
         config = {"device_id": device_id, "token": token}
         try:
             config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            print(f"Info: First-time auto-pairing completed. CLI paired config saved to {config_path}")
         except OSError as e:
             print(f"Warning: Could not save local CLI config: {e}", file=sys.stderr)
 
@@ -89,7 +91,7 @@ def get_auth_token_or_pair() -> tuple[str, str]:
 
 
 def get_latest_receipt() -> dict | None:
-    """Read the most recently written local JSON receipt file from disk."""
+    """Read the most recently written local JSON receipt file from disk that belongs to CLI."""
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     receipts_root = Path(base) / "CacheVault" / "Receipts"
     if not receipts_root.exists():
@@ -101,10 +103,15 @@ def get_latest_receipt() -> dict | None:
 
     # Sort files by last modification timestamp descending
     json_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    try:
-        return json.loads(json_files[0].read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    
+    for p in json_files:
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if data.get("action") == "cli_push" or data.get("source") == "cli":
+                return data
+        except Exception:
+            continue
+    return None
 
 
 def send_post_payload(payload: dict) -> tuple[bool, dict]:
@@ -147,6 +154,11 @@ def send_post_payload(payload: dict) -> tuple[bool, dict]:
             body = json.loads(e.read().decode("utf-8"))
         except Exception:
             body = {"error": "http_error", "message": str(e)}
+        if e.code in (401, 403):
+            body["message"] = (
+                f"{body.get('message', '')} Repair hint: Your CLI token may have been "
+                "revoked or desynchronized. Run 'cv reset-auth' to re-establish pairing."
+            )
         return False, body
     except urllib.error.URLError as e:
         return False, {
@@ -164,11 +176,12 @@ def run_push(args: argparse.Namespace) -> None:
             print("Error: No content provided. Specify text as an argument or pipe via stdin.", file=sys.stderr)
             sys.exit(1)
 
+    from cache_vault.core import models
     payload = {
         "item_type": "text",
         "content": content,
         "source_app": "CLI",
-        "source_device_name": "Developer CLI",
+        "source_device_name": models.CLI_DEVICE_NAME,
     }
     if args.title:
         payload["title"] = args.title
@@ -187,11 +200,12 @@ def run_push(args: argparse.Namespace) -> None:
 
 
 def run_push_url(args: argparse.Namespace) -> None:
+    from cache_vault.core import models
     payload = {
         "item_type": "url",
         "content": args.url,
         "source_app": "CLI",
-        "source_device_name": "Developer CLI",
+        "source_device_name": models.CLI_DEVICE_NAME,
     }
     if args.safe:
         payload["safe_id"] = args.safe
@@ -214,6 +228,7 @@ def run_push_file(args: argparse.Namespace) -> None:
     suffix = file_path.suffix.lower()
     is_image = suffix in (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
+    from cache_vault.core import models
     if is_image:
         mime_type = "image/png" if suffix == ".png" else "image/jpeg"
         try:
@@ -229,7 +244,7 @@ def run_push_file(args: argparse.Namespace) -> None:
             "mime_type": mime_type,
             "filename": file_path.name,
             "source_app": "CLI",
-            "source_device_name": "Developer CLI",
+            "source_device_name": models.CLI_DEVICE_NAME,
         }
     else:
         try:
@@ -242,7 +257,7 @@ def run_push_file(args: argparse.Namespace) -> None:
             "item_type": "text",
             "content": content,
             "source_app": "CLI",
-            "source_device_name": "Developer CLI",
+            "source_device_name": models.CLI_DEVICE_NAME,
         }
 
     if args.safe:
@@ -270,7 +285,6 @@ def run_doctor() -> None:
     try:
         device_id, token = get_auth_token_or_pair()
         print(f"CLI Device ID: {device_id}")
-        print(f"CLI Token paired: Yes")
     except Exception as e:
         print(f"CLI Pairing status: FAILED - {e}")
         sys.exit(1)
@@ -285,21 +299,19 @@ def run_doctor() -> None:
     try:
         with urllib.request.urlopen(req, timeout=3) as resp:
             status = json.loads(resp.read().decode("utf-8"))
-            print("Bridge connection status: Connected & Authorized")
+            print("Authorization status: Authorized")
             print(f"Server version: {status.get('version', 'unknown')}")
             print(f"Active devices count: {status.get('paired_count', 0)}")
     except urllib.error.HTTPError as e:
-        print(f"Bridge connection status: HTTP Error {e.code}")
-        try:
-            body = json.loads(e.read().decode("utf-8"))
-            print(f"Details: {body.get('error')} - {body.get('message', '')}")
-        except Exception:
-            pass
+        if e.code in (401, 403):
+            print("Authorization status: UNAUTHORIZED (Bad Token). Repair via 'cv reset-auth'.")
+        else:
+            print(f"Authorization status: HTTP Error {e.code}")
         sys.exit(1)
     except urllib.error.URLError as e:
-        print("Bridge connection status: UNREACHABLE")
+        print("Authorization status: Unreachable (Bridge Off)")
         print(f"Reason: {e.reason}")
-        print("Hint: Ensure the desktop app is running and Mobile Access is enabled.")
+        print("Hint: Ensure Cache Vault is running and Mobile Access is enabled.")
         sys.exit(1)
 
 
@@ -310,6 +322,35 @@ def run_receipt(args: argparse.Namespace) -> None:
             print("No receipts found.")
             sys.exit(1)
         print(json.dumps(receipt, indent=2))
+
+
+def run_reset_auth() -> None:
+    config_path = Path.home() / ".cache_vault_cli.json"
+
+    try:
+        from cache_vault.core.settings import Settings
+        from cache_vault.core import models
+        settings = Settings.load()
+        original_count = len(settings.paired_devices)
+        settings.paired_devices = [
+            d for d in settings.paired_devices
+            if d.get("device_id") != models.CLI_DEVICE_ID
+        ]
+        if len(settings.paired_devices) < original_count:
+            settings.save()
+            print("CLI paired device successfully removed from Cache Vault settings.")
+    except Exception as e:
+        print(f"Warning: Could not remove CLI paired device from Cache Vault settings: {e}")
+
+    if config_path.exists():
+        try:
+            config_path.unlink()
+            print(f"CLI configuration file deleted successfully: {config_path}")
+        except OSError as e:
+            print(f"Error: Could not delete CLI configuration file: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"No CLI configuration file found at: {config_path}")
 
 
 def main() -> None:
@@ -342,6 +383,13 @@ def main() -> None:
     receipt_parser = subparsers.add_parser("receipt", help="Show CLI receipts.")
     receipt_parser.add_argument("target", choices=["latest"], help="Target receipt (e.g. 'latest').")
 
+    # reset-auth
+    subparsers.add_parser(
+        "reset-auth",
+        aliases=["unpair"],
+        help="Delete local CLI config and unpair from Cache Vault.",
+    )
+
     args = parser.parse_args()
 
     if args.command == "push":
@@ -354,6 +402,8 @@ def main() -> None:
         run_doctor()
     elif args.command == "receipt":
         run_receipt(args)
+    elif args.command in ("reset-auth", "unpair"):
+        run_reset_auth()
     else:
         parser.print_help()
 
