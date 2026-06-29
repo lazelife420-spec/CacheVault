@@ -99,6 +99,42 @@ class TestSettingsHub(unittest.TestCase):
         self.on_save.assert_called_once()
         hub.destroy()
 
+    def test_settings_round_trip(self):
+        """Verify that settings can be modified and collected correctly."""
+        # Start with default settings
+        self.settings.auto_capture_enabled = True
+        self.settings.history_max_clips = 100
+        self.settings.manual_save_hotkey = "ctrl+shift+c"
+        
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        
+        # We need to select categories to ensure fields are rendered and bound
+        hub._select_category("capture")
+        hub._select_category("history")
+        hub._select_category("shortcuts")
+        
+        # Modify some fields in the bindings
+        # 1. Toggle
+        var_auto, _ = hub._field_bindings["auto_capture_enabled"]
+        var_auto.set(False)
+        
+        # 2. Number
+        var_history, _ = hub._field_bindings["history_max_clips"]
+        var_history.set("500")
+        
+        # 3. Hotkey
+        var_hotkey, _ = hub._field_bindings["manual_save_hotkey"]
+        var_hotkey.set("ctrl+alt+s")
+        
+        # Collect
+        new_settings = hub._collect_settings()
+        
+        self.assertFalse(new_settings.auto_capture_enabled)
+        self.assertEqual(new_settings.history_max_clips, 500)
+        self.assertEqual(new_settings.manual_save_hotkey, "ctrl+alt+s")
+        
+        hub.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

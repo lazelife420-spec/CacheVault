@@ -226,11 +226,6 @@ class SettingsHub(ctk.CTkToplevel):
     def _clear_settings_area(self):
         for widget in self._settings_scroll.winfo_children():
             widget.destroy()
-        # Note: we don't clear self._field_bindings here because we want to keep
-        # values if the user switches categories and back. 
-        # Actually, for a skeleton, we can just re-render and lose unsaved changes 
-        # or manage a local 'draft' settings object.
-        # Let's keep it simple: re-render from the current _settings object.
 
     def _render_status_card(self, rows: list[StatusRow]):
         card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
@@ -259,7 +254,12 @@ class SettingsHub(ctk.CTkToplevel):
             elif row.level == "error": val_color = "#F56C6C"
             elif row.level == "info": val_color = brand.PROOF_TEAL
 
-            val_text = row.value_getter()
+            try:
+                val_text = row.value_getter()
+            except Exception:
+                val_text = "Error"
+                val_color = "#F56C6C"
+
             ctk.CTkLabel(
                 row_frame, 
                 text=val_text,
@@ -314,40 +314,43 @@ class SettingsHub(ctk.CTkToplevel):
         control_col = ctk.CTkFrame(row, fg_color="transparent")
         control_col.pack(side="right", padx=(20, 0))
 
-        current_val = getattr(self._settings, field.key, field.default)
+        # Use the variable from _field_bindings if it already exists to preserve changes
+        if field.key in self._field_bindings:
+            var, _ = self._field_bindings[field.key]
+        else:
+            current_val = getattr(self._settings, field.key, field.default)
+            if field.field_type == "toggle":
+                var = ctk.BooleanVar(value=bool(current_val))
+            else:
+                var = ctk.StringVar(value=str(current_val))
         
         if field.field_type == "toggle":
-            var = ctk.BooleanVar(value=bool(current_val))
             sw = ctk.CTkSwitch(control_col, text="", variable=var, width=50)
             sw.pack()
             self._field_bindings[field.key] = (var, sw)
             
         elif field.field_type == "number":
-            var = ctk.StringVar(value=str(current_val))
             entry = ctk.CTkEntry(control_col, textvariable=var, width=100)
             entry.pack()
             self._field_bindings[field.key] = (var, entry)
             
         elif field.field_type == "text":
-            var = ctk.StringVar(value=str(current_val))
             entry = ctk.CTkEntry(control_col, textvariable=var, width=250)
             entry.pack()
             self._field_bindings[field.key] = (var, entry)
             
         elif field.field_type == "choice" and field.choices:
-            var = ctk.StringVar(value=str(current_val))
             combo = ctk.CTkComboBox(control_col, values=field.choices, variable=var, width=180)
             combo.pack()
             self._field_bindings[field.key] = (var, combo)
             
         elif field.field_type == "hotkey":
-            var = ctk.StringVar(value=str(current_val))
             entry = ctk.CTkEntry(control_col, textvariable=var, width=180)
             entry.pack()
-            # In a real app, this might be a specialized hotkey recorder widget
             self._field_bindings[field.key] = (var, entry)
             
         elif field.field_type == "readonly":
+            current_val = getattr(self._settings, field.key, field.default)
             ctk.CTkLabel(
                 control_col,
                 text=str(current_val),
@@ -364,7 +367,6 @@ class SettingsHub(ctk.CTkToplevel):
             val = var.get()
             
             # Type conversion based on the original field type in Settings
-            # or the expected type from the schema.
             orig_val = getattr(self._settings, key, None)
             
             if isinstance(orig_val, bool):
@@ -379,12 +381,15 @@ class SettingsHub(ctk.CTkToplevel):
                     new_data[key] = float(val)
                 except (ValueError, TypeError):
                     pass
+            elif isinstance(orig_val, list):
+                # We don't support editing lists directly yet, but keep them
+                pass
             else:
                 new_data[key] = val
         
-        # Filter out keys that aren't in the Settings dataclass (just in case)
-        valid_keys = {f.name for f in dataclasses.fields(Settings)}
-        filtered_data = {k: v for k, v in new_data.items() if k in valid_keys}
+        # Filter out keys that aren't in the Settings dataclass
+        field_names = {f.name for f in dataclasses.fields(Settings)}
+        filtered_data = {k: v for k, v in new_data.items() if k in field_names}
         
         return Settings(**filtered_data)
 
