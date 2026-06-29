@@ -1,201 +1,363 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Cache Vault Companion</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cache Vault — Browser Companion</title>
   <style>
+    /* ── Design tokens ──────────────────────────────────────────── */
     :root {
-      --bg: #121214;
-      --surface: #1c1c1e;
-      --surface-hover: #2c2c2e;
-      --border: #2c2c2e;
-      --fg: #f5f5f7;
-      --fg-muted: #8e8e93;
-      --teal: #008080;
-      --teal-light: #00b3b3;
-      --gold: #d4af37;
-      --radius: 8px;
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --bg:           #0d0d0f;
+      --surface:      #18181b;
+      --surface-2:    #1f1f23;
+      --surface-3:    #28282e;
+      --border:       rgba(255,255,255,0.07);
+      --border-focus: rgba(0,179,179,0.55);
+      --fg:           #f0f0f5;
+      --fg-2:         #a0a0b0;
+      --fg-3:         #636375;
+      --teal:         #008080;
+      --teal-mid:     #00a0a0;
+      --teal-bright:  #00d4d4;
+      --teal-glow:    rgba(0,212,212,0.12);
+      --gold:         #c9a227;
+      --gold-dim:     rgba(201,162,39,0.18);
+      --red:          #e05260;
+      --red-dim:      rgba(224,82,96,0.18);
+      --amber:        #d4a017;
+      --amber-dim:    rgba(212,160,23,0.18);
+      --radius-sm:    6px;
+      --radius:       10px;
+      --radius-lg:    14px;
+      --font:         -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --mono:         "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace;
+      --shadow:       0 4px 24px rgba(0,0,0,0.6);
+      --transition:   0.18s cubic-bezier(0.4,0,0.2,1);
     }
 
+    /* ── Reset ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 13px; }
+
     body {
-      margin: 0;
-      padding: 0;
-      width: 380px;
+      width: 420px;
+      min-height: 300px;
       background: var(--bg);
       color: var(--fg);
       font-family: var(--font);
-      font-size: 13px;
+      line-height: 1.5;
       overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
     }
 
+    /* ── Scrollbar ───────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 4px; }
+
+    /* ── Header ──────────────────────────────────────────────────── */
     header {
-      background: linear-gradient(135deg, #1c1c1e 0%, #0c2b2b 100%);
-      padding: 12px 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      background: linear-gradient(135deg, #141418 0%, #0c2020 60%, #071a1a 100%);
       border-bottom: 1px solid var(--border);
+      padding: 12px 16px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
 
-    h1 {
-      margin: 0;
-      font-size: 14px;
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Vault dial SVG logo */
+    .vault-logo {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .header-text h1 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: var(--fg);
+    }
+
+    .header-text p {
+      font-size: 10px;
+      color: var(--fg-3);
+      letter-spacing: 0.3px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Connection badge */
+    .conn-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
       font-weight: 700;
       letter-spacing: 0.5px;
-      color: var(--fg);
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 20px;
+      transition: all var(--transition);
+    }
+
+    .conn-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .conn-badge.paired {
+      background: rgba(0,180,180,0.12);
+      color: var(--teal-bright);
+      border: 1px solid rgba(0,180,180,0.3);
+    }
+
+    .conn-badge.paired .dot {
+      background: var(--teal-bright);
+      box-shadow: 0 0 6px var(--teal-bright);
+      animation: pulse 2s infinite;
+    }
+
+    .conn-badge.unpaired {
+      background: var(--gold-dim);
+      color: var(--gold);
+      border: 1px solid rgba(201,162,39,0.3);
+    }
+
+    .conn-badge.unpaired .dot {
+      background: var(--gold);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--teal-bright); }
+      50% { opacity: 0.5; box-shadow: 0 0 2px var(--teal-bright); }
+    }
+
+    /* Settings icon button */
+    .icon-btn {
+      background: transparent;
+      border: none;
+      color: var(--fg-3);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
-      gap: 6px;
+      transition: color var(--transition), background var(--transition);
     }
 
-    h1 span.logo-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--teal-light);
+    .icon-btn:hover { color: var(--fg); background: var(--surface-2); }
+    .icon-btn svg { width: 16px; height: 16px; }
+
+    /* ── Pairing panel ───────────────────────────────────────────── */
+    #pairing-panel {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px;
+      display: none;
+    }
+
+    .setup-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .step {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
-      display: inline-block;
-    }
-
-    .badge {
+      background: var(--teal-glow);
+      border: 1px solid rgba(0,180,180,0.35);
+      color: var(--teal-bright);
       font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-
-    .badge.paired {
-      background: rgba(0, 128, 128, 0.2);
-      color: var(--teal-light);
-      border: 1px solid rgba(0, 128, 128, 0.4);
-    }
-
-    .badge.unpaired {
-      background: rgba(212, 175, 55, 0.15);
-      color: var(--gold);
-      border: 1px solid rgba(212, 175, 55, 0.3);
-    }
-
-    .container {
-      padding: 12px 16px;
-    }
-
-    .section-title {
-      font-size: 11px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--fg-muted);
-      margin-bottom: 8px;
-      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
     }
 
-    /* Buttons */
-    button {
-      background: var(--teal);
-      color: white;
-      border: none;
-      border-radius: var(--radius);
-      padding: 8px 12px;
+    .step-body { flex: 1; }
+    .step-label {
+      font-size: 11px;
       font-weight: 600;
+      color: var(--fg-2);
+      margin-bottom: 5px;
+    }
+
+    /* ── Inputs ──────────────────────────────────────────────────── */
+    input[type="text"] {
+      background: var(--surface-2);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      width: 100%;
+      font-family: var(--font);
+      font-size: 12px;
+      outline: none;
+      transition: border-color var(--transition);
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--border-focus);
+    }
+
+    input[type="text"]::placeholder { color: var(--fg-3); }
+
+    select {
+      background: var(--surface-2);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font-family: var(--font);
+      font-size: 12px;
+      outline: none;
       cursor: pointer;
-      transition: background 0.2s ease, transform 0.1s ease;
+      transition: border-color var(--transition);
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23636375' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 28px;
+    }
+
+    select:focus { border-color: var(--border-focus); }
+
+    /* ── Buttons ─────────────────────────────────────────────────── */
+    button {
+      cursor: pointer;
+      font-family: var(--font);
+      font-weight: 600;
+      border: none;
+      transition: all var(--transition);
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
     }
 
-    button:hover {
-      background: var(--teal-light);
+    .btn-primary {
+      background: linear-gradient(135deg, var(--teal) 0%, #006868 100%);
+      color: white;
+      border-radius: var(--radius-sm);
+      padding: 8px 14px;
+      font-size: 12px;
     }
 
-    button:active {
-      transform: scale(0.98);
-    }
+    .btn-primary:hover { background: linear-gradient(135deg, var(--teal-mid) 0%, var(--teal) 100%); }
+    .btn-primary:active { transform: scale(0.97); }
+    .btn-primary:disabled { opacity: 0.38; cursor: not-allowed; transform: none; }
 
-    button.secondary {
-      background: var(--surface);
-      color: var(--fg);
+    .btn-secondary {
+      background: var(--surface-2);
+      color: var(--fg-2);
       border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 7px 12px;
+      font-size: 12px;
     }
 
-    button.secondary:hover {
-      background: var(--surface-hover);
-    }
+    .btn-secondary:hover { background: var(--surface-3); color: var(--fg); }
+    .btn-secondary:disabled { opacity: 0.38; cursor: not-allowed; }
 
-    button.full-width {
-      width: 100%;
-      box-sizing: border-box;
-    }
+    .btn-full { width: 100%; }
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
+    /* ── Main content ────────────────────────────────────────────── */
+    .main { padding: 12px 14px; }
 
-    /* Inputs */
-    input[type="text"], select {
-      background: var(--surface);
-      color: var(--fg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 8px 12px;
-      outline: none;
-      box-sizing: border-box;
-      font-family: var(--font);
-      font-size: 13px;
-    }
-
-    input[type="text"]:focus, select:focus {
-      border-color: var(--teal-light);
-    }
-
-    .search-box {
-      width: 100%;
-      margin-bottom: 10px;
-    }
-
-    /* Pairing panel */
-    #pairing-panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 12px;
-      margin-bottom: 12px;
-    }
-
-    .form-group {
-      margin-bottom: 8px;
-    }
-
-    .form-group label {
-      display: block;
-      font-size: 11px;
-      color: var(--fg-muted);
-      margin-bottom: 4px;
-    }
-
-    .form-group input {
-      width: 100%;
-    }
-
-    /* Options / Filters */
-    .filter-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+    /* Collect row */
+    .collect-row {
+      display: flex;
       gap: 8px;
       margin-bottom: 12px;
     }
 
-    /* Link list scroll area */
-    .link-list-container {
+    .collect-row .btn-primary { flex: 1; font-size: 12px; padding: 9px 14px; }
+
+    /* Filter controls */
+    .filter-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    /* Search */
+    .search-wrap {
+      position: relative;
+      margin-bottom: 10px;
+    }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--fg-3);
+      width: 14px;
+      height: 14px;
+      pointer-events: none;
+    }
+
+    .search-wrap input {
+      padding-left: 30px;
+    }
+
+    /* List header */
+    .list-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .list-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: var(--fg-3);
+    }
+
+    .list-count {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--teal-mid);
+      background: var(--teal-glow);
+      padding: 1px 7px;
+      border-radius: 10px;
+    }
+
+    /* ── Link list ───────────────────────────────────────────────── */
+    .link-list-wrap {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      max-height: 180px;
+      max-height: 190px;
       overflow-y: auto;
       margin-bottom: 12px;
     }
@@ -203,140 +365,255 @@
     .link-item {
       display: flex;
       align-items: flex-start;
-      padding: 8px 12px;
+      padding: 9px 11px;
       border-bottom: 1px solid var(--border);
-      transition: background 0.15s ease;
       cursor: pointer;
+      transition: background var(--transition);
     }
 
-    .link-item:last-child {
-      border-bottom: none;
-    }
-
-    .link-item:hover {
-      background: var(--surface-hover);
-    }
+    .link-item:last-child { border-bottom: none; }
+    .link-item:hover { background: var(--surface-2); }
 
     .link-item input[type="checkbox"] {
-      margin-top: 3px;
-      margin-right: 10px;
-      accent-color: var(--teal-light);
+      margin-top: 2px;
+      margin-right: 9px;
+      accent-color: var(--teal-bright);
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
       cursor: pointer;
     }
 
-    .link-details {
-      flex: 1;
-      min-width: 0;
+    .link-favicon {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      margin-right: 8px;
+      margin-top: 2px;
+      flex-shrink: 0;
+      background: var(--surface-3);
+      object-fit: contain;
     }
 
+    .link-details { flex: 1; min-width: 0; }
+
     .link-title {
+      font-size: 12px;
       font-weight: 600;
       color: var(--fg);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-bottom: 2px;
     }
 
-    .link-url {
-      font-size: 11px;
-      color: var(--fg-muted);
+    .link-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .link-domain {
+      font-size: 10px;
+      color: var(--teal-mid);
+      background: var(--teal-glow);
+      padding: 0px 5px;
+      border-radius: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 120px;
+    }
+
+    .link-url-text {
+      font-size: 10px;
+      color: var(--fg-3);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .no-links {
-      padding: 24px;
+    /* Empty state */
+    .empty-state {
+      padding: 28px 16px;
       text-align: center;
-      color: var(--fg-muted);
     }
 
-    /* Action buttons grid */
-    .actions-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
+    .empty-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+      display: block;
+      opacity: 0.5;
+    }
+
+    .empty-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg-2);
+      margin-bottom: 4px;
+    }
+
+    .empty-hint {
+      font-size: 11px;
+      color: var(--fg-3);
+      line-height: 1.5;
+    }
+
+    /* ── Action bar ──────────────────────────────────────────────── */
+    .action-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+    }
+
+    .action-bar-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: var(--fg-3);
       margin-bottom: 8px;
     }
 
+    .action-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .action-grid .btn-secondary {
+      font-size: 11px;
+      padding: 7px 8px;
+      justify-content: flex-start;
+    }
+
+    .action-grid .btn-secondary svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+
+    .action-bar .btn-primary {
+      width: 100%;
+      font-size: 12px;
+      padding: 9px;
+    }
+
+    /* ── Toast ───────────────────────────────────────────────────── */
     .toast {
       position: fixed;
-      bottom: 12px;
+      bottom: 16px;
       left: 50%;
-      transform: translateX(-50%);
-      background: var(--teal);
-      color: white;
-      padding: 6px 16px;
+      transform: translateX(-50%) translateY(8px);
+      padding: 8px 18px;
       border-radius: 20px;
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 700;
+      white-space: nowrap;
       opacity: 0;
-      transition: opacity 0.3s ease;
+      transition: opacity 0.25s ease, transform 0.25s ease;
       pointer-events: none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
       z-index: 100;
+      box-shadow: var(--shadow);
     }
 
     .toast.show {
       opacity: 1;
+      transform: translateX(-50%) translateY(0);
     }
 
-    /* Settings toggle */
-    #settings-toggle {
-      background: transparent;
-      border: none;
-      color: var(--fg-muted);
-      cursor: pointer;
-      padding: 4px;
-      display: flex;
-      align-items: center;
-    }
+    .toast.success { background: var(--teal); color: white; }
+    .toast.error   { background: var(--red); color: white; }
+    .toast.warning { background: var(--amber); color: #1a1000; }
 
-    #settings-toggle:hover {
-      color: var(--fg);
+    /* ── Divider ─────────────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 10px 0;
     }
   </style>
 </head>
 <body>
+
+  <!-- ── Header ────────────────────────────────────────── -->
   <header>
-    <h1><span class="logo-dot"></span>Cache Vault</h1>
-    <div style="display: flex; align-items: center; gap: 8px;">
-      <span id="conn-badge" class="badge unpaired">Unpaired</span>
-      <button id="settings-toggle" title="Pairing Settings">⚙️</button>
+    <div class="header-brand">
+      <!-- Vault dial SVG (inline, no network request) -->
+      <svg class="vault-logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="40" height="40" rx="10" fill="#0c2020"/>
+        <circle cx="20" cy="20" r="12" stroke="#00a0a0" stroke-width="1.5"/>
+        <circle cx="20" cy="20" r="4.5" fill="#008080"/>
+        <!-- Spokes -->
+        <line x1="20" y1="8" x2="20" y2="12.5" stroke="#00a0a0" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="20" y1="27.5" x2="20" y2="32" stroke="#00a0a0" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="8" y1="20" x2="12.5" y2="20" stroke="#00a0a0" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="27.5" y1="20" x2="32" y2="20" stroke="#00a0a0" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <div class="header-text">
+        <h1>Cache Vault</h1>
+        <p>Browser Companion</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div id="conn-badge" class="conn-badge unpaired">
+        <span class="dot"></span>
+        <span id="conn-label">Unpaired</span>
+      </div>
+      <button id="settings-toggle" class="icon-btn" title="Pairing Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
-  <div class="container">
-    <!-- Pairing Panel -->
-    <div id="pairing-panel" style="display: none;">
-      <div class="section-title" style="margin-top: 0;">Device Pairing Setup</div>
-      
-      <div class="form-group">
-        <label for="pair-host">Vault Host / Port</label>
-        <input type="text" id="pair-host" placeholder="http://127.0.0.1:8742" value="http://127.0.0.1:8742">
+  <!-- ── Pairing panel ─────────────────────────────────── -->
+  <div id="pairing-panel">
+    <div class="setup-steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-label">Desktop Host</div>
+          <input type="text" id="pair-host" placeholder="http://127.0.0.1:8742" value="http://127.0.0.1:8742">
+        </div>
       </div>
-
-      <div class="form-group">
-        <label for="pair-device-id">Device ID</label>
-        <input type="text" id="pair-device-id" placeholder="Enter Device ID">
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-label">Device ID</div>
+          <input type="text" id="pair-device-id" placeholder="From Cache Vault → Mobile Access">
+        </div>
       </div>
-
-      <div class="form-group">
-        <label for="pair-token">Pairing Token</label>
-        <input type="text" id="pair-token" placeholder="Enter Pairing Token">
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-label">Pairing Token</div>
+          <input type="text" id="pair-token" placeholder="From Cache Vault → Mobile Access">
+        </div>
       </div>
+      <button id="save-pair-btn" class="btn-primary btn-full">Save &amp; Connect</button>
+    </div>
+  </div>
 
-      <button id="save-pair-btn" class="full-width" style="margin-top: 4px;">Save Connection</button>
+  <!-- ── Main ──────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- Collect -->
+    <div class="collect-row">
+      <button id="collect-btn" class="btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Collect Links from Page
+      </button>
     </div>
 
-    <!-- Active Extraction Section -->
-    <button id="collect-btn" class="full-width" style="margin-bottom: 12px;">
-      🔍 Collect Links from Page
-    </button>
-
-    <div class="section-title">Filter Options</div>
-    <div class="filter-grid">
+    <!-- Filters -->
+    <div class="filter-row">
       <select id="link-source-filter">
         <option value="all">All links on page</option>
         <option value="visible">Visible links</option>
@@ -349,27 +626,64 @@
       </select>
     </div>
 
-    <input type="text" id="search-input" class="search-box" placeholder="Search collected links..." disabled>
+    <!-- Search -->
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="search-input" placeholder="Filter collected links…" disabled>
+    </div>
 
-    <div class="section-title" id="list-header">Collected Links (0)</div>
-    <div class="link-list-container">
+    <!-- List header -->
+    <div class="list-header">
+      <span class="list-label" id="list-header">Collected Links</span>
+      <span class="list-count" id="list-count" style="display:none">0</span>
+    </div>
+
+    <!-- Link list -->
+    <div class="link-list-wrap">
       <div id="link-list">
-        <div class="no-links">No links collected yet. Click button above.</div>
+        <div class="empty-state">
+          <span class="empty-icon">🔗</span>
+          <div class="empty-title">No links collected yet</div>
+          <div class="empty-hint">Click "Collect Links from Page"<br>to extract all links from the current tab.</div>
+        </div>
       </div>
     </div>
 
-    <div class="section-title">Actions</div>
-    <div class="actions-grid">
-      <button id="copy-selected-btn" class="secondary" disabled>Copy Selected</button>
-      <button id="copy-markdown-btn" class="secondary" disabled>As Markdown</button>
+    <!-- Actions -->
+    <div class="action-bar">
+      <div class="action-bar-label">Actions</div>
+      <div class="action-grid">
+        <button id="copy-selected-btn" class="btn-secondary" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy Plain
+        </button>
+        <button id="copy-markdown-btn" class="btn-secondary" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          As Markdown
+        </button>
+        <button id="copy-numbered-btn" class="btn-secondary" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          Numbered
+        </button>
+        <button id="copy-domains-btn" class="btn-secondary" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          Domains
+        </button>
+      </div>
+      <button id="send-vault-btn" class="btn-primary" disabled>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+        Send to Cache Vault
+      </button>
     </div>
-    <div class="actions-grid">
-      <button id="copy-numbered-btn" class="secondary" disabled>As Numbered</button>
-      <button id="send-vault-btn" disabled>Send to Vault</button>
-    </div>
+
   </div>
 
-  <div id="toast" class="toast">Action completed</div>
+  <!-- Toast -->
+  <div id="toast" class="toast success"></div>
 
   <script src="popup.js"></script>
 </body>

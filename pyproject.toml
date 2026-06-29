@@ -8,6 +8,7 @@ version = "0.1.4"
 description = "Cache Vault — a local-first clipboard vault with smart filters and sensitive auto-expiry."
 requires-python = ">=3.10"
 readme = "README.md"
+license = {file = "LICENSE"}
 
 # Runtime dependencies. Kept in lockstep with requirements.txt and the
 # PyInstaller hidden-imports in packaging/cache_vault.spec.
