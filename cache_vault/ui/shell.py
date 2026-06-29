@@ -578,6 +578,8 @@ class CacheVaultApp(ctk.CTk):
             on_view_editable_copies=lambda: self._navigate_screen(NAV_EDITABLE_COPIES),
             on_view_html_bundles=lambda: self._navigate_screen(NAV_HTML_BUNDLES),
             on_settings=self._open_settings,
+            on_selection_change=self._on_clip_selection_change,
+            on_batch_action=self._on_home_batch_action,
             image_assets_ready=False,
             corner_radius=0,
         )
@@ -1929,6 +1931,29 @@ class CacheVaultApp(ctk.CTk):
             self._preview.set_usage_events(self.vault.clip_usage_events(primary.id))
         self._preview.show(primary)
 
+    def _on_home_batch_action(self, action: str, ids: list[str]) -> None:
+        if not ids:
+            return
+        self._selected_clip_ids = list(ids)
+        if action == "copy":
+            self._bulk_copy_format("plain")
+        elif action == "copy_md":
+            self._bulk_copy_format("markdown")
+        elif action == "move_safe":
+            self._bulk_move_to_safe()
+        elif action == "save_images":
+            self._bulk_save_images()
+        elif action == "export_zip":
+            self._bulk_export_zip()
+        elif action == "copy_paths":
+            self._bulk_copy_paths()
+        elif action == "copy_text_links":
+            self._bulk_copy_text_links()
+        elif action == "delete":
+            self._bulk_remove()
+        self._home.clear_selection()
+        self.refresh()
+
     def _set_selection_hint(self, text: str) -> None:
         label = getattr(self, "_selection_hint_label", None)
         if label is not None:
@@ -2185,7 +2210,11 @@ class CacheVaultApp(ctk.CTk):
         clip_context.open_locked_menu(self, x_root, y_root)
 
     def _open_home_clip_menu(self, clip, x_root: int, y_root: int) -> None:
-        clip_context.open_home_clip_menu(self, clip, x_root, y_root)
+        if len(self._selected_clip_ids) > 1 and clip.id in self._selected_clip_ids:
+            self._open_bulk_clip_menu(self._selected_clip_ids, x_root, y_root)
+        else:
+            self._on_clip_select(clip)
+            self._open_clip_menu(clip, x_root, y_root)
 
     def _open_home_card_menu(self, label: str, filter_key: str | None, x_root: int, y_root: int) -> None:
         clip_context.open_home_card_menu(self, label, filter_key, x_root, y_root)

@@ -421,3 +421,67 @@ class TestHomeVaultUI:
         assert receipts == ["yes"]
 
         dashboard.destroy()
+
+    def test_home_dashboard_selection_state(self, tk_root):
+        selection_changes = []
+        batch_actions_run = []
+
+        dashboard = HomeDashboard(
+            tk_root,
+            on_filter=lambda k: None,
+            on_open_receipts=lambda: None,
+            on_mobile_settings=lambda: None,
+            on_pair_android=lambda: None,
+            on_export=lambda: None,
+            on_select_clip=lambda _c: None,
+            on_copy=lambda _id: None,
+            on_selection_change=lambda ids: selection_changes.append(ids),
+            on_batch_action=lambda act, ids: batch_actions_run.append((act, ids)),
+        )
+
+        c1 = _clip("content 1", id="clip-1")
+        c2 = _clip("content 2", id="clip-2")
+
+        summary = {
+            "all": 2, "favorites": 0, "screenshots": 0, "duplicates": 0,
+            "recently_removed": 0, "receipts": 0, "sensitive": 0, "expired": 0,
+            "capture_paused": False, "mobile_enabled": False,
+        }
+
+        # Render clips on home dashboard
+        dashboard.render(summary, [c1, c2], [], [])
+        dashboard.update_idletasks()
+
+        # 1. No selection initially
+        assert len(dashboard._selected_ids) == 0
+        assert dashboard._batch_frame is None
+
+        # 2. Select one clip
+        dashboard._select(c1)
+        assert dashboard._selected_ids == {"clip-1"}
+        assert len(selection_changes) == 1
+        assert selection_changes[-1] == ["clip-1"]
+        assert dashboard._batch_frame is not None
+
+        # 3. Ctrl-click toggle selection
+        dashboard._toggle_select(c2)
+        assert dashboard._selected_ids == {"clip-1", "clip-2"}
+        assert selection_changes[-1] == ["clip-1", "clip-2"]
+
+        # 4. Batch action callback validation
+        dashboard._on_batch_action("copy", ["clip-1", "clip-2"])
+        assert len(batch_actions_run) == 1
+        assert batch_actions_run[-1] == ("copy", ["clip-1", "clip-2"])
+
+        # 5. Clear selection
+        dashboard.clear_selection()
+        assert len(dashboard._selected_ids) == 0
+        assert dashboard._batch_frame is None
+
+        # 6. Select all visible
+        dashboard.select_all_visible()
+        assert dashboard._selected_ids == {"clip-1", "clip-2"}
+        assert dashboard._batch_frame is not None
+
+        dashboard.destroy()
+
