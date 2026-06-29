@@ -258,23 +258,27 @@ def _record_received(
     warning: str | None,
     device: PairedDevice | None = None,
 ) -> InboxSendResult:
-    record_capture_receipt(
-        vault.events,
-        action=models.ACTION_MOBILE_INBOX_RECEIVED,
-        event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
-        success=True,
-        clip_id=clip.id,
-        safe_id=clip.safe_id,
-        safe_name=clip.safe_name,
-        capture_mode=models.CAPTURE_MOBILE_SHARE,
-        source_app=source_app,
-        content_hash=clip.content_hash,
-        item_type=clip.classification,
-        warning=warning,
-        source_device=device.device_name if device else None,
-        paired_device_id=device.device_id if device else None,
-        transfer_status=TRANSFER_STATUS_COMPLETED,
-    )
+    if device and device.device_id == "cli-device":
+        # Event and receipt are already logged in vault.capture_mobile_share / capture_mobile_image_share
+        pass
+    else:
+        record_capture_receipt(
+            vault.events,
+            action=models.ACTION_MOBILE_INBOX_RECEIVED,
+            event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
+            success=True,
+            clip_id=clip.id,
+            safe_id=clip.safe_id,
+            safe_name=clip.safe_name,
+            capture_mode=models.CAPTURE_MOBILE_SHARE,
+            source_app=source_app,
+            content_hash=clip.content_hash,
+            item_type=clip.classification,
+            warning=warning,
+            source_device=device.device_name if device else None,
+            paired_device_id=device.device_id if device else None,
+            transfer_status=TRANSFER_STATUS_COMPLETED,
+        )
     return InboxSendResult(
         ok=True,
         clip_id=clip.id,

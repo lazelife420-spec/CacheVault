@@ -317,34 +317,47 @@ class Vault:
         clip.last_used_at = clip.created_at
 
         self.storage.add_clip(clip)
-        record_capture_receipt(
-            self.events,
-            action=models.ACTION_MOBILE_SENT_TO_PC,
-            event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
-            success=True,
-            clip_id=clip.id,
-            safe_id=sid,
-            safe_name=sname,
-            capture_mode=models.CAPTURE_MOBILE_SHARE,
-            source_app=source_app,
-            content_hash=chash,
-            item_type=clip.classification,
-        )
-        self.events.record(
-            models.EVENT_CAPTURED, clip.id,
-            {
-                "classification": clip.classification,
-                "is_sensitive": clip.is_sensitive,
-                "source_app": source_app,
-                "source_window": source_window,
-                "source_url": clip.source_url,
+        if device_id == "cli-device":
+            from .editable_copies import write_file_receipt
+            payload = {
+                "action": "cli_push",
+                "timestamp": models.now_iso(),
+                "success": True,
+                "clip_id": clip.id,
                 "safe_id": sid,
                 "safe_name": sname,
-                "capture_mode": models.CAPTURE_MOBILE_SHARE,
-                "mobile_device_id": device_id,
-                "mobile_device_name": device_name,
-            },
-        )
+                "source": "cli",
+                "count": 1,
+                "content_type": clip.classification or "text",
+                "safe": sname or "Dev",
+                "receipt_requested": True,
+                "transfer_status": "completed",
+            }
+            write_file_receipt("cli_push", payload)
+            self.events.record("cli_push", clip.id, payload)
+        else:
+            record_capture_receipt(
+                self.events,
+                action=models.ACTION_MOBILE_SENT_TO_PC,
+                event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
+                success=True,
+                clip_id=clip.id,
+                safe_id=sid,
+                safe_name=sname,
+                capture_mode=models.CAPTURE_MOBILE_SHARE,
+                source_app=source_app,
+                content_hash=chash,
+                item_type=clip.classification,
+            )
+            self.events.record(
+                models.EVENT_CAPTURED, clip.id,
+                {
+                    "classification": clip.classification,
+                    "safe_id": sid,
+                    "safe_name": sname,
+                    "is_sensitive": clip.is_sensitive,
+                }
+            )
         if self.settings.history_max_clips > 0:
             pruned = self.storage.prune_history(self.settings.history_max_clips)
             for cid in pruned:
@@ -420,33 +433,52 @@ class Vault:
         )
         self.storage.save_clip_asset(record, image_bytes)
 
-        record_capture_receipt(
-            self.events,
-            action=models.ACTION_MOBILE_SENT_TO_PC,
-            event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
-            success=True,
-            clip_id=clip.id,
-            safe_id=sid,
-            safe_name=sname,
-            capture_mode=models.CAPTURE_MOBILE_SHARE,
-            source_app=source_app,
-            content_hash=chash,
-            item_type=models.CLASS_IMAGE,
-        )
-        self.events.record(
-            models.EVENT_CAPTURED, clip.id,
-            {
-                "classification": models.CLASS_IMAGE,
-                "content_type": models.CONTENT_IMAGE,
-                "source_app": source_app,
-                "source_window": source_window,
+        if device_id == "cli-device":
+            from .editable_copies import write_file_receipt
+            payload = {
+                "action": "cli_push",
+                "timestamp": models.now_iso(),
+                "success": True,
+                "clip_id": clip.id,
                 "safe_id": sid,
                 "safe_name": sname,
-                "capture_mode": models.CAPTURE_MOBILE_SHARE,
-                "mobile_device_id": device_id,
-                "mobile_device_name": device_name,
-            },
-        )
+                "source": "cli",
+                "count": 1,
+                "content_type": models.CLASS_IMAGE,
+                "safe": sname or "Dev",
+                "receipt_requested": True,
+                "transfer_status": "completed",
+            }
+            write_file_receipt("cli_push", payload)
+            self.events.record("cli_push", clip.id, payload)
+        else:
+            record_capture_receipt(
+                self.events,
+                action=models.ACTION_MOBILE_SENT_TO_PC,
+                event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
+                success=True,
+                clip_id=clip.id,
+                safe_id=sid,
+                safe_name=sname,
+                capture_mode=models.CAPTURE_MOBILE_SHARE,
+                source_app=source_app,
+                content_hash=chash,
+                item_type=models.CLASS_IMAGE,
+            )
+            self.events.record(
+                models.EVENT_CAPTURED, clip.id,
+                {
+                    "classification": models.CLASS_IMAGE,
+                    "content_type": models.CONTENT_IMAGE,
+                    "source_app": source_app,
+                    "source_window": source_window,
+                    "safe_id": sid,
+                    "safe_name": sname,
+                    "capture_mode": models.CAPTURE_MOBILE_SHARE,
+                    "mobile_device_id": device_id,
+                    "mobile_device_name": device_name,
+                },
+            )
         if self.settings.history_max_clips > 0:
             pruned = self.storage.prune_history(self.settings.history_max_clips)
             for cid in pruned:
