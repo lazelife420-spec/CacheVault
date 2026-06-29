@@ -324,7 +324,7 @@ class RegexMacroDialog(ctk.CTkToplevel):
 
     def _update_form_status(self) -> None:
         if not self._selected_macro:
-            self.status_val_lbl.configure(text="-", text_color=brand.TEXT_COLOR)
+            self.status_val_lbl.configure(text="-", text_color=brand.MUTED_FG)
             return
 
         status = self._get_macro_status(self._selected_macro)
@@ -356,7 +356,7 @@ class RegexMacroDialog(ctk.CTkToplevel):
         self.test_input.configure(state="disabled")
         self.delete_btn.configure(state="disabled")
         self.save_btn.configure(state="disabled")
-        self.status_val_lbl.configure(text="-", text_color=brand.TEXT_COLOR)
+        self.status_val_lbl.configure(text="-", text_color=brand.MUTED_FG)
 
     def _on_field_change(self, event=None) -> None:
         if self._selected_macro:
