@@ -336,3 +336,57 @@ def test_capture_applies_macros_scope_mismatch(tmp_path, monkeypatch):
     assert len(clips) == 1
 
 
+def test_dialog_status_resolution():
+    macro_disabled = RegexMacro(
+        macro_id="m1", name="Disabled", enabled=False, pattern="foo", replacement="bar"
+    )
+    macro_invalid = RegexMacro(
+        macro_id="m2", name="Invalid", enabled=True, pattern="[0-9", replacement="bar"
+    )
+    macro_live = RegexMacro(
+        macro_id="m3", name="Live", enabled=True, pattern="foo", replacement="bar"
+    )
+
+    from cache_vault.ui.regex_macro_dialog import RegexMacroDialog
+    from unittest.mock import MagicMock
+    dialog = MagicMock()
+    
+    status_disabled = RegexMacroDialog._get_macro_status(dialog, macro_disabled)
+    status_invalid = RegexMacroDialog._get_macro_status(dialog, macro_invalid)
+    status_live = RegexMacroDialog._get_macro_status(dialog, macro_live)
+
+    assert status_disabled == "Disabled"
+    assert status_invalid == "Invalid pattern"
+    assert status_live == "Enabled for live capture"
+
+
+def test_disable_all_macros_action(tmp_path, monkeypatch):
+    test_json = tmp_path / "regex_macros.json"
+    monkeypatch.setattr("cache_vault.core.regex_macros.regex_macros_path", lambda: test_json)
+
+    macro_list = [
+        RegexMacro(macro_id="m1", name="Macro 1", enabled=True, pattern="foo", replacement="bar"),
+        RegexMacro(macro_id="m2", name="Macro 2", enabled=True, pattern="foo", replacement="bar"),
+    ]
+    from cache_vault.core.regex_macros import save_regex_macros, load_regex_macros
+    save_regex_macros(macro_list)
+
+    from tkinter import messagebox
+    monkeypatch.setattr(messagebox, "askyesno", lambda *args, **kwargs: True)
+
+    from unittest.mock import MagicMock
+    from cache_vault.ui.regex_macro_dialog import RegexMacroDialog
+    
+    dialog = MagicMock()
+    dialog._macros = load_regex_macros()
+    dialog._selected_macro = dialog._macros[0]
+    
+    RegexMacroDialog._on_disable_all(dialog)
+
+    assert all(m.enabled is False for m in dialog._macros)
+    
+    loaded = load_regex_macros()
+    assert all(m.enabled is False for m in loaded)
+
+
+

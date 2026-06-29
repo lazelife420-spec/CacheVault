@@ -2639,7 +2639,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _open_regex_macros(self) -> None:
         from .regex_macro_dialog import RegexMacroDialog
-        RegexMacroDialog(self)
+        RegexMacroDialog(self, on_view_receipts=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
 
     def _open_settings(self) -> None:
         # Prefer the new registry-backed Settings Hub (Chunk C2).
