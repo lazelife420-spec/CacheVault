@@ -468,8 +468,15 @@ class TestHomeVaultUI:
         assert dashboard._selected_ids == {"clip-1", "clip-2"}
         assert selection_changes[-1] == ["clip-1", "clip-2"]
 
-        # 4. Batch action callback validation
-        dashboard._on_batch_action("copy", ["clip-1", "clip-2"])
+        # 4. Batch action callback validation by invoking the toolbar button command
+        found_btn = None
+        for child in dashboard._batch_frame.winfo_children():
+            for c in child.winfo_children():
+                if isinstance(c, ctk.CTkButton) and c.cget("text") == "Copy Plain":
+                    found_btn = c
+                    break
+        assert found_btn is not None
+        found_btn.cget("command")()
         assert len(batch_actions_run) == 1
         assert batch_actions_run[-1] == ("copy", ["clip-1", "clip-2"])
 

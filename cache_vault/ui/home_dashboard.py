@@ -94,6 +94,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._cards: dict[str, ctk.CTkFrame] = {}
         self._batch_frame: ctk.CTkFrame | None = None
         self._selected_clip_id: str | None = None
+        self._guard_selection: bool = False
 
         self._body = ctk.CTkFrame(self, fg_color="transparent")
         self._body.pack(fill="both", expand=True, padx=14, pady=14)
@@ -101,14 +102,21 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._bind_context(self._body, lambda e: self._open_app_context(e))
 
     def set_selected(self, clip_id: str | None) -> None:
+        if getattr(self, "_guard_selection", False):
+            return
         self._selected_clip_id = clip_id
-        if clip_id is None:
-            self.clear_selection()
-        else:
-            self._selected_ids = {clip_id}
-            self._anchor_id = clip_id
+        self._guard_selection = True
+        try:
+            if clip_id is None:
+                self._selected_ids.clear()
+                self._anchor_id = None
+            else:
+                self._selected_ids = {clip_id}
+                self._anchor_id = clip_id
             self._repaint_selection()
             self._update_batch_toolbar()
+        finally:
+            self._guard_selection = False
 
     def render(
         self,
@@ -143,18 +151,19 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             font=theme.body_font(12),
         ).pack(fill="x", pady=(0, 14))
 
-        # Create persistent toolbar host
+        self._vault_status_strip(summary)
+        self._quick_actions(summary)
+        self._section_title(brand.TERM_CUSTODY_SUMMARY)
+        self._summary_cards(summary)
+        self._section_title(brand.TERM_RECENT_ACTIVITY)
+
+        # Create persistent toolbar host under the Recent Activity title
         self._batch_toolbar_host = ctk.CTkFrame(self._body, fg_color="transparent")
         self._batch_toolbar_host.pack(fill="x", pady=0)
 
         # Redraw batch actions toolbar if we have selected items
         self._update_batch_toolbar()
 
-        self._vault_status_strip(summary)
-        self._quick_actions(summary)
-        self._section_title(brand.TERM_CUSTODY_SUMMARY)
-        self._summary_cards(summary)
-        self._section_title(brand.TERM_RECENT_ACTIVITY)
         self._recent_section(recent)
         if images:
             self._section_title("Recent Screenshots")
@@ -293,48 +302,72 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             self._on_clip_context(clip, event.x_root, event.y_root)
 
     def _select(self, clip: Clip) -> None:
-        self._selected_ids = {clip.id}
-        self._anchor_id = clip.id
-        self._repaint_selection()
-        self._notify_selection_change()
-        self._on_select_clip(clip)
+        self._guard_selection = True
+        try:
+            self._selected_ids = {clip.id}
+            self._anchor_id = clip.id
+            self._repaint_selection()
+            self._notify_selection_change()
+            self._on_select_clip(clip)
+        finally:
+            self._guard_selection = False
 
     def _toggle_select(self, clip: Clip) -> None:
-        if clip.id in self._selected_ids:
-            self._selected_ids.discard(clip.id)
-            if self._anchor_id == clip.id:
-                self._anchor_id = next(iter(self._selected_ids), None)
-        else:
-            self._selected_ids.add(clip.id)
-            self._anchor_id = clip.id
-        self._repaint_selection()
-        self._notify_selection_change()
+        self._guard_selection = True
+        try:
+            if clip.id in self._selected_ids:
+                self._selected_ids.discard(clip.id)
+                if self._anchor_id == clip.id:
+                    self._anchor_id = next(iter(self._selected_ids), None)
+            else:
+                self._selected_ids.add(clip.id)
+                self._anchor_id = clip.id
+            self._repaint_selection()
+            self._notify_selection_change()
+        finally:
+            self._guard_selection = False
 
     def _range_select(self, clip: Clip) -> None:
-        anchor = self._anchor_id if self._anchor_id in self._render_order else None
-        if anchor is None or clip.id not in self._render_order:
-            self._select(clip)
-            return
-        start = self._render_order.index(anchor)
-        end = self._render_order.index(clip.id)
-        lo, hi = (start, end) if start <= end else (end, start)
-        self._selected_ids = set(self._render_order[lo:hi + 1])
-        self._repaint_selection()
-        self._notify_selection_change()
+        self._guard_selection = True
+        try:
+            anchor = self._anchor_id if self._anchor_id in self._render_order else None
+            if anchor is None or clip.id not in self._render_order:
+                self._selected_ids = {clip.id}
+                self._anchor_id = clip.id
+                self._repaint_selection()
+                self._notify_selection_change()
+                self._on_select_clip(clip)
+                return
+            start = self._render_order.index(anchor)
+            end = self._render_order.index(clip.id)
+            lo, hi = (start, end) if start <= end else (end, start)
+            self._selected_ids = set(self._render_order[lo:hi + 1])
+            self._repaint_selection()
+            self._notify_selection_change()
+        finally:
+            self._guard_selection = False
 
     def select_all_visible(self) -> None:
         if not self._render_order:
             return
-        self._selected_ids = set(self._render_order)
-        self._anchor_id = self._render_order[0]
-        self._repaint_selection()
-        self._notify_selection_change()
+        self._guard_selection = True
+        try:
+            self._selected_ids = set(self._render_order)
+            self._anchor_id = self._render_order[0]
+            self._repaint_selection()
+            self._notify_selection_change()
+        finally:
+            self._guard_selection = False
 
     def clear_selection(self) -> None:
-        self._selected_ids.clear()
-        self._anchor_id = None
-        self._repaint_selection()
-        self._notify_selection_change()
+        self._guard_selection = True
+        try:
+            self._selected_ids.clear()
+            self._anchor_id = None
+            self._repaint_selection()
+            self._notify_selection_change()
+        finally:
+            self._guard_selection = False
 
     def _repaint_selection(self) -> None:
         for cid, card in self._cards.items():

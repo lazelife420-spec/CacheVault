@@ -1921,7 +1921,9 @@ class CacheVaultApp(ctk.CTk):
         self._selected_clip_ids = list(ids)
         primary_id = ids[-1] if ids else None
         self._selected_clip_id = primary_id
-        self._home.set_selected(primary_id)
+        from ..core.storage import FILTER_HOME
+        if self._filters.active != FILTER_HOME:
+            self._home.set_selected(primary_id)
         primary = self.vault.storage.get_clip(primary_id) if primary_id else None
         if len(ids) > 1:
             self._update_bulk_action_strip(self._selected_clip_ids)
