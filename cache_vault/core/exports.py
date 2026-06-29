@@ -85,6 +85,59 @@ def _write_sha256sums(root: Path, hashes: dict[str, str]) -> None:
     (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_stamped_receipt(
+    stage: Path,
+    *,
+    export_id: str,
+    export_ts: str,
+    clips: "list",
+    collection_name: "str | None" = None,
+    machine_label: str = "",
+) -> None:
+    """Write stamped_receipt.txt — the human-readable Proof Manifest companion.
+
+    This is the document the user can read, print, or share as evidence
+    that these specific clips were exported at this specific time from this machine.
+    It lists every clip with its SHA-256 content hash so the receipt is verifiable.
+    """
+    lines: list[str] = [
+        "━" * 60,
+        f"  {brand.PRODUCT_NAME} — STAMPED RECEIPT",
+        "━" * 60,
+        f"  Export ID   : {export_id}",
+        f"  Timestamp   : {export_ts}",
+        f"  Machine     : {machine_label}",
+        f"  Clip count  : {len(clips)}",
+    ]
+    if collection_name:
+        lines.append(f"  Collection  : {collection_name}")
+    lines += [
+        "━" * 60,
+        "",
+        "  CLIP MANIFEST",
+        "",
+    ]
+    for i, clip in enumerate(clips, 1):
+        content_bytes = (clip.content or "").encode("utf-8")
+        sha = hashlib.sha256(content_bytes).hexdigest()
+        clip_type = getattr(clip, "classification", "unknown")
+        lines += [
+            f"  [{i:03d}]  id     : {clip.id}",
+            f"         type   : {clip_type}",
+            f"         sha256 : {sha}",
+            "",
+        ]
+    lines += [
+        "━" * 60,
+        f"  {brand.RECEIPT_NOTE}",
+        "━" * 60,
+        "",
+    ]
+    (stage / "stamped_receipt.txt").write_text("\n".join(lines), encoding="utf-8")
+
+
+
+
 def _item_file_hashes(stage: Path, rel_paths: list[str]) -> dict[str, str]:
     out: dict[str, str] = {}
     for rel in rel_paths:
@@ -355,13 +408,15 @@ def _write_readme(stage: Path, export_id: str, export_ts: str) -> None:
         f"Exported: {export_ts}\n"
         f"App version: {__version__}\n\n"
         "Contents:\n"
-        "  manifest.json      — export manifest (items, Safes, capture modes)\n"
-        "  SHA256SUMS.txt     — SHA-256 hashes of staged files (not the zip itself)\n"
-        "  EXPORT_RECEIPT.txt — human-readable export summary\n"
-        "  receipts/          — stamped event + file receipts (metadata only)\n"
-        "  items/             — clip text/image payloads\n"
-        "  editable_copies/   — managed editable copies (when applicable)\n"
-        "  html_bundles/      — copied HTML bundles (when applicable)\n\n"
+        "  manifest.json        — export manifest (items, Safes, capture modes)\n"
+        "  SHA256SUMS.txt       — SHA-256 hashes of staged files (not the zip itself)\n"
+        "  EXPORT_RECEIPT.txt   — human-readable export summary\n"
+        "  stamped_receipt.txt  — per-clip SHA-256 manifest (verifiable proof document)\n"
+        "  receipts/            — stamped event + file receipts (metadata only)\n"
+        "  items/               — clip text/image payloads\n"
+        "  editable_copies/     — managed editable copies (when applicable)\n"
+        "  html_bundles/        — copied HTML bundles (when applicable)\n\n"
+
         f"{brand.RECEIPT_NOTE}\n"
         "Safes are local vault sections — not encrypted containers.\n"
     )
@@ -470,6 +525,15 @@ def create_proof_zip(
             )
             (stage / "EXPORT_RECEIPT.txt").write_text(readme, encoding="utf-8")
             _write_readme(stage, export_id, export_ts)
+            _write_stamped_receipt(
+                stage,
+                export_id=export_id,
+                export_ts=export_ts,
+                clips=clips,
+                collection_name=collection_name,
+                machine_label=_machine_label(),
+            )
+
 
             safes = _safe_summary(clips)
             manifest = {
