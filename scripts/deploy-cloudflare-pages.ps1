@@ -40,12 +40,20 @@ if (Test-Path -LiteralPath $socialImg) {
     Copy-Item $socialImg (Join-Path $workDir "cache-vault-social-share.png") -Force
 }
 
+$uiShot = Join-Path $root "assets\cache-vault-ui-shot.png"
+if (Test-Path -LiteralPath $uiShot) {
+    Copy-Item $uiShot (Join-Path $workDir "cache-vault-ui-shot.png") -Force
+}
+
 # Cache headers: HTML is short-lived, assets are long-lived.
 @"
 /index.html
   Cache-Control: public, max-age=300
 
 /cache-vault-social-share.png
+  Cache-Control: public, max-age=604800, immutable
+
+/cache-vault-ui-shot.png
   Cache-Control: public, max-age=604800, immutable
 "@ | Set-Content -Path (Join-Path $workDir "_headers") -Encoding UTF8
 

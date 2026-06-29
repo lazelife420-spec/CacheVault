@@ -70,7 +70,7 @@
       --gold: #b45309;
       --shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
       --radius: 20px;
-      --max: 1080px;
+      --max: 1120px;
       --focus: #0284c7;
     }
 
@@ -320,6 +320,11 @@
       overflow: hidden;
     }
 
+    .visual-stack {
+      display: grid;
+      gap: 12px;
+    }
+
     .visual svg {
       width: 120px;
       height: 120px;
@@ -354,6 +359,44 @@
       border-radius: 999px;
       background: color-mix(in srgb, var(--accent2) 25%, transparent);
       color: var(--accent);
+    }
+
+    .proof-caption {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .shot-section {
+      padding-top: 20px;
+    }
+
+    .shot-frame {
+      padding: 18px;
+      border-radius: 28px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .shot-frame img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: #05070b;
+    }
+
+    .shot-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .shot-meta .pill {
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
     }
 
     section { padding: 56px 0; }
@@ -400,6 +443,39 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 18px;
+    }
+
+    .steps {
+      list-style: none;
+      padding: 0;
+      margin: 18px 0 0;
+      display: grid;
+      gap: 12px;
+    }
+
+    .steps li {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 12px;
+      align-items: start;
+      color: var(--muted);
+    }
+
+    .steps strong {
+      color: var(--text);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .step-num {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      color: var(--accent-text);
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
     }
 
     .list {
@@ -465,6 +541,72 @@
       margin-top: 12px;
     }
 
+    .link-list,
+    .plain-list {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .link-list a,
+    .plain-list a {
+      color: var(--accent2);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .link-list a:hover,
+    .plain-list a:hover {
+      text-decoration: underline;
+    }
+
+    .install-grid,
+    .support-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .faq {
+      display: grid;
+      gap: 12px;
+    }
+
+    .faq details {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+      padding: 16px 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .faq summary {
+      cursor: pointer;
+      font-weight: 800;
+      list-style: none;
+    }
+
+    .faq summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .faq p {
+      margin: 12px 0 0;
+      color: var(--muted);
+    }
+
+    .builder-block {
+      display: grid;
+      gap: 10px;
+    }
+
+    .builder-block p {
+      margin: 0;
+      color: var(--muted);
+    }
+
     .cta {
       text-align: center;
       padding: 72px 0 96px;
@@ -523,6 +665,7 @@
 
     @media (max-width: 900px) {
       .hero-grid, .split, .grid-3 { grid-template-columns: 1fr; }
+      .install-grid, .support-grid { grid-template-columns: 1fr; }
       .nav-links { display: none; }
       .sticky-buy { display: block; }
       footer { padding-bottom: 120px; }
@@ -558,9 +701,12 @@
         <span>Cache Vault</span>
       </a>
       <div class="nav-links">
+        <a href="#see-it">See it</a>
         <a href="#free">Free</a>
         <a href="#founder">Founder</a>
         <a href="#proof">Proof</a>
+        <a href="#faq">FAQ</a>
+        <a href="#support">Support</a>
         <a href="#compare">Compare</a>
         <a href="#download">Download</a>
       </div>
@@ -575,18 +721,18 @@
     <header class="hero" id="top">
       <div class="wrap hero-grid">
         <div>
-          <div class="eyebrow">v0.1.4.1 · Lifetime license · Windows</div>
+          <div class="eyebrow">v0.1.4.1 · Windows · one-time Founder unlock</div>
           <h1>
-            <span class="product-name" data-gumroad-field="name">Cache Vault Founder Edition — Lifetime License</span>
+            <span class="product-name">Cache Vault Founder Edition</span>
             Your clipboard, locally vaulted — searchable, provable, and private.
           </h1>
-          <p class="lead" data-gumroad-field="description">
-            A one-time Founder license for Cache Vault. Unlocks proof-pack exports, bulk ZIP bundles, HTML bundles, editable copies, Vault Macros, custom Safes, and every future Founder update in one purchase.
+          <p class="lead">
+            Cache Vault is a local-first clipboard vault for Windows with a genuinely usable free version and a one-time Founder upgrade for proof packs, exports, macros, and advanced organization.
           </p>
 
           <div class="price-row" aria-label="Price">
             <div class="price-tag" data-gumroad-field="price">$19</div>
-            <p class="price-note">One-time payment. No subscription. License file delivered after purchase.</p>
+            <p class="price-note">One-time payment. No subscription. Founder license delivered manually during the MVP period.</p>
           </div>
 
           <div class="hero-actions">
@@ -602,42 +748,48 @@
           </div>
         </div>
 
-        <div class="visual" aria-label="Product preview">
-          <svg viewBox="0 0 256 256" role="img" aria-label="Cache Vault icon">
-            <title>Cache Vault</title>
-            <rect x="0" y="0" width="256" height="256" rx="56" fill="#141d28"/>
-            <rect x="96" y="18" width="64" height="26" rx="10" fill="#2dd4bf"/>
-            <circle cx="128" cy="128" r="66" fill="#0c121a"/>
-            <g stroke="#2dd4bf" stroke-width="15" stroke-linecap="round">
-              <line x1="97" y1="97" x2="62" y2="62"/>
-              <line x1="159" y1="97" x2="194" y2="62"/>
-              <line x1="97" y1="159" x2="62" y2="194"/>
-              <line x1="159" y1="159" x2="194" y2="194"/>
-            </g>
-            <circle cx="128" cy="128" r="66" fill="none" stroke="#2dd4bf" stroke-width="15"/>
-            <circle cx="128" cy="128" r="28" fill="#5eead4"/>
-          </svg>
-
-          <div class="card-list">
+        <div class="visual" aria-label="Buyer trust summary">
+          <div class="visual-stack">
             <div class="mini-card">
-              <div aria-hidden="true">TXT</div>
-              <div><strong>Saved reply</strong><span>Favorites · copy back out</span></div>
-              <span class="tag">Free</span>
+              <div aria-hidden="true">UI</div>
+              <div><strong>Real desktop app</strong><span>Vault list, search, Safes, proof and export surfaces are all in the shipped build.</span></div>
+              <span class="tag">Visible</span>
             </div>
             <div class="mini-card">
-              <div aria-hidden="true">{ }</div>
-              <div><strong>Code snippet</strong><span>Searchable local vault</span></div>
-              <span class="tag">Free</span>
+              <div aria-hidden="true">WIN</div>
+              <div><strong>Windows ZIP download</strong><span>Portable local app. No cloud account. No subscription. SmartScreen may warn because the executable is not code-signed yet.</span></div>
+              <span class="tag">Honest</span>
             </div>
             <div class="mini-card">
-              <div aria-hidden="true">ZIP</div>
-              <div><strong>Proof-pack export</strong><span>Founder workflow</span></div>
-              <span class="tag">Founder</span>
+              <div aria-hidden="true">BUY</div>
+              <div><strong>Manual Founder delivery</strong><span>Purchase instructions are explicit: buy, receive <code>license.json</code>, import it in-app, unlock locally.</span></div>
+              <span class="tag">Clear</span>
             </div>
+            <p class="proof-caption">
+              Built by The Proof Foundry™ for people who want a real local utility, visible receipts, and a support path if something goes wrong.
+            </p>
           </div>
         </div>
       </div>
     </header>
+
+    <section id="see-it" class="shot-section">
+      <div class="wrap">
+        <h2>See Cache Vault in action</h2>
+        <p class="sub">A real screenshot from the shipped desktop app. You can immediately see the vault list, search and filters, Safes, proof actions, export surface, and the unlocked workflow layout.</p>
+        <div class="shot-frame">
+          <img src="cache-vault-ui-shot.png" alt="Cache Vault desktop screenshot showing the local vault list, search and filter controls, Safes sidebar, proof export action, stamped receipts access, and item metadata inspector." />
+          <div class="shot-meta" aria-label="Screenshot callouts">
+            <span class="pill">Vault history list</span>
+            <span class="pill">Search and filters</span>
+            <span class="pill">Safes sidebar</span>
+            <span class="pill">Export / Save As</span>
+            <span class="pill">Stamped Receipts</span>
+            <span class="pill">Founder workflow surface</span>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <section id="free">
       <div class="wrap">
@@ -650,6 +802,21 @@
           <div class="panel"><h3>Copy back out</h3><p>Send saved items back to your clipboard.</p></div>
           <div class="panel"><h3>Single export</h3><p>Export one item as TXT, MD, HTML, or JSON.</p></div>
           <div class="panel"><h3>Local-first</h3><p>No account, no subscription, no cloud requirement.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="built-for">
+      <div class="wrap">
+        <h2>Built for practical daily work</h2>
+        <p class="sub">Cache Vault is most useful when you are copying real work fragments all day and do not want them to disappear into the clipboard void.</p>
+        <div class="grid-3">
+          <div class="panel"><h3>Code snippets</h3><p>Keep useful commands, code blocks, and terminal lines easy to search and reuse.</p></div>
+          <div class="panel"><h3>Reusable replies</h3><p>Save support responses, outreach templates, and standard answers without digging through old docs.</p></div>
+          <div class="panel"><h3>Useful links</h3><p>Keep important URLs and references in one local place instead of scattered browser tabs.</p></div>
+          <div class="panel"><h3>Proof packs</h3><p>Export receipts, manifests, and SHA256-backed bundles when you need evidence of what shipped.</p></div>
+          <div class="panel"><h3>Safes</h3><p>Organize clips into separate buckets so research, personal notes, and delivery work do not blur together.</p></div>
+          <div class="panel"><h3>Recovery</h3><p>Get back things you copied earlier without hoping the current clipboard still has them.</p></div>
         </div>
       </div>
     </section>
@@ -669,15 +836,43 @@
           </ul>
         </div>
         <div class="panel">
-          <h3>What you receive</h3>
+          <h3>After purchase</h3>
+          <ol class="steps">
+            <li><span class="step-num">1</span><div><strong>You receive install and import instructions.</strong><span>They explain the Windows ZIP flow and where the Founder import lives inside the app.</span></div></li>
+            <li><span class="step-num">2</span><div><strong>Your Founder <code>license.json</code> is delivered manually during the MVP period.</strong><span>No instant-delivery claim here. Founder licenses are sent as soon as possible after purchase.</span></div></li>
+            <li><span class="step-num">3</span><div><strong>Import the license inside Cache Vault.</strong><span>Open <code>Founder</code> and choose <code>Import License File</code> or <code>Enter License</code>.</span></div></li>
+            <li><span class="step-num">4</span><div><strong>Founder workflows unlock locally.</strong><span>Verification stays offline. No license server or account login is required in this build.</span></div></li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section id="install">
+      <div class="wrap install-grid">
+        <div class="panel">
+          <h2>Windows install and trust notes</h2>
           <ul class="list">
-            <li>Founder license file (<code>license.json</code>)</li>
-            <li>Install and import instructions</li>
-            <li>Future Founder updates for this license</li>
+            <li>Windows only in the current public release</li>
+            <li>Download arrives as a ZIP file</li>
+            <li>Portable local app — extract and run <code>CacheVault.exe</code></li>
+            <li>Windows SmartScreen may warn because the executable is not code-signed yet</li>
+            <li>Founder import lives inside <code>Founder</code> in the app UI</li>
+            <li>License file location after install: <code>%LOCALAPPDATA%\CacheVault\license.json</code></li>
+            <li>To update later, download the new ZIP and replace the app files; the installed license remains local</li>
           </ul>
           <div class="notice">
-            After purchase, you receive a Founder license file and install/import instructions. Licenses are manually issued during the Founder MVP period.
+            The release notes for <code>v0.1.4</code> explicitly state that the Windows executable is unsigned. Verify the ZIP checksum before running it.
           </div>
+        </div>
+        <div class="panel">
+          <h3>Founder upgrade terms</h3>
+          <p class="sub">A one-time Founder-rate license for Cache Vault Founder Edition updates under this Founder track.</p>
+          <ul class="list">
+            <li>Proof-pack exports with SHA256SUMS and receipts</li>
+            <li>Bulk ZIP bundles and advanced export workflows</li>
+            <li>HTML bundles and editable copy tools</li>
+            <li>Vault Macros, custom Safes, and advanced review filters</li>
+          </ul>
           <div class="hero-actions" style="margin-top:20px;">
             <a class="btn btn-primary" href="https://cashdominion.gumroad.com/l/eojmeb" target="_blank" rel="noopener noreferrer">Buy Founder — <span data-gumroad-field="price">$19</span></a>
           </div>
@@ -696,7 +891,60 @@
         </div>
         <div class="panel" style="margin-top:16px;">
           <h3>Release SHA256</h3>
+          <p class="proof-caption">Want to verify the build? Open the public release, SHA256SUMS, release notes, changelog, and CI history directly.</p>
           <div class="hash">7A56B8AA6B1C106F9E7363D817F2561F86B72375C0DF5CDF7DFF8E0529389874</div>
+          <ul class="link-list">
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.1.4" target="_blank" rel="noopener noreferrer">View GitHub release</a></li>
+            <li><a href="https://proof-foundry-downloads.s3.us-east-1.amazonaws.com/releases/v0.1.4/SHA256SUMS.txt" target="_blank" rel="noopener noreferrer">Open SHA256SUMS.txt</a></li>
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/blob/master/release/RELEASE-v0.1.4.md" target="_blank" rel="noopener noreferrer">Read release notes</a></li>
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/blob/master/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Read changelog</a></li>
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/actions/workflows/ci.yml" target="_blank" rel="noopener noreferrer">View public CI workflow</a></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="wrap">
+        <h2>FAQ</h2>
+        <p class="sub">Short answers for the questions buyers usually have before they download or pay.</p>
+        <div class="faq">
+          <details>
+            <summary>Is the free version actually usable?</summary>
+            <p>Yes. Free covers the daily vault workflow: capture, search, favorites, copy back out, and single-item export. Founder unlocks advanced proof and organization workflows.</p>
+          </details>
+          <details>
+            <summary>Does Cache Vault require a cloud account?</summary>
+            <p>No. The current product is local-first. No account, no subscription, and no cloud requirement for the core vault.</p>
+          </details>
+          <details>
+            <summary>Is this Windows only?</summary>
+            <p>Yes for the public desktop release shown on this page. The current downloadable build is a Windows ZIP package.</p>
+          </details>
+          <details>
+            <summary>What do I get with Founder?</summary>
+            <p>Founder unlocks proof-pack exports, bulk ZIP bundles, HTML bundles, editable copy workflows, Vault Macros, custom Safes, and advanced review filters.</p>
+          </details>
+          <details>
+            <summary>How is the license delivered?</summary>
+            <p>Founder licenses are delivered manually during the MVP period. After purchase, you receive install/import instructions and a signed <code>license.json</code>.</p>
+          </details>
+          <details>
+            <summary>Can I keep using the free version?</summary>
+            <p>Yes. The free version remains usable. Founder is an upgrade path for advanced workflows, not a forced subscription gate.</p>
+          </details>
+          <details>
+            <summary>What does local-first mean here?</summary>
+            <p>Your vault stays on your PC. This build does not require a cloud account and does not depend on a license server to stay unlocked.</p>
+          </details>
+          <details>
+            <summary>Is the app code-signed?</summary>
+            <p>No. The release notes explicitly state that the Windows executable is currently unsigned, so SmartScreen may warn. Verify the ZIP checksum before running it.</p>
+          </details>
+          <details>
+            <summary>How do I verify the SHA256?</summary>
+            <p>Download the ZIP, run <code>Get-FileHash .\CacheVault-v0.1.4-windows.zip -Algorithm SHA256</code> in PowerShell, and compare the result with the published <code>SHA256SUMS.txt</code>.</p>
+          </details>
         </div>
       </div>
     </section>
@@ -705,11 +953,14 @@
       <div class="wrap">
         <h2>Download the free vault</h2>
         <p class="sub">
-          Windows ZIP for <code>v0.1.4.1</code> — upgrade to Founder only when you need proof workflows.
+          Windows ZIP for <code>v0.1.4.1</code>. Start free, verify the build, and upgrade only when you need the Founder workflows.
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.1.4">Download Free Vault (v0.1.4.1)</a>
           <a class="btn" href="https://github.com/lazelife420-spec/CacheVault">View on GitHub</a>
+        </div>
+        <div class="notice">
+          Download path: GitHub release ZIP → verify <code>SHA256SUMS.txt</code> → extract → run <code>CacheVault.exe</code>. Founder import happens inside the app if you later buy a license.
         </div>
       </div>
     </section>
@@ -762,17 +1013,42 @@
       <div class="wrap">
         <div class="cta-card">
           <h2>Unlock Founder Edition</h2>
-          <p class="desc-block" data-gumroad-field="description">
-            A one-time Founder license for Cache Vault. Unlocks advanced exports, proof packs, HTML bundles, smart organization, macros, custom safes, and future Founder updates.
+          <p class="desc-block">
+            A one-time Founder license for Cache Vault. Unlocks advanced exports, proof packs, HTML bundles, smart organization, macros, custom Safes, and Cache Vault Founder Edition updates under this Founder track.
           </p>
           <div class="price-row" style="justify-content:center;">
             <div class="price-tag" data-gumroad-field="price">$19</div>
-            <p class="price-note">Lifetime license · Windows · manual delivery during MVP</p>
+            <p class="price-note">One-time Founder purchase · Windows · manual delivery during MVP</p>
           </div>
           <div class="hero-actions" style="justify-content:center;">
             <a class="btn btn-primary" href="https://cashdominion.gumroad.com/l/eojmeb" target="_blank" rel="noopener noreferrer">I want this — Buy Founder Edition</a>
             <a class="btn" href="https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.1.4">View release v0.1.4.1</a>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="support">
+      <div class="wrap support-grid">
+        <div class="panel builder-block">
+          <h2>Built by The Proof Foundry™</h2>
+          <p>Proof-first, local-first software for builders.</p>
+          <p>Build it. Prove it. Ship it.</p>
+          <ul class="plain-list">
+            <li><a href="https://github.com/lazelife420-spec/CacheVault" target="_blank" rel="noopener noreferrer">GitHub repository</a></li>
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.1.4" target="_blank" rel="noopener noreferrer">Public release page</a></li>
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/blob/master/docs/FOUNDER_PURCHASE_AND_LICENSE.md" target="_blank" rel="noopener noreferrer">Founder purchase and license guide</a></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Support and contact path</h3>
+          <p class="sub">If the license does not arrive or the app gives you trouble, there is a clear next step.</p>
+          <ul class="plain-list">
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/issues/new" target="_blank" rel="noopener noreferrer">Open a GitHub issue</a> for product bugs or install trouble.</li>
+            <li><a href="https://github.com/lazelife420-spec/CacheVault/blob/master/docs/FOUNDER_PURCHASE_AND_LICENSE.md" target="_blank" rel="noopener noreferrer">Founder license help</a> for import flow and local license location.</li>
+            <li>For purchase or refund questions, use the seller contact path in your Gumroad receipt so the order context stays attached.</li>
+            <li>Manual delivery during MVP means support is human, not automated. That is slower than instant SaaS, but it is explicit.</li>
+          </ul>
         </div>
       </div>
     </section>
@@ -782,7 +1058,7 @@
     <div class="wrap">
       <div>
         <strong data-gumroad-field="price">$19</strong>
-        <span style="color:var(--muted); font-size:13px;"> · lifetime</span>
+        <span style="color:var(--muted); font-size:13px;"> · one-time Founder</span>
       </div>
       <a class="btn btn-primary" href="https://cashdominion.gumroad.com/l/eojmeb" target="_blank" rel="noopener noreferrer">Buy now</a>
     </div>
@@ -790,8 +1066,8 @@
 
   <footer>
     <div class="wrap footer-inner">
-      <span>Cache Vault · Proof Foundry</span>
-      <span>Copy freely. Search instantly. Prove everything.</span>
+      <span>Cache Vault · Built by The Proof Foundry™</span>
+      <span>Build it. Prove it. Ship it.</span>
     </div>
   </footer>
 
