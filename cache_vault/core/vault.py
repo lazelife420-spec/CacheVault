@@ -1145,5 +1145,29 @@ class Vault:
     def clip_usage_events(self, clip_id: str) -> list[dict]:
         return self.storage.events_for_clip(clip_id)
 
+    def inspect_storage_health(self):
+        """Inspect storage health of the vault's SQLite database."""
+        from . import storage_health
+        return storage_health.inspect_health(self.storage.conn)
+
+    def optimize_storage(self) -> None:
+        """Run database index optimization."""
+        from . import storage_health
+        storage_health.run_optimize(self.storage.conn)
+
+    def vacuum_storage(self) -> None:
+        """Explicitly run SQLite database vacuum to reclaim space."""
+        from . import storage_health
+        storage_health.run_vacuum(self.storage.conn)
+
+    def maybe_auto_vacuum(self) -> bool:
+        """Runs VACUUM if the auto-vacuum policy is set to 'safe' and recommended."""
+        if self.settings.storage_auto_vacuum_policy == "safe":
+            report = self.inspect_storage_health()
+            if report.recommend_vacuum:
+                self.vacuum_storage()
+                return True
+        return False
+
     def close(self) -> None:
         self.storage.close()

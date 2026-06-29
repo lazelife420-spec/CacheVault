@@ -94,6 +94,7 @@ class Settings:
     vault_lock_reduced_motion: bool = True
     vault_lock_show_local_only: bool = True
     sidebar_collapsed_sections: list[str] = field(default_factory=list)
+    storage_auto_vacuum_policy: str = "never"  # "never" or "safe"
 
     # --- persistence ---
     @classmethod
