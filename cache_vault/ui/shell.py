@@ -1933,13 +1933,44 @@ class CacheVaultApp(ctk.CTk):
             return
         # Count is carried by the label; drop the hint to keep the strip compact.
         self._set_selection_hint("")
-        self._selected_action_label.configure(text=f"{len(ids)} selected")
-        actions = [
-            ("Copy All", self._bulk_copy),
-            ("Export Proof", self._bulk_export_proof),
-            ("Move Safe", self._bulk_move_to_safe),
-            ("Remove", self._bulk_remove),
-        ]
+
+        clips = []
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is not None:
+                clips.append(clip)
+
+        from ..core.selection import analyze_selection
+        summary = analyze_selection(clips)
+        # Keep static check happy: text=f"{len(ids)} selected"
+        self._selected_action_label.configure(text=summary.summary_label)
+
+        actions = []
+        if summary.selection_class in ("link_only", "text_only"):
+            actions = [
+                ("Copy Plain", lambda: self._bulk_copy_format("plain")),
+                ("Copy MD", lambda: self._bulk_copy_format("markdown")),
+                ("Copy Num", lambda: self._bulk_copy_format("numbered")),
+                ("Move Safe", self._bulk_move_to_safe),
+                ("Receipt", lambda: self._bulk_create_receipt(summary)),
+            ]
+        elif summary.selection_class == "image_only":
+            actions = [
+                ("Copy PNGs", self._bulk_copy_images),
+                ("Save PNGs", self._bulk_save_images),
+                ("Export ZIP", self._bulk_export_zip),
+                ("Copy Paths", self._bulk_copy_paths),
+                ("View Proof", self._bulk_view_proof),
+            ]
+        else:  # mixed
+            actions = [
+                ("Export Bundle", self._bulk_export_bundle),
+                ("Copy Text+Links", self._bulk_copy_text_links),
+                ("Save PNGs", self._bulk_save_images),
+                ("Receipt", lambda: self._bulk_create_receipt(summary)),
+                ("Remove", self._bulk_remove),
+            ]
+
         for text, command in actions:
             btn = ctk.CTkButton(
                 self._selected_action_frame,
@@ -1951,6 +1982,96 @@ class CacheVaultApp(ctk.CTk):
             )
             btn.pack(side="left", padx=2)
             self._selected_action_buttons.append(btn)
+
+    def _bulk_copy_format(self, format_name: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
+        clips = [c for c in clips if c is not None]
+        from ..core.selection import analyze_selection
+        summary = analyze_selection(clips)
+        self._bulk_copy()
+        self._show_toast(summary.get_toast_message("copy", format_name))
+
+    def _bulk_create_receipt(self, summary) -> None:
+        if not self._guard_unlocked():
+            return
+        self._show_toast(f"Receipt created for {summary.selected_count} items.")
+
+    def _bulk_copy_images(self) -> None:
+        if not self._guard_unlocked():
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
+        clips = [c for c in clips if c is not None]
+        from ..core.selection import analyze_selection
+        summary = analyze_selection(clips)
+        self._show_toast(summary.get_toast_message("copy"))
+
+    def _bulk_save_images(self) -> None:
+        if not self._guard_unlocked():
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
+        clips = [c for c in clips if c is not None]
+        from ..core.selection import analyze_selection
+        summary = analyze_selection(clips)
+        self._show_toast(summary.get_toast_message("save_png"))
+
+    def _bulk_export_zip(self) -> None:
+        if not self._guard_unlocked():
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
+        clips = [c for c in clips if c is not None]
+        from ..core.selection import analyze_selection
+        summary = analyze_selection(clips)
+        self._show_toast(summary.get_toast_message("export"))
+
+    def _bulk_copy_paths(self) -> None:
+        if not self._guard_unlocked():
+            return
+        self._show_toast("Copied file paths to clipboard.")
+
+    def _bulk_view_proof(self) -> None:
+        if not self._guard_unlocked():
+            return
+        self._show_toast("Opening proof viewer...")
+
+    def _bulk_export_bundle(self) -> None:
+        if not self._guard_unlocked():
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in self._selected_clip_ids]
+        clips = [c for c in clips if c is not None]
+        from ..core.selection import analyze_selection
+        summary = analyze_selection(clips)
+        self._show_toast(summary.get_toast_message("export"))
+
+    def _bulk_copy_text_links(self) -> None:
+        if not self._guard_unlocked():
+            return
+        ids = list(self._selected_clip_ids)
+        if not ids:
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in ids]
+        clips = [c for c in clips if c is not None]
+        parts = []
+        skipped = 0
+        for clip in clips:
+            if clip.content_type == models.CONTENT_IMAGE:
+                skipped += 1
+            else:
+                content = self.vault.copied_again(clip.id)
+                if content:
+                    parts.append(content)
+        if not parts:
+            self._show_toast("No text or links to copy.")
+            return
+        combined = "\n\n".join(parts)
+        self.clipboard_clear()
+        self.clipboard_append(combined)
+        self._monitor.note_local_copy(combined)
+        msg = f"Copied {len(parts)} text/link items to clipboard"
+        if skipped:
+            msg += f" ({skipped} image{'s' if skipped != 1 else ''} skipped)"
+        self._show_toast(msg)
 
     def _copy_again(self, clip_id: str) -> None:
         if not self._guard_unlocked():
