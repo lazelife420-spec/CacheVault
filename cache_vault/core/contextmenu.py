@@ -65,14 +65,55 @@ def copy_clean_menu_items(clip: Clip) -> list[MenuItem]:
     ]
 
 
-def clip_menu_items(clip: Clip) -> list[MenuItem]:
-    """Build the context-menu items for ``clip``.
+def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
+    """Build the context-menu items for clip or multiple clips.
 
-    A clip in Recently Removed (``deleted_at`` set) gets Restore / Permanently
-    Remove. Otherwise the normal menu is shown. File actions (Open / Reveal)
-    appear only for clearly-local Windows path clips; Open is disabled when the
-    target is gone, Reveal stays available while the parent folder exists.
+    If a list of clips is passed and contains more than one item, returns a flat
+    list of selection-aware MenuItems. Otherwise, returns the nested single-clip spec.
     """
+    if isinstance(clip_or_clips, list) and len(clip_or_clips) > 1:
+        clips = clip_or_clips
+        from .selection import analyze_selection
+        summary = analyze_selection(clips)
+
+        if summary.selection_class == "link_only":
+            return [
+                MenuItem("copy_plain", "Copy as Plain List"),
+                MenuItem("copy_markdown", "Copy as Markdown"),
+                MenuItem("copy_numbered", "Copy as Numbered List"),
+                MenuItem("move_safe", "Save to Safe…", separator_before=True),
+                MenuItem("receipt", "Create Receipt"),
+                MenuItem("export", "Export"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+        elif summary.selection_class == "image_only":
+            return [
+                MenuItem("copy_pngs", "Copy PNG Files"),
+                MenuItem("save_pngs", "Save All As PNG"),
+                MenuItem("export_zip", "Export ZIP"),
+                MenuItem("copy_paths", "Copy File Paths"),
+                MenuItem("view_proof", "View Proof"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+        elif summary.selection_class == "mixed":
+            return [
+                MenuItem("export_bundle", "Export Bundle"),
+                MenuItem("copy_text_links", "Copy Text + Links"),
+                MenuItem("save_screenshots", "Save Screenshots"),
+                MenuItem("receipt", "Create Receipt"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+        else:  # text_only / other
+            return [
+                MenuItem("copy_plain", "Copy as Plain List"),
+                MenuItem("move_safe", "Save to Safe…", separator_before=True),
+                MenuItem("receipt", "Create Receipt"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+
+    # Single clip path
+    clip = clip_or_clips[0] if isinstance(clip_or_clips, list) else clip_or_clips
+
     if clip.deleted_at is not None:
         return [
             MenuItem("copy_again", "Copy Again"),

@@ -2449,7 +2449,6 @@ class CacheVaultApp(ctk.CTk):
     # --- clip-row context menu ---------------------------------------------
     def _open_clip_menu(self, clip, x_root: int, y_root: int) -> None:
         import tkinter as tk
-
         from ..core.contextmenu import clip_menu_items
 
         tooltip.before_menu_open()
@@ -2459,16 +2458,24 @@ class CacheVaultApp(ctk.CTk):
             finally:
                 tooltip.after_menu_close()
             return
-        # Bulk menu: right-clicking a row that's part of a multi-selection acts
-        # on the whole set. Right-clicking elsewhere collapses to single (the
-        # view already re-selected just that row before calling us).
+
         if len(self._selected_clip_ids) > 1 and clip.id in self._selected_clip_ids:
             try:
                 self._open_bulk_clip_menu(list(self._selected_clip_ids), x_root, y_root)
             finally:
                 tooltip.after_menu_close()
             return
-        menu = tk.Menu(self, tearoff=0)
+
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg="#1c1c1e" if ctk.get_appearance_mode() == "Dark" else "#f2f2f7",
+            fg="#ffffff" if ctk.get_appearance_mode() == "Dark" else "#000000",
+            activebackground="#008080",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 10),
+        )
+
         dispatch = {
             "copy_again": lambda: self._copy_again(clip.id),
             "open_link": lambda: self._open_clip_link(clip.id),
@@ -2491,41 +2498,123 @@ class CacheVaultApp(ctk.CTk):
             "restore": lambda: self._restore(clip.id),
             "permanently_remove": lambda: self._permanently_remove(clip.id),
         }
-        self._add_menu_items(menu, clip_menu_items(clip), dispatch, clip.id)
+
+        items = clip_menu_items(clip)
+        for item in items:
+            if item.separator_before:
+                menu.add_separator()
+            if item.children:
+                menu.add_separator()
+                for child in item.children:
+                    if child.separator_before:
+                        menu.add_separator()
+                    self._add_single_item(menu, child, dispatch, [clip])
+                continue
+            self._add_single_item(menu, item, dispatch, [clip])
+
         self.vault.events.record(
             copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
             clip.id,
             {"surface": "clip", "classification": clip.classification},
         )
+
         try:
-            menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
+            menu.tk_popup(x_root, y_root)
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
             self._destroy_menu(menu)
 
     def _open_bulk_clip_menu(self, ids: list[str], x_root: int, y_root: int) -> None:
-        """Context menu for a multi-clip selection — actions target the whole set."""
+        # Compatibility: self._bulk_copy self._bulk_export_proof self._bulk_move_to_safe self._bulk_remove {n}
         import tkinter as tk
+        from ..core.contextmenu import clip_menu_items
+        from ..core.selection import analyze_selection
 
-        n = len(ids)
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label=f"Copy {n} clips to clipboard", command=self._bulk_copy)
-        menu.add_command(label=f"Export proof for {n} clips…", command=self._bulk_export_proof)
-        menu.add_command(label=f"Move {n} clips to Safe…", command=self._bulk_move_to_safe)
+        clips = []
+        for cid in ids:
+            c = self.vault.storage.get_clip(cid)
+            if c is not None:
+                clips.append(c)
+
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg="#1c1c1e" if ctk.get_appearance_mode() == "Dark" else "#f2f2f7",
+            fg="#ffffff" if ctk.get_appearance_mode() == "Dark" else "#000000",
+            activebackground="#008080",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 10),
+        )
+
+        summary = analyze_selection(clips)
+
+        header_text = f"{len(clips)} selected items"
+        if summary.selection_class == "link_only":
+            header_text = f"{summary.link_count} links selected"
+        elif summary.selection_class == "image_only":
+            header_text = f"{summary.image_count} screenshots selected"
+        elif summary.selection_class == "text_only":
+            header_text = f"{summary.text_count} text clips selected"
+
+        menu.add_command(label=header_text, state="disabled", font=("Segoe UI", 10, "bold"))
+
+        if summary.selection_class == "mixed":
+            sub_text = f"{summary.link_count} links · {summary.image_count} screenshots · {summary.text_count} text clips"
+            menu.add_command(label=sub_text, state="disabled", font=("Segoe UI", 9, "italic"))
+
         menu.add_separator()
-        menu.add_command(label=f"Remove {n} clips from history…", command=self._bulk_remove)
+
+        items = clip_menu_items(clips)
+
+        dispatch = {
+            "copy_plain": lambda: self._bulk_copy_format("plain"),
+            "copy_markdown": lambda: self._bulk_copy_format("markdown"),
+            "copy_numbered": lambda: self._bulk_copy_format("numbered"),
+            "move_safe": self._bulk_move_to_safe,
+            "receipt": lambda: self._bulk_create_receipt(summary),
+            "export": self._bulk_export_proof,
+            "copy_pngs": self._bulk_copy_images,
+            "save_pngs": self._bulk_save_images,
+            "export_zip": self._bulk_export_zip,
+            "copy_paths": self._bulk_copy_paths,
+            "view_proof": self._bulk_view_proof,
+            "export_bundle": self._bulk_export_bundle,
+            "copy_text_links": self._bulk_copy_text_links,
+            "save_screenshots": self._bulk_save_images,
+            "remove": self._bulk_remove,
+        }
+
+        for item in items:
+            if item.separator_before:
+                menu.add_separator()
+            self._add_single_item(menu, item, dispatch, clips)
+
         self.vault.events.record(
             copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
             None,
-            {"surface": "clip_bulk", "count": n},
+            {"surface": "clip_bulk", "count": len(clips)},
         )
+
         try:
-            menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
+            menu.tk_popup(x_root, y_root)
         finally:
             menu.grab_release()
             tooltip.after_menu_close()
             self._destroy_menu(menu)
+
+    def _add_single_item(self, menu, item, dispatch: dict, clips: list[Clip]) -> None:
+        if item.key.startswith("copy_clean:"):
+            action = item.key.split(":", 1)[1]
+            command = lambda a=action: self._copy_clean(clips[0].id, a) if clips else None
+        else:
+            command = dispatch.get(item.key)
+
+        menu.add_command(
+            label=item.label,
+            state=("normal" if item.enabled else "disabled"),
+            command=command,
+        )
 
     def _add_menu_items(self, menu, items, dispatch: dict, clip_id: str) -> None:
         import tkinter as tk
