@@ -2,13 +2,13 @@
 
 ## What you get
 
-**Cache Vault Free** remains fully usable: capture, search, favorites, copy back out, and local-only storage.
+**Cache Vault Free** remains fully usable: capture, search, favorites, copy back out, and local-first storage.
 
-**Cache Vault Founder Edition** ($19 lifetime, early price) unlocks advanced power workflows:
+**Cache Vault Founder Edition** ($19 one-time Founder license, early price) unlocks advanced power workflows:
 
 - Proof-pack and ZIP exports
 - HTML bundles and editable copy workflows
-- Vault Macros and custom Safes
+- Snippet Macros and custom Safes
 - Advanced review filters
 
 No cloud sync. No accounts. No telemetry.
@@ -38,7 +38,7 @@ License file location after install:
 
 ## Refund / contact
 
-Founder MVP is sold as early-access software with local-only storage. Contact the seller listed in your purchase receipt for support or refund questions.
+Founder MVP is sold as early-access software with local-first storage. Contact the seller listed in your purchase receipt for support or refund questions.
 
 ## Privacy
 

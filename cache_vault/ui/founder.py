@@ -163,7 +163,7 @@ class FounderDialog(ctk.CTkToplevel):
             "• advanced review filters",
             "• Founder-track updates",
             "",
-            "One-time early price: $19 one-time Founder license",
+            "Early price: $19 one-time Founder license",
             "",
         ]
         if status.state == licensing.LicenseState.FOUNDER_VALID:

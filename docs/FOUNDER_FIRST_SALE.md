@@ -20,7 +20,7 @@ App     → Founder       → import license.json
 
 ## 1. Create checkout (you, ~15 min)
 
-Fastest options for a $19 lifetime digital license:
+Fastest options for a $19 one-time Founder license:
 
 | Provider | Why |
 |---|---|
@@ -33,13 +33,13 @@ Fastest options for a $19 lifetime digital license:
 **Title:**
 
 ```text
-Cache Vault Founder Edition — Lifetime License
+Cache Vault Founder Edition — One-Time Founder License
 ```
 
 **Description:**
 
 ```text
-A one-time Founder license for Cache Vault. Unlocks advanced exports, proof packs, HTML bundles, smart organization, macros, custom safes, and future Founder updates. Cache Vault is local-first: no account, no cloud requirement, and no subscription.
+A one-time Founder license for Cache Vault. Unlocks advanced exports, proof packs, HTML bundles, smart organization, macros, custom safes, and Founder-track updates. Cache Vault is local-first: no account, no cloud requirement, and no subscription.
 ```
 
 **Price:** `$19 USD`

@@ -181,7 +181,7 @@ class PreviewPanel(ctk.CTkFrame):
             ("Exports", summary.get("exports", 0)),
             ("Editable copies", summary.get("editable_copies", 0)),
             ("HTML bundles", summary.get("html_bundles", 0)),
-            ("Vault macros", summary.get("vault_macros", 0)),
+            ("Snippet macros", summary.get("vault_macros", 0)),
             ("Mobile inbox", summary.get("mobile_inbox", 0)),
         ]
         for label, count in lines:
