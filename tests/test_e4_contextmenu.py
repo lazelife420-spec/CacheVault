@@ -67,7 +67,7 @@ def test_multiple_images_flat_menu():
     items = clip_menu_items([c1, c2])
 
     keys = [item.key for item in items]
-    assert "copy_pngs" in keys
+    assert "copy_pngs" not in keys
     assert "save_pngs" in keys
     assert "export_zip" in keys
     assert "copy_paths" in keys

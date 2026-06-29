@@ -88,7 +88,6 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             ]
         elif summary.selection_class == "image_only":
             return [
-                MenuItem("copy_pngs", "Copy PNG Files"),
                 MenuItem("save_pngs", "Save All As PNG"),
                 MenuItem("export_zip", "Export ZIP"),
                 MenuItem("copy_paths", "Copy File Paths"),
