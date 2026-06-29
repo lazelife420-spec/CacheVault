@@ -416,7 +416,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._vault_lock_reduced_motion.pack(anchor="w", padx=8, pady=4)
         if settings.vault_lock_reduced_motion:
             self._vault_lock_reduced_motion.select()
-        self._vault_lock_local_only = ctk.CTkSwitch(body, text="Show 'Vault sealed · Local only'")
+        self._vault_lock_local_only = ctk.CTkSwitch(body, text="Show 'Vault sealed · Local-first'")
         self._vault_lock_local_only.pack(anchor="w", padx=8, pady=4)
         if settings.vault_lock_show_local_only:
             self._vault_lock_local_only.select()

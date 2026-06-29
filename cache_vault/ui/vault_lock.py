@@ -127,7 +127,7 @@ class VaultLockScreen(ctk.CTkFrame):
 
     def _copy(self) -> str:
         if self._show_local_only:
-            return f"Vault sealed · Local only\n{LOCK_COPY}"
+            return f"Vault sealed · Local-first\n{LOCK_COPY}"
         return LOCK_COPY
 
     def focus_unlock(self) -> None:
