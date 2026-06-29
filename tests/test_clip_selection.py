@@ -263,21 +263,21 @@ def test_shell_selection_hint_is_wired():
 
 
 def test_shell_context_menu_is_bulk_aware():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    open_menu = inspect.getsource(CacheVaultApp._open_clip_menu)
-    bulk_menu = inspect.getsource(CacheVaultApp._open_bulk_clip_menu)
+    open_menu = inspect.getsource(clip_context.open_clip_menu)
+    bulk_menu = inspect.getsource(clip_context.open_bulk_clip_menu)
 
     # Branches to the bulk menu only when >1 selected AND the clicked row is in it.
-    assert "len(self._selected_clip_ids) > 1" in open_menu
-    assert "clip.id in self._selected_clip_ids" in open_menu
-    assert "_open_bulk_clip_menu" in open_menu
+    assert "len(window._selected_clip_ids) > 1" in open_menu
+    assert "clip.id in window._selected_clip_ids" in open_menu
+    assert "open_bulk_clip_menu" in open_menu
 
     # Bulk menu targets the whole set via the _bulk_* methods and names the count.
-    assert "self._bulk_copy" in bulk_menu
-    assert "self._bulk_export_proof" in bulk_menu
-    assert "self._bulk_move_to_safe" in bulk_menu
-    assert "self._bulk_remove" in bulk_menu
+    assert "window._bulk_copy" in bulk_menu
+    assert "window._bulk_export_proof" in bulk_menu
+    assert "window._bulk_move_to_safe" in bulk_menu
+    assert "window._bulk_remove" in bulk_menu
     assert "{n}" in bulk_menu  # labels state how many clips are affected
 
 
@@ -328,11 +328,11 @@ def test_command_center_recent_clip_context_selects_before_menu():
 
 
 def test_command_center_empty_space_menu_has_only_app_commands():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    source = inspect.getsource(CacheVaultApp._open_home_app_menu)
+    source = inspect.getsource(clip_context.open_home_app_menu)
 
-    assert "_open_locked_menu" in source
+    assert "open_locked_menu" in source
     assert "Quick Paste" in source
     assert "Save Current Clipboard" in source
     assert "Open All Clips" in source
@@ -345,11 +345,11 @@ def test_command_center_empty_space_menu_has_only_app_commands():
 
 
 def test_command_center_dashboard_card_menu_is_navigation_not_clip_menu():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    source = inspect.getsource(CacheVaultApp._open_home_card_menu)
+    source = inspect.getsource(clip_context.open_home_card_menu)
 
-    assert "_open_locked_menu" in source
+    assert "open_locked_menu" in source
     assert "_navigate_filter" in source
     assert "_navigate_screen" in source
     assert "_open_clip_menu" not in source
@@ -357,11 +357,11 @@ def test_command_center_dashboard_card_menu_is_navigation_not_clip_menu():
 
 
 def test_command_center_status_menu_has_relevant_status_actions_only():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    source = inspect.getsource(CacheVaultApp._open_home_status_menu)
+    source = inspect.getsource(clip_context.open_home_status_menu)
 
-    assert "_open_locked_menu" in source
+    assert "open_locked_menu" in source
     assert "Open Safe" in source
     assert "Copy Safe Summary" in source
     assert "Open Receipts" in source
@@ -371,14 +371,14 @@ def test_command_center_status_menu_has_relevant_status_actions_only():
 
 
 def test_command_center_context_copy_avoids_forbidden_claims():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
     source = "\n".join(
         inspect.getsource(fn)
         for fn in (
-            CacheVaultApp._open_home_app_menu,
-            CacheVaultApp._open_home_card_menu,
-            CacheVaultApp._open_home_status_menu,
+            clip_context.open_home_app_menu,
+            clip_context.open_home_card_menu,
+            clip_context.open_home_status_menu,
         )
     ).lower()
 

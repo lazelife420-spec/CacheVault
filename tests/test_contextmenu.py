@@ -136,28 +136,30 @@ def test_context_menu_uses_professional_groups():
     assert _keys(_children(items, "danger")) == ["remove"]
 
 
-def test_shell_context_menus_guard_locked_state():
-    from cache_vault.ui.shell import CacheVaultApp
+def test_shell_context_menu_guards_locked_state():
+    from cache_vault.ui import clip_context
 
-    src = inspect.getsource(CacheVaultApp._open_clip_menu)
+    src = inspect.getsource(clip_context.open_clip_menu)
     assert "_locked()" in src
-    assert "_open_locked_menu" in src
+    assert "open_locked_menu" in src
 
 
 def test_shell_has_receipt_context_menu():
+    from cache_vault.ui import clip_context
     from cache_vault.ui.shell import CacheVaultApp
 
-    src = inspect.getsource(CacheVaultApp)
-    assert "_open_receipt_menu" in src
+    src = inspect.getsource(clip_context)
+    assert "open_receipt_menu" in src
     assert "Copy Receipt Summary" in src
-    assert "EVENT_RECEIPT_SUMMARY_COPIED" in src
+    shell_src = inspect.getsource(CacheVaultApp)
+    assert "EVENT_RECEIPT_SUMMARY_COPIED" in shell_src
 
 
 def test_shell_has_safe_context_menu():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    src = inspect.getsource(CacheVaultApp)
-    assert "_open_safe_menu" in src
+    src = inspect.getsource(clip_context)
+    assert "open_safe_menu" in src
     assert "Set as Default Safe" in src
     assert "Copy Safe Summary" in src
     assert "Export Safe Proof Zip" in src
@@ -187,10 +189,10 @@ def test_menu_keys_are_unique():
 
 def test_clip_menu_dispatch_wires_mark_keep():
     """The clip context-menu dispatch must handle 'mark_keep' (else KeyError)."""
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    src = inspect.getsource(CacheVaultApp._open_clip_menu)
-    assert '"mark_keep": lambda: self._mark_keep(clip.id)' in src
+    src = inspect.getsource(clip_context.open_clip_menu)
+    assert '"mark_keep": lambda: window._mark_keep(clip.id)' in src
 
 
 def test_context_menus_are_destroyed_after_use():
@@ -199,15 +201,16 @@ def test_context_menus_are_destroyed_after_use():
     Leaked menus eventually trigger 'No more menus can be allocated', which
     breaks bulk copy and every other context menu.
     """
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    src = inspect.getsource(CacheVaultApp)
+    src = inspect.getsource(clip_context)
     # The freeing helper must exist and actually destroy the menu.
-    helper = inspect.getsource(CacheVaultApp._destroy_menu)
+    helper = inspect.getsource(clip_context.destroy_menu)
     assert "menu.destroy()" in helper
-    # Every popup site (one grab_release per popup) must pair with a destroy.
-    assert src.count("menu.grab_release()") == src.count("self._destroy_menu(menu)")
-    assert src.count("self._destroy_menu(menu)") >= 6
+    # We centralized popup cleanup in popup_menu function
+    popup = inspect.getsource(clip_context.popup_menu)
+    assert "menu.grab_release()" in popup
+    assert "destroy_menu(menu)" in popup
 
 
 def test_mark_keep_handler_sets_kept_flag(vault):

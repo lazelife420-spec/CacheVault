@@ -46,6 +46,8 @@ from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SafePickerDialog, SettingsDialog,
 )
+from . import batch_actions
+from . import clip_context
 try:
     from .settings_hub import SettingsHub
 except ImportError:
@@ -462,7 +464,9 @@ class CacheVaultApp(ctk.CTk):
         self._filters = FilterNav(self, on_select=self._on_filter_select,
                                   settings=self.vault.settings,
                                   on_safe_context=self._open_safe_menu,
+                                  on_collection_context=self._open_collection_sidebar_menu,
                                   width=210, corner_radius=0)
+
         self._filters.grid(row=1, column=0, sticky="nsew")
 
         self._center = ctk.CTkFrame(self, corner_radius=0, fg_color=brand.PANEL_BG)
@@ -603,6 +607,17 @@ class CacheVaultApp(ctk.CTk):
             height=32,
         )
         self._clips_search.pack(fill="x", padx=6, pady=4)
+        # Cross-view search banner — visible when search is active.
+        # Matches FEATURE_DIRECTION: "search runs across all clips — live history AND Recently Removed"
+        self._search_scope_banner = ctk.CTkLabel(
+            self._toolbar_row1,
+            text="⟳  Searching all clips including Recently Removed",
+            anchor="w",
+            text_color=brand.PROOF_TEAL,
+            font=ctk.CTkFont(size=10),
+        )
+        # Initially hidden — shown when search box has text.
+
 
         ctk.CTkLabel(self._toolbar_row2, text="Sort:", text_color=brand.MUTED_FG,
                      font=theme.body_font(11)).pack(side="left", padx=(8, 4))
@@ -789,76 +804,16 @@ class CacheVaultApp(ctk.CTk):
         return "break"
 
     def _bulk_copy(self) -> None:
-        self._bulk_copy_format("plain")
+        batch_actions.bulk_copy(self)
 
     def _bulk_export_proof(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-        if not self._require_founder("proof_pack_export"):
-            return
-        from tkinter import filedialog
-
-        from ..core.exports import export_zip_basename
-
-        dest = filedialog.asksaveasfilename(
-            parent=self,
-            title="Export proof zip",
-            defaultextension=".zip",
-            initialfile=export_zip_basename(),
-            filetypes=[("Zip archive", "*.zip")],
-        )
-        if dest:
-            self.vault.export_proof_zip(ids, dest, mode="auto")
-            self.refresh()
-            self._show_toast(f"Exported proof for {len(ids)} clips.")
+        batch_actions.bulk_export_proof(self)
 
     def _bulk_move_to_safe(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        def pick(safe_id: str, safe_name: str) -> None:
-            moved = 0
-            for clip_id in ids:
-                if self.vault.move_to_safe(clip_id, safe_id):
-                    moved += 1
-            self.refresh()
-            self._show_toast(f"Moved {moved} clips to {safe_name}.")
-
-        SafePickerDialog(
-            self, self.vault.settings,
-            title="Move to Safe",
-            on_pick=pick,
-            on_create=self._create_safe_if_allowed,
-        )
+        batch_actions.bulk_move_to_safe(self)
 
     def _bulk_remove(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-        from tkinter import messagebox
-
-        ok = messagebox.askyesno(
-            "Remove from History",
-            f"Remove {len(ids)} clips from Cache Vault history? "
-            "They can be restored from Recently Removed.\n\n"
-            "This does not delete any files from your computer.",
-            parent=self,
-        )
-        if not ok:
-            return
-        for clip_id in ids:
-            self.vault.remove_from_history(clip_id)
-        self._clear_selection()
-        self.refresh()
-        self._preview.show(None)
+        batch_actions.bulk_remove(self)
 
     def _keyboard_focus_is_text_input(self, event=None) -> bool:
         widget = getattr(event, "widget", None)
@@ -1722,7 +1677,16 @@ class CacheVaultApp(ctk.CTk):
 
     def _debounced_refresh(self) -> None:
         self._search_job = None
+        # Show/hide the cross-view search scope banner.
+        try:
+            if self._search_var.get().strip():
+                self._search_scope_banner.pack(fill="x", padx=8, pady=(0, 4))
+            else:
+                self._search_scope_banner.pack_forget()
+        except Exception:  # noqa: BLE001
+            pass
         self.refresh()
+
 
     def _on_window_configure(self, event) -> None:
         """Throttle layout-heavy work during window resizing."""
@@ -1958,388 +1922,31 @@ class CacheVaultApp(ctk.CTk):
             self._selected_action_buttons.append(btn)
 
     def _bulk_copy_format(self, format_name: str) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        clips = []
-        for cid in ids:
-            clip = self.vault.storage.get_clip(cid)
-            if clip is not None:
-                clips.append(clip)
-
-        if not clips:
-            self._show_toast("Nothing to copy.")
-            return
-
-        from ..core.selection import analyze_selection
-        from ..core.formatter import format_batch_links, make_batch_link_receipt
-        from ..core.editable_copies import write_file_receipt
-        summary = analyze_selection(clips)
-
-        has_images = summary.image_count > 0
-        has_text_or_links = (summary.link_count + summary.text_count) > 0
-
-        if not has_text_or_links:
-            self._show_toast("Use Copy PNGs for screenshot selections.")
-            return
-
-        if summary.selection_class == "link_only":
-            combined = format_batch_links(clips, format_name)
-        else:
-            parts = []
-            for clip in clips:
-                if clip.content_type == models.CONTENT_IMAGE:
-                    continue
-                elif getattr(clip, "classification", None) == models.CLASS_LINK:
-                    formatted_link = format_batch_links([clip], format_name)
-                    parts.append(formatted_link)
-                else:
-                    content = self.vault.copied_again(clip.id)
-                    if content:
-                        parts.append(content)
-            if format_name in ("markdown", "numbered"):
-                combined = "\n".join(parts)
-            else:
-                combined = "\n\n".join(parts)
-
-        self.clipboard_clear()
-        self.clipboard_append(combined)
-        self._monitor.note_local_copy(combined)
-
-        if summary.selection_class == "link_only":
-            if format_name == "plain":
-                toast_msg = f"Copied {summary.link_count} links"
-            else:
-                toast_msg = f"Copied {summary.link_count} links as {format_name.capitalize()}"
-        elif summary.selection_class == "text_only":
-            toast_msg = f"Copied {summary.text_count} text clips"
-        else:
-            total_copied = summary.link_count + summary.text_count
-            toast_msg = f"Copied {total_copied} text/link clips"
-
-        if has_images:
-            toast_msg += f" ({summary.image_count} image{'s' if summary.image_count != 1 else ''} skipped)"
-
-        self._show_toast(toast_msg)
-
-        # Record receipt metadata
-        item_breakdown = {
-            "links": summary.link_count,
-            "text": summary.text_count,
-            "images": summary.image_count,
-        }
-
-        if has_images:
-            meta = {
-                "action": "batch_copy_text_parts",
-                "source": "desktop",
-                "count": summary.selected_count,
-                "copied_count": summary.link_count + summary.text_count,
-                "skipped_count": summary.image_count,
-                "skipped_types": ["image"],
-                "item_breakdown": item_breakdown,
-                "format": format_name,
-                "transfer_status": "partial",
-                "timestamp": models.now_iso(),
-                "success": True,
-            }
-            action_name = "batch_copy_text_parts"
-        else:
-            meta = {
-                "action": "batch_copy_selected",
-                "source": "desktop",
-                "count": summary.selected_count,
-                "format": format_name,
-                "item_breakdown": item_breakdown,
-                "transfer_status": "completed",
-                "timestamp": models.now_iso(),
-                "success": True,
-            }
-            action_name = "batch_copy_selected"
-
-        write_file_receipt(action_name, meta)
-        self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
+        batch_actions.bulk_copy_format(self, format_name)
 
     def _bulk_create_receipt(self, summary) -> None:
-        if not self._guard_unlocked():
-            return
-        self._show_toast(f"Receipt created for {summary.selected_count} items.")
+        batch_actions.bulk_create_receipt(self, summary)
 
     def _bulk_copy_images(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        image_ids = []
-        for cid in ids:
-            clip = self.vault.storage.get_clip(cid)
-            if clip is not None and clip.content_type == models.CONTENT_IMAGE:
-                image_ids.append(cid)
-
-        if not image_ids:
-            self._show_toast("No screenshots selected to copy.")
-            return
-
-        first_id = image_ids[0]
-        png = self.vault.copied_again_image(first_id)
-        if not png:
-            self._show_toast("Failed to copy screenshot.")
-            return
-
-        from ..core import image_assets
-        if image_assets.write_clipboard_png(png):
-            self._monitor.note_local_copy_image(png)
-            if len(image_ids) > 1:
-                self._show_toast(f"Copied primary image to clipboard; use Save PNGs or Export ZIP for the remaining {len(image_ids) - 1} images.")
-            else:
-                self._show_toast("Copied screenshot to clipboard.")
-        else:
-            self._show_toast("Clipboard copy not supported in this environment.")
+        batch_actions.bulk_copy_images(self)
 
     def _bulk_save_images(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        dest = filedialog.askdirectory(parent=self, title="Save Screenshots As PNG")
-        if not dest:
-            return
-
-        from pathlib import Path
-        from ..core import image_assets
-        from ..core.editable_copies import write_file_receipt
-
-        saved_count = 0
-        failed_count = 0
-        for cid in ids:
-            clip = self.vault.storage.get_clip(cid)
-            if clip is None or clip.content_type != models.CONTENT_IMAGE:
-                continue
-            loaded = self.vault.storage.load_clip_asset_bytes(cid)
-            if not loaded:
-                failed_count += 1
-                continue
-            png_bytes, _ = loaded
-
-            filename = image_assets.make_smart_filename(clip)
-            if not filename.lower().endswith(".png"):
-                filename += ".png"
-            target_path = Path(dest) / filename
-            final_path = image_assets.next_available_path(target_path)
-
-            try:
-                final_path.write_bytes(png_bytes)
-                saved_count += 1
-            except Exception:
-                failed_count += 1
-
-        if saved_count > 0:
-            msg = f"Saved {saved_count} screenshots to {dest}"
-            if failed_count:
-                msg += f" ({failed_count} failed)"
-            self._show_toast(msg)
-
-            # Record event/receipt
-            meta = {
-                "action": "batch_export_images",
-                "source": "desktop",
-                "count": saved_count,
-                "format": "png",
-                "item_breakdown": {
-                    "images": saved_count,
-                },
-                "transfer_status": "completed" if failed_count == 0 else "partial",
-                "timestamp": models.now_iso(),
-                "success": failed_count == 0,
-            }
-            write_file_receipt("batch_export_images", meta)
-            self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
-        else:
-            self._show_toast("Failed to save screenshots.")
+        batch_actions.bulk_save_images(self)
 
     def _bulk_export_zip(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        dest_zip = filedialog.asksaveasfilename(
-            parent=self,
-            title="Export Screenshots as ZIP",
-            defaultextension=".zip",
-            filetypes=[("ZIP Archive", "*.zip")],
-        )
-        if not dest_zip:
-            return
-
-        import zipfile
-        from pathlib import Path
-        from ..core import image_assets
-        from ..core.editable_copies import write_file_receipt
-
-        saved_count = 0
-        failed_count = 0
-
-        try:
-            with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-                for cid in ids:
-                    clip = self.vault.storage.get_clip(cid)
-                    if clip is None or clip.content_type != models.CONTENT_IMAGE:
-                        continue
-                    loaded = self.vault.storage.load_clip_asset_bytes(cid)
-                    if not loaded:
-                        failed_count += 1
-                        continue
-                    png_bytes, _ = loaded
-
-                    filename = image_assets.make_smart_filename(clip)
-                    if not filename.lower().endswith(".png"):
-                        filename += ".png"
-
-                    base_name = Path(filename).stem
-                    ext = Path(filename).suffix
-                    arcname = filename
-                    idx = 1
-                    while arcname in zf.namelist():
-                        arcname = f"{base_name}_{idx}{ext}"
-                        idx += 1
-
-                    zf.writestr(arcname, png_bytes)
-                    saved_count += 1
-
-            if saved_count > 0:
-                msg = f"Exported {saved_count} screenshots to {dest_zip}"
-                if failed_count:
-                    msg += f" ({failed_count} failed)"
-                self._show_toast(msg)
-
-                # Record event/receipt
-                meta = {
-                    "action": "batch_export_images",
-                    "source": "desktop",
-                    "count": saved_count,
-                    "format": "zip",
-                    "item_breakdown": {
-                        "images": saved_count,
-                    },
-                    "transfer_status": "completed" if failed_count == 0 else "partial",
-                    "timestamp": models.now_iso(),
-                    "success": failed_count == 0,
-                }
-                write_file_receipt("batch_export_images", meta)
-                self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
-            else:
-                self._show_toast("Failed to export screenshots to ZIP.")
-        except Exception as e:
-            self._show_toast(f"ZIP export error: {e}")
+        batch_actions.bulk_export_zip(self)
 
     def _bulk_copy_paths(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        from ..core import image_assets
-        from ..core.editable_copies import write_file_receipt
-
-        paths = []
-        for cid in ids:
-            clip = self.vault.storage.get_clip(cid)
-            if clip is not None and clip.content_type == models.CONTENT_IMAGE:
-                rec = self.vault.storage.get_asset_record(cid)
-                if rec:
-                    p = image_assets.assets_dir() / rec.storage_name
-                    paths.append(str(p))
-
-        if not paths:
-            self._show_toast("No screenshots selected to copy paths.")
-            return
-
-        combined = "\n".join(paths)
-        self.clipboard_clear()
-        self.clipboard_append(combined)
-        self._monitor.note_local_copy(combined)
-        self._show_toast(f"Copied {len(paths)} file paths to clipboard.")
-
-        # Record event/receipt
-        meta = {
-            "action": "desktop_batch_copy_paths",
-            "source": "desktop",
-            "count": len(paths),
-            "transfer_status": "completed",
-            "timestamp": models.now_iso(),
-            "success": True,
-        }
-        write_file_receipt("desktop_batch_copy_paths", meta)
-        self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
+        batch_actions.bulk_copy_paths(self)
 
     def _bulk_view_proof(self) -> None:
-        if not self._guard_unlocked():
-            return
-        self._show_toast("Opening proof viewer...")
+        batch_actions.bulk_view_proof(self)
 
     def _bulk_export_bundle(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        dest_zip = filedialog.asksaveasfilename(
-            parent=self,
-            title="Export Mixed Bundle as ZIP",
-            defaultextension=".zip",
-            filetypes=[("ZIP Archive", "*.zip")],
-        )
-        if not dest_zip:
-            return
-
-        from ..core.editable_copies import write_file_receipt
-
-        res = self.vault.export_proof_zip(ids, dest_zip)
-        if res and getattr(res, "success", False):
-            self._show_toast(f"Exported mixed bundle to {dest_zip}")
-
-            # Record event/receipt
-            from ..core.selection import analyze_selection
-            clips = []
-            for cid in ids:
-                c = self.vault.storage.get_clip(cid)
-                if c is not None:
-                    clips.append(c)
-            summary = analyze_selection(clips)
-
-            meta = {
-                "action": "batch_export_bundle",
-                "source": "desktop",
-                "count": len(ids),
-                "format": "zip",
-                "item_breakdown": {
-                    "links": summary.link_count,
-                    "text": summary.text_count,
-                    "images": summary.image_count,
-                },
-                "transfer_status": "completed",
-                "timestamp": models.now_iso(),
-                "success": True,
-            }
-            write_file_receipt("batch_export_bundle", meta)
-            self.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
-        else:
-            err = getattr(res, "error", "unknown error")
-            self._show_toast(f"Export failed: {err}")
+        batch_actions.bulk_export_bundle(self)
 
     def _bulk_copy_text_links(self) -> None:
-        self._bulk_copy_format("plain")
+        batch_actions.bulk_copy_text_links(self)
 
     def _copy_again(self, clip_id: str) -> None:
         if not self._guard_unlocked():
@@ -2491,314 +2098,36 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(None)
 
     # --- clip-row context menu ---------------------------------------------
+    # --- clip-row context menu ---------------------------------------------
     def _open_clip_menu(self, clip, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-        from ..core.contextmenu import clip_menu_items
-
-        tooltip.before_menu_open()
-        if self._locked():
-            try:
-                self._open_locked_menu(x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-
-        if len(self._selected_clip_ids) > 1 and clip.id in self._selected_clip_ids:
-            try:
-                self._open_bulk_clip_menu(list(self._selected_clip_ids), x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-
-        menu = tk.Menu(
-            self,
-            tearoff=0,
-            bg="#1c1c1e" if ctk.get_appearance_mode() == "Dark" else "#f2f2f7",
-            fg="#ffffff" if ctk.get_appearance_mode() == "Dark" else "#000000",
-            activebackground="#008080",
-            activeforeground="#ffffff",
-            font=("Segoe UI", 10),
-        )
-
-        dispatch = {
-            "copy_again": lambda: self._copy_again(clip.id),
-            "open_link": lambda: self._open_clip_link(clip.id),
-            "open_asset_folder": lambda: self._open_asset_folder(clip.id),
-            "drag_out": lambda: self._drag_out_clip(clip.id),
-            "toggle_favorite": lambda: self._toggle_favorite(clip.id),
-            "mark_keep": lambda: self._mark_keep(clip.id),
-            "move_safe": lambda: self._move_to_safe(clip.id),
-            "send_to_macro_safe": lambda: self._send_to_macro_safe(clip.id),
-            "create_editable_copy": lambda: self._create_editable_copy(clip.id),
-            "export_proof_zip": lambda: self._export_clip_proof(clip.id),
-            "view_receipts": self._open_events,
-            "view_mobile_receipt": self._open_events,
-            "copy_metadata": lambda: self._copy_metadata(clip.id),
-            "copy_item_id": lambda: self._copy_text(clip.id, "Copied item ID."),
-            "copy_source_summary": lambda: self._copy_clean(clip.id, copy_clean.COPY_SOURCE_SUMMARY),
-            "open": lambda: self._open_clip_path(clip.id),
-            "reveal": lambda: self._reveal_clip_path(clip.id),
-            "remove": lambda: self._remove_from_history(clip.id),
-            "restore": lambda: self._restore(clip.id),
-            "permanently_remove": lambda: self._permanently_remove(clip.id),
-        }
-
-        items = clip_menu_items(clip)
-        for item in items:
-            if item.separator_before:
-                menu.add_separator()
-            if item.children:
-                menu.add_separator()
-                for child in item.children:
-                    if child.separator_before:
-                        menu.add_separator()
-                    self._add_single_item(menu, child, dispatch, [clip])
-                continue
-            self._add_single_item(menu, item, dispatch, [clip])
-
-        self.vault.events.record(
-            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
-            clip.id,
-            {"surface": "clip", "classification": clip.classification},
-        )
-
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-            self._destroy_menu(menu)
+        clip_context.open_clip_menu(self, clip, x_root, y_root)
 
     def _open_bulk_clip_menu(self, ids: list[str], x_root: int, y_root: int) -> None:
-        # Compatibility: self._bulk_copy self._bulk_export_proof self._bulk_move_to_safe self._bulk_remove {n}
-        import tkinter as tk
-        from ..core.contextmenu import clip_menu_items
-        from ..core.selection import analyze_selection
-
-        clips = []
-        for cid in ids:
-            c = self.vault.storage.get_clip(cid)
-            if c is not None:
-                clips.append(c)
-
-        menu = tk.Menu(
-            self,
-            tearoff=0,
-            bg="#1c1c1e" if ctk.get_appearance_mode() == "Dark" else "#f2f2f7",
-            fg="#ffffff" if ctk.get_appearance_mode() == "Dark" else "#000000",
-            activebackground="#008080",
-            activeforeground="#ffffff",
-            font=("Segoe UI", 10),
-        )
-
-        summary = analyze_selection(clips)
-
-        header_text = f"{len(clips)} selected items"
-        if summary.selection_class == "link_only":
-            header_text = f"{summary.link_count} links selected"
-        elif summary.selection_class == "image_only":
-            header_text = f"{summary.image_count} screenshots selected"
-        elif summary.selection_class == "text_only":
-            header_text = f"{summary.text_count} text clips selected"
-
-        menu.add_command(label=header_text, state="disabled", font=("Segoe UI", 10, "bold"))
-
-        if summary.selection_class == "mixed":
-            sub_text = f"{summary.link_count} links · {summary.image_count} screenshots · {summary.text_count} text clips"
-            menu.add_command(label=sub_text, state="disabled", font=("Segoe UI", 9, "italic"))
-
-        menu.add_separator()
-
-        items = clip_menu_items(clips)
-
-        dispatch = {
-            "copy_plain": lambda: self._bulk_copy_format("plain"),
-            "copy_markdown": lambda: self._bulk_copy_format("markdown"),
-            "copy_numbered": lambda: self._bulk_copy_format("numbered"),
-            "move_safe": self._bulk_move_to_safe,
-            "receipt": lambda: self._bulk_create_receipt(summary),
-            "export": self._bulk_export_proof,
-            "copy_pngs": self._bulk_copy_images,
-            "save_pngs": self._bulk_save_images,
-            "export_zip": self._bulk_export_zip,
-            "copy_paths": self._bulk_copy_paths,
-            "view_proof": self._bulk_view_proof,
-            "export_bundle": self._bulk_export_bundle,
-            "copy_text_links": self._bulk_copy_text_links,
-            "save_screenshots": self._bulk_save_images,
-            "remove": self._bulk_remove,
-        }
-
-        for item in items:
-            if item.separator_before:
-                menu.add_separator()
-            self._add_single_item(menu, item, dispatch, clips)
-
-        self.vault.events.record(
-            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
-            None,
-            {"surface": "clip_bulk", "count": len(clips)},
-        )
-
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-            self._destroy_menu(menu)
-
-    def _add_single_item(self, menu, item, dispatch: dict, clips: list[Clip]) -> None:
-        if item.key.startswith("copy_clean:"):
-            action = item.key.split(":", 1)[1]
-            command = lambda a=action: self._copy_clean(clips[0].id, a) if clips else None
-        else:
-            command = dispatch.get(item.key)
-
-        menu.add_command(
-            label=item.label,
-            state=("normal" if item.enabled else "disabled"),
-            command=command,
-        )
-
-    def _add_menu_items(self, menu, items, dispatch: dict, clip_id: str) -> None:
-        import tkinter as tk
-
-        for item in items:
-            if item.separator_before:
-                menu.add_separator()
-            if item.children:
-                sub = tk.Menu(menu, tearoff=0)
-                self._add_menu_items(sub, item.children, dispatch, clip_id)
-                menu.add_cascade(label=item.label, menu=sub, state="normal")
-                continue
-            if item.key.startswith("copy_clean:"):
-                action = item.key.split(":", 1)[1]
-                command = lambda a=action, cid=clip_id: self._copy_clean(cid, a)
-            else:
-                command = dispatch[item.key]
-            menu.add_command(
-                label=item.label,
-                state=("normal" if item.enabled else "disabled"),
-                command=command,
-            )
+        clip_context.open_bulk_clip_menu(self, ids, x_root, y_root)
 
     def _open_locked_menu(self, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        tooltip.before_menu_open()
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Unlock Vault", command=self._lock_screen.focus_unlock)
-        menu.add_command(label="Quit", command=self._quit)
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-            self._destroy_menu(menu)
-
-    @staticmethod
-    def _destroy_menu(menu) -> None:
-        """Free a popup menu (and its submenus) after use.
-
-        Context menus are recreated on every right-click. Without destroying
-        them, Tk leaks menu handles until the process hits the Windows USER
-        object limit and raises ``TclError: No more menus can be allocated``,
-        which then breaks every subsequent menu (including bulk copy).
-        """
-        try:
-            menu.destroy()
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _popup_menu(self, menu, x_root: int, y_root: int) -> None:
-        tooltip.before_menu_open()
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-            self._destroy_menu(menu)
-
-    def _add_nav_command(self, menu, label: str, command) -> None:
-        menu.add_command(label=label, command=command)
+        clip_context.open_locked_menu(self, x_root, y_root)
 
     def _open_home_clip_menu(self, clip, x_root: int, y_root: int) -> None:
-        self._on_clip_select(clip)
-        self._open_clip_menu(clip, x_root, y_root)
+        clip_context.open_home_clip_menu(self, clip, x_root, y_root)
 
-    def _open_home_card_menu(
-        self,
-        label: str,
-        filter_key: str | None,
-        x_root: int,
-        y_root: int,
-    ) -> None:
-        import tkinter as tk
-
-        from ..core import storage as S
-
-        if self._locked():
-            self._open_locked_menu(x_root, y_root)
-            return
-        menu = tk.Menu(self, tearoff=0)
-        nav_items = [
-            ("All Clips", lambda: self._navigate_filter(S.FILTER_ALL)),
-            ("Favorites", lambda: self._navigate_filter(S.FILTER_FAVORITES)),
-            ("Screenshots", lambda: self._navigate_filter(S.FILTER_SCREENSHOTS)),
-            ("Links", lambda: self._navigate_filter(S.FILTER_LINKS)),
-            ("Code", lambda: self._navigate_filter(S.FILTER_CODE)),
-            ("Mobile Inbox", lambda: self._navigate_screen(NAV_MOBILE_INBOX)),
-            ("Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS)),
-            ("Exports", lambda: self._navigate_screen(NAV_EXPORTS)),
-        ]
-        if filter_key:
-            self._add_nav_command(menu, f"Open {label}", lambda f=filter_key: self._navigate_filter(f))
-            menu.add_separator()
-        elif label == "Receipts":
-            self._add_nav_command(menu, "Open Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
-            menu.add_separator()
-        for item_label, command in nav_items:
-            self._add_nav_command(menu, item_label, command)
-        self._popup_menu(menu, x_root, y_root)
+    def _open_home_card_menu(self, label: str, filter_key: str | None, x_root: int, y_root: int) -> None:
+        clip_context.open_home_card_menu(self, label, filter_key, x_root, y_root)
 
     def _open_home_app_menu(self, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        from ..core import storage as S
-
-        if self._locked():
-            self._open_locked_menu(x_root, y_root)
-            return
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Quick Paste", command=self._schedule_quick_paste)
-        menu.add_command(label="Save Current Clipboard", command=self._manual_save_clipboard)
-        menu.add_separator()
-        menu.add_command(label="Open All Clips", command=lambda: self._navigate_filter(S.FILTER_ALL))
-        menu.add_command(label="Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
-        menu.add_command(label="Stamped Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
-        menu.add_command(label="Settings", command=self._open_settings)
-        self._popup_menu(menu, x_root, y_root)
+        clip_context.open_home_app_menu(self, x_root, y_root)
 
     def _open_home_status_menu(self, surface: str, x_root: int, y_root: int) -> None:
-        import tkinter as tk
+        clip_context.open_home_status_menu(self, surface, x_root, y_root)
 
-        from ..core import storage as S
+    def _open_collection_sidebar_menu(self, name: str, x_root: int, y_root: int) -> None:
+        clip_context.open_collection_sidebar_menu(self, name, x_root, y_root)
 
-        if self._locked():
-            self._open_locked_menu(x_root, y_root)
-            return
-        summary = self.vault.dashboard_summary()
-        menu = tk.Menu(self, tearoff=0)
-        if surface == "vault_status":
-            menu.add_command(label="Open Safe", command=lambda: self._navigate_filter(f"{S.SAFE_PREFIX}{summary.get('default_safe', 'default')}"))
-            menu.add_command(label="Set as Default Safe", state="disabled")
-            menu.add_command(label="Copy Safe Summary", command=self._copy_default_safe_summary)
-            menu.add_command(label="Export Safe Proof Zip", state="disabled")
-            menu.add_separator()
-        menu.add_command(label="Open Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
-        menu.add_command(label="Open Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
-        menu.add_command(label="Mobile Access", command=lambda: self._navigate_screen(NAV_MOBILE_ACCESS))
-        self._popup_menu(menu, x_root, y_root)
+    def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
+        clip_context.open_safe_menu(self, safe, x_root, y_root)
+
+    def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
+        clip_context.open_receipt_menu(self, row, x_root, y_root)
 
     def _copy_default_safe_summary(self) -> None:
         safe_id = self.vault.settings.default_safe_id or "default"
@@ -2806,107 +2135,6 @@ class CacheVaultApp(ctk.CTk):
         if safe is None:
             return
         self._copy_safe_summary(safe)
-
-    def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        tooltip.before_menu_open()
-        if self._locked():
-            try:
-                self._open_locked_menu(x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-        clip_id = getattr(row, "clip_id", None)
-        proof_hash = getattr(row, "proof_hash", "") or ""
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(
-            label="Copy Receipt Summary",
-            command=lambda: self._copy_receipt_summary(row),
-        )
-        menu.add_command(
-            label="Copy Receipt Path",
-            state="disabled",
-        )
-        menu.add_command(
-            label="Copy Item ID",
-            state=("normal" if clip_id else "disabled"),
-            command=lambda: self._copy_text(str(clip_id), "Copied item ID."),
-        )
-        menu.add_command(
-            label="Copy Hash",
-            state=("normal" if proof_hash else "disabled"),
-            command=lambda: self._copy_text(proof_hash, "Copied hash."),
-        )
-        menu.add_separator()
-        menu.add_command(
-            label="Open Receipt File / Folder",
-            state="disabled",
-        )
-        menu.add_command(
-            label="Export Proof Zip",
-            state=("normal" if clip_id else "disabled"),
-            command=lambda: self._export_clip_proof(str(clip_id)),
-        )
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-            self._destroy_menu(menu)
-
-    def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        tooltip.before_menu_open()
-        if self._locked():
-            try:
-                self._open_locked_menu(x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-        safe_id = str(safe.get("id") or "")
-        builtin = bool(safe.get("builtin"))
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(
-            label="Set as Default Safe",
-            command=lambda: self._set_default_safe(safe_id),
-        )
-        menu.add_command(
-            label="Copy Safe Summary",
-            command=lambda: self._copy_safe_summary(safe),
-        )
-        menu.add_separator()
-        menu.add_command(
-            label="Rename Safe",
-            state=("disabled" if builtin else "normal"),
-            command=lambda: self._rename_safe(safe),
-        )
-        menu.add_command(
-            label="Change Icon",
-            state=("disabled" if builtin else "normal"),
-            command=lambda: self._customize_safe_text(safe, "icon", "Safe icon"),
-        )
-        menu.add_command(
-            label="Change Color",
-            state=("disabled" if builtin else "normal"),
-            command=lambda: self._customize_safe_text(safe, "accent", "Safe accent color"),
-        )
-        menu.add_command(label="Export Safe Proof Zip", state="disabled")
-        menu.add_command(
-            label="Collapse/Expand Safes",
-            command=lambda: self._filters._toggle_section("SAFES"),  # noqa: SLF001
-        )
-        menu.add_command(
-            label="Delete Safe",
-            state="disabled",
-        )
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-            self._destroy_menu(menu)
 
     def _set_default_safe(self, safe_id: str) -> None:
         if not safe_id:
