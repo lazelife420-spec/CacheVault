@@ -29,13 +29,13 @@ No cloud account. No subscription.
 
 | Check | Result |
 |---|---|
-| `pytest -p no:xonsh` | **545 passed** |
+| `pytest` | **740 passed** |
 | `compileall cache_vault` | PASS |
 | `app.py --selftest` | PASS |
 | Founder package smoke | 4/4 PASS |
 | GitHub Actions matrix | 3.11 ✓ · 3.12 ✓ · 3.13 ✓ |
-| `CacheVault.exe` SHA256 | `CEEA23AD7ADBAF83B1CF8EF6E5DBF049873B9EEBB8A338D30FA048DA8D72816C` |
-| ZIP SHA256 | `07d6049153c5f4fd980990099a27062ffce5304fe8d5c73a41fbbb0d6874fa4a` |
+| `CacheVault.exe` SHA256 | `486AC2C80AFAAEA38FC5F92B1F4C18CB2912FAE42248DCA4A53C1ADEB60E2737` |
+| ZIP SHA256 | `710c8988455b30a3fa8589862e3e7c8a36c7faf73b015cfda5024f700a2c81bf` |
 
 ## Artifacts
 
