@@ -3,8 +3,8 @@
 Keep the cache worth keeping.
 """
 
-__version__ = "0.1.4"
-__release_label__ = "Public Release"
+__version__ = "0.1.5-rc1"
+__release_label__ = "Release Candidate"
 __product__ = "Cache Vault"
 __company__ = "refundghost"
 __description__ = (
