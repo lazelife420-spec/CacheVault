@@ -40,6 +40,19 @@
 
 ---
 
+## Cloudflare R2 Distribution
+
+| Resource | Remote R2 Key / Public URL | Status |
+|---|---|---|
+| **R2 Bucket** | `proof-foundry-downloads` | Verified Access |
+| **ZIP Key** | `cache-vault/v0.1.5-rc1/CacheVault-v0.1.5-rc1-windows.zip` | Upload Complete |
+| **ZIP URL** | `https://pub-0273ac689b544b959a93bbe5d953d71e.r2.dev/cache-vault/v0.1.5-rc1/CacheVault-v0.1.5-rc1-windows.zip` | **200 OK** (Type: `application/zip`, Size: `42849262`) |
+| **SHA Key** | `cache-vault/v0.1.5-rc1/CacheVault-v0.1.5-rc1-windows.zip.sha256.txt` | Upload Complete |
+| **SHA URL** | `https://pub-0273ac689b544b959a93bbe5d953d71e.r2.dev/cache-vault/v0.1.5-rc1/CacheVault-v0.1.5-rc1-windows.zip.sha256.txt` | **200 OK** (Content: `31a82ba5c84f31f0faa002f8b02f61c3af0b0ff316cf9458588834c98800e88e`) |
+
+
+---
+
 ## Commands Run
 
 ```

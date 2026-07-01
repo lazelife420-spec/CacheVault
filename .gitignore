@@ -26,3 +26,7 @@ assets/cache-vault-contact-sheet.png
 
 # Local visual smoke / runtime proof screenshots (may contain clipboard data)
 visual_smoke/
+
+# Wrangler cache
+.wrangler/
+
