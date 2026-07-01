@@ -71,16 +71,29 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
 
     items = clip_menu_items(clip, last_safe_name=last_safe_name)
     for item in items:
-        if item.separator_before:
-            menu.add_separator()
-        if item.children:
-            menu.add_separator()
+        if item.key == "primary":
             for child in item.children:
                 if child.separator_before:
                     menu.add_separator()
                 _add_single_item(window, menu, child, dispatch, [clip])
-            continue
-        _add_single_item(window, menu, item, dispatch, [clip])
+        else:
+            sub = tk.Menu(
+                menu,
+                tearoff=0,
+                bg="#1c1c1e" if ctk.get_appearance_mode() == "Dark" else "#f2f2f7",
+                fg="#ffffff" if ctk.get_appearance_mode() == "Dark" else "#000000",
+                activebackground="#008080",
+                activeforeground="#ffffff",
+                font=("Segoe UI", 10),
+            )
+            for child in item.children:
+                if child.separator_before:
+                    sub.add_separator()
+                _add_single_item(window, sub, child, dispatch, [clip])
+            
+            if menu.index("end") is not None:
+                menu.add_separator()
+            menu.add_cascade(label=item.label, menu=sub)
 
     window.vault.events.record(
         copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,

@@ -172,7 +172,7 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
         ],
     ),
     SettingsCategory(
-        id="vault_lock", label="Vault Lock", icon="\U0001F512",
+        id="vault_lock", label="Advanced: Vault Lock", icon="\U0001F512",
         fields=[
             SettingsField("vault_lock_enabled", "Enable Vault Lock", "toggle",
                           "App privacy lock for the local UI"),
@@ -201,7 +201,7 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
         ],
     ),
     SettingsCategory(
-        id="history", label="History", icon="\u23F1",
+        id="history", label="Advanced: History & Pruning", icon="\u23F1",
         fields=[
             SettingsField("history_max_clips", "History limit", "number",
                           "Maximum live clips (0 = unlimited, favorites survive pruning)",

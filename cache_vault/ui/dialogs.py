@@ -164,7 +164,7 @@ class SettingsDialog(ctk.CTkToplevel):
             ctk.CTkLabel(body, text=title, font=ctk.CTkFont(size=13, weight="bold"),
                          text_color=brand.PROOF_TEAL).pack(anchor="w", padx=8, pady=(0, 4))
 
-        section("Capture")
+        section("Capture Settings")
         self._pause = ctk.CTkSwitch(body, text="Pause capture (nothing new is saved while on)")
         self._pause.pack(anchor="w", padx=8, pady=6)
         self._pause.select() if settings.capture_paused else self._pause.deselect()
@@ -283,7 +283,7 @@ class SettingsDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
-        section("Sensitive Clips")
+        section("Advanced: Sensitive Clips Expiry")
         self._sens = ctk.CTkSwitch(body, text="Auto-expire sensitive clips")
         self._sens.pack(anchor="w", padx=8, pady=6)
         self._sens.select() if settings.sensitive_expiry_enabled else self._sens.deselect()
@@ -294,7 +294,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
         self._minutes.pack(anchor="w", padx=8, pady=4, fill="x")
 
-        section("Snippet Macros")
+        section("Advanced: Snippet Macros")
         ctk.CTkLabel(
             body,
             text="Live macro hotkeys, text shortcuts, and paste/type delivery.\n"
@@ -339,7 +339,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._macro_keystroke_delay.insert(0, str(settings.macro_keystroke_delay_ms))
         self._macro_keystroke_delay.pack(side="right")
 
-        section("Display")
+        section("Display & Layout")
         self._win_scroll = ctk.CTkSwitch(
             body, text="Use Windows scroll settings (recommended)",
         )
@@ -360,7 +360,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._scroll_mult.insert(0, str(settings.scroll_multiplier))
         self._scroll_mult.pack(side="right")
 
-        section("Vault Lock")
+        section("Advanced: Vault Lock Security")
         self._vault_lock_on = ctk.CTkSwitch(body, text="Enable Vault Lock")
         self._vault_lock_on.pack(anchor="w", padx=8, pady=4)
         if settings.vault_lock_enabled:
@@ -429,12 +429,12 @@ class SettingsDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11), wraplength=460,
         ).pack(anchor="w", padx=8, pady=(4, 8))
 
-        section("Startup")
+        section("Startup Settings")
         self._startup = ctk.CTkSwitch(body, text="Start Cache Vault with Windows")
         self._startup.pack(anchor="w", padx=8, pady=6)
         self._startup.select() if startup.is_enabled() else self._startup.deselect()
 
-        section("Help")
+        section("Help & Documentation")
         if self._help.get("show_guide"):
             ctk.CTkButton(
                 body,
@@ -449,7 +449,7 @@ class SettingsDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11), wraplength=460,
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
-        section("History")
+        section("Advanced: Pruning & History Limit")
         ctk.CTkLabel(body, text="History limit (clips, 0 = unlimited):").pack(
             anchor="w", padx=8, pady=(10, 0))
         self._history_max = ctk.CTkEntry(body, width=80)

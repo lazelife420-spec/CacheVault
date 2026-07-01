@@ -182,7 +182,7 @@ class TestSettingsDialog:
             return texts
 
         scroll_labels = _labels_in(dialog._scroll_body)
-        assert "History" in scroll_labels
+        assert "Advanced: Pruning & History Limit" in scroll_labels
         assert "Mobile Access" not in scroll_labels, (
             "Mobile Access must not live inside the scrollable History section"
         )
