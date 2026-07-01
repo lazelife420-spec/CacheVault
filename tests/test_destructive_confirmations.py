@@ -249,11 +249,12 @@ def test_validate_manifest_passes_valid_manifest():
     """validate_manifest returns empty list for valid manifest."""
     from cache_vault.core.exports import validate_manifest
 
+    from cache_vault import __version__
     errors = validate_manifest({
         "document_type": "cache_vault_proof_export",
         "export_id": "abc-123",
         "export_timestamp": "2025-01-01T00:00:00",
-        "app_version": "0.1.4",
+        "app_version": __version__,
         "manifest_included": True,
         "sha256sums_included": True,
         "items": [{

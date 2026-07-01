@@ -67,8 +67,14 @@ def test_menu_action_wiring_exists():
 def test_no_crash_on_null_ingest(vault):
     # Verify no crash / safe return on null payload during ingest
     from cache_vault.ui.shell import CacheVaultApp
-    app = CacheVaultApp(vault=vault)
+    try:
+        app = CacheVaultApp(vault=vault)
+    except Exception as exc:
+        if "usable init.tcl" in str(exc) or "Can't find a usable" in str(exc) or "TclError" in str(exc):
+            pytest.skip(f"Tk runtime unavailable at app construction: {exc}")
+        raise
     try:
         app._ingest({})
     finally:
         app._quit()
+

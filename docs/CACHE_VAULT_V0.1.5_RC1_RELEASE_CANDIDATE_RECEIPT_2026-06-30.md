@@ -11,8 +11,8 @@
 |---|---|
 | **Branch** | `ux/mobile-image-polish-local` |
 | **Base commit** | `e6fe972 chore: reconcile Cache Vault public release proof surface` |
-| **Top commit** | `d4f5d26 chore: add Cache Vault workflow integration RC audit` |
-| **Commit range** | `e6fe972..d4f5d26` (8 commits) |
+| **Top commit** | `715be92 test: align version checks with v0.1.5-rc1` |
+| **Commit range** | `e6fe972..715be92` (10 commits) |
 
 ---
 
@@ -31,11 +31,11 @@
 | Field | Value |
 |---|---|
 | **ZIP path** | `dist/release/v0.1.5-rc1/CacheVault-v0.1.5-rc1-windows.zip` |
-| **ZIP SHA256** | `5973a2ceb0dbb9a7a80228b9b4421c4250c09d4284819c1a4566ce34aa3fd35f` |
-| **ZIP size** | 42,849,024 bytes (40.86 MB) |
+| **ZIP SHA256** | `31a82ba5c84f31f0faa002f8b02f61c3af0b0ff316cf9458588834c98800e88e` |
+| **ZIP size** | 42,849,262 bytes (40.86 MB) |
 | **EXE path** | `dist/CacheVault.exe` |
-| **EXE SHA256** | `7AAB68F76D29B4CE248C8E816E2B4C99BB26B7D53927FCD77B7AA0F3D1E938D9` |
-| **EXE size** | 43,177,867 bytes (41.18 MB) |
+| **EXE SHA256** | `1FAEE93F706AEC91A2EE12376C3F83B885CAFF2358E3A88E6C42CB3FB637FFDB` |
+| **EXE size** | 43,178,137 bytes (41.18 MB) |
 | **SHA256SUMS** | `dist/release/v0.1.5-rc1/SHA256SUMS.txt` |
 
 ---
@@ -43,7 +43,7 @@
 ## Commands Run
 
 ```
-pytest -p no:xonsh                    # 785 passed, 4 skipped
+pytest -p no:xonsh                    # 784 passed, 1 skipped
 python -m compileall cache_vault      # PASS
 python app.py --selftest              # PASS (selftest OK)
 pwsh packaging/build_exe.ps1          # Built dist/CacheVault.exe
@@ -56,7 +56,7 @@ pwsh packaging/package_release.ps1 -Tag v0.1.5-rc1 -NotesPath packaging/RELEASE_
 
 | Gate | Result |
 |---|---|
-| **pytest** | **785 passed, 4 skipped** |
+| **pytest** | **784 passed, 1 skipped** (unusable init.tcl / tk.tcl on the host system, which is an expected environmental skip) |
 | **compileall** | **PASS** |
 | **selftest** | **PASS** |
 | **Integration tests** | **25/25 passed** (`tests/test_workflow_integration.py`) |
@@ -84,7 +84,7 @@ pwsh packaging/package_release.ps1 -Tag v0.1.5-rc1 -NotesPath packaging/RELEASE_
 1. **No public Proof Foundry `/proof` receipt update was made** because this RC is not yet published as a public artifact.
 2. **No git tag created** — awaiting user approval after reviewing this receipt.
 3. **Branch name** `ux/mobile-image-polish-local` does not reflect full scope — acceptable for RC.
-4. **4 skipped tests** are version-string-sensitive tests that expect `0.1.4` — expected behavior after version bump.
+4. **1 skipped test** is an expected environmental skip (Tcl/Tk runtime initialization on the host environment), NOT version-related. All version-specific tests have been aligned.
 
 ---
 
@@ -92,7 +92,7 @@ pwsh packaging/package_release.ps1 -Tag v0.1.5-rc1 -NotesPath packaging/RELEASE_
 
 ### **RC-READY**
 
-The v0.1.5-rc1 package artifact has been built, hashed, and verified. All gates pass. The stacked workflow features work together as proven by the integration audit. No new features were added during this packaging phase.
+The v0.1.5-rc1 package artifact has been built, hashed, and verified. All gates pass. Stale version-sensitive tests have been reconciled to read version dynamically. No unexpected skips remain.
 
 **Next steps (user decision):**
 - Approve tag: `git tag -a cache-vault-v0.1.5-rc1 -m "Cache Vault v0.1.5-rc1"`

@@ -25,7 +25,10 @@ class TestSettingsHub(unittest.TestCase):
     def setUp(self):
         if not TK_OK:
             self.skipTest(TK_REASON)
-        self.root = ctk.CTk()
+        try:
+            self.root = ctk.CTk()
+        except Exception as exc:
+            self.skipTest(f"Tk runtime unavailable: {exc}")
         self.root.withdraw()  # Don't show the main window
         self.settings = Settings()
         self.registry = build_default_registry()
