@@ -158,7 +158,7 @@ class VaultControlStrip(ctk.CTkFrame):
             self,
             width=150,
             values=["Capture", "Pause Capture", "Save Current Clipboard",
-                    "Save Next Copy", "Ignore Next Copy", "Capture Rules"],
+                    "Save Next Copy", "Do Not Save Next Copy", "Capture Rules"],
             command=self._capture_action,
         )
         self._capture.grid(row=0, column=0, padx=(8, 4), pady=6)
@@ -196,7 +196,10 @@ class VaultControlStrip(ctk.CTkFrame):
 
     def update_state(self, summary: dict) -> None:
         self._summary = summary
-        capture = "Capture: Paused" if summary.get("capture_paused") else "Capture: On"
+        if summary.get("ignore_next"):
+            capture = "Next copy will not be saved"
+        else:
+            capture = "Capture: Paused" if summary.get("capture_paused") else "Capture: On"
         paired = summary.get("paired_count", 0)
         if summary.get("mobile_enabled"):
             mobile = f"Mobile: Paired ({paired})" if paired else "Mobile: On"
@@ -218,7 +221,7 @@ class VaultControlStrip(ctk.CTkFrame):
             "Pause Capture": "pause_capture",
             "Save Current Clipboard": "save_current_clipboard",
             "Save Next Copy": "save_next_copy",
-            "Ignore Next Copy": "ignore_next_copy",
+            "Do Not Save Next Copy": "ignore_next_copy",
             "Capture Rules": "capture_rules",
         }
         self._call(mapping.get(choice, ""))

@@ -1549,6 +1549,7 @@ class CacheVaultApp(ctk.CTk):
 
             summary["shown"] = clip_count
             summary["default_safe"] = self.vault.settings.default_safe_id
+            summary["ignore_next"] = self._capture_ctrl.ignore_next
             self._control_strip.update_state(summary)
             if self._locked():
                 self._lock_screen.lift()
@@ -1618,7 +1619,8 @@ class CacheVaultApp(ctk.CTk):
                     content_hash=chash,
                     item_type=item_type,
                 )
-                self._show_toast("Next copy was not saved.")
+                self._show_toast("Copy skipped")
+                self.refresh()
                 capture_debug.log("ingest_skipped", "ignore_next_copy")
                 return
 
@@ -1804,7 +1806,14 @@ class CacheVaultApp(ctk.CTk):
         if not self._guard_unlocked():
             return
         self._capture_ctrl.arm_ignore_next()
+        self.refresh()
         self._show_toast("Next copy will not be saved.")
+        self.after(60000, self._check_ignore_next_expired)
+
+    def _check_ignore_next_expired(self) -> None:
+        if not self._alive():
+            return
+        self.refresh()
 
     def _on_search_changed(self, *_):
         if not self._alive():
