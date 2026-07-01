@@ -2087,16 +2087,15 @@ class CacheVaultApp(ctk.CTk):
         elif summary.selection_class == "image_only":
             actions = [
                 ("Copy PNGs", self._bulk_copy_images),
-                ("Save PNGs", self._bulk_save_images),
+                ("Export to Folder", self._bulk_save_images),
                 ("Export ZIP", self._bulk_export_zip),
                 ("Copy Paths", self._bulk_copy_paths),
-                ("View Proof", self._bulk_view_proof),
             ]
         else:  # mixed
             actions = [
                 ("Export Bundle", self._bulk_export_bundle),
                 ("Copy Text+Links", self._bulk_copy_text_links),
-                ("Save PNGs", self._bulk_save_images),
+                ("Export Screenshots", self._bulk_save_images),
                 ("Receipt", lambda: self._bulk_create_receipt(summary)),
                 ("Remove", self._bulk_remove),
             ]
@@ -2124,6 +2123,9 @@ class CacheVaultApp(ctk.CTk):
 
     def _bulk_save_images(self) -> None:
         batch_actions.bulk_save_images(self)
+
+    def _export_image_to_folder(self, clip_id: str) -> None:
+        batch_actions.bulk_save_images(self, ids=[clip_id])
 
     def _bulk_export_zip(self) -> None:
         batch_actions.bulk_export_zip(self)

@@ -47,6 +47,21 @@ def test_server_not_running_when_disabled(vault, mobile_bridge):
     assert mobile_bridge.is_running is False
 
 
+def test_fresh_profile_bridge_off_by_default(vault, tmp_path):
+    """A brand-new profile must not start the LAN bridge on first launch.
+
+    Proves the bridge stays OFF (no silent listener) until the user explicitly
+    enables Mobile Access.
+    """
+    fresh = Settings.load(tmp_path / "brand_new_profile.json")
+    assert fresh.mobile_access_enabled is False
+    log = MobileReceiptLog(tmp_path / "fresh_receipts.json")
+    bridge = MobileBridge(vault, receipt_log=log)
+    assert bridge.needs_sync(fresh) is False
+    bridge.sync(fresh)
+    assert bridge.is_running is False
+
+
 def test_api_unavailable_when_disabled(vault, mobile_bridge):
     vault.settings.mobile_access_enabled = False
     code, body = mobile_bridge.handle("GET", "/mobile/v1/status", {})

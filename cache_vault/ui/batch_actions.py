@@ -231,20 +231,28 @@ def bulk_copy_images(window) -> None:
         window._show_toast("Clipboard copy not supported in this environment.")
 
 
-def bulk_save_images(window) -> None:
+def bulk_save_images(window, ids=None) -> None:
     if not window._guard_unlocked():
         return
-    ids = list(window._selected_clip_ids)
-    if not ids:
+    ids = list(ids) if ids is not None else list(window._selected_clip_ids)
+    # Only image clips are exportable; filter first so an empty screenshot view
+    # (or a selection with no images) is handled without opening a dialog.
+    image_ids = []
+    for cid in ids:
+        clip = window.vault.storage.get_clip(cid)
+        if clip is not None and clip.content_type == models.CONTENT_IMAGE:
+            image_ids.append(cid)
+    if not image_ids:
+        window._show_toast("No screenshots to export.")
         return
 
-    dest = filedialog.askdirectory(parent=window, title="Save Screenshots As PNG")
+    dest = filedialog.askdirectory(parent=window, title="Export Screenshots to Folder")
     if not dest:
         return
 
     saved_count = 0
     failed_count = 0
-    for cid in ids:
+    for cid in image_ids:
         clip = window.vault.storage.get_clip(cid)
         if clip is None or clip.content_type != models.CONTENT_IMAGE:
             continue

@@ -170,8 +170,13 @@ class PairAndroidDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             scroll,
-            text="QR pairing is coming next. Token shown once — treat as secret.",
-            anchor="w", text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=10),
+            text=(
+                "Token is hidden by default. Do not share screenshots that reveal "
+                "it. After testing, use Revoke All Devices or generate a fresh "
+                "code. QR pairing is coming next."
+            ),
+            anchor="w", justify="left", wraplength=500,
+            text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=8, pady=(8, 4))
 
         ctk.CTkButton(scroll, text="Close", command=self.destroy,

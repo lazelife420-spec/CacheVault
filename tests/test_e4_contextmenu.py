@@ -71,11 +71,21 @@ def test_multiple_images_flat_menu():
     assert "save_pngs" in keys
     assert "export_zip" in keys
     assert "copy_paths" in keys
-    assert "view_proof" in keys
+    # "View Proof" was a no-op; it must no longer appear as an actionable item.
+    assert "view_proof" not in keys
     assert "remove" in keys
 
     for item in items:
         assert len(item.children) == 0
+
+
+def test_single_image_has_export_to_folder():
+    """A single screenshot exposes a clear folder-export action in its menu."""
+    c = _clip("asset.png", models.CLASS_IMAGE, models.CONTENT_IMAGE)
+    items = clip_menu_items(c)
+    primary = next(i for i in items if i.key == "primary")
+    child_keys = [ch.key for ch in primary.children]
+    assert "export_image_to_folder" in child_keys
 
 
 def test_mixed_selection_flat_menu():

@@ -88,17 +88,16 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip], last_safe_name: str | None
             ]
         elif summary.selection_class == "image_only":
             return [
-                MenuItem("save_pngs", "Save All As PNG"),
+                MenuItem("save_pngs", "Export Screenshots to Folder…"),
                 MenuItem("export_zip", "Export ZIP"),
                 MenuItem("copy_paths", "Copy File Paths"),
-                MenuItem("view_proof", "View Proof"),
                 MenuItem("remove", "Delete Selected", separator_before=True),
             ]
         elif summary.selection_class == "mixed":
             return [
                 MenuItem("export_bundle", "Export Bundle"),
                 MenuItem("copy_text_links", "Copy Text + Links"),
-                MenuItem("save_screenshots", "Save Screenshots"),
+                MenuItem("save_screenshots", "Export Screenshots to Folder…"),
                 MenuItem("receipt", "Create Receipt"),
                 MenuItem("remove", "Delete Selected", separator_before=True),
             ]
@@ -132,6 +131,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip], last_safe_name: str | None
         primary_children.insert(0, MenuItem("open_link", "Open Link"))
     if clip.content_type == models.CONTENT_IMAGE:
         primary_children.append(MenuItem("drag_out", "Drag PNG"))
+        primary_children.append(MenuItem("export_image_to_folder", "Export Image to Folder…"))
         primary_children.append(MenuItem("open_asset_folder", "Open Asset Folder"))
 
     organize_children = []
