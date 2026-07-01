@@ -119,6 +119,22 @@ class CacheVaultApp(ctk.CTk):
     def report_callback_exception(self, exc, val, tb):  # noqa: N802 - Tk API
         """Log Tk callback failures instead of failing silently."""
         err = val if isinstance(val, BaseException) else Exception(val)
+        if getattr(self, "_reporting_crash", False):
+            # A crash storm (e.g. RecursionError re-entering a Tk callback) must
+            # not recurse through the dialog path and flood crash.log. Record it
+            # once, then bail.
+            try:
+                write_crash("Tk callback error (re-entrant, suppressed)", err)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        self._reporting_crash = True
+        try:
+            self._report_callback_exception(exc, val, tb, err)
+        finally:
+            self._reporting_crash = False
+
+    def _report_callback_exception(self, exc, val, tb, err):
         path = write_crash("Tk callback error", err)
         msg = (
             f"\nCache Vault UI error (logged to {path}):\n"

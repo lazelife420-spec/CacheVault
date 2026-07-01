@@ -31,7 +31,7 @@ def write_crash(title: str, exc: BaseException) -> Path:
 
 
 def install_global_hook() -> None:
-    """Log uncaught main-thread exceptions to crash.log."""
+    """Log uncaught main-thread and worker-thread exceptions to crash.log."""
     prev = sys.excepthook
 
     def hook(exc_type, exc, tb):
@@ -44,3 +44,21 @@ def install_global_hook() -> None:
         prev(exc_type, exc, tb)
 
     sys.excepthook = hook
+
+    # Background threads (mobile bridge, mDNS discovery, hotkey listener,
+    # foreground-window tracker) crash silently in a windowed packaged build:
+    # their exceptions never reach ``sys.excepthook``. Route them to crash.log
+    # so intermittent, hard-to-see failures are captured during soak testing.
+    import threading
+
+    def thread_hook(args) -> None:
+        exc = getattr(args, "exc_value", None)
+        if exc is None:
+            return
+        try:
+            name = getattr(getattr(args, "thread", None), "name", "?")
+            write_crash(f"uncaught thread exception ({name})", exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.excepthook = thread_hook
