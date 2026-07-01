@@ -387,21 +387,25 @@ def bulk_export_zip(window, ids=None) -> None:
             window._show_toast(msg)
 
             # Record event/receipt
+            breakdown = {}
+            if summary.image_count > 0:
+                breakdown["images"] = summary.image_count
+            if summary.text_count > 0:
+                breakdown["text"] = summary.text_count
+            if summary.link_count > 0:
+                breakdown["links"] = summary.link_count
+
             meta = {
-                "action": "batch_export_zip",
+                "action": "batch_export_images",
                 "source": "desktop",
                 "count": saved_count,
                 "format": "zip",
-                "item_breakdown": {
-                    "images": summary.image_count,
-                    "text": summary.text_count,
-                    "links": summary.link_count,
-                },
+                "item_breakdown": breakdown,
                 "transfer_status": "completed" if failed_count == 0 else "partial",
                 "timestamp": models.now_iso(),
                 "success": failed_count == 0,
             }
-            editable_copies.write_file_receipt("batch_export_zip", meta)
+            editable_copies.write_file_receipt("batch_export_images", meta)
             window.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
         else:
             try:

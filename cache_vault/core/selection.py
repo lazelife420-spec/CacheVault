@@ -146,15 +146,14 @@ def analyze_selection(clips: list[Any]) -> SelectionSummary:
 
     # Build summary label
     parts = []
+    if links > 0:
+        parts.append(f"{links} link" + ("s" if links != 1 else ""))
     if images > 0:
         parts.append(f"{images} screenshot" + ("s" if images != 1 else ""))
     if texts > 0:
         parts.append(f"{texts} text clip" + ("s" if texts != 1 else ""))
-    if links > 0:
-        parts.append(f"{links} link" + ("s" if links != 1 else ""))
 
-    breakdown = ", ".join(parts)
-    summary_label = f"{total} selected: {breakdown}"
+    summary_label = " · ".join(parts)
 
     return SelectionSummary(
         selected_count=total,

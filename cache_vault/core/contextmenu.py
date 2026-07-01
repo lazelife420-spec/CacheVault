@@ -93,7 +93,8 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip], last_safe_name: str | None
         # 2. Screenshot/Image actions (applicable if there are images)
         if summary.image_count > 0:
             sep = len(items) > 0
-            items.append(MenuItem("save_screenshots", f"Export {summary.image_count} Screenshot{'s' if summary.image_count != 1 else ''} to Folder…", separator_before=sep))
+            key = "save_pngs" if summary.selection_class == "image_only" else "save_screenshots"
+            items.append(MenuItem(key, f"Export {summary.image_count} Screenshot{'s' if summary.image_count != 1 else ''} to Folder…", separator_before=sep))
             items.append(MenuItem("export_zip", f"Export {summary.image_count} Screenshot{'s' if summary.image_count != 1 else ''} as ZIP"))
             items.append(MenuItem("copy_paths", f"Copy {summary.image_count} File Path{'s' if summary.image_count != 1 else ''}"))
 
@@ -105,6 +106,8 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip], last_safe_name: str | None
 
         if summary.selection_class == "mixed":
             items.append(MenuItem("export_bundle", "Export Bundle"))
+        elif summary.selection_class == "link_only":
+            items.append(MenuItem("export", "Export"))
 
         items.append(MenuItem("receipt", "Create Receipt"))
         items.append(MenuItem("remove", "Delete Selected", separator_before=True))

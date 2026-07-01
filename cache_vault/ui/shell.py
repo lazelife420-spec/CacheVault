@@ -2073,7 +2073,16 @@ class CacheVaultApp(ctk.CTk):
         from ..core.selection import analyze_selection
         summary = analyze_selection(clips)
         # Keep static check happy: text=f"{len(ids)} selected"
-        self._selected_action_label.configure(text=summary.summary_label)
+        parts = []
+        if summary.image_count > 0:
+            parts.append(f"{summary.image_count} screenshot" + ("s" if summary.image_count != 1 else ""))
+        if summary.text_count > 0:
+            parts.append(f"{summary.text_count} text clip" + ("s" if summary.text_count != 1 else ""))
+        if summary.link_count > 0:
+            parts.append(f"{summary.link_count} link" + ("s" if summary.link_count != 1 else ""))
+        breakdown = ", ".join(parts)
+        verbose_label = f"{len(ids)} selected: {breakdown}"
+        self._selected_action_label.configure(text=verbose_label)
 
         actions = []
         text_link_count = summary.text_count + summary.link_count

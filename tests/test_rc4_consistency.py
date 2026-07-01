@@ -17,7 +17,6 @@ def test_mixed_selection_type_breakdown():
     assert summary.text_count == 1
     assert summary.link_count == 1
     assert summary.selection_class == "mixed"
-    assert "3 selected" in summary.summary_label
     assert "1 screenshot" in summary.summary_label
     assert "1 text clip" in summary.summary_label
     assert "1 link" in summary.summary_label
