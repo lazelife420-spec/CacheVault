@@ -50,7 +50,7 @@ Live: https://lazelife420-spec.github.io/CacheVault/
 
 | Button | Current target |
 |---|---|
-| Download Free | [v0.1.4 release](https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.1.4) |
+| Download Free | [v0.1.4 release.1](https://github.com/lazelife420-spec/CacheVault/releases/tag/cache-vault-v0.1.4-release.1) |
 | Buy Founder | [Gumroad checkout](https://cashdominion.gumroad.com/l/eojmeb) |
 
 ## Before first sale
@@ -61,7 +61,7 @@ Live: https://lazelife420-spec.github.io/CacheVault/
    $env:FOUNDER_PURCHASE_URL = "https://your-checkout-url"
    ```
 3. Verify release zip SHA256 on the page matches the published asset.
-   v0.1.4 ZIP SHA256: `07d6049153c5f4fd980990099a27062ffce5304fe8d5c73a41fbbb0d6874fa4a`
+   v0.1.4 ZIP SHA256: `710c8988455b30a3fa8589862e3e7c8a36c7faf73b015cfda5024f700a2c81bf`
 
 ## Legacy
 
