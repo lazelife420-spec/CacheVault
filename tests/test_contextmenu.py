@@ -43,10 +43,13 @@ def test_removed_clip_menu_offers_restore():
 def test_favorite_label_toggles():
     normal = clip_menu_items(_clip("x"))
     organize = _children(normal, "organize")
-    assert organize[1].label == "Add to Favorites"
+    fav_item = next(i for i in organize if i.key == "toggle_favorite")
+    assert fav_item.label == "Add to Favorites"
+    
     fav = clip_menu_items(_clip("x", is_pinned=True))
     organize = _children(fav, "organize")
-    assert organize[1].label == "Remove from Favorites"
+    fav_item = next(i for i in organize if i.key == "toggle_favorite")
+    assert fav_item.label == "Remove from Favorites"
 
 
 def test_path_clip_exposes_open_and_reveal(tmp_path):

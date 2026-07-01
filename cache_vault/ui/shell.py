@@ -2556,6 +2556,8 @@ class CacheVaultApp(ctk.CTk):
         def pick(safe_id: str, safe_name: str) -> None:
             updated = self.vault.move_to_safe(clip_id, safe_id)
             if updated:
+                self._last_safe_id = safe_id
+                self._last_safe_name = safe_name
                 self.refresh()
                 self._preview.show(updated)
                 self._show_toast(f"Moved to {safe_name}.")
@@ -2566,6 +2568,50 @@ class CacheVaultApp(ctk.CTk):
             on_pick=pick,
             on_create=self._create_safe_if_allowed,
         )
+
+    def _copy_to_safe(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+
+        def pick(safe_id: str, safe_name: str) -> None:
+            copied = self.vault.copy_to_safe(clip_id, safe_id)
+            if copied:
+                self._last_safe_id = safe_id
+                self._last_safe_name = safe_name
+                self.refresh()
+                self._preview.show(copied)
+                self._show_toast(f"Copied to {safe_name}.")
+
+        SafePickerDialog(
+            self, self.vault.settings,
+            title="Copy to Safe",
+            on_pick=pick,
+            on_create=self._create_safe_if_allowed,
+        )
+
+    def _copy_to_last_safe(self, clip_id: str) -> None:
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+
+        last_safe_id = getattr(self, "_last_safe_id", None)
+        last_safe_name = getattr(self, "_last_safe_name", None)
+        if not last_safe_id:
+            default_safe = self.vault.safes.default_safe()
+            if default_safe:
+                last_safe_id = default_safe.id
+                last_safe_name = default_safe.name
+
+        if not last_safe_id:
+            self._show_toast("No destination Safe available.")
+            return
+
+        copied = self.vault.copy_to_safe(clip_id, last_safe_id)
+        if copied:
+            self.refresh()
+            self._preview.show(copied)
+            self._show_toast(f"Copied to {last_safe_name}.")
 
     def _restore(self, clip_id: str) -> None:
         self.vault.restore(clip_id)

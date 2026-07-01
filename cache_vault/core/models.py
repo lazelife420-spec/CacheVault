@@ -73,6 +73,7 @@ EVENT_CLIPBOARD_NEXT_COPY_SAVED = "clipboard_next_copy_saved"
 EVENT_CLIPBOARD_NEXT_COPY_IGNORED = "clipboard_next_copy_ignored"
 EVENT_CLIPBOARD_SENSITIVE_BLOCKED = "clipboard_sensitive_not_auto_saved"
 EVENT_ITEM_MOVED_TO_SAFE = "item_moved_to_safe"
+EVENT_ITEM_COPIED_TO_SAFE = "item_copied_to_safe"
 EVENT_SAFE_CREATED = "safe_created"
 EVENT_VAULT_MACROS_SETUP = "vault_macros_setup_completed"
 EVENT_MACRO_SAFE_CREATED = "macro_safe_created"
@@ -99,6 +100,7 @@ CAPTURE_AUTO = "auto"
 CAPTURE_MANUAL_SAVE_HOTKEY = "manual_save_hotkey"
 CAPTURE_ARMED_NEXT_COPY = "armed_next_copy"
 CAPTURE_MOVED_TO_SAFE = "moved_to_safe"
+CAPTURE_COPIED_TO_SAFE = "copied_to_safe"
 CAPTURE_IMPORTED = "imported"
 CAPTURE_MOBILE = "mobile"
 CAPTURE_MOBILE_SHARE = "mobile_share"
@@ -109,6 +111,7 @@ CAPTURE_MODES = (
     CAPTURE_MANUAL_SAVE_HOTKEY,
     CAPTURE_ARMED_NEXT_COPY,
     CAPTURE_MOVED_TO_SAFE,
+    CAPTURE_COPIED_TO_SAFE,
     CAPTURE_IMPORTED,
     CAPTURE_MOBILE,
     CAPTURE_MOBILE_SHARE,
@@ -122,6 +125,7 @@ ACTION_CLIPBOARD_NEXT_COPY_ARMED = "clipboard_next_copy_armed"
 ACTION_CLIPBOARD_NEXT_COPY_SAVED = "clipboard_next_copy_saved"
 ACTION_CLIPBOARD_NEXT_COPY_IGNORED = "clipboard_next_copy_ignored"
 ACTION_ITEM_MOVED_TO_SAFE = "item_moved_to_safe"
+ACTION_ITEM_COPIED_TO_SAFE = "item_copied_to_safe"
 ACTION_SAFE_CREATED = "safe_created"
 ACTION_MOBILE_SENT_TO_PC = "mobile_sent_to_pc"
 ACTION_MOBILE_INBOX_RECEIVED = "mobile_inbox_received"

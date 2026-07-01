@@ -65,7 +65,7 @@ def copy_clean_menu_items(clip: Clip) -> list[MenuItem]:
     ]
 
 
-def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
+def clip_menu_items(clip_or_clips: Clip | list[Clip], last_safe_name: str | None = None) -> list[MenuItem]:
     """Build the context-menu items for clip or multiple clips.
 
     If a list of clips is passed and contains more than one item, returns a flat
@@ -134,8 +134,12 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
         primary_children.append(MenuItem("drag_out", "Drag PNG"))
         primary_children.append(MenuItem("open_asset_folder", "Open Asset Folder"))
 
-    organize_children = [
-        MenuItem("move_safe", "Move to Safe…"),
+    organize_children = []
+    if last_safe_name:
+        organize_children.append(MenuItem("copy_to_last_safe", f"Copy to Last Safe ({last_safe_name})"))
+    organize_children.append(MenuItem("copy_to_safe", "Copy to Safe…"))
+    organize_children.append(MenuItem("move_safe", "Move to Safe…"))
+    organize_children.extend([
         MenuItem(
             "toggle_favorite",
             "Remove from Favorites" if clip.is_pinned else "Add to Favorites",
@@ -146,7 +150,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             enabled=not clip.is_pinned,
         ),
         MenuItem("send_to_macro_safe", "Send to Snippet Macros", separator_before=True),
-    ]
+    ])
 
     proof_children = [
         MenuItem("view_receipts", "View Receipts"),

@@ -850,6 +850,11 @@ class SafePickerDialog(ctk.CTkToplevel):
         self._rows: list[ctk.CTkButton] = []
         self._index = 0
         destinations = list(self._registry.list_destinations())
+        if not destinations:
+            ctk.CTkLabel(
+                scroll, text="No destination Safes available.",
+                text_color=brand.MUTED_FG, font=ctk.CTkFont(size=12, slant="italic")
+            ).pack(pady=20)
         for i, safe in enumerate(destinations):
             btn = ctk.CTkButton(
                 scroll, text=safe.name, anchor="w",

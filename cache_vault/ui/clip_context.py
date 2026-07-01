@@ -45,6 +45,8 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         "drag_out": lambda: window._drag_out_clip(clip.id),
         "toggle_favorite": lambda: window._toggle_favorite(clip.id),
         "mark_keep": lambda: window._mark_keep(clip.id),
+        "copy_to_safe": lambda: window._copy_to_safe(clip.id),
+        "copy_to_last_safe": lambda: window._copy_to_last_safe(clip.id),
         "move_safe": lambda: window._move_to_safe(clip.id),
         "send_to_macro_safe": lambda: window._send_to_macro_safe(clip.id),
         "create_editable_copy": lambda: window._create_editable_copy(clip.id),
@@ -61,7 +63,13 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         "permanently_remove": lambda: window._permanently_remove(clip.id),
     }
 
-    items = clip_menu_items(clip)
+    last_safe_name = getattr(window, "_last_safe_name", None)
+    if not last_safe_name:
+        default_safe = window.vault.safes.default_safe()
+        if default_safe:
+            last_safe_name = default_safe.name
+
+    items = clip_menu_items(clip, last_safe_name=last_safe_name)
     for item in items:
         if item.separator_before:
             menu.add_separator()

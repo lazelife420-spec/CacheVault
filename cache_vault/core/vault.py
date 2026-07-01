@@ -772,6 +772,71 @@ class Vault:
         )
         return self.storage.get_clip(clip_id)
 
+    def copy_to_safe(self, clip_id: str, safe_id: str) -> Clip | None:
+        safe = self.safes.resolve(safe_id)
+        if safe is None or self.safes.is_ignore(safe.id):
+            return None
+        clip = self.storage.get_clip(clip_id)
+        if clip is None:
+            return None
+
+        import dataclasses
+        import uuid
+        from .image_assets import ClipAssetRecord, make_storage_name
+
+        new_clip_id = uuid.uuid4().hex
+        new_clip = dataclasses.replace(
+            clip,
+            id=new_clip_id,
+            created_at=models.now_iso(),
+            updated_at=models.now_iso(),
+            safe_id=safe.id,
+            safe_name=safe.name,
+            capture_mode=models.CAPTURE_COPIED_TO_SAFE,
+            last_used_at=models.now_iso(),
+            use_count=0,
+            copied_count=0,
+        )
+
+        self.storage.add_clip(new_clip)
+
+        # Duplicate the asset if one exists
+        asset_rec = self.storage.get_asset_record(clip_id)
+        if asset_rec is not None:
+            new_asset_id = uuid.uuid4().hex
+            new_storage_name = make_storage_name(new_clip_id, asset_rec.file_ext)
+            asset_data = self.storage.load_clip_asset_bytes(clip_id)
+            if asset_data:
+                data_bytes, mime_type = asset_data
+                new_rec = ClipAssetRecord(
+                    asset_id=new_asset_id,
+                    clip_id=new_clip_id,
+                    mime_type=mime_type,
+                    file_ext=asset_rec.file_ext,
+                    size_bytes=asset_rec.size_bytes,
+                    sha256=asset_rec.sha256,
+                    created_at=models.now_iso(),
+                    original_name=asset_rec.original_name,
+                    storage_name=new_storage_name,
+                    width=asset_rec.width,
+                    height=asset_rec.height,
+                )
+                self.storage.save_clip_asset(new_rec, data_bytes)
+
+        record_capture_receipt(
+            self.events,
+            action=models.ACTION_ITEM_COPIED_TO_SAFE,
+            event_type=models.EVENT_ITEM_COPIED_TO_SAFE,
+            success=True,
+            clip_id=new_clip_id,
+            safe_id=safe.id,
+            safe_name=safe.name,
+            capture_mode=models.CAPTURE_COPIED_TO_SAFE,
+            content_hash=new_clip.content_hash,
+            item_type=new_clip.classification,
+        )
+        return self.storage.get_clip(new_clip_id)
+
     def create_safe(self, name: str):
         safe = self.safes.create(name)
         record_capture_receipt(
