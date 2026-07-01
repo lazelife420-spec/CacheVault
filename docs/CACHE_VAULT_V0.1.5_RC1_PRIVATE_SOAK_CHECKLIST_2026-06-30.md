@@ -52,18 +52,23 @@ Perform the following verification checks during daily usage of the packaged bui
 - [ ] **Context Menu Cascades:** Right-click any clip. Verify submenus (Copy Clean, Organize, Proof, Advanced, Danger) display correctly.
 - [ ] **Advanced Labels:** Open Settings. Verify advanced categories (Vault Lock, History, etc.) are prefixed with `Advanced:`.
 
+### 6. Mobile Bridge Default Behavior
+- [ ] **Default State:** Fresh install/default profile must confirm Mobile Bridge is OFF by default unless explicitly enabled by the user. No LAN bridge should start silently on first launch.
+
 ---
 
 ## Soak Test Log (Pass/Fail)
 
 | Flow | Date Tested | Tester | Status (Pass/Fail) | Notes / Defects Found |
 |---|---|---|---|---|
+| **Browser Download** | 2026-06-30 | User / Agent | **PASS** | R2 ZIP URL opened/downloaded successfully from browser. App launched after extracted/package workflow. Screenshot captured showing Cache Vault v0.1.5-rc1 running during private soak. Proof Foundry /proof was not updated. |
 | **Selected Paste** | | | | |
 | **Focus Safety** | | | | |
 | **Copy-to-Safe** | | | | |
 | **Do Not Save** | | | | |
 | **UI Polish** | | | | |
 | **Menu Honesty** | | | | |
+| **Mobile Bridge Default**| | | | |
 | **System Stability** | | | | |
 
 ---
