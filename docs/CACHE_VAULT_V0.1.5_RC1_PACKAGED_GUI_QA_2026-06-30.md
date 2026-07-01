@@ -46,7 +46,9 @@ Below is the verified screenshot of the packaged Cache Vault `v0.1.5-rc1` main w
 python scripts/verify_packaged_gui_run.py
 
 # Run packaged Founder MVP smoke verification
-pwsh scripts/founder_package_smoke.ps1
+# Note: For founder_package_smoke.ps1, dist\CacheVault.exe was temporarily replaced
+# with the EXE extracted from the R2 ZIP so the smoke tested the public artifact, not a local rebuild.
+pwsh scripts\founder_package_smoke.ps1
 ```
 
 ### founder_package_smoke.ps1 Output:
