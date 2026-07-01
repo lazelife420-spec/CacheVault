@@ -55,6 +55,9 @@ Perform the following verification checks during daily usage of the packaged bui
 ### 6. Mobile Bridge Default Behavior
 - [ ] **Default State:** Fresh install/default profile must confirm Mobile Bridge is OFF by default unless explicitly enabled by the user. No LAN bridge should start silently on first launch.
 
+### 7. Windows Shell Integration
+- [ ] **Taskbar Icon & Popup:** Verify the taskbar icon displays the branded custom icon, and hovering/right-clicking shows the correct app description popup.
+
 ---
 
 ## Soak Test Log (Pass/Fail)
@@ -62,6 +65,7 @@ Perform the following verification checks during daily usage of the packaged bui
 | Flow | Date Tested | Tester | Status (Pass/Fail) | Notes / Defects Found |
 |---|---|---|---|---|
 | **Browser Download** | 2026-06-30 | User / Agent | **PASS** | R2 ZIP URL opened/downloaded successfully from browser. App launched after extracted/package workflow. Screenshot captured showing Cache Vault v0.1.5-rc1 running during private soak. Proof Foundry /proof was not updated. |
+| **Windows Shell Integration** | 2026-06-30 | User / Agent | **PASS** | Packaged Cache Vault v0.1.5-rc1 appears in the Windows taskbar with a distinct app icon and normal taskbar popup behavior. Main window launches cleanly and presents as a branded desktop application. Screenshot evidence captured by user. |
 | **Selected Paste** | | | | |
 | **Focus Safety** | | | | |
 | **Copy-to-Safe** | | | | |
