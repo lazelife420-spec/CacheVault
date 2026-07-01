@@ -314,6 +314,10 @@ def test_shell_selection_keyboard_and_lock_guards_are_wired():
     assert "_keyboard_focus_is_text_input" in source
     assert "_selected_clip_id = None" in source
     assert "_update_selected_action_strip(None)" in source
+    assert '"<Control-Return>": lambda e: self._keyboard_paste_selected(e)' in source
+    assert '"<Control-v>": lambda e: self._keyboard_paste_selected(e)' in source
+    assert '"<Control-V>": lambda e: self._keyboard_paste_selected(e)' in source
+    assert "def _keyboard_paste_selected(self, event=None):" in source
 
 
 def test_command_center_recent_clip_context_selects_before_menu(tk_root):

@@ -284,6 +284,7 @@ class CacheVaultApp(ctk.CTk):
         # Global quick-paste hotkey (default Ctrl+Shift+V).
         self._paste_target = None
         self._quick_paste = None
+        self._last_external_hwnd = None
         self._hotkey = HotkeyListener(
             self.vault.settings.quick_paste_hotkey,
             on_activate=self._schedule_quick_paste,
@@ -378,6 +379,7 @@ class CacheVaultApp(ctk.CTk):
         self._bind_selection_keys()
         self.bind("<Configure>", self._on_window_configure)
         self.after(200, self._install_native_mouse_handler)
+        self.after(500, self._track_foreground_window)
 
     def _install_native_mouse_handler(self) -> None:
         self._mouse_handler = install_mouse_handler(
@@ -393,6 +395,62 @@ class CacheVaultApp(ctk.CTk):
             return bool(self.winfo_exists())
         except Exception:  # noqa: BLE001
             return False
+
+    def _track_foreground_window(self) -> None:
+        if not self._alive():
+            return
+        hwnd = foreground_window()
+        if hwnd and not hwnd_belongs_to_widget(hwnd, self):
+            self._last_external_hwnd = hwnd
+        self.after(500, self._track_foreground_window)
+
+    def _paste_clip(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        self._copy_again(clip_id)
+        
+        target = getattr(self, "_last_external_hwnd", None)
+        if not target:
+            target = foreground_window()
+            if hwnd_belongs_to_widget(target, self):
+                target = None
+                
+        settings = self.vault.settings
+        item_type = clip.content_type or clip.classification or "text"
+        
+        if target:
+            def _deliver() -> None:
+                result = deliver_ctrl_v(target)
+                self._finish_paste(
+                    clip,
+                    delivery_ok=result.ok,
+                    item_type=item_type,
+                    target_title=result.target_title,
+                    reason=result.reason,
+                    clipboard_restored=False,
+                )
+            self.after(80, _deliver)
+        else:
+            self._finish_paste(
+                clip,
+                delivery_ok=False,
+                item_type=item_type,
+                target_title="",
+                reason="no_target_window",
+                clipboard_restored=False,
+            )
+            Toast(self, "No target window to paste into.")
+
+    def _keyboard_paste_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._paste_clip(clip.id)
+        return "break"
 
     def _bind_tooltip_hide_events(self) -> None:
         """Keep hover help out of active interactions and window transitions."""
@@ -414,8 +472,11 @@ class CacheVaultApp(ctk.CTk):
             "<Home>": lambda e: self._keyboard_select_edge(first=True, event=e),
             "<End>": lambda e: self._keyboard_select_edge(first=False, event=e),
             "<Return>": lambda e: self._keyboard_primary_action(e),
+            "<Control-Return>": lambda e: self._keyboard_paste_selected(e),
             "<Control-c>": lambda e: self._keyboard_copy_selected(e),
             "<Control-C>": lambda e: self._keyboard_copy_selected(e),
+            "<Control-v>": lambda e: self._keyboard_paste_selected(e),
+            "<Control-V>": lambda e: self._keyboard_paste_selected(e),
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
             "<Control-a>": lambda e: self._keyboard_select_all(e),
             "<Control-A>": lambda e: self._keyboard_select_all(e),

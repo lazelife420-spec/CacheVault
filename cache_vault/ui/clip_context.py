@@ -39,6 +39,7 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
 
     dispatch = {
         "copy_again": lambda: window._copy_again(clip.id),
+        "paste_selected": lambda: window._paste_clip(clip.id),
         "open_link": lambda: window._open_clip_link(clip.id),
         "open_asset_folder": lambda: window._open_asset_folder(clip.id),
         "drag_out": lambda: window._drag_out_clip(clip.id),

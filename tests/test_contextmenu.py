@@ -224,3 +224,23 @@ def test_mark_keep_handler_sets_kept_flag(vault):
     reloaded = vault.storage.get_clip(clip.id)
     assert reloaded.is_kept is True
     assert reloaded.is_pinned is False  # must NOT toggle favorite (the old bug)
+
+
+def test_focused_paste_menu_items():
+    # Test text clip context menu primary children labels
+    text_items = clip_menu_items(_clip("hello text", classification=models.CLASS_PLAIN))
+    primary_text = _children(text_items, "primary")
+    assert any(i.key == "copy_again" and i.label == "Copy Selected Item" for i in primary_text)
+    assert any(i.key == "paste_selected" and i.label == "Paste Selected Item" for i in primary_text)
+
+    # Test image clip context menu primary children labels
+    image_items = clip_menu_items(_clip("hello img", content_type=models.CONTENT_IMAGE, classification=models.CLASS_IMAGE))
+    primary_image = _children(image_items, "primary")
+    assert any(i.key == "copy_again" and i.label == "Copy Image" for i in primary_image)
+    assert any(i.key == "paste_selected" and i.label == "Paste Selected Item" for i in primary_image)
+
+
+def test_clip_menu_dispatch_wires_paste_selected():
+    from cache_vault.ui import clip_context
+    src = inspect.getsource(clip_context.open_clip_menu)
+    assert '"paste_selected": lambda: window._paste_clip(clip.id)' in src

@@ -123,8 +123,9 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
     primary_children = [
         MenuItem(
             "copy_again",
-            "Copy Image" if clip.content_type == models.CONTENT_IMAGE else "Paste / Copy",
+            "Copy Image" if clip.content_type == models.CONTENT_IMAGE else "Copy Selected Item",
         ),
+        MenuItem("paste_selected", "Paste Selected Item"),
     ]
 
     if clip.classification == models.CLASS_LINK:
