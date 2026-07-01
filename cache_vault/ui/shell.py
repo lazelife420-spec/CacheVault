@@ -413,6 +413,8 @@ class CacheVaultApp(ctk.CTk):
         self._copy_again(clip_id)
         
         target = getattr(self, "_last_external_hwnd", None)
+        if target and hwnd_belongs_to_widget(target, self):
+            target = None
         if not target:
             target = foreground_window()
             if hwnd_belongs_to_widget(target, self):

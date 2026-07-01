@@ -78,6 +78,12 @@ def hwnd_belongs_to_widget(hwnd, widget) -> bool:
     try:
         root_id = widget.winfo_id()
         current = int(hwnd)
+        try:
+            # GA_ROOT = 2: check if both windows belong to the same root window
+            if win32gui.GetAncestor(current, 2) == win32gui.GetAncestor(root_id, 2):
+                return True
+        except Exception:  # noqa: BLE001
+            pass
         while current:
             if current == root_id:
                 return True
