@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cache-vault"
-version = "0.1.5-rc2"
+version = "0.1.5-rc3"
 description = "Cache Vault — a local-first clipboard vault with smart filters and sensitive auto-expiry."
 requires-python = ">=3.10"
 readme = "README.md"

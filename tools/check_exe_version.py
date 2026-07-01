@@ -5,7 +5,7 @@ from pathlib import Path
 exe = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("dist/CacheVault.exe")
 data = exe.read_bytes()
 
-for ver_str in ["0.1.5-rc2", "0.1.5-rc1", "0.1.4", "0.1.3"]:
+for ver_str in ["0.1.5-rc3", "0.1.5-rc2", "0.1.5-rc1", "0.1.4", "0.1.3"]:
     for enc, label in [("ascii", "ASCII"), ("utf-8", "UTF-8"), ("utf-16-le", "UTF-16LE"), ("utf-16-be", "UTF-16BE")]:
         ver_bytes = ver_str.encode(enc)
         idx = data.find(ver_bytes)
