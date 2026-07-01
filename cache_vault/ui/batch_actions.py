@@ -299,22 +299,49 @@ def bulk_save_images(window, ids=None) -> None:
         window._show_toast(f"Failed to save screenshots. {failed_count} files missing or corrupted.")
 
 
+def _make_text_filename(clip) -> str:
+    created = clip.created_at[:10]
+    prefix = "Text"
+    if getattr(clip, "classification", None) == "link":
+        prefix = "Link"
+
+    title = getattr(clip, "title", None) or ""
+    if not title:
+        words = (clip.content or "").strip().split()
+        if words:
+            title = "_".join(words[:3])
+        else:
+            title = clip.id[:8]
+
+    clean_title = "".join(c if c.isalnum() or c == "_" else "_" for c in title)
+    clean_title = clean_title[:25].strip("_")
+    if not clean_title:
+        clean_title = clip.id[:8]
+
+    return f"{prefix}_{clean_title}_{created}.txt"
+
+
 def bulk_export_zip(window, ids=None) -> None:
     if not window._guard_unlocked():
         return
     ids = list(ids) if ids is not None else list(window._selected_clip_ids)
-    image_ids = []
+    if not ids:
+        window._show_toast("No items selected to export to ZIP.")
+        return
+
+    clips = []
     for cid in ids:
         clip = window.vault.storage.get_clip(cid)
-        if clip is not None and clip.content_type == models.CONTENT_IMAGE:
-            image_ids.append(cid)
-    if not image_ids:
-        window._show_toast("No screenshots selected to export to ZIP.")
+        if clip is not None:
+            clips.append(clip)
+
+    if not clips:
+        window._show_toast("No items to export.")
         return
 
     dest_zip = filedialog.asksaveasfilename(
         parent=window,
-        title="Export Screenshots as ZIP",
+        title="Export Selection to ZIP File",
         defaultextension=".zip",
         filetypes=[("ZIP Archive", "*.zip")],
     )
@@ -326,19 +353,20 @@ def bulk_export_zip(window, ids=None) -> None:
 
     try:
         with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-            for cid in image_ids:
-                clip = window.vault.storage.get_clip(cid)
-                if clip is None or clip.content_type != models.CONTENT_IMAGE:
-                    continue
-                loaded = window.vault.storage.load_clip_asset_bytes(cid)
-                if not loaded:
-                    failed_count += 1
-                    continue
-                png_bytes, _ = loaded
-
-                filename = image_assets.make_smart_filename(clip)
-                if not filename.lower().endswith(".png"):
-                    filename += ".png"
+            for clip in clips:
+                if clip.content_type == models.CONTENT_IMAGE:
+                    loaded = window.vault.storage.load_clip_asset_bytes(clip.id)
+                    if not loaded:
+                        failed_count += 1
+                        continue
+                    png_bytes, _ = loaded
+                    filename = image_assets.make_smart_filename(clip)
+                    if not filename.lower().endswith(".png"):
+                        filename += ".png"
+                    data = png_bytes
+                else:
+                    filename = _make_text_filename(clip)
+                    data = (clip.content or "").encode("utf-8")
 
                 base_name = Path(filename).stem
                 ext = Path(filename).suffix
@@ -348,37 +376,39 @@ def bulk_export_zip(window, ids=None) -> None:
                     arcname = f"{base_name}_{idx}{ext}"
                     idx += 1
 
-                zf.writestr(arcname, png_bytes)
+                zf.writestr(arcname, data)
                 saved_count += 1
 
         if saved_count > 0:
-            msg = f"Exported {saved_count} screenshots to {dest_zip}"
+            summary = analyze_selection(clips)
+            msg = f"Exported {saved_count} items to ZIP"
             if failed_count:
-                msg += f" ({failed_count} failed due to missing files)"
+                msg += f" ({failed_count} assets missing)"
             window._show_toast(msg)
 
             # Record event/receipt
             meta = {
-                "action": "batch_export_images",
+                "action": "batch_export_zip",
                 "source": "desktop",
                 "count": saved_count,
                 "format": "zip",
                 "item_breakdown": {
-                    "images": saved_count,
+                    "images": summary.image_count,
+                    "text": summary.text_count,
+                    "links": summary.link_count,
                 },
                 "transfer_status": "completed" if failed_count == 0 else "partial",
                 "timestamp": models.now_iso(),
                 "success": failed_count == 0,
             }
-            editable_copies.write_file_receipt("batch_export_images", meta)
+            editable_copies.write_file_receipt("batch_export_zip", meta)
             window.vault.events.record(models.EVENT_COPIED_AGAIN, None, meta)
         else:
-            # Delete empty/incomplete ZIP file if all image exports failed
             try:
                 Path(dest_zip).unlink(missing_ok=True)
             except Exception:
                 pass
-            window._show_toast(f"Failed to export screenshots to ZIP. {failed_count} files missing or corrupted.")
+            window._show_toast("Failed to export items to ZIP. Missing or corrupted assets.")
     except Exception as e:
         window._show_toast(f"ZIP export error: {e}")
 

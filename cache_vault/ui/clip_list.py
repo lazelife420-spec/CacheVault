@@ -204,67 +204,207 @@ class ClipList(ctk.CTkScrollableFrame):
         elif clip.duplicate_of:
             badge = f"{badge} · DUPLICATE"
 
-        top = ctk.CTkFrame(row, fg_color="transparent")
-        top.pack(fill="x", padx=10, pady=(6, 0))
         badge_style = clip_accents.type_accent(clip.classification, clip.content_type)
         if clip.is_sensitive:
             badge_style = clip_accents.label_accent("Sensitive")
         elif clip.duplicate_of:
             badge_style = clip_accents.label_accent("Duplicate")
 
-        ctk.CTkLabel(
-            top, text=badge, font=ctk.CTkFont(size=9, weight="bold"),
-            text_color=badge_style.accent,
-        ).pack(side="left")
-        trail = ctk.CTkFrame(top, fg_color="transparent")
-        trail.pack(side="right")
-        if clip.is_pinned:
-            ctk.CTkLabel(trail, text="★", font=ctk.CTkFont(size=12),
-                         text_color=theme.proof_badge_fg()).pack(side="left", padx=2)
-        if clip.collection:
-            ctk.CTkLabel(trail, text=clip.collection[:16], font=ctk.CTkFont(size=9),
-                         text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
-        if clip.content_hash:
-            ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=10),
-                         text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
+        from cache_vault.core import display_metadata
 
-        title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
-        ctk.CTkLabel(row, text=title, anchor="w",
-                     font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x", padx=10)
+        if clip.content_type == "image":
+            # Image card split layout
+            content_frame = ctk.CTkFrame(row, fg_color="transparent")
+            content_frame.pack(fill="both", expand=True, padx=10, pady=8)
 
-        preview_lines = (clip.preview or "(empty)").splitlines()[:3]
-        preview = "\n".join(preview_lines)
-        if len((clip.preview or "").splitlines()) > 3:
-            preview += "…"
-        ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
-                     font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
+            # Left column: Thumbnail (if available)
+            thumb_frame = ctk.CTkFrame(content_frame, width=80, height=60, fg_color=("#E0E5E9", "#181c24"))
+            thumb_frame.pack(side="left", padx=(0, 10))
+            thumb_frame.pack_propagate(False)
 
-        # Labels/chips
-        try:
-            from ..core.clip_metadata import labels_for_clip
-            labels = labels_for_clip(clip)
-            chips = ctk.CTkFrame(row, fg_color="transparent")
-            chips.pack(fill="x", padx=10, pady=(0, 6))
-            for lab in labels[:4]:
-                self._build_chip(chips, lab)
-        except Exception:
-            pass
+            # Load thumbnail bytes
+            try:
+                app = self.winfo_toplevel()
+                if hasattr(app, "vault"):
+                    loaded = app.vault.storage.load_clip_asset_bytes(clip.id)
+                else:
+                    loaded = None
+            except Exception:
+                loaded = None
 
-        src = clip_metadata.display(clip.source_app)
-        added = _short_time(clip.created_at)
-        used = _short_time(clip.date_used or clip.updated_at)
-        lbl = ctk.CTkLabel(
-            row, text=f"{src} · Added {added} · Last used {used}",
-            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
-        )
-        lbl.pack(fill="x", padx=10, pady=(0, 8))
-        try:
-            from .tooltip import bind_tooltip
-            exact_added = clip.created_at
-            exact_used = clip.date_used or clip.updated_at
-            bind_tooltip(lbl, f"Exact Added: {exact_added}\nExact Used: {exact_used}")
-        except Exception:
-            pass
+            thumbnail_loaded = False
+            if loaded:
+                try:
+                    from io import BytesIO
+                    from PIL import Image as PILImage
+                    img_data, _ = loaded
+                    pil_img = PILImage.open(BytesIO(img_data))
+                    pil_img.thumbnail((80, 60))
+                    ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
+                    img_lbl = ctk.CTkLabel(thumb_frame, image=ctk_img, text="")
+                    img_lbl.pack(expand=True, fill="both")
+                    thumbnail_loaded = True
+                except Exception:
+                    pass
+            if not thumbnail_loaded:
+                ctk.CTkLabel(thumb_frame, text="🖼️", font=ctk.CTkFont(size=20)).pack(expand=True)
+
+            # Right column: Details
+            info_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+            info_frame.pack(side="left", fill="both", expand=True)
+
+            top = ctk.CTkFrame(info_frame, fg_color="transparent")
+            top.pack(fill="x", pady=(0, 2))
+            ctk.CTkLabel(
+                top, text=badge, font=ctk.CTkFont(size=9, weight="bold"),
+                text_color=badge_style.accent,
+            ).pack(side="left")
+
+            trail = ctk.CTkFrame(top, fg_color="transparent")
+            trail.pack(side="right")
+            if clip.is_pinned:
+                ctk.CTkLabel(trail, text="★", font=ctk.CTkFont(size=12),
+                             text_color=theme.proof_badge_fg()).pack(side="left", padx=2)
+            if clip.collection:
+                ctk.CTkLabel(trail, text=clip.collection[:16], font=ctk.CTkFont(size=9),
+                             text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
+            if clip.content_hash:
+                ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=10),
+                             text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
+
+            title_text = clip.title or "Screenshot"
+            ctk.CTkLabel(info_frame, text=title_text, anchor="w",
+                         font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x")
+
+            # Parse dimensions/size
+            dims = "Dimensions Unknown"
+            size_str = ""
+            if clip.preview:
+                import re
+                dim_match = re.search(r"\d+x\d+", clip.preview)
+                if dim_match:
+                    dims = dim_match.group(0)
+                size_match = re.search(r"\d+\s*(?:KB|MB|bytes)", clip.preview, re.IGNORECASE)
+                if size_match:
+                    size_str = f" · {size_match.group(0)}"
+            dim_label_text = f"{dims}{size_str}"
+
+            metadata_str = display_metadata.format_full_metadata(clip) + f" · {dim_label_text}"
+            lbl = ctk.CTkLabel(
+                info_frame, text=metadata_str,
+                anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=9),
+            )
+            lbl.pack(fill="x", pady=(2, 4))
+
+            # Tooltip
+            try:
+                from .tooltip import bind_tooltip
+                local_added = display_metadata.to_local_time(clip.created_at).isoformat()
+                local_used = display_metadata.to_local_time(clip.date_used or clip.updated_at).isoformat()
+                bind_tooltip(lbl, f"Local Added: {local_added}\nLocal Used: {local_used}")
+            except Exception:
+                pass
+
+            # Chips/Labels for Image
+            try:
+                from ..core.clip_metadata import labels_for_clip
+                labels = labels_for_clip(clip)
+                if labels:
+                    chips = ctk.CTkFrame(info_frame, fg_color="transparent")
+                    chips.pack(fill="x", pady=(2, 2))
+                    for lab in labels[:4]:
+                        self._build_chip(chips, lab)
+            except Exception:
+                pass
+
+            # Quick Action buttons
+            actions_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+            actions_frame.pack(fill="x", pady=(2, 0))
+
+            app = self.winfo_toplevel()
+            if hasattr(app, "vault"):
+                ctk.CTkButton(
+                    actions_frame, text="Copy Image", width=75, height=20,
+                    font=ctk.CTkFont(size=9), command=lambda c=clip.id: app._copy_again(c),
+                    **theme.secondary_button()
+                ).pack(side="left", padx=(0, 4))
+
+                ctk.CTkButton(
+                    actions_frame, text="Drag PNG", width=75, height=20,
+                    font=ctk.CTkFont(size=9), command=lambda c=clip.id: app._drag_out_clip(c),
+                    **theme.secondary_button()
+                ).pack(side="left", padx=(0, 4))
+
+                ctk.CTkButton(
+                    actions_frame, text="Save As PNG", width=80, height=20,
+                    font=ctk.CTkFont(size=9), command=lambda c=clip.id: app._export_image_to_folder(c),
+                    **theme.secondary_button()
+                ).pack(side="left", padx=(0, 4))
+
+                ctk.CTkButton(
+                    actions_frame, text="Open Folder", width=80, height=20,
+                    font=ctk.CTkFont(size=9), command=lambda c=clip.id: app._open_asset_folder(c),
+                    **theme.secondary_button()
+                ).pack(side="left", padx=(0, 4))
+
+        else:
+            # Regular text card layout
+            top = ctk.CTkFrame(row, fg_color="transparent")
+            top.pack(fill="x", padx=10, pady=(6, 0))
+
+            ctk.CTkLabel(
+                top, text=badge, font=ctk.CTkFont(size=9, weight="bold"),
+                text_color=badge_style.accent,
+            ).pack(side="left")
+
+            trail = ctk.CTkFrame(top, fg_color="transparent")
+            trail.pack(side="right")
+            if clip.is_pinned:
+                ctk.CTkLabel(trail, text="★", font=ctk.CTkFont(size=12),
+                             text_color=theme.proof_badge_fg()).pack(side="left", padx=2)
+            if clip.collection:
+                ctk.CTkLabel(trail, text=clip.collection[:16], font=ctk.CTkFont(size=9),
+                             text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
+            if clip.content_hash:
+                ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=10),
+                             text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
+
+            title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
+            ctk.CTkLabel(row, text=title, anchor="w",
+                         font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x", padx=10)
+
+            preview_lines = (clip.preview or "(empty)").splitlines()[:3]
+            preview = "\n".join(preview_lines)
+            if len((clip.preview or "").splitlines()) > 3:
+                preview += "…"
+            ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
+                         font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
+
+            # Labels/chips
+            try:
+                from ..core.clip_metadata import labels_for_clip
+                labels = labels_for_clip(clip)
+                chips = ctk.CTkFrame(row, fg_color="transparent")
+                chips.pack(fill="x", padx=10, pady=(0, 6))
+                for lab in labels[:4]:
+                    self._build_chip(chips, lab)
+            except Exception:
+                pass
+
+            metadata_str = display_metadata.format_full_metadata(clip)
+            lbl = ctk.CTkLabel(
+                row, text=metadata_str,
+                anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
+            )
+            lbl.pack(fill="x", padx=10, pady=(0, 8))
+
+            try:
+                from .tooltip import bind_tooltip
+                local_added = display_metadata.to_local_time(clip.created_at).isoformat()
+                local_used = display_metadata.to_local_time(clip.date_used or clip.updated_at).isoformat()
+                bind_tooltip(lbl, f"Local Added: {local_added}\nLocal Used: {local_used}")
+            except Exception:
+                pass
 
         self._bind_clip_events(row, clip)
         return row

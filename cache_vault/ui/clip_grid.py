@@ -221,11 +221,12 @@ class ClipGrid(ctk.CTkScrollableFrame):
         if badges:
             preview_type += f" · {' · '.join(badges)}"
 
+        from cache_vault.core import display_metadata
         return {
             "name": name[:36] + ("…" if len(name) > 36 else ""),
             "type": preview_type,
-            "added": clip_metadata.human_timestamp(clip.created_at),
-            "used": clip_metadata.human_timestamp(clip.date_used or clip.updated_at),
+            "added": display_metadata.format_display_time(clip.created_at),
+            "used": display_metadata.format_display_time(clip.date_used or clip.updated_at),
             "source": clip_metadata.display(clip.source_app)[:16],
             "favorite": "★" if clip.is_pinned else "",
             "proof": clip_metadata.shorten_hash(clip.content_hash),

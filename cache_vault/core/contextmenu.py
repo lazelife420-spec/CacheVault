@@ -76,38 +76,40 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip], last_safe_name: str | None
         from .selection import analyze_selection
         summary = analyze_selection(clips)
 
-        if summary.selection_class == "link_only":
-            return [
-                MenuItem("copy_plain", "Copy as Plain List"),
-                MenuItem("copy_markdown", "Copy as Markdown"),
-                MenuItem("copy_numbered", "Copy as Numbered List"),
-                MenuItem("move_safe", "Save to Safe…", separator_before=True),
-                MenuItem("receipt", "Create Receipt"),
-                MenuItem("export", "Export"),
-                MenuItem("remove", "Delete Selected", separator_before=True),
-            ]
-        elif summary.selection_class == "image_only":
-            return [
-                MenuItem("save_pngs", "Export Screenshots to Folder…"),
-                MenuItem("export_zip", "Export ZIP"),
-                MenuItem("copy_paths", "Copy File Paths"),
-                MenuItem("remove", "Delete Selected", separator_before=True),
-            ]
-        elif summary.selection_class == "mixed":
-            return [
-                MenuItem("export_bundle", "Export Bundle"),
-                MenuItem("copy_text_links", "Copy Text + Links"),
-                MenuItem("save_screenshots", "Export Screenshots to Folder…"),
-                MenuItem("receipt", "Create Receipt"),
-                MenuItem("remove", "Delete Selected", separator_before=True),
-            ]
-        else:  # text_only / other
-            return [
-                MenuItem("copy_plain", "Copy as Plain List"),
-                MenuItem("move_safe", "Save to Safe…", separator_before=True),
-                MenuItem("receipt", "Create Receipt"),
-                MenuItem("remove", "Delete Selected", separator_before=True),
-            ]
+        items = []
+
+        # 1. Text/Link copy actions (applicable if there are links or texts)
+        text_link_count = summary.text_count + summary.link_count
+        if text_link_count > 0:
+            if summary.selection_class == "link_only":
+                items.append(MenuItem("copy_plain", f"Copy {summary.link_count} Link{'s' if summary.link_count != 1 else ''}"))
+                items.append(MenuItem("copy_markdown", "Copy as Markdown"))
+                items.append(MenuItem("copy_numbered", "Copy as Numbered List"))
+            elif summary.selection_class == "text_only":
+                items.append(MenuItem("copy_plain", f"Copy {summary.text_count} Text Clip{'s' if summary.text_count != 1 else ''}"))
+            else:
+                items.append(MenuItem("copy_text_links", f"Copy {text_link_count} Text/Link Clip{'s' if text_link_count != 1 else ''}"))
+
+        # 2. Screenshot/Image actions (applicable if there are images)
+        if summary.image_count > 0:
+            sep = len(items) > 0
+            items.append(MenuItem("save_screenshots", f"Export {summary.image_count} Screenshot{'s' if summary.image_count != 1 else ''} to Folder…", separator_before=sep))
+            items.append(MenuItem("export_zip", f"Export {summary.image_count} Screenshot{'s' if summary.image_count != 1 else ''} as ZIP"))
+            items.append(MenuItem("copy_paths", f"Copy {summary.image_count} File Path{'s' if summary.image_count != 1 else ''}"))
+
+        # 3. Save to Safe/Move to Safe/Receipt/Bundle actions
+        if len(items) > 0:
+            items.append(MenuItem("move_safe", "Save to Safe…", separator_before=True))
+        else:
+            items.append(MenuItem("move_safe", "Save to Safe…"))
+
+        if summary.selection_class == "mixed":
+            items.append(MenuItem("export_bundle", "Export Bundle"))
+
+        items.append(MenuItem("receipt", "Create Receipt"))
+        items.append(MenuItem("remove", "Delete Selected", separator_before=True))
+
+        return items
 
     # Single clip path
     clip = clip_or_clips[0] if isinstance(clip_or_clips, list) else clip_or_clips

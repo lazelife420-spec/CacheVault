@@ -237,8 +237,8 @@ class CacheVaultApp(ctk.CTk):
         super().__init__()
         self.vault = vault or Vault()
         self.title(brand.WINDOW_TITLE)
-        self.geometry("1100x700")
-        self.minsize(900, 600)
+        self.geometry("1100x750")
+        self.minsize(1024, 720)
         self._apply_window_icon()
 
         self._search_var = ctk.StringVar()
@@ -2076,35 +2076,34 @@ class CacheVaultApp(ctk.CTk):
         self._selected_action_label.configure(text=summary.summary_label)
 
         actions = []
-        if summary.selection_class in ("link_only", "text_only"):
-            actions = [
-                ("Copy Plain", lambda: self._bulk_copy_format("plain")),
-                ("Copy MD", lambda: self._bulk_copy_format("markdown")),
-                ("Copy Num", lambda: self._bulk_copy_format("numbered")),
-                ("Move Safe", self._bulk_move_to_safe),
-                ("Receipt", lambda: self._bulk_create_receipt(summary)),
-            ]
-        elif summary.selection_class == "image_only":
-            actions = [
-                ("Copy PNGs", self._bulk_copy_images),
-                ("Export to Folder", self._bulk_save_images),
-                ("Export ZIP", self._bulk_export_zip),
-                ("Copy Paths", self._bulk_copy_paths),
-            ]
-        else:  # mixed
-            actions = [
-                ("Export Bundle", self._bulk_export_bundle),
-                ("Copy Text+Links", self._bulk_copy_text_links),
-                ("Export Screenshots", self._bulk_save_images),
-                ("Receipt", lambda: self._bulk_create_receipt(summary)),
-                ("Remove", self._bulk_remove),
-            ]
+        text_link_count = summary.text_count + summary.link_count
+
+        # 1. Text/Link Copy
+        if text_link_count > 0:
+            if summary.selection_class == "link_only":
+                actions.append((f"Copy {summary.link_count} Link{'s' if summary.link_count != 1 else ''}", lambda: self._bulk_copy_format("plain")))
+            elif summary.selection_class == "text_only":
+                actions.append((f"Copy {summary.text_count} Text{'s' if summary.text_count != 1 else ''}", lambda: self._bulk_copy_format("plain")))
+            else:
+                actions.append((f"Copy {text_link_count} Text/Links", self._bulk_copy_text_links))
+
+        # 2. Screenshot/Image actions
+        if summary.image_count > 0:
+            actions.append((f"Export {summary.image_count} PNG{'s' if summary.image_count != 1 else ''}", self._bulk_save_images))
+            actions.append((f"Export {summary.image_count} ZIP", self._bulk_export_zip))
+            actions.append((f"Copy {summary.image_count} Path{'s' if summary.image_count != 1 else ''}", self._bulk_copy_paths))
+
+        # 3. Move Safe / Export Bundle / Remove
+        actions.append(("Move Safe", self._bulk_move_to_safe))
+        if summary.selection_class == "mixed":
+            actions.append(("Export Bundle", self._bulk_export_bundle))
+        actions.append(("Remove", self._bulk_remove))
 
         for text, command in actions:
             btn = ctk.CTkButton(
                 self._selected_action_frame,
                 text=text,
-                width=92,
+                width=100,
                 height=24,
                 command=command,
                 **theme.secondary_button(),

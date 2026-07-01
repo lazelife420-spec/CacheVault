@@ -211,7 +211,7 @@ def test_export_zip_success(monkeypatch, tmp_path):
         names = zf.namelist()
         assert len(names) == 1
         assert zf.read(names[0]) == b"png-bytes-1"
-    assert "Exported 1 screenshots" in app._toasts[0]
+    assert "Exported 1 items to ZIP" in app._toasts[0]
 
 
 def test_export_actions_empty_selection(monkeypatch):
@@ -234,7 +234,7 @@ def test_export_actions_empty_selection(monkeypatch):
     # Test ZIP export
     batch_actions.bulk_export_zip(app)
     assert not getattr(filedialog, "_opened", False)
-    assert "No screenshots selected to export to ZIP." in app._toasts[0]
+    assert "No items selected to export to ZIP." in app._toasts[0]
     app._toasts.clear()
 
     # Test Copy Paths
@@ -270,7 +270,7 @@ def test_export_actions_missing_assets(monkeypatch, tmp_path):
 
     # Test ZIP export with missing asset
     batch_actions.bulk_export_zip(app)
-    assert "Failed to export screenshots to ZIP. 1 files missing or corrupted." in app._toasts[0]
+    assert "Failed to export items to ZIP. Missing or corrupted assets." in app._toasts[0]
     assert not dest_zip.exists() # Should delete empty ZIP file
 
 
