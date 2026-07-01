@@ -51,16 +51,15 @@ class PreviewPanel(ctk.CTkFrame):
         self._body.pack(fill="x", padx=10, pady=6)
         self._body.configure(state="disabled")
 
-        self._image_frame = ctk.CTkFrame(self._scroll, fg_color=brand.SURFACE_BG,
-                                         corner_radius=8)
+        self._image_frame = ctk.CTkFrame(self._scroll, **theme.vault_card())
         self._image_label = ctk.CTkLabel(self._image_frame, text="")
-        self._image_label.pack(padx=8, pady=8)
+        self._image_label.pack(padx=12, pady=12)
         self._image_ref = None
         self._image_hint = ctk.CTkLabel(
             self._image_frame, text="", anchor="w", justify="left",
             text_color=brand.MUTED_FG, font=theme.body_font(10),
         )
-        self._image_hint.pack(fill="x", padx=10, pady=(0, 8))
+        self._image_hint.pack(fill="x", padx=12, pady=(0, 10))
 
         self._meta_title = ctk.CTkLabel(self._scroll, text="Custody metadata", anchor="w",
                                         **theme.section_heading())
@@ -410,7 +409,7 @@ class PreviewPanel(ctk.CTkFrame):
         try:
             with Image.open(BytesIO(png_bytes)) as img:
                 w, h = img.size
-                max_w, max_h = 300, 220
+                max_w, max_h = 340, 250
                 scale = min(max_w / w, max_h / h, 1.0)
                 thumb = img.convert("RGBA").resize(
                     (max(1, int(w * scale)), max(1, int(h * scale))),
@@ -429,7 +428,18 @@ class PreviewPanel(ctk.CTkFrame):
             self._image_ref = None
             self._image_label.configure(image=None, text="Could not render preview.")
         size_kb = max(1, len(png_bytes) // 1024)
-        hint = f"Local PNG · {mime} · {size_kb} KB · stored on this PC only."
+        meta_fn = self._actions.get("asset_meta")
+        meta = meta_fn(clip.id) if meta_fn else None
+        
+        dims = f"{w}x{h}" if 'w' in locals() else "Unknown size"
+        if meta and meta.get("width") and meta.get("height"):
+            dims = f"{meta['width']}x{meta['height']}"
+            
+        file_str = ""
+        if meta and meta.get("original_name"):
+            file_str = f"File: {meta['original_name']} · "
+
+        hint = f"{file_str}Local PNG · {mime} · {dims} · {size_kb} KB\nStored on this PC only."
         if self._actions.get("drag_out"):
             hint += " Use Drag PNG or drag the preview out."
         self._image_hint.configure(text=hint)

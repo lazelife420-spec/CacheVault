@@ -253,10 +253,18 @@ class ClipList(ctk.CTkScrollableFrame):
         src = clip_metadata.display(clip.source_app)
         added = _short_time(clip.created_at)
         used = _short_time(clip.date_used or clip.updated_at)
-        ctk.CTkLabel(
+        lbl = ctk.CTkLabel(
             row, text=f"{src} · Added {added} · Last used {used}",
-            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=9),
-        ).pack(fill="x", padx=10, pady=(0, 8))
+            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
+        )
+        lbl.pack(fill="x", padx=10, pady=(0, 8))
+        try:
+            from .tooltip import bind_tooltip
+            exact_added = clip.created_at
+            exact_used = clip.date_used or clip.updated_at
+            bind_tooltip(lbl, f"Exact Added: {exact_added}\nExact Used: {exact_used}")
+        except Exception:
+            pass
 
         self._bind_clip_events(row, clip)
         return row
@@ -443,4 +451,14 @@ class ClipList(ctk.CTkScrollableFrame):
 
 
 def _short_time(iso: str) -> str:
-    return (iso or "").replace("T", " ")[:16]
+    from datetime import datetime
+    if not iso:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except Exception:
+        return (iso or "").replace("T", " ")[:16]
+
+    time_str = dt.strftime("%I:%M %p").lstrip("0")
+    date_str = dt.strftime("%b %d, %Y") if datetime.now().year != dt.year else dt.strftime("%b %d")
+    return f"{date_str}, {time_str}"

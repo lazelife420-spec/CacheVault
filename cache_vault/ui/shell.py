@@ -1400,6 +1400,7 @@ class CacheVaultApp(ctk.CTk):
                 "size_bytes": rec.size_bytes,
                 "width": rec.width,
                 "height": rec.height,
+                "original_name": rec.original_name,
             }
 
         def open_asset_folder(clip_id: str) -> None:
