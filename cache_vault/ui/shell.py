@@ -2033,11 +2033,11 @@ class CacheVaultApp(ctk.CTk):
         elif action == "move_safe":
             self._bulk_move_to_safe()
         elif action == "save_images":
-            self._bulk_save_images()
+            self._bulk_save_images(ids)
         elif action == "export_zip":
-            self._bulk_export_zip()
+            self._bulk_export_zip(ids)
         elif action == "copy_paths":
-            self._bulk_copy_paths()
+            self._bulk_copy_paths(ids)
         elif action == "copy_text_links":
             self._bulk_copy_text_links()
         elif action == "delete":
@@ -2121,17 +2121,17 @@ class CacheVaultApp(ctk.CTk):
     def _bulk_copy_images(self) -> None:
         batch_actions.bulk_copy_images(self)
 
-    def _bulk_save_images(self) -> None:
-        batch_actions.bulk_save_images(self)
+    def _bulk_save_images(self, ids=None) -> None:
+        batch_actions.bulk_save_images(self, ids=ids)
 
     def _export_image_to_folder(self, clip_id: str) -> None:
         batch_actions.bulk_save_images(self, ids=[clip_id])
 
-    def _bulk_export_zip(self) -> None:
-        batch_actions.bulk_export_zip(self)
+    def _bulk_export_zip(self, ids=None) -> None:
+        batch_actions.bulk_export_zip(self, ids=ids)
 
-    def _bulk_copy_paths(self) -> None:
-        batch_actions.bulk_copy_paths(self)
+    def _bulk_copy_paths(self, ids=None) -> None:
+        batch_actions.bulk_copy_paths(self, ids=ids)
 
     def _bulk_view_proof(self) -> None:
         batch_actions.bulk_view_proof(self)
@@ -2886,12 +2886,20 @@ class CacheVaultApp(ctk.CTk):
         RegexMacroDialog(self, on_view_receipts=_view)
 
     def _open_settings(self) -> None:
+        # Reusing existing Settings Hub instance should lift/focus it, not open duplicates.
+        if hasattr(self, "_settings_hub_instance") and self._settings_hub_instance and self._settings_hub_instance.winfo_exists():
+            self._settings_hub_instance.lift()
+            self._settings_hub_instance.attributes("-topmost", True)
+            self._settings_hub_instance.after(100, lambda: self._settings_hub_instance.attributes("-topmost", False) if self._settings_hub_instance.winfo_exists() else None)
+            self._settings_hub_instance.focus_force()
+            return
+
         # Prefer the new registry-backed Settings Hub (Chunk C2).
         if SettingsHub is not None:
             try:
                 from ..modules.registry import build_default_registry
                 registry = build_default_registry()
-                SettingsHub(
+                self._settings_hub_instance = SettingsHub(
                     self,
                     self.vault.settings,
                     registry,

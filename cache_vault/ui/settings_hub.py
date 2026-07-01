@@ -33,6 +33,13 @@ class SettingsHub(ctk.CTkToplevel):
         self.geometry("900x700")
         self.minsize(700, 500)
 
+        # Set transient/owned, lift, pulse topmost, and force focus
+        self.transient(master)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(100, lambda: self.attributes("-topmost", False) if self.winfo_exists() else None)
+        self.focus_force()
+
         self._settings = settings
         self._registry = registry
         self._on_save = on_save

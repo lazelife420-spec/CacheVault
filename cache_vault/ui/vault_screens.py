@@ -53,6 +53,7 @@ class VaultScreenHost(ctk.CTkFrame):
         self._screens: dict[str, ctk.CTkScrollableFrame] = {}
         self._active: str | None = None
         self._receipts_filter_hint: str | None = None
+        self._selected_hotkey_id: str | None = None
         builders = {
             "nav_stamped_receipts": self._build_receipts,
             "nav_exports": self._build_exports,
@@ -78,6 +79,12 @@ class VaultScreenHost(ctk.CTkFrame):
         refresh = getattr(self._screens[key], "_refresh", None)
         if callable(refresh):
             refresh()
+
+    def _select_hotkey(self, aid: str) -> None:
+        self._selected_hotkey_id = aid
+        frame = self._screens.get("nav_hotkey_actions")
+        if frame and hasattr(frame, "_refresh"):
+            frame._refresh()
 
     def set_receipts_filter_hint(self, filter_name: str | None) -> None:
         self._receipts_filter_hint = filter_name
@@ -553,11 +560,20 @@ class VaultScreenHost(ctk.CTkFrame):
                     "receipts.",
                 )
                 return
+            valid_ids = [row["action"].id for row in rows]
+            if self._selected_hotkey_id not in valid_ids and valid_ids:
+                self._selected_hotkey_id = valid_ids[0]
+
             for row in rows:
                 a = row["action"]
                 status = row["status"]
+                is_selected = (a.id == self._selected_hotkey_id)
                 card = ctk.CTkFrame(
-                    self._hotkey_list, fg_color=brand.SURFACE_BG, corner_radius=8,
+                    self._hotkey_list,
+                    fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
+                    corner_radius=8,
+                    border_width=1 if is_selected else 0,
+                    border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
                 )
                 card.pack(fill="x", pady=4)
                 head = ctk.CTkFrame(card, fg_color="transparent")
@@ -623,6 +639,18 @@ class VaultScreenHost(ctk.CTkFrame):
                         "hotkey_action_delete", lambda _: None)(x),
                     **theme.destructive_button(),
                 ).pack(side="left", padx=2)
+
+                # Bind single clicks recursively to card selection
+                def make_select_handler(target_id):
+                    return lambda event: self._select_hotkey(target_id)
+
+                def bind_card_clicks(widget, select_handler):
+                    if not isinstance(widget, ctk.CTkButton):
+                        widget.bind("<Button-1>", select_handler, add="+")
+                        for child in widget.winfo_children():
+                            bind_card_clicks(child, select_handler)
+
+                bind_card_clicks(card, make_select_handler(aid))
 
         parent._refresh = reload  # type: ignore[attr-defined]
 
