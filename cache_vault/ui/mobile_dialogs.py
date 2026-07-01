@@ -10,7 +10,7 @@ from .. import brand
 from ..core import models
 from ..core.lan_ip import advanced_lan_ipv4, list_lan_ipv4, recommended_lan_ipv4
 from ..core.mobile.connection_doctor import connection_doctor_text
-from ..core.mobile.models import DEFAULT_MOBILE_PORT
+from ..core.mobile.models import DEFAULT_MOBILE_PORT, PairedDevice, paired_device_status
 from . import theme
 from .pairing_help import (
     PAIRING_ERROR,
@@ -384,10 +384,16 @@ class PairedDevicesDialog(ctk.CTkToplevel):
             ctk.CTkLabel(frame, text="No paired devices yet.",
                          text_color=brand.MUTED_FG).pack(pady=20)
         for d in devices:
+            device = PairedDevice.from_dict(d)
+            status = paired_device_status(device)
+            last_seen = device.last_seen_at or "Never"
             row = ctk.CTkFrame(frame, fg_color="transparent")
             row.pack(fill="x", pady=4)
-            label = f"{d.get('device_name', '?')}  ({d.get('device_id', '')[:8]}…)"
-            ctk.CTkLabel(row, text=label, anchor="w").pack(side="left", padx=4)
+            label = (
+                f"{device.device_name}  ({device.device_id[:8]}…)\n"
+                f"Status: {status}  ·  Last seen: {last_seen}"
+            )
+            ctk.CTkLabel(row, text=label, anchor="w", justify="left").pack(side="left", padx=4)
             ctk.CTkButton(
                 row, text="Revoke", width=70, command=lambda i=d["device_id"]: self._revoke(i),
                 **theme.destructive_button(),

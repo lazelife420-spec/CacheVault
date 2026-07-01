@@ -13,8 +13,16 @@ class ConnectionPlannerTest {
     }
 
     @Test
-    fun storedPairing_withoutError_isTryConnect() {
-        assertEquals(PcOfferMode.PAIRED_TRY_CONNECT, ConnectionPlanner.offerMode(true, null))
+    fun storedPairing_withoutTrust_requiresApproval() {
+        assertEquals(PcOfferMode.APPROVAL_REQUIRED, ConnectionPlanner.offerMode(true, null))
+    }
+
+    @Test
+    fun storedPairing_withTrust_isAutoConnectReady() {
+        assertEquals(
+            PcOfferMode.AUTO_CONNECT_READY,
+            ConnectionPlanner.offerMode(true, null, autoConnectApproved = true),
+        )
     }
 
     @Test

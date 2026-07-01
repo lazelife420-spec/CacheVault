@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -35,9 +37,13 @@ import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    pcName: String,
     host: String,
     port: Int,
     deviceId: String,
+    lastSeenAt: String?,
+    autoConnectApproved: Boolean,
+    keepConnectedInBackground: Boolean,
     status: BridgeStatus?,
     error: String?,
     lastError: String?,
@@ -45,6 +51,9 @@ fun SettingsScreen(
     loading: Boolean = false,
     onDisconnect: () -> Unit,
     onRePair: () -> Unit,
+    onReconnect: () -> Unit,
+    onAutoConnectApproved: (Boolean) -> Unit,
+    onKeepConnectedChanged: (Boolean) -> Unit,
     onConnectionDoctor: () -> Unit,
     onBack: (() -> Unit)? = null,
 ) {
@@ -77,10 +86,15 @@ fun SettingsScreen(
 
             SectionTitle("Connection")
             StatusLine(connection)
-            Text("Connected to $host:$port")
+            Text("${stringResource(R.string.connected_to_label)} ${pcName.ifBlank { "PC" }}")
+            Text("${host.ifBlank { "PC" }}:$port")
             if (deviceId.isNotBlank()) {
                 Text("Device: $deviceId", style = MaterialTheme.typography.bodySmall)
             }
+            Text(
+                "${stringResource(R.string.last_seen_label)} ${lastSeenAt ?: "Never"}",
+                style = MaterialTheme.typography.bodySmall,
+            )
             if (connection == ConnectionState.REVOKED) {
                 Text(
                     stringResource(R.string.device_revoked_body),
@@ -95,12 +109,49 @@ fun SettingsScreen(
                 connection == ConnectionState.REVOKED ||
                 connection == ConnectionState.OFFLINE
             ) {
+                Button(onClick = onReconnect, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.reconnect))
+                }
                 Button(onClick = onRePair, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.enter_new_pairing_code))
                 }
             }
             Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
-                Text("Disconnect / Re-pair")
+                Text(stringResource(R.string.forget_this_pc))
+            }
+
+            SectionTitle("Reconnect")
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Trust this PC for auto-connect", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (autoConnectApproved) {
+                            "Reconnect silently when this trusted PC is found on the same Wi-Fi."
+                        } else {
+                            stringResource(R.string.waiting_for_phone_approval)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = autoConnectApproved, onCheckedChange = onAutoConnectApproved)
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.keep_connected_in_background),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        stringResource(R.string.keep_connected_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = keepConnectedInBackground,
+                    onCheckedChange = onKeepConnectedChanged,
+                )
             }
 
             SectionTitle("Security")

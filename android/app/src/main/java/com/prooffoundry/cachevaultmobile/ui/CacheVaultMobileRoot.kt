@@ -18,6 +18,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.prooffoundry.cachevaultmobile.connect.BackgroundConnectionService
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
 import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
@@ -102,10 +103,11 @@ fun CacheVaultMobileRoot(
     }
 
     LaunchedEffect(Unit) {
-        if (pairingStore.isPaired()) return@LaunchedEffect
         if (manualSetupPrefill.openManualSetup) {
             vm.dismissPcOffer()
             nav.navigate(Routes.ManualSetup)
+        } else if (pairingStore.isPaired()) {
+            vm.initializeConnectionLifecycle()
         } else {
             vm.discoverPcOnLaunch()
         }
@@ -169,12 +171,21 @@ fun CacheVaultMobileRoot(
                     nav.navigate(Routes.Detail)
                 },
                 onDisconnect = {
+                    BackgroundConnectionService.stop(context)
                     vm.disconnect()
                     nav.navigate(Routes.Welcome) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
                 onRePair = { openManualSetupForRePair() },
+                onKeepConnectedChanged = { enabled ->
+                    vm.setKeepConnectedInBackground(enabled)
+                    if (enabled) {
+                        BackgroundConnectionService.start(context)
+                    } else {
+                        BackgroundConnectionService.stop(context)
+                    }
+                },
             )
         }
         composable(Routes.Detail) {
@@ -201,6 +212,10 @@ fun CacheVaultMobileRoot(
             offer = offer,
             loading = vm.uiState.loading,
             onConnect = { vm.connectOfferedPc(::goHomeAfterPair) },
+            onTrustAndConnect = {
+                vm.approveAutoConnect(true)
+                vm.connectOfferedPc(::goHomeAfterPair)
+            },
             onPairNewDevice = {
                 openManualSetup(host = offer.host, port = offer.port)
             },

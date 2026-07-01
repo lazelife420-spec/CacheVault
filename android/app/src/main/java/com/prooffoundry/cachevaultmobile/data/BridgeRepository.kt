@@ -3,6 +3,7 @@ package com.prooffoundry.cachevaultmobile.data
 import android.content.Context
 import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
 import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
+import java.time.Instant
 
 class BridgeRepository(
     private val pairingStore: PairingStore,
@@ -15,6 +16,31 @@ class BridgeRepository(
 
     fun savePairing(config: PairingConfig) {
         pairingStore.save(config)
+    }
+
+    fun updateConnectionPreferences(
+        autoConnectApproved: Boolean? = null,
+        keepConnectedInBackground: Boolean? = null,
+    ) {
+        val current = pairingStore.load() ?: return
+        pairingStore.save(
+            current.copy(
+                autoConnectApproved = autoConnectApproved ?: current.autoConnectApproved,
+                keepConnectedInBackground = keepConnectedInBackground
+                    ?: current.keepConnectedInBackground,
+            ),
+        )
+    }
+
+    fun updatePairingHost(host: String, port: Int, displayName: String? = null) {
+        val current = pairingStore.load() ?: return
+        pairingStore.save(
+            current.copy(
+                host = PairingSanitize.sanitizeHost(host),
+                port = port,
+                pcLabel = displayName?.trim().orEmpty().ifBlank { current.pcLabel },
+            ),
+        )
     }
 
     fun disconnect() {
@@ -30,7 +56,10 @@ class BridgeRepository(
     suspend fun verifyConnection(config: PairingConfig): BridgeStatus {
         val status = BridgeClient(config).status()
         pairingStore.save(
-            config.copy(pcLabel = status.product.ifBlank { config.pcLabel.ifBlank { config.host } }),
+            config.copy(
+                pcLabel = config.pcLabel.ifBlank { status.product.ifBlank { config.host } },
+                lastSeenAt = Instant.now().toString(),
+            ),
         )
         return status
     }

@@ -26,6 +26,7 @@ fun PcFoundBottomSheet(
     offer: PcFoundOffer,
     loading: Boolean,
     onConnect: () -> Unit,
+    onTrustAndConnect: () -> Unit,
     onPairNewDevice: () -> Unit,
     onManualSetup: () -> Unit,
     onDismiss: () -> Unit,
@@ -51,7 +52,9 @@ fun PcFoundBottomSheet(
             )
             Text(
                 when (offer.mode) {
-                    PcOfferMode.PAIRED_TRY_CONNECT ->
+                    PcOfferMode.APPROVAL_REQUIRED ->
+                        stringResource(R.string.pc_found_approval_detail)
+                    PcOfferMode.AUTO_CONNECT_READY ->
                         stringResource(R.string.pc_found_secure_local)
                     PcOfferMode.REPAIR_NEEDED ->
                         stringResource(R.string.repair_needed_body)
@@ -62,7 +65,7 @@ fun PcFoundBottomSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             when (offer.mode) {
-                PcOfferMode.PAIRED_TRY_CONNECT -> {
+                PcOfferMode.APPROVAL_REQUIRED -> {
                     Button(
                         onClick = onConnect,
                         enabled = !loading,
@@ -71,10 +74,29 @@ fun PcFoundBottomSheet(
                         Text(if (loading) "Connecting…" else stringResource(R.string.connect))
                     }
                     OutlinedButton(
-                        onClick = onPairNewDevice,
+                        onClick = onTrustAndConnect,
+                        enabled = !loading,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(stringResource(R.string.pair_new_device))
+                        Text(stringResource(R.string.trust_and_connect))
+                    }
+                    TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.not_now))
+                    }
+                }
+                PcOfferMode.AUTO_CONNECT_READY -> {
+                    Button(
+                        onClick = onConnect,
+                        enabled = !loading,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (loading) "Connecting…" else stringResource(R.string.connect))
+                    }
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.not_now))
                     }
                 }
                 PcOfferMode.REPAIR_NEEDED -> {

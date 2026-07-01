@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 
 from .. import models
 
@@ -28,6 +29,12 @@ LAN_PAIRED_LABEL = "LAN paired"
 
 TRANSFER_STATUS_COMPLETED = "completed"
 TRANSFER_STATUS_FAILED = "failed"
+
+DEVICE_STATUS_PAIRED = "Paired"
+DEVICE_STATUS_ONLINE = "Online"
+DEVICE_STATUS_OFFLINE = "Offline"
+DEVICE_STATUS_WAITING_APPROVAL = "Waiting for phone approval"
+DEVICE_STATUS_REVOKED = "Revoked"
 
 
 def hash_token(token: str) -> str:
@@ -123,3 +130,20 @@ def pc_status_labels(clip, *, storage=None) -> list[str]:
     if bool(getattr(clip, "lan_paired", False)):
         labels.append(LAN_PAIRED_LABEL)
     return labels
+
+
+def paired_device_status(device: PairedDevice, *, online_window_seconds: int = 120) -> str:
+    """Return a truthful connection label from persisted pairing metadata only."""
+    if device.revoked_at:
+        return DEVICE_STATUS_REVOKED
+    if not device.last_seen_at:
+        return DEVICE_STATUS_WAITING_APPROVAL
+    try:
+        last_seen = datetime.fromisoformat(device.last_seen_at.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+    except Exception:  # noqa: BLE001
+        return DEVICE_STATUS_PAIRED
+    age_seconds = (now - last_seen).total_seconds()
+    if age_seconds <= max(1, int(online_window_seconds)):
+        return DEVICE_STATUS_ONLINE
+    return DEVICE_STATUS_OFFLINE
