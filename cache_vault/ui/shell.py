@@ -3053,8 +3053,10 @@ class CacheVaultApp(ctk.CTk):
             except Exception as exc:  # noqa: BLE001
                 write_crash("mobile bridge sync", exc)
             finally:
-                if self._alive():
-                    self.after(0, self.refresh)
+                # Marshal back to the Tk main thread: self.after()/winfo_*/state()
+                # are not thread-safe and calling them from this worker corrupts
+                # Tcl/Tk state (native access violation in tk86t.dll).
+                self._call_on_main(lambda: self._alive() and self.refresh())
 
         threading.Thread(
             target=_sync_bridge, name="mobile-bridge-sync", daemon=True,
