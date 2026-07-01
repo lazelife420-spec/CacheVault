@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import faulthandler
 import sys
 import threading
 from types import SimpleNamespace
@@ -29,6 +30,20 @@ def test_thread_excepthook_writes_crash_log(tmp_path, monkeypatch):
     log_text = (tmp_path / "CacheVault" / "crash.log").read_text(encoding="utf-8")
     assert "bridge boom" in log_text
     assert "mobile-bridge" in log_text
+
+
+def test_native_crash_capture_arms_faulthandler(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    was_enabled = faulthandler.is_enabled()
+    try:
+        crashlog.enable_native_crash_capture()
+        assert faulthandler.is_enabled()
+        native_log = tmp_path / "CacheVault" / "crash_native.log"
+        assert native_log.is_file()
+        assert "faulthandler armed" in native_log.read_text(encoding="utf-8")
+    finally:
+        if not was_enabled:
+            faulthandler.disable()
 
 
 def test_report_callback_exception_reentrancy_guard(monkeypatch):

@@ -61,6 +61,12 @@ def main() -> int:
     if "--selftest" in sys.argv:
         return _selftest()
 
+    # Arm the built-in crash handler first, before anything else can fault:
+    # this installs Python main-thread, worker-thread, and native (faulthandler)
+    # capture so crashes during startup/UI construction are recorded.
+    from cache_vault.ui.crashlog import install_global_hook
+    install_global_hook()
+
     from cache_vault.core.settings import Settings
     from cache_vault.ui.scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
 
@@ -79,11 +85,9 @@ def main() -> int:
         )
         return 1
 
-    from cache_vault.ui.crashlog import install_global_hook
     from cache_vault.ui.shell import CacheVaultApp
     from cache_vault.ui.theme import apply_app_theme
 
-    install_global_hook()
     apply_app_theme()
     app = CacheVaultApp()
     app.mainloop()

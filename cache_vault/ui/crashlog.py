@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import faulthandler
 import os
 import sys
 import traceback
@@ -12,6 +13,44 @@ from pathlib import Path
 def log_path() -> Path:
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     return Path(base) / "CacheVault" / "crash.log"
+
+
+def native_log_path() -> Path:
+    return log_path().with_name("crash_native.log")
+
+
+# Keep the faulthandler file open for the whole process lifetime: faulthandler
+# writes to the raw file descriptor during a fatal error, so the handle must
+# not be garbage-collected or closed.
+_native_log_fp = None
+
+
+def enable_native_crash_capture() -> None:
+    """Capture fatal/native crashes (Tcl/Tk C-level, segfaults, aborts).
+
+    Python's ``sys.excepthook`` / ``threading.excepthook`` only see uncaught
+    *Python* exceptions. Interpreter-fatal faults leave no traceback and, in a
+    windowed packaged build (no console), no output at all. ``faulthandler``
+    writes a C-level traceback for every thread straight to a file descriptor,
+    which survives even a hard crash.
+    """
+    global _native_log_fp
+    try:
+        path = native_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        prev = _native_log_fp
+        fp = open(path, "ab", buffering=0)
+        stamp = datetime.now(timezone.utc).isoformat()
+        fp.write(f"\n{'=' * 72}\n{stamp}  faulthandler armed (pid {os.getpid()})\n".encode("utf-8"))
+        faulthandler.enable(file=fp, all_threads=True)
+        _native_log_fp = fp
+        if prev is not None and prev is not fp:
+            try:
+                prev.close()
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def write_crash(title: str, exc: BaseException) -> Path:
@@ -32,6 +71,7 @@ def write_crash(title: str, exc: BaseException) -> Path:
 
 def install_global_hook() -> None:
     """Log uncaught main-thread and worker-thread exceptions to crash.log."""
+    enable_native_crash_capture()
     prev = sys.excepthook
 
     def hook(exc_type, exc, tb):
