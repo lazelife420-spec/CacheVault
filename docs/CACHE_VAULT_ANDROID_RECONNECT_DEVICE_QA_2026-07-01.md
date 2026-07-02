@@ -21,9 +21,9 @@ Date: 2026-07-01
 
 - Branch: `mobile/android-reconnect-lifecycle-qa`
 - Remote tracking: pushed to `origin`
-- Top commit: `7f0728f fix: harden Android background connect toggle`
+- Top commit: `5587924 fix: align mobile bridge repair and companion runtime`
 - APK path: `C:\Users\KickA\Desktop\CacheVault\android\app\build\outputs\apk\debug\app-debug.apk`
-- APK SHA256: `85CA720C5D32374DFF76077FF592B90018667563BE66968110DEA1298F2CAB42`
+- APK SHA256: `A1DBA223B4428158CA0A30F274E1CDB180CF5A328A4464A4796ED01739F76E33`
 - Device serial: `R3CW40FY82W`
 - Device model: `SM-S911W`
 - Android version: `16`
@@ -81,6 +81,26 @@ Date: 2026-07-01
   - This does not prove the stale packaged EXE works.
   - This does not prove full reconnect reliability.
   - Relaunching old `dist\CacheVault.exe` without rebuilding will reproduce the `405` failure.
+- Overall verdict remains:
+  - `HOLD / DEVICE_QA_PENDING`
+
+## Clean Runtime Custody Restored
+
+- Runtime repair commit:
+  - `5587924 fix: align mobile bridge repair and companion runtime`
+- Clean-source APK:
+  - Rebuilt from committed source on `mobile/android-reconnect-lifecycle-qa`
+  - SHA256: `A1DBA223B4428158CA0A30F274E1CDB180CF5A328A4464A4796ED01739F76E33`
+- Reinstall receipt:
+  - `adb install -r android\app\build\outputs\apk\debug\app-debug.apk` -> `Success`
+- Desktop runtime receipt:
+  - Launched from committed source via `python app.py`
+  - Mobile bridge port `8742` owned by `python.exe` running `app.py`
+- Meaning:
+  - APK source is now committed.
+  - Desktop source runtime is now committed.
+  - QA artifacts remain separate from runtime source.
+  - Packaged `dist\CacheVault.exe` remains invalid for QA until rebuilt from current branch.
 - Overall verdict remains:
   - `HOLD / DEVICE_QA_PENDING`
 
