@@ -75,7 +75,7 @@
     <string name="pc_found_pair_body">Pair this phone to browse clips and send items to your PC vault.</string>
     <string name="pc_found_approval_body">Connect to %1$s?</string>
     <string name="pc_found_approval_detail">This phone remembers the pairing. Connect this time, or allow reconnect on this Wi-Fi. Background reconnect works best with Keep Connected. A killed app cannot be woken by the PC.</string>
-    <string name="repair_needed_body">Your phone reached the PC, but the pairing code was rejected. Generate a fresh code on the PC.</string>
+    <string name="repair_needed_body">This PC no longer trusts this phone. Re-pair to continue.</string>
     <string name="connect">Connect this time</string>
     <string name="trust_and_connect">Always reconnect on this Wi-Fi</string>
     <string name="not_now">Not now</string>
