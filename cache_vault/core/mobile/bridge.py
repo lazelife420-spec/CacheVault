@@ -262,6 +262,17 @@ class MobileBridge:
                 out.append(d)
         return out
 
+    def all_devices(self, settings: Settings | None = None) -> list[PairedDevice]:
+        """Every paired device record, including revoked ones.
+
+        Revoked devices stay on disk (see revoke_device) so their status can
+        still be shown honestly instead of silently disappearing from view.
+        """
+        if settings is None:
+            self._refresh_paired_devices_from_disk()
+        settings = settings or self.vault.settings
+        return [PairedDevice.from_dict(raw) for raw in settings.paired_devices]
+
     # --- request handling ------------------------------------------------------
     def handle(self, method: str, path: str, headers: dict,
                remote_ip: str | None = None,

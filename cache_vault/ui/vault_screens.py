@@ -848,6 +848,11 @@ class VaultScreenHost(ctk.CTkFrame):
                 command=self._callbacks["pair_android"],
                 **theme.primary_button(),
             ).pack(side="left", padx=(0, 6))
+            ctk.CTkButton(
+                btns, text="Paired Devices",
+                command=self._callbacks["paired_devices"],
+                **theme.secondary_button(),
+            ).pack(side="left", padx=(0, 6))
             if summary.get("paired_count"):
                 ctk.CTkButton(
                     btns, text="Revoke All Devices",

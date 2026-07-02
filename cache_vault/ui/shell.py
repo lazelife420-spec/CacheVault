@@ -619,6 +619,7 @@ class CacheVaultApp(ctk.CTk):
                 "reveal_export": self._reveal_export_path,
                 "mobile_report": self._mobile_access_report,
                 "pair_android": lambda: self._open_pair_android(),
+                "paired_devices": self._open_paired_devices,
                 "mobile_settings": self._open_settings,
                 "revoke_all_mobile": self._revoke_all_mobile_and_refresh,
                 "macro_list": self._macro_list_rows,
@@ -2870,7 +2871,7 @@ class CacheVaultApp(ctk.CTk):
         return device_id, token
 
     def _open_paired_devices(self) -> None:
-        devices = [d.to_dict() for d in self._mobile_bridge.active_devices()]
+        devices = [d.to_dict() for d in self._mobile_bridge.all_devices()]
         PairedDevicesDialog(self, devices, on_revoke=self._revoke_mobile_device)
 
     def _revoke_mobile_device(self, device_id: str) -> None:
