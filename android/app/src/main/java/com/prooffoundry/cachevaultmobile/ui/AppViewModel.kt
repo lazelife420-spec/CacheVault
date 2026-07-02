@@ -68,6 +68,7 @@ data class AppUiState(
     val error: String? = null,
     val detailError: String? = null,
     val lastError: String? = null,
+    val activeClipId: String? = null,
     val selectedClip: com.prooffoundry.cachevaultmobile.data.ClipSummary? = null,
     val imageAsset: ImageAssetState = ImageAssetState(),
     val thumbnailBytes: Map<String, ByteArray> = emptyMap(),
@@ -180,6 +181,42 @@ class AppViewModel(
                     loading = false,
                     pcFoundOffer = offer.copy(mode = mode),
                     error = err.toUserMessage(),
+                )
+            }
+        }
+    }
+
+    fun pairDiscoveredPc(pc: DiscoveredPc, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, error = null, pairSuccessMessage = null)
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    repository.pairDiscoveredPc(pc.host, pc.port, pc.displayName)
+                }
+            }.onSuccess { status ->
+                val pairing = repository.loadPairing()
+                uiState = uiState.copy(
+                    paired = true,
+                    status = status,
+                    pcName = pairing?.pcLabel.orEmpty().ifBlank { pc.displayName },
+                    hostLabel = pairing?.pcLabel.orEmpty().ifBlank { pc.host },
+                    deviceId = pairing?.deviceId.orEmpty(),
+                    port = pairing?.port ?: pc.port,
+                    loading = false,
+                    pcFoundOffer = null,
+                    error = null,
+                    pairSuccessMessage = UserMessages.PAIRING_SAVED,
+                    lastSeenAt = pairing?.lastSeenAt,
+                    autoConnectApproved = pairing?.autoConnectApproved ?: false,
+                    keepConnectedInBackground = pairing?.keepConnectedInBackground ?: false,
+                )
+                refreshAll()
+                onSuccess()
+            }.onFailure { err ->
+                uiState = uiState.copy(
+                    loading = false,
+                    error = err.toUserMessage(),
+                    pairSuccessMessage = null,
                 )
             }
         }
@@ -401,8 +438,9 @@ class AppViewModel(
             runCatching {
                 withContext(Dispatchers.IO) { repository.client().search(query).clips }
             }.onSuccess { clips ->
-                uiState = uiState.copy(clips = clips, loading = false)
-                prefetchThumbnails(clips)
+                val filtered = VaultSections.filterClips(clips, uiState.browseFilter)
+                uiState = uiState.copy(clips = filtered, loading = false)
+                prefetchThumbnails(filtered)
             }.onFailure { err ->
                 val msg = err.toUserMessage()
                 uiState = uiState.copy(loading = false, error = msg, lastError = msg)
@@ -544,11 +582,18 @@ class AppViewModel(
 
     fun openClip(clipId: String) {
         viewModelScope.launch {
-            uiState = uiState.copy(loading = true, detailError = null)
+            uiState = uiState.copy(
+                loading = true,
+                activeClipId = clipId,
+                selectedClip = null,
+                detailError = null,
+                imageAsset = ImageAssetState(),
+            )
             runCatching {
                 withContext(Dispatchers.IO) { repository.client().clipDetail(clipId).clip }
             }.onSuccess { clip ->
                 uiState = uiState.copy(
+                    activeClipId = clip.id,
                     selectedClip = clip,
                     loading = false,
                     imageAsset = ImageAssetState(),
@@ -557,13 +602,22 @@ class AppViewModel(
                     loadImageAsset(clip.id)
                 }
             }.onFailure { err ->
-                uiState = uiState.copy(loading = false, detailError = err.toUserMessage())
+                uiState = uiState.copy(
+                    loading = false,
+                    selectedClip = null,
+                    detailError = err.toUserMessage(),
+                )
             }
         }
     }
 
     fun closeClipDetail() {
-        uiState = uiState.copy(selectedClip = null, imageAsset = ImageAssetState(), detailError = null)
+        uiState = uiState.copy(
+            activeClipId = null,
+            selectedClip = null,
+            imageAsset = ImageAssetState(),
+            detailError = null,
+        )
     }
 
     fun loadImageAsset(clipId: String) {

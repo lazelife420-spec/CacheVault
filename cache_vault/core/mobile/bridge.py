@@ -22,6 +22,7 @@ from .models import (
     PairedDevice,
     hash_token,
     new_device_token,
+    sanitize_device_name,
 )
 from .receipts import MobileReceiptLog
 from .discovery import MobileDiscovery
@@ -191,15 +192,20 @@ class MobileBridge:
 
     # --- pairing (desktop-side) ------------------------------------------------
     def pair_device(self, device_id: str, device_name: str,
-                    settings: Settings | None = None) -> tuple[PairedDevice, str]:
+                    settings: Settings | None = None,
+                    *,
+                    app_version: str | None = None,
+                    platform: str | None = None) -> tuple[PairedDevice, str]:
         """Register a device and return ``(record, plaintext_token)`` once."""
         settings = settings or self.vault.settings
         token = new_device_token()
         device = PairedDevice(
             device_id=device_id.strip(),
-            device_name=(device_name or "Android device").strip(),
+            device_name=sanitize_device_name(device_name),
             created_at=models.now_iso(),
             token_hash=hash_token(token),
+            app_version=app_version.strip() if app_version else None,
+            platform=platform.strip() if platform else None,
         )
         settings.paired_devices = [
             d for d in settings.paired_devices
@@ -279,6 +285,7 @@ class MobileBridge:
             and (
                 family in api_mod.RECEIPT_POST_ROUTES
                 or family in api_mod.INBOX_POST_ROUTES
+                or family in api_mod.PUBLIC_PAIR_POST_ROUTES
             )
         )
         if method != "GET" and not allowed_post:
@@ -295,6 +302,22 @@ class MobileBridge:
                 remote_ip=remote_ip)
             self.receipts.record(rec)
             return 404, {"error": "not_found"}
+
+        if method == "POST" and family in api_mod.PUBLIC_PAIR_POST_ROUTES:
+            status, resp_body = self._dispatch_public_pair_post(
+                family, path_only, body or {})
+            rec = MobileAccessReceipt.make(
+                action=action, route=path_only,
+                result="ok" if status < 400 else "error",
+                device_id=resp_body.get("device_id") if isinstance(resp_body, dict) else None,
+                device_name=resp_body.get("device_name") if isinstance(resp_body, dict) else None,
+                remote_ip=remote_ip,
+                reason=None if status < 400 else (
+                    resp_body.get("error") if isinstance(resp_body, dict) else "error"
+                ),
+            )
+            self.receipts.record(rec)
+            return status, resp_body
 
         device, auth_reason = self._authenticate(headers)
         if device is None:
@@ -503,6 +526,26 @@ class MobileBridge:
             return 400, result.to_response()
         return 200, result.to_response()
 
+    def _dispatch_public_pair_post(self, family: str, path: str,
+                                   payload: dict) -> tuple[int, dict]:
+        if family != "/mobile/v1/pair-device":
+            return 404, {"error": "not_found"}
+        device_id = str(payload.get("device_id") or "").strip() or models.new_id()
+        device_name = sanitize_device_name(payload.get("device_name"))
+        app_version = str(payload.get("app_version") or "").strip() or None
+        platform = str(payload.get("platform") or "").strip() or None
+        device, token = self.pair_device(
+            device_id,
+            device_name,
+            app_version=app_version,
+            platform=platform,
+        )
+        return 200, {
+            "device_id": device.device_id,
+            "device_name": device.device_name,
+            "token": token,
+        }
+
     def _dispatch_receipt_post(self, family: str, path: str,
                                device: PairedDevice) -> tuple[int, dict]:
         """Log copy/share receipts without mutating vault state."""
@@ -521,4 +564,5 @@ class MobileBridge:
             api_mod.READ_ONLY_ROUTES
             | api_mod.RECEIPT_POST_ROUTES
             | api_mod.INBOX_POST_ROUTES
+            | api_mod.PUBLIC_PAIR_POST_ROUTES
         )

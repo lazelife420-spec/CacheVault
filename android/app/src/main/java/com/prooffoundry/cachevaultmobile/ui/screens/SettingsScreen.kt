@@ -87,12 +87,10 @@ fun SettingsScreen(
             SectionTitle("Connection")
             StatusLine(connection)
             Text("${stringResource(R.string.connected_to_label)} ${pcName.ifBlank { "PC" }}")
-            Text("${host.ifBlank { "PC" }}:$port")
-            if (deviceId.isNotBlank()) {
-                Text("Device: $deviceId", style = MaterialTheme.typography.bodySmall)
-            }
+            Text("PC: ${host.ifBlank { "—" }}:$port")
+            Text("Device: This phone", style = MaterialTheme.typography.bodySmall)
             Text(
-                "${stringResource(R.string.last_seen_label)} ${lastSeenAt ?: "Never"}",
+                "${stringResource(R.string.last_seen_label)} ${com.prooffoundry.cachevaultmobile.ui.ClipListFormatter.formatRelativeWhen(lastSeenAt)}",
                 style = MaterialTheme.typography.bodySmall,
             )
             if (connection == ConnectionState.REVOKED) {
@@ -123,12 +121,12 @@ fun SettingsScreen(
             SectionTitle("Reconnect")
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Trust this PC for auto-connect", style = MaterialTheme.typography.bodyLarge)
+                    Text("Always reconnect on this Wi-Fi", style = MaterialTheme.typography.bodyLarge)
                     Text(
                         if (autoConnectApproved) {
-                            "Reconnect silently when this trusted PC is found on the same Wi-Fi."
+                            "Reconnect when this trusted PC is found while the app can run."
                         } else {
-                            stringResource(R.string.waiting_for_phone_approval)
+                            "Connect this time unless you allow always reconnect on this Wi-Fi."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -22,7 +22,7 @@ enum class VaultSectionKind(
     COMMANDS("Commands", "Shell and command lines"),
     SCREENSHOTS("Screenshots", "Images saved from your PC"),
     FAVORITES("Favorites", "Starred on your PC"),
-    PROOF("Proof Receipts", "Local proof history"),
+    PROOF("Connection Proof", "Receipts stay on your PC"),
     RECENT("Recently Saved", "Newest clips first"),
     SENSITIVE("Sensitive", "Handle with care"),
     REMOVED("Recently Removed", "Restorable removed clips"),
@@ -46,7 +46,7 @@ data class VaultSectionCounts(
         VaultSectionKind.COMMANDS -> commands
         VaultSectionKind.SCREENSHOTS -> screenshots
         VaultSectionKind.FAVORITES -> favorites
-        VaultSectionKind.PROOF -> 0
+        VaultSectionKind.PROOF -> -1
         VaultSectionKind.RECENT -> recentlySaved
         VaultSectionKind.SENSITIVE -> sensitive
         VaultSectionKind.REMOVED -> recentlyRemoved

@@ -59,6 +59,12 @@ data class BridgeStatus(
     val readOnly: Boolean,
 )
 
+data class PairDeviceGrant(
+    val deviceId: String,
+    val deviceName: String,
+    val token: String,
+)
+
 data class ClipSummary(
     val id: String,
     val preview: String,

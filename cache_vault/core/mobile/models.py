@@ -46,6 +46,11 @@ def new_device_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def sanitize_device_name(device_name: str | None) -> str:
+    clean = (device_name or "Android device").strip()
+    return clean or "Android device"
+
+
 @dataclass
 class PairedDevice:
     device_id: str
@@ -68,7 +73,7 @@ class PairedDevice:
     def from_dict(cls, data: dict) -> PairedDevice:
         return cls(
             device_id=data["device_id"],
-            device_name=data.get("device_name") or "Android device",
+            device_name=sanitize_device_name(data.get("device_name")),
             created_at=data["created_at"],
             token_hash=data["token_hash"],
             last_seen_at=data.get("last_seen_at"),

@@ -1,6 +1,7 @@
 package com.prooffoundry.cachevaultmobile.data
 
 import android.content.Context
+import android.os.Build
 import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
 import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
 import java.time.Instant
@@ -62,6 +63,32 @@ class BridgeRepository(
             ),
         )
         return status
+    }
+
+    suspend fun pairDiscoveredPc(
+        host: String,
+        port: Int,
+        displayName: String,
+    ): BridgeStatus {
+        val client = BridgeClient(
+            PairingConfig(
+                host = host,
+                port = port,
+                deviceId = "",
+                token = "",
+            ),
+        )
+        val grant = client.pairDevice(
+            deviceName = Build.MODEL,
+        )
+        val config = PairingConfig.sanitize(
+            host = host,
+            port = port,
+            deviceId = grant.deviceId,
+            token = grant.token,
+            pcLabel = displayName,
+        )
+        return verifyConnection(config)
     }
 
     suspend fun discoverPc(): DiscoveredPc? {

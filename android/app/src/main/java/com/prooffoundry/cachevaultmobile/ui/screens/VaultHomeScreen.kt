@@ -212,7 +212,6 @@ private fun SectionGrid(
                         kind = kind,
                         count = when {
                             countsPending -> -1
-                            kind == VaultSectionKind.PROOF -> 0
                             else -> counts.countFor(kind)
                         },
                         onClick = { if (!countsPending) onSection(kind) },

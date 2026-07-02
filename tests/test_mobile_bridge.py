@@ -90,6 +90,36 @@ def test_status_includes_mobile_api_version(vault, mobile_bridge):
     assert "token" not in json.dumps(body).lower()
 
 
+def test_public_pair_device_returns_token_without_logging_plaintext(vault, mobile_bridge):
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST",
+        "/mobile/v1/pair-device",
+        {},
+        remote_ip="192.168.0.44",
+        body={
+            "device_id": "phone-auto-1",
+            "device_name": "Galaxy S",
+            "app_version": "0.1.0",
+            "platform": "android",
+        },
+    )
+    assert code == 200
+    assert body["device_id"] == "phone-auto-1"
+    assert body["device_name"] == "Galaxy S"
+    assert body["token"]
+    stored = vault.settings.paired_devices[0]
+    assert stored["device_id"] == "phone-auto-1"
+    assert stored["token_hash"] != body["token"]
+    assert stored["platform"] == "android"
+    rec = mobile_bridge.receipts.recent()[-1]
+    assert rec["action"] == "pair_device"
+    assert rec["result"] == "ok"
+    assert rec["device_id"] == "phone-auto-1"
+    assert rec["remote_ip"] == "192.168.0.44"
+    assert "token" not in json.dumps(rec).lower()
+
+
 def test_paired_read_only_list_clips(vault, mobile_bridge):
     vault.capture("hello mobile")
     device, token = _pair(mobile_bridge, vault)

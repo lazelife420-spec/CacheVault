@@ -35,8 +35,8 @@
     <string name="search_hint">Search saved clips…</string>
     <string name="vault_search_hint">Search saved vault…</string>
     <string name="proof_subtitle">Local proof history from your PC</string>
-    <string name="proof_honest_body">Receipts are recorded on your PC.\nOpen Stamped Receipts on desktop to review the full ledger.</string>
-    <string name="proof_actions_hint">Refresh checks connection proof only. Full receipt history stays on your PC.</string>
+    <string name="proof_honest_body">Receipts stay on your PC.\nThis phone can verify whether it still has a trusted local connection.</string>
+    <string name="proof_actions_hint">Refresh checks local connection status only. Open the desktop app to review full receipts.</string>
     <string name="screenshots_tab">Screenshots</string>
     <string name="images_tab">Images</string>
     <string name="images_count">%1$d image(s) saved from your PC</string>
@@ -71,13 +71,13 @@
     <string name="send_failed_unknown">Could not send — %1$s</string>
 
     <string name="pc_found_title">Cache Vault found on this Wi-Fi</string>
-    <string name="pc_found_secure_local">Cache Vault is running on your Wi-Fi.</string>
+    <string name="pc_found_secure_local">This trusted PC is on the same Wi-Fi.</string>
     <string name="pc_found_pair_body">Pair this phone to browse clips and send items to your PC vault.</string>
     <string name="pc_found_approval_body">Connect to %1$s?</string>
-    <string name="pc_found_approval_detail">This phone remembers the pairing. Approve reconnect now, or trust this PC for silent reconnect next time.</string>
+    <string name="pc_found_approval_detail">This phone remembers the pairing. Connect this time, or allow reconnect on this Wi-Fi. Background reconnect works best with Keep Connected. A killed app cannot be woken by the PC.</string>
     <string name="repair_needed_body">Your phone reached the PC, but the pairing code was rejected. Generate a fresh code on the PC.</string>
-    <string name="connect">Connect</string>
-    <string name="trust_and_connect">Trust and Connect</string>
+    <string name="connect">Connect this time</string>
+    <string name="trust_and_connect">Always reconnect on this Wi-Fi</string>
     <string name="not_now">Not now</string>
     <string name="pair_new_device">Pair New Device</string>
     <string name="pair_this_phone">Pair This Phone</string>
@@ -95,7 +95,7 @@
     <string name="remembered_pc_label">Remembered PC:</string>
     <string name="forget_this_pc">Forget this PC</string>
     <string name="reconnect">Reconnect</string>
-    <string name="waiting_for_phone_approval">Waiting for phone approval</string>
+    <string name="waiting_for_phone_approval">Connect this time unless you allow reconnect on this Wi-Fi.</string>
 
     <string name="keep_connected_notification_title">Cache Vault Mobile connected</string>
     <string name="keep_connected_notification_starting">Starting background connection…</string>

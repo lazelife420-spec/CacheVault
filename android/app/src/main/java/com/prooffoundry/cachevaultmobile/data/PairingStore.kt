@@ -43,7 +43,14 @@ class PairingStore(context: Context) {
 
     fun save(config: PairingConfig) {
         val clean = PairingConfig.sanitize(
-            config.host, config.port, config.deviceId, config.token, config.pcLabel,
+            config.host,
+            config.port,
+            config.deviceId,
+            config.token,
+            config.pcLabel,
+            config.lastSeenAt,
+            config.autoConnectApproved,
+            config.keepConnectedInBackground,
         )
         prefs.edit()
             .putString(KEY_HOST, clean.host)
