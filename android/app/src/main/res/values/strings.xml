@@ -104,4 +104,6 @@
     <string name="keep_connected_notification_waiting">Waiting for your PC on the same Wi-Fi.</string>
     <string name="keep_connected_notification_repair">Pairing expired. Open the app and re-pair with your PC.</string>
     <string name="stop_background_connection">Stop background connection</string>
+    <string name="background_permission_needed">Allow notifications to keep Cache Vault connected in the background.</string>
+    <string name="background_start_failed">Could not start background connection on this phone. Keep Connected was turned back off.</string>
 </resources>

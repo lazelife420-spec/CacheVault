@@ -6,8 +6,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat.checkSelfPermission
 import androidx.core.content.ContextCompat
 import com.prooffoundry.cachevaultmobile.CacheVaultMobileApp
 import com.prooffoundry.cachevaultmobile.MainActivity
@@ -168,6 +170,14 @@ class BackgroundConnectionService : Service() {
                 context,
                 Intent(context, BackgroundConnectionService::class.java),
             )
+        }
+
+        fun canPostNotification(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+            return checkSelfPermission(
+                context,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
         }
 
         fun stop(context: Context) {

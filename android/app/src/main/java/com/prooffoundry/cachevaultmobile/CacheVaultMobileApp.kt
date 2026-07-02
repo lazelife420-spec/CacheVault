@@ -15,7 +15,9 @@ class CacheVaultMobileApp : Application() {
         super.onCreate()
         pairingStore = PairingStore(this)
         bridgeRepository = BridgeRepository(pairingStore, appContext = this)
-        if (pairingStore.load()?.keepConnectedInBackground == true) {
+        if (pairingStore.load()?.keepConnectedInBackground == true &&
+            BackgroundConnectionService.canPostNotification(this)
+        ) {
             BackgroundConnectionService.start(this)
         }
     }

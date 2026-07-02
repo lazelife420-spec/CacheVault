@@ -872,9 +872,14 @@ class VaultScreenHost(ctk.CTkFrame):
             btns = ctk.CTkFrame(self._mobile_body, fg_color="transparent")
             btns.pack(fill="x", pady=(12, 0))
             ctk.CTkButton(
-                btns, text="Pair Android Device",
+                btns, text="Connect Phone",
                 command=self._callbacks["pair_android"],
                 **theme.primary_button(),
+            ).pack(side="left", padx=(0, 6))
+            ctk.CTkButton(
+                btns, text="Pair Android Device",
+                command=self._callbacks["pair_android"],
+                **theme.secondary_button(),
             ).pack(side="left", padx=(0, 6))
             if summary.get("paired_count"):
                 ctk.CTkButton(

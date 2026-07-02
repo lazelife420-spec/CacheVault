@@ -1,5 +1,10 @@
 package com.prooffoundry.cachevaultmobile.ui
 
+import android.Manifest
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -14,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -70,6 +76,23 @@ fun CacheVaultMobileRoot(
     var manualPort by remember { mutableStateOf(manualSetupPrefill.port) }
     var manualDeviceId by remember { mutableStateOf(manualSetupPrefill.deviceId) }
     var manualToken by remember { mutableStateOf(manualSetupPrefill.token) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            runCatching { BackgroundConnectionService.start(context) }
+                .onSuccess { vm.setKeepConnectedInBackground(true) }
+                .onFailure {
+                    vm.reportBackgroundConnectionFailure(
+                        context.getString(R.string.background_start_failed),
+                    )
+                }
+        } else {
+            vm.reportBackgroundConnectionFailure(
+                context.getString(R.string.background_permission_needed),
+            )
+        }
+    }
     val start = if (pairingStore.isPaired()) Routes.Home else Routes.Welcome
 
     fun goHomeAfterPair() {
@@ -179,11 +202,30 @@ fun CacheVaultMobileRoot(
                 },
                 onRePair = { openManualSetupForRePair() },
                 onKeepConnectedChanged = { enabled ->
-                    vm.setKeepConnectedInBackground(enabled)
-                    if (enabled) {
-                        BackgroundConnectionService.start(context)
-                    } else {
+                    if (!enabled) {
+                        vm.setKeepConnectedInBackground(false)
                         BackgroundConnectionService.stop(context)
+                    } else {
+                        val needsNotificationPermission =
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                ) != PackageManager.PERMISSION_GRANTED
+
+                        if (needsNotificationPermission) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            runCatching {
+                                BackgroundConnectionService.start(context)
+                            }.onSuccess {
+                                vm.setKeepConnectedInBackground(true)
+                            }.onFailure {
+                                vm.reportBackgroundConnectionFailure(
+                                    context.getString(R.string.background_start_failed),
+                                )
+                            }
+                        }
                     }
                 },
             )

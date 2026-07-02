@@ -241,6 +241,15 @@ class AppViewModel(
         uiState = uiState.copy(keepConnectedInBackground = enabled)
     }
 
+    fun reportBackgroundConnectionFailure(message: String) {
+        repository.updateConnectionPreferences(keepConnectedInBackground = false)
+        uiState = uiState.copy(
+            keepConnectedInBackground = false,
+            error = message,
+            lastError = message,
+        )
+    }
+
     fun pair(
         host: String,
         port: Int,
