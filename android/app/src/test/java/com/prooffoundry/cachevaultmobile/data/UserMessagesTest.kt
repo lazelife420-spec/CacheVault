@@ -1,5 +1,6 @@
 package com.prooffoundry.cachevaultmobile.data
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -14,6 +15,14 @@ class UserMessagesTest {
     fun revokedShowsDeviceRevoked() {
         val msg = UserMessages.forBridgeError(BridgeError.Unauthorized("Device revoked."))
         assertTrue(msg.contains("Device revoked"))
+    }
+
+    @Test
+    fun invalidRememberedTokenShowsRepairRequiredNotPairingCodeCopy() {
+        val msg = UserMessages.forBridgeError(BridgeError.Unauthorized("Invalid device token."))
+        assertTrue(msg.contains("no longer trusts this phone"))
+        assertTrue(msg.contains("Re-pair to continue"))
+        assertFalse(msg.contains("pairing code was rejected"))
     }
 
     @Test

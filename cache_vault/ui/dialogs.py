@@ -660,6 +660,11 @@ class SettingsDialog(ctk.CTkToplevel):
         mob_btns.pack(fill="x", padx=12, pady=(4, 4))
         if self._mobile.get("pair"):
             ctk.CTkButton(
+                mob_btns, text="Connect Phone",
+                command=lambda: self._mobile["pair"](bool(self._mobile_on.get())),
+                **theme.primary_button(),
+            ).pack(fill="x", pady=3)
+            ctk.CTkButton(
                 mob_btns, text="Pair Android Device",
                 command=lambda: self._mobile["pair"](bool(self._mobile_on.get())),
                 **theme.secondary_button(),
@@ -679,7 +684,11 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             card,
-            text="Off by default. Read-only API — no delete or edit from mobile.",
+            text=(
+                "Use Connect Phone to show the desktop-side connect instructions. "
+                "Phone approval still happens on Android. Off by default. "
+                "Read-only API — no delete or edit from mobile."
+            ),
             anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=12, pady=(0, 10))
         return card

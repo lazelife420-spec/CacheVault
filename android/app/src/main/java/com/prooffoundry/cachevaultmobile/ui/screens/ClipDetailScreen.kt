@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.ClipKinds
@@ -51,9 +54,12 @@ import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClipDetailScreen(
-    clip: ClipSummary,
+    clip: ClipSummary?,
     imageAsset: ImageAssetState,
+    loading: Boolean,
+    error: String?,
     onBack: () -> Unit,
+    onRetry: (() -> Unit)?,
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onSave: () -> Unit,
@@ -61,22 +67,30 @@ fun ClipDetailScreen(
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
-    val text = clip.content.ifBlank { clip.preview }
-    val isLink = ClipKinds.isLink(clip)
-    val isPath = ClipKinds.isPath(clip)
-    val isImage = ClipKinds.isImageReference(clip)
-    val isCode = clip.classification.equals("code", ignoreCase = true) ||
-        clip.classification.equals("command", ignoreCase = true)
-    val linkUrl = ClipKinds.linkUrl(clip)
-    val badge = ClipListFormatter.typeBadge(clip)
+    val title = clip?.let { ClipListFormatter.cardTitle(it) } ?: "Clip details"
+    val text = clip?.content?.ifBlank { clip.preview }.orEmpty()
+    val isLink = clip?.let { ClipKinds.isLink(it) } == true
+    val isPath = clip?.let { ClipKinds.isPath(it) } == true
+    val isImage = clip?.let { ClipKinds.isImageReference(it) } == true
+    val isCode = clip?.classification.equals("code", ignoreCase = true) ||
+        clip?.classification.equals("command", ignoreCase = true)
+    val linkUrl = clip?.let { ClipKinds.linkUrl(it) }
+    val badge = clip?.let { ClipListFormatter.typeBadge(it) }.orEmpty()
     val bitmap = remember(imageAsset.bytes) {
         imageAsset.bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(ClipListFormatter.cardTitle(clip)) },
+                title = {
+                    Text(
+                        title,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -85,6 +99,46 @@ fun ClipDetailScreen(
             )
         },
     ) { padding ->
+        if (clip == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    when {
+                        loading -> {
+                            CircularProgressIndicator()
+                            Text("Loading clip details…", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        !error.isNullOrBlank() -> {
+                            Text(
+                                error,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            if (onRetry != null) {
+                                Button(onClick = onRetry) { Text("Try again") }
+                            }
+                        }
+                        else -> {
+                            Text(
+                                "Clip details are not available yet.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            return@Scaffold
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -101,6 +155,21 @@ fun ClipDetailScreen(
                     color = ProofTeal,
                 )
             }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailMeta("Type", badge)
+                    clip.sourceApp?.let { DetailMeta("Source", it) }
+                    clip.createdAt?.let { DetailMeta("Saved", ClipListFormatter.formatWhen(it)) }
+                    DetailMeta("Receipts", "Stored on your PC")
+                }
+            }
             if (clip.isSensitive) {
                 Text("Sensitive clip — handle carefully.", color = MaterialTheme.colorScheme.secondary)
             }
@@ -109,9 +178,16 @@ fun ClipDetailScreen(
             }
             if (isPath && !isImage) {
                 Text(
-                    "File path reference (metadata only). Original PC files are not copied.",
+                    "File path reference only. Originals stay on your PC.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!error.isNullOrBlank()) {
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             if (isImage) {
@@ -150,23 +226,21 @@ fun ClipDetailScreen(
                 }
             }
             if (!isImage || bitmap == null) {
-                Text(
-                    text,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = if (isCode) FontFamily.Monospace else FontFamily.Default,
-                    ),
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    Text(
+                        text.ifBlank { "(no clip content)" },
+                        modifier = Modifier.padding(14.dp),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = if (isCode) FontFamily.Monospace else FontFamily.Default,
+                        ),
+                    )
+                }
             }
-            clip.sourceApp?.let {
-                Text("Source: $it", style = MaterialTheme.typography.labelSmall)
-            }
-            clip.createdAt?.let {
-                Text(
-                    "Saved: ${ClipListFormatter.formatWhen(it)}",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            Text("Proof: recorded", style = MaterialTheme.typography.labelSmall, color = StampGold)
+            HorizontalDivider()
 
             when {
                 isLink && linkUrl != null -> {
@@ -264,5 +338,17 @@ fun ClipDetailScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DetailMeta(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }

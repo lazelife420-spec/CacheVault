@@ -8,6 +8,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 class BridgeClient(
     private val pairing: PairingConfig,
@@ -107,6 +108,27 @@ class BridgeClient(
         return execute(request, InboxSendResponseJson::class.java).toModel()
     }
 
+    fun pairDevice(
+        deviceName: String? = null,
+        deviceId: String = generateDeviceId(),
+        appVersion: String? = null,
+        platform: String = "android",
+    ): PairDeviceGrant {
+        val payload = PairDeviceRequest(
+            deviceId = deviceId,
+            deviceName = deviceName,
+            appVersion = appVersion,
+            platform = platform,
+        )
+        val json = moshi.adapter(PairDeviceRequest::class.java).toJson(payload)
+        val body = json.toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("http://${pairing.host}:${pairing.port}/mobile/v1/pair-device")
+            .post(body)
+            .build()
+        return execute(request, PairDeviceResponseJson::class.java).toModel()
+    }
+
     fun fetchImageAsset(clipId: String): ImageAssetResult {
         val request = baseRequest("/mobile/v1/clips/$clipId/asset").get().build()
         try {
@@ -203,6 +225,8 @@ class BridgeClient(
                 .connectTimeout(8, TimeUnit.SECONDS)
                 .readTimeout(12, TimeUnit.SECONDS)
                 .build()
+
+        fun generateDeviceId(): String = UUID.randomUUID().toString().replace("-", "")
     }
 
     private data class StatusJson(
@@ -266,6 +290,21 @@ class BridgeClient(
         val message: String? = null,
     )
     private data class OkJson(val ok: Boolean? = null)
+
+    private data class PairDeviceRequest(
+        @Json(name = "device_id") val deviceId: String,
+        @Json(name = "device_name") val deviceName: String? = null,
+        @Json(name = "app_version") val appVersion: String? = null,
+        val platform: String = "android",
+    )
+
+    private data class PairDeviceResponseJson(
+        @Json(name = "device_id") val deviceId: String,
+        @Json(name = "device_name") val deviceName: String,
+        val token: String,
+    ) {
+        fun toModel() = PairDeviceGrant(deviceId, deviceName, token)
+    }
 
     private data class InboxSendRequest(
         @Json(name = "item_type") val itemType: String,

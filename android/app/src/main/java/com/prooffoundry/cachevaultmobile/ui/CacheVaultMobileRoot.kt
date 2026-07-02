@@ -1,5 +1,10 @@
 package com.prooffoundry.cachevaultmobile.ui
 
+import android.Manifest
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -14,10 +19,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.prooffoundry.cachevaultmobile.connect.BackgroundConnectionService
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
 import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
@@ -69,6 +76,23 @@ fun CacheVaultMobileRoot(
     var manualPort by remember { mutableStateOf(manualSetupPrefill.port) }
     var manualDeviceId by remember { mutableStateOf(manualSetupPrefill.deviceId) }
     var manualToken by remember { mutableStateOf(manualSetupPrefill.token) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            runCatching { BackgroundConnectionService.start(context) }
+                .onSuccess { vm.setKeepConnectedInBackground(true) }
+                .onFailure {
+                    vm.reportBackgroundConnectionFailure(
+                        context.getString(R.string.background_start_failed),
+                    )
+                }
+        } else {
+            vm.reportBackgroundConnectionFailure(
+                context.getString(R.string.background_permission_needed),
+            )
+        }
+    }
     val start = if (pairingStore.isPaired()) Routes.Home else Routes.Welcome
 
     fun goHomeAfterPair() {
@@ -102,10 +126,11 @@ fun CacheVaultMobileRoot(
     }
 
     LaunchedEffect(Unit) {
-        if (pairingStore.isPaired()) return@LaunchedEffect
         if (manualSetupPrefill.openManualSetup) {
             vm.dismissPcOffer()
             nav.navigate(Routes.ManualSetup)
+        } else if (pairingStore.isPaired()) {
+            vm.initializeConnectionLifecycle()
         } else {
             vm.discoverPcOnLaunch()
         }
@@ -133,7 +158,7 @@ fun CacheVaultMobileRoot(
             DiscoverRoute(
                 context = context,
                 onConnect = { pc ->
-                    openManualSetup(host = pc.host, port = pc.port)
+                    vm.pairDiscoveredPc(pc, ::goHomeAfterPair)
                 },
                 onManualSetup = { openManualSetup() },
                 onBack = { nav.popBackStack() },
@@ -169,30 +194,62 @@ fun CacheVaultMobileRoot(
                     nav.navigate(Routes.Detail)
                 },
                 onDisconnect = {
+                    BackgroundConnectionService.stop(context)
                     vm.disconnect()
                     nav.navigate(Routes.Welcome) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
                 onRePair = { openManualSetupForRePair() },
+                onKeepConnectedChanged = { enabled ->
+                    if (!enabled) {
+                        vm.setKeepConnectedInBackground(false)
+                        BackgroundConnectionService.stop(context)
+                    } else {
+                        val needsNotificationPermission =
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                ) != PackageManager.PERMISSION_GRANTED
+
+                        if (needsNotificationPermission) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            runCatching {
+                                BackgroundConnectionService.start(context)
+                            }.onSuccess {
+                                vm.setKeepConnectedInBackground(true)
+                            }.onFailure {
+                                vm.reportBackgroundConnectionFailure(
+                                    context.getString(R.string.background_start_failed),
+                                )
+                            }
+                        }
+                    }
+                },
             )
         }
         composable(Routes.Detail) {
             val clip = vm.uiState.selectedClip
-            if (clip != null) {
-                ClipDetailScreen(
-                    clip = clip,
-                    imageAsset = vm.uiState.imageAsset,
-                    onBack = {
-                        vm.closeClipDetail()
-                        nav.popBackStack()
-                    },
-                    onCopy = { vm.logCopy(clip.id) },
-                    onShare = { vm.logShare(clip.id) },
-                    onSave = { vm.logSave(clip.id) },
-                    onViewAsset = { vm.logAssetOpen(clip.id) },
-                )
-            }
+            val activeClipId = vm.uiState.activeClipId
+            ClipDetailScreen(
+                clip = clip,
+                imageAsset = vm.uiState.imageAsset,
+                loading = vm.uiState.loading && clip == null,
+                error = vm.uiState.detailError,
+                onBack = {
+                    vm.closeClipDetail()
+                    nav.popBackStack()
+                },
+                onRetry = activeClipId?.let { clipId ->
+                    { vm.openClip(clipId) }
+                },
+                onCopy = { clip?.let { vm.logCopy(it.id) } },
+                onShare = { clip?.let { vm.logShare(it.id) } },
+                onSave = { clip?.let { vm.logSave(it.id) } },
+                onViewAsset = { clip?.let { vm.logAssetOpen(it.id) } },
+            )
         }
     }
 
@@ -201,8 +258,19 @@ fun CacheVaultMobileRoot(
             offer = offer,
             loading = vm.uiState.loading,
             onConnect = { vm.connectOfferedPc(::goHomeAfterPair) },
+            onTrustAndConnect = {
+                vm.approveAutoConnect(true)
+                vm.connectOfferedPc(::goHomeAfterPair)
+            },
             onPairNewDevice = {
-                openManualSetup(host = offer.host, port = offer.port)
+                vm.pairDiscoveredPc(
+                    DiscoveredPc(
+                        displayName = offer.displayName,
+                        host = offer.host,
+                        port = offer.port,
+                    ),
+                    ::goHomeAfterPair,
+                )
             },
             onManualSetup = {
                 openManualSetup(host = offer.host, port = offer.port)

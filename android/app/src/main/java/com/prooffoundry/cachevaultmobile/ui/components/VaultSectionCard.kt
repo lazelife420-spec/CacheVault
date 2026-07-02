@@ -57,7 +57,11 @@ fun VaultSectionCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                if (count < 0) "…" else count.toString(),
+                when {
+                    kind == VaultSectionKind.PROOF -> "PC"
+                    count < 0 -> "…"
+                    else -> count.toString()
+                },
                 style = MaterialTheme.typography.titleMedium,
                 color = StampGold,
                 fontWeight = FontWeight.Bold,
@@ -111,7 +115,7 @@ fun VaultStatusCard(
                 when (connection) {
                     ConnectionState.CONNECTED -> {
                         StatusPill("Connected", ProofTeal)
-                        StatusPill("Proof recorded", StampGold.copy(alpha = 0.9f))
+                        StatusPill("Local only", StampGold.copy(alpha = 0.9f))
                     }
                     ConnectionState.CHECKING -> StatusPill("Checking…", MaterialTheme.colorScheme.onSurfaceVariant)
                     ConnectionState.REPAIR_NEEDED -> StatusPill("Re-pair needed", StampGold)

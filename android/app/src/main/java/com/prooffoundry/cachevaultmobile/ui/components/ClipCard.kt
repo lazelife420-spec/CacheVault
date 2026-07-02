@@ -106,7 +106,7 @@ fun ClipCard(
                         )
                     }
                     Text(
-                        "Proof",
+                        "On PC",
                         style = MaterialTheme.typography.labelSmall,
                         color = StampGold.copy(alpha = 0.75f),
                     )
