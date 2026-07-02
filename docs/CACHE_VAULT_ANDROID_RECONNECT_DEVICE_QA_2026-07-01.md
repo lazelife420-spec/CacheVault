@@ -55,11 +55,68 @@ Date: 2026-07-01
   - `FIXED_CANDIDATE / RETEST_REQUIRED`
   - Overall device QA remains `HOLD`
 
+## Runtime Mismatch Finding
+
+- Title:
+  - `Desktop runtime mismatch caused false no-typing repair failure`
+- Observed:
+  - Phone was talking to stale packaged desktop app:
+    `C:\Users\KickA\Desktop\CacheVault\dist\CacheVault.exe`
+  - That listener returned:
+    `POST /mobile/v1/pair-device -> 405 method_not_allowed`
+  - After stopping the stale packaged process and launching current branch desktop with:
+    `python app.py`
+    the same route returned `200`.
+  - Tapping `Re-pair` on Android moved from repair sheet to connected home screen.
+  - Desktop receipt log shows `pair_device ok` from phone IP `192.168.0.25`, followed by `status ok` and `list_clips ok`.
+- Evidence:
+  - Android screenshot:
+    `C:\Users\KickA\Desktop\CacheVault\qa_artifacts\android_reconnect_2026-07-01\android\repair_retry_screen.png`
+  - Android UI dump:
+    `C:\Users\KickA\Desktop\CacheVault\qa_artifacts\android_reconnect_2026-07-01\android\cachevault_ui_repair_retry.xml`
+- Verdict for this subtest:
+  - `PASS_WITH_RUNTIME_CONSTRAINT`
+- Meaning:
+  - One-tap `Re-pair` works against current branch desktop runtime.
+  - This does not prove the stale packaged EXE works.
+  - This does not prove full reconnect reliability.
+  - Relaunching old `dist\CacheVault.exe` without rebuilding will reproduce the `405` failure.
+- Overall verdict remains:
+  - `HOLD / DEVICE_QA_PENDING`
+
 ## Evidence Paths
 
 - Android screenshots directory: `C:\Users\KickA\Desktop\CacheVault\qa_artifacts\android_reconnect_2026-07-01\android\`
 - Desktop screenshots directory: `C:\Users\KickA\Desktop\CacheVault\qa_artifacts\android_reconnect_2026-07-01\desktop\`
 - Logcat path on failure: `C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-07-01.txt`
+
+## Mandatory Preflight
+
+Run this before every phone QA pass to confirm runtime custody:
+
+```powershell
+cd C:\Users\KickA\Desktop\CacheVault
+
+# Confirm no stale packaged CacheVault listener is running
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -match 'CacheVault|python' -or $_.CommandLine -match 'CacheVault|app.py' } |
+  Select-Object ProcessId, Name, ExecutablePath, CommandLine |
+  Format-List
+
+# Confirm what owns the mobile bridge port
+netstat -ano | findstr ":8742"
+
+# If stale dist\CacheVault.exe owns it, stop it before source-branch QA.
+```
+
+For source-branch QA:
+
+```powershell
+cd C:\Users\KickA\Desktop\CacheVault
+python app.py
+```
+
+Packaged desktop QA is invalid until a fresh EXE is built from the current branch. Do not reuse old `dist\CacheVault.exe`.
 
 ## Pre-Run Commands
 
