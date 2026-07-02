@@ -38,4 +38,15 @@ object ConnectionPlanner {
 
     fun isRepairNeeded(error: Throwable?): Boolean =
         error is BridgeError.Unauthorized
+
+    /**
+     * Device identity to send when (re-)pairing with a PC.
+     *
+     * Reuses the phone's remembered device_id when one exists so the desktop
+     * refreshes the credential for the same logical device instead of minting
+     * a brand-new identity (and orphaning the old, still-active record) on
+     * every Re-pair tap.
+     */
+    fun deviceIdForPairing(existingDeviceId: String?): String? =
+        existingDeviceId?.takeIf { it.isNotBlank() }
 }

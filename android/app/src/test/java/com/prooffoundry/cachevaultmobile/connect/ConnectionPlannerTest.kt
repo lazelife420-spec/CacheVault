@@ -3,6 +3,7 @@ package com.prooffoundry.cachevaultmobile.connect
 import com.prooffoundry.cachevaultmobile.data.BridgeError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,5 +37,23 @@ class ConnectionPlannerTest {
     fun networkError_isNotRepair() {
         val err = BridgeError.Network(IllegalStateException("timeout"))
         assertFalse(ConnectionPlanner.isRepairNeeded(err))
+    }
+
+    @Test
+    fun deviceIdForPairing_reusesRememberedDeviceId() {
+        assertEquals(
+            "c0ef497e0dd141d4a716bd828a99c53c",
+            ConnectionPlanner.deviceIdForPairing("c0ef497e0dd141d4a716bd828a99c53c"),
+        )
+    }
+
+    @Test
+    fun deviceIdForPairing_returnsNullWhenNoneRemembered() {
+        assertNull(ConnectionPlanner.deviceIdForPairing(null))
+    }
+
+    @Test
+    fun deviceIdForPairing_treatsBlankAsNoneRemembered() {
+        assertNull(ConnectionPlanner.deviceIdForPairing("   "))
     }
 }

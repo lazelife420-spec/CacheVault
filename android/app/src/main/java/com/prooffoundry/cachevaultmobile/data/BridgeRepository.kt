@@ -2,6 +2,7 @@ package com.prooffoundry.cachevaultmobile.data
 
 import android.content.Context
 import android.os.Build
+import com.prooffoundry.cachevaultmobile.connect.ConnectionPlanner
 import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
 import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
 import java.time.Instant
@@ -78,9 +79,12 @@ class BridgeRepository(
                 token = "",
             ),
         )
-        val grant = client.pairDevice(
-            deviceName = Build.MODEL,
-        )
+        val existingDeviceId = ConnectionPlanner.deviceIdForPairing(pairingStore.load()?.deviceId)
+        val grant = if (existingDeviceId != null) {
+            client.pairDevice(deviceName = Build.MODEL, deviceId = existingDeviceId)
+        } else {
+            client.pairDevice(deviceName = Build.MODEL)
+        }
         val config = PairingConfig.sanitize(
             host = host,
             port = port,
