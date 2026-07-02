@@ -283,6 +283,22 @@ def test_revoked_device_rejected(vault, mobile_bridge):
     assert "revoked" in body["message"].lower()
 
 
+def test_all_devices_includes_revoked_for_honest_status_display(vault, mobile_bridge):
+    """Revoked devices must stay visible (not silently vanish) so the Mobile
+    Access UI can show their true Revoked status instead of hiding them."""
+    active, _ = _pair(mobile_bridge, vault, device_id="phone-active", name="Active Phone")
+    revoked, _ = mobile_bridge.pair_device("phone-revoked", "Old Phone")
+    mobile_bridge.revoke_device(revoked.device_id)
+
+    assert {d.device_id for d in mobile_bridge.active_devices()} == {active.device_id}
+
+    all_ids = {d.device_id for d in mobile_bridge.all_devices()}
+    assert all_ids == {active.device_id, revoked.device_id}
+    revoked_record = next(
+        d for d in mobile_bridge.all_devices() if d.device_id == revoked.device_id)
+    assert revoked_record.revoked_at is not None
+
+
 def test_last_seen_updates_on_successful_reconnect(vault, mobile_bridge):
     """last_seen_at starts unset and is stamped by any authenticated request."""
     device, token = _pair(mobile_bridge, vault)

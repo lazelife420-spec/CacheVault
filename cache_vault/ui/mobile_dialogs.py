@@ -10,7 +10,15 @@ from .. import brand
 from ..core import models
 from ..core.lan_ip import advanced_lan_ipv4, list_lan_ipv4, recommended_lan_ipv4
 from ..core.mobile.connection_doctor import connection_doctor_text
-from ..core.mobile.models import DEFAULT_MOBILE_PORT, PairedDevice, paired_device_status
+from ..core.mobile.models import (
+    DEFAULT_MOBILE_PORT,
+    DEVICE_STATUS_OFFLINE,
+    DEVICE_STATUS_ONLINE,
+    DEVICE_STATUS_REVOKED,
+    DEVICE_STATUS_WAITING_APPROVAL,
+    PairedDevice,
+    paired_device_status,
+)
 from . import theme
 from .pairing_help import (
     PAIRING_ERROR,
@@ -362,6 +370,18 @@ class MobileAccessReceiptsDialog(ctk.CTkToplevel):
         _bring_to_front(self, master, modal=False)
 
 
+_DEVICE_STATUS_COLORS = {
+    DEVICE_STATUS_ONLINE: brand.PROOF_TEAL,
+    DEVICE_STATUS_OFFLINE: brand.MUTED_FG,
+    DEVICE_STATUS_WAITING_APPROVAL: brand.STAMP_GOLD,
+    DEVICE_STATUS_REVOKED: brand.WARNING_RED,
+}
+
+
+def _device_status_color(status: str) -> str:
+    return _DEVICE_STATUS_COLORS.get(status, brand.MUTED_FG)
+
+
 class PairedDevicesDialog(ctk.CTkToplevel):
     def __init__(self, master, devices: list[dict],
                  on_revoke: Callable[[str], None]):
@@ -389,15 +409,24 @@ class PairedDevicesDialog(ctk.CTkToplevel):
             last_seen = device.last_seen_at or "Never"
             row = ctk.CTkFrame(frame, fg_color="transparent")
             row.pack(fill="x", pady=4)
-            label = (
-                f"{device.device_name}  ({device.device_id[:8]}…)\n"
-                f"Status: {status}  ·  Last seen: {last_seen}"
-            )
-            ctk.CTkLabel(row, text=label, anchor="w", justify="left").pack(side="left", padx=4)
-            ctk.CTkButton(
-                row, text="Revoke", width=70, command=lambda i=d["device_id"]: self._revoke(i),
-                **theme.destructive_button(),
-            ).pack(side="right", padx=4)
+            info = ctk.CTkFrame(row, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(
+                info, text=f"{device.device_name}  ({device.device_id[:8]}…)",
+                anchor="w", justify="left",
+            ).pack(anchor="w", padx=4)
+            ctk.CTkLabel(
+                info, text=f"Status: {status}  ·  Last seen: {last_seen}",
+                anchor="w", justify="left",
+                text_color=_device_status_color(status),
+                font=ctk.CTkFont(size=11, weight="bold"),
+            ).pack(anchor="w", padx=4)
+            if status != DEVICE_STATUS_REVOKED:
+                ctk.CTkButton(
+                    row, text="Revoke", width=70,
+                    command=lambda i=d["device_id"]: self._revoke(i),
+                    **theme.destructive_button(),
+                ).pack(side="right", padx=4)
 
         from .dialogs import _bring_to_front
         _bring_to_front(self, master, modal=True)
