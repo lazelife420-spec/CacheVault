@@ -3,6 +3,7 @@ package com.prooffoundry.cachevaultmobile.ui
 import com.prooffoundry.cachevaultmobile.data.ClipKinds
 import com.prooffoundry.cachevaultmobile.data.ClipSummary
 import java.net.URI
+import java.time.LocalDate
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -55,6 +56,25 @@ object ClipListFormatter {
                 .withZone(ZoneId.systemDefault())
                 .format(instant)
         }.getOrElse { iso.take(16).replace('T', ' ') }
+    }
+
+    fun formatRelativeWhen(iso: String?): String {
+        if (iso.isNullOrBlank()) return "Never"
+        return runCatching {
+            val instant = Instant.parse(iso)
+            val zone = ZoneId.systemDefault()
+            val localDate = instant.atZone(zone).toLocalDate()
+            val today = LocalDate.now(zone)
+            val time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+                .withLocale(Locale.getDefault())
+                .withZone(zone)
+                .format(instant)
+            when (localDate) {
+                today -> "Today, $time"
+                today.minusDays(1) -> "Yesterday, $time"
+                else -> formatWhen(iso)
+            }
+        }.getOrElse { formatWhen(iso).ifBlank { "Never" } }
     }
 
     fun dateLine(clip: ClipSummary): String = formatWhen(clip.createdAt)

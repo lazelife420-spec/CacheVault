@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,9 +26,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.BrowseFilter
@@ -46,6 +52,14 @@ fun BrowseScreen(
     onOpenClip: (String) -> Unit,
 ) {
     val pullState = rememberPullRefreshState(state.loading, onRefresh)
+    val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            focusManager.clearFocus()
+        }
+    }
 
     androidx.compose.foundation.layout.Box(
         modifier = Modifier
@@ -71,6 +85,8 @@ fun BrowseScreen(
                 placeholder = { Text(stringResource(R.string.search_hint)) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                 shape = RoundedCornerShape(10.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -97,7 +113,10 @@ fun BrowseScreen(
                 BrowseFilter.entries.forEach { filter ->
                     FilterChip(
                         selected = state.browseFilter == filter,
-                        onClick = { onFilter(filter) },
+                        onClick = {
+                            focusManager.clearFocus()
+                            onFilter(filter)
+                        },
                         label = {
                             Text(filter.label, style = MaterialTheme.typography.labelSmall)
                         },
@@ -113,6 +132,7 @@ fun BrowseScreen(
             }
             LazyColumn(
                 modifier = Modifier.weight(1f),
+                state = listState,
                 contentPadding = PaddingValues(bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -133,7 +153,10 @@ fun BrowseScreen(
                 items(state.clips, key = { it.id }) { clip ->
                     ClipCard(
                         clip = clip,
-                        onClick = { onOpenClip(clip.id) },
+                        onClick = {
+                            focusManager.clearFocus()
+                            onOpenClip(clip.id)
+                        },
                         showThumbnail = ClipKinds.isImageReference(clip),
                         thumbnailBytes = state.thumbnailBytes[clip.id],
                     )

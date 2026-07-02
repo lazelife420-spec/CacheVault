@@ -95,6 +95,36 @@ class BridgeClientTest {
     }
 
     @Test
+    fun pairDevicePostsDeviceMetadata() {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "device_id": "pixel-9",
+                  "device_name": "Pixel 9",
+                  "token": "pair-token-123"
+                }
+                """.trimIndent(),
+            ),
+        )
+        val grant = client.pairDevice(
+            deviceName = "Pixel 9",
+            deviceId = "pixel-9",
+            appVersion = "0.1.0",
+        )
+        assertEquals("pixel-9", grant.deviceId)
+        assertEquals("Pixel 9", grant.deviceName)
+        assertEquals("pair-token-123", grant.token)
+        val request = server.takeRequest()
+        assertEquals("/mobile/v1/pair-device", request.path)
+        val sentBody = request.body.readUtf8()
+        assertTrue(sentBody.contains("\"device_id\":\"pixel-9\""))
+        assertTrue(sentBody.contains("\"device_name\":\"Pixel 9\""))
+        assertTrue(sentBody.contains("\"app_version\":\"0.1.0\""))
+        assertTrue(sentBody.contains("\"platform\":\"android\""))
+    }
+
+    @Test
     fun fetchImageAssetReturnsBytes() {
         val pngHeader = byteArrayOf(
             0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,

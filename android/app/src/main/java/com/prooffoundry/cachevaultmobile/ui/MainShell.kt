@@ -34,6 +34,7 @@ fun MainShell(
     onOpenClip: (String) -> Unit,
     onDisconnect: () -> Unit,
     onRePair: () -> Unit,
+    onKeepConnectedChanged: (Boolean) -> Unit,
 ) {
     val state = vm.uiState
     var settingsSubRoute by rememberSaveable { mutableStateOf<String?>(null) }
@@ -111,9 +112,13 @@ fun MainShell(
                         )
                     } else {
                         SettingsScreen(
+                            pcName = state.pcName,
                             host = state.hostLabel,
                             port = state.port,
                             deviceId = state.deviceId,
+                            lastSeenAt = state.lastSeenAt,
+                            autoConnectApproved = state.autoConnectApproved,
+                            keepConnectedInBackground = state.keepConnectedInBackground,
                             status = state.status,
                             error = state.error,
                             lastError = state.lastError,
@@ -121,6 +126,9 @@ fun MainShell(
                             loading = state.loading,
                             onDisconnect = onDisconnect,
                             onRePair = onRePair,
+                            onReconnect = { vm.refreshAll() },
+                            onAutoConnectApproved = vm::approveAutoConnect,
+                            onKeepConnectedChanged = onKeepConnectedChanged,
                             onConnectionDoctor = { settingsSubRoute = "doctor" },
                             onBack = null,
                         )

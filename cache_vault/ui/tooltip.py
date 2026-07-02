@@ -115,13 +115,26 @@ class TooltipManager:
 
     def hide_active(self) -> None:
         tip = self.state.active_tip
-        if tip is not None:
-            try:
-                tip.destroy()
-            except Exception:  # noqa: BLE001
-                pass
+        # Clear state before attempting cleanup so a reentrant hide
+        # (destroy() can pump pending Tk events synchronously) sees no
+        # active tip instead of racing to destroy the same window twice.
         self.state.active_tip = None
         self.state.active_widget = None
+        if tip is None:
+            return
+        try:
+            # The tip's owning widget hierarchy can be torn down elsewhere
+            # (e.g. a sidebar rebuild during navigation) before this runs,
+            # cascading a Tcl-level destroy of this Toplevel already.
+            # Destroying an already-destroyed overrideredirect Toplevel a
+            # second time is a documented native tk86t.dll access-violation
+            # trigger on Windows, not a catchable TclError, so we must
+            # verify it still exists before destroying it again.
+            if not tip.winfo_exists():
+                return
+            tip.destroy()
+        except Exception:  # noqa: BLE001
+            pass
 
     def before_menu_open(self) -> None:
         self.state.menu_open = True

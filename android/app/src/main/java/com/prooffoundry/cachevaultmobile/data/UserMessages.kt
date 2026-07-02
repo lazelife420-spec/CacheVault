@@ -28,7 +28,7 @@ object UserMessages {
         "This screenshot is not available on your PC.\nIt may not have been saved as an image asset."
 
     const val REPAIR_NEEDED =
-        "Could not connect.\nYour phone reached the PC, but the pairing code was rejected.\nGenerate a fresh pairing code on the PC."
+        "This PC no longer trusts this phone.\nRe-pair to continue."
 
     const val PAIRING_SAVED = "Saved — connected to PC"
 

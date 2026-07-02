@@ -47,6 +47,21 @@ def test_server_not_running_when_disabled(vault, mobile_bridge):
     assert mobile_bridge.is_running is False
 
 
+def test_fresh_profile_bridge_off_by_default(vault, tmp_path):
+    """A brand-new profile must not start the LAN bridge on first launch.
+
+    Proves the bridge stays OFF (no silent listener) until the user explicitly
+    enables Mobile Access.
+    """
+    fresh = Settings.load(tmp_path / "brand_new_profile.json")
+    assert fresh.mobile_access_enabled is False
+    log = MobileReceiptLog(tmp_path / "fresh_receipts.json")
+    bridge = MobileBridge(vault, receipt_log=log)
+    assert bridge.needs_sync(fresh) is False
+    bridge.sync(fresh)
+    assert bridge.is_running is False
+
+
 def test_api_unavailable_when_disabled(vault, mobile_bridge):
     vault.settings.mobile_access_enabled = False
     code, body = mobile_bridge.handle("GET", "/mobile/v1/status", {})
@@ -73,6 +88,36 @@ def test_status_includes_mobile_api_version(vault, mobile_bridge):
     assert body["mobile_api_version"] == "1"
     assert body["read_only"] is True
     assert "token" not in json.dumps(body).lower()
+
+
+def test_public_pair_device_returns_token_without_logging_plaintext(vault, mobile_bridge):
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST",
+        "/mobile/v1/pair-device",
+        {},
+        remote_ip="192.168.0.44",
+        body={
+            "device_id": "phone-auto-1",
+            "device_name": "Galaxy S",
+            "app_version": "0.1.0",
+            "platform": "android",
+        },
+    )
+    assert code == 200
+    assert body["device_id"] == "phone-auto-1"
+    assert body["device_name"] == "Galaxy S"
+    assert body["token"]
+    stored = vault.settings.paired_devices[0]
+    assert stored["device_id"] == "phone-auto-1"
+    assert stored["token_hash"] != body["token"]
+    assert stored["platform"] == "android"
+    rec = mobile_bridge.receipts.recent()[-1]
+    assert rec["action"] == "pair_device"
+    assert rec["result"] == "ok"
+    assert rec["device_id"] == "phone-auto-1"
+    assert rec["remote_ip"] == "192.168.0.44"
+    assert "token" not in json.dumps(rec).lower()
 
 
 def test_paired_read_only_list_clips(vault, mobile_bridge):
@@ -238,6 +283,51 @@ def test_revoked_device_rejected(vault, mobile_bridge):
     assert "revoked" in body["message"].lower()
 
 
+def test_last_seen_updates_on_successful_reconnect(vault, mobile_bridge):
+    """last_seen_at starts unset and is stamped by any authenticated request."""
+    device, token = _pair(mobile_bridge, vault)
+    assert vault.settings.paired_devices[0]["last_seen_at"] is None
+    code, _ = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 200
+    assert vault.settings.paired_devices[0]["last_seen_at"] is not None
+
+
+def test_repair_with_same_device_id_refreshes_not_duplicates(vault, mobile_bridge):
+    """Re-pairing with the phone's remembered device_id refreshes the same
+    record (new token) instead of leaving an orphaned duplicate entry."""
+    device, old_token = _pair(mobile_bridge, vault)
+    assert len(vault.settings.paired_devices) == 1
+
+    new_device, new_token = mobile_bridge.pair_device(device.device_id, device.device_name)
+    assert new_device.device_id == device.device_id
+    assert len(vault.settings.paired_devices) == 1, (
+        "re-pairing the same device_id must refresh, not duplicate")
+
+    code, _ = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, old_token))
+    assert code == 401, "the old, superseded token must no longer authenticate"
+
+    code, _ = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, new_token))
+    assert code == 200
+
+
+def test_repair_after_revoke_succeeds_with_fresh_credential(vault, mobile_bridge):
+    device, old_token = _pair(mobile_bridge, vault)
+    mobile_bridge.revoke_device(device.device_id)
+    code, _ = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, old_token))
+    assert code == 401
+
+    _, new_token = mobile_bridge.pair_device(device.device_id, device.device_name)
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, new_token))
+    assert code == 200
+    assert vault.settings.paired_devices[0]["revoked_at"] is None, (
+        "re-pairing must clear the prior revocation for this device_id")
+
+
 def test_bridge_starts_when_enabled(vault, mobile_bridge):
     # _start() kicks off discovery.start() on its own background thread (so
     # zeroconf registration latency never blocks sync()); the assertion must
@@ -332,3 +422,35 @@ def test_pair_hot_reload_without_restart(tmp_path, monkeypatch):
         "GET", "/mobile/v1/status", _auth(device.device_id, token))
     assert code == 200
     assert body["device_id"] == device.device_id
+
+
+def test_reconnect_succeeds_after_desktop_restart(tmp_path, monkeypatch):
+    """A phone's stored credential must keep working after the desktop process
+    is fully restarted (fresh Vault/Settings loaded from disk), with no
+    re-pairing required — this is the "Connect this time" reconnect path."""
+    from cache_vault.core.storage import VaultStorage
+    from cache_vault.core.vault import Vault
+
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(
+        "cache_vault.core.settings.default_settings_path", lambda: settings_path)
+
+    settings = Settings()
+    settings.mobile_access_enabled = True
+    settings.save(settings_path)
+    before_vault = Vault(storage=VaultStorage(":memory:"), settings=Settings.load(settings_path))
+    log = MobileReceiptLog(tmp_path / "mobile_receipts.json")
+    before_bridge = MobileBridge(before_vault, receipt_log=log)
+    device, token = _pair(before_bridge, before_vault, device_id="restart-phone")
+
+    # Simulate a full desktop restart: brand-new Vault/Settings/MobileBridge
+    # instances, loading only what is on disk.
+    after_vault = Vault(
+        storage=VaultStorage(":memory:"), settings=Settings.load(settings_path))
+    after_bridge = MobileBridge(after_vault, receipt_log=log)
+
+    code, body = after_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 200
+    assert body["device_id"] == device.device_id
+    assert after_vault.settings.paired_devices[0]["last_seen_at"] is not None

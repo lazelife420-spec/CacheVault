@@ -35,8 +35,8 @@
     <string name="search_hint">Search saved clips…</string>
     <string name="vault_search_hint">Search saved vault…</string>
     <string name="proof_subtitle">Local proof history from your PC</string>
-    <string name="proof_honest_body">Receipts are recorded on your PC.\nOpen Stamped Receipts on desktop to review the full ledger.</string>
-    <string name="proof_actions_hint">Refresh checks connection proof only. Full receipt history stays on your PC.</string>
+    <string name="proof_honest_body">Receipts stay on your PC.\nThis phone can verify whether it still has a trusted local connection.</string>
+    <string name="proof_actions_hint">Refresh checks local connection status only. Open the desktop app to review full receipts.</string>
     <string name="screenshots_tab">Screenshots</string>
     <string name="images_tab">Images</string>
     <string name="images_count">%1$d image(s) saved from your PC</string>
@@ -71,10 +71,14 @@
     <string name="send_failed_unknown">Could not send — %1$s</string>
 
     <string name="pc_found_title">Cache Vault found on this Wi-Fi</string>
-    <string name="pc_found_secure_local">Cache Vault is running on your Wi-Fi.</string>
+    <string name="pc_found_secure_local">This trusted PC is on the same Wi-Fi.</string>
     <string name="pc_found_pair_body">Pair this phone to browse clips and send items to your PC vault.</string>
-    <string name="repair_needed_body">Your phone reached the PC, but the pairing code was rejected. Generate a fresh code on the PC.</string>
-    <string name="connect">Connect</string>
+    <string name="pc_found_approval_body">Connect to %1$s?</string>
+    <string name="pc_found_approval_detail">This phone remembers the pairing. Connect this time, or allow reconnect on this Wi-Fi. Background reconnect works best with Keep Connected. A killed app cannot be woken by the PC.</string>
+    <string name="repair_needed_body">This PC no longer trusts this phone. Re-pair to continue.</string>
+    <string name="connect">Connect this time</string>
+    <string name="trust_and_connect">Always reconnect on this Wi-Fi</string>
+    <string name="not_now">Not now</string>
     <string name="pair_new_device">Pair New Device</string>
     <string name="pair_this_phone">Pair This Phone</string>
     <string name="repair_pair">Re-pair</string>
@@ -82,4 +86,24 @@
     <string name="disconnect">Disconnect</string>
     <string name="no_pc_found_title">No Cache Vault PC found</string>
     <string name="no_pc_found_body">Use the same Wi-Fi as your PC, turn on Mobile Access in Cache Vault, and keep the PC app open. Then tap Retry.</string>
+
+    <string name="keep_connected_in_background">Keep connected in background</string>
+    <string name="keep_connected_summary">Uses an Android foreground service and a persistent notification. If the app is force-closed, reconnect waits until you open it again.</string>
+    <string name="connected_to_label">Connected to:</string>
+    <string name="status_label">Status:</string>
+    <string name="last_seen_label">Last seen:</string>
+    <string name="remembered_pc_label">Remembered PC:</string>
+    <string name="forget_this_pc">Forget this PC</string>
+    <string name="reconnect">Reconnect</string>
+    <string name="waiting_for_phone_approval">Connect this time unless you allow reconnect on this Wi-Fi.</string>
+
+    <string name="keep_connected_notification_title">Cache Vault Mobile connected</string>
+    <string name="keep_connected_notification_starting">Starting background connection…</string>
+    <string name="keep_connected_notification_connected">Connected to %1$s</string>
+    <string name="keep_connected_notification_approval">%1$s found. Open Cache Vault Mobile to approve reconnect.</string>
+    <string name="keep_connected_notification_waiting">Waiting for your PC on the same Wi-Fi.</string>
+    <string name="keep_connected_notification_repair">Pairing expired. Open the app and re-pair with your PC.</string>
+    <string name="stop_background_connection">Stop background connection</string>
+    <string name="background_permission_needed">Allow notifications to keep Cache Vault connected in the background.</string>
+    <string name="background_start_failed">Could not start background connection on this phone. Keep Connected was turned back off.</string>
 </resources>

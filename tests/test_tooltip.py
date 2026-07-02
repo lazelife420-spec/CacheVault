@@ -8,10 +8,15 @@ class FakeTip:
     def __init__(self, text: str):
         self.text = text
         self.destroyed = False
+        self.destroy_calls = 0
         self.geometry_value = ""
 
     def destroy(self) -> None:
+        self.destroy_calls += 1
         self.destroyed = True
+
+    def winfo_exists(self) -> int:
+        return 0 if self.destroyed else 1
 
     def winfo_width(self) -> int:
         return 180
@@ -176,3 +181,45 @@ def test_context_menu_suppresses_pending_tooltip():
 
 def test_tooltip_text_registry_contains_no_forbidden_claims():
     assert guide_copy.guide_copy_has_no_forbidden_claims()
+
+
+def test_hide_active_skips_destroy_when_already_gone():
+    """Regression test for a native tk86t.dll access-violation crash.
+
+    If the tip's parent hierarchy is torn down elsewhere (e.g. a sidebar
+    rebuild during navigation), the Toplevel can already be Tcl-destroyed
+    before a later <Configure>/<FocusOut>/<Unmap>-triggered hide runs.
+    Destroying it again must not happen.
+    """
+    manager = HelperTooltipManager()
+    widget = FakeWidget()
+
+    manager.show(widget, "Fragile tip")
+    tip = manager.state.active_tip
+    tip.destroy()
+    assert tip.destroy_calls == 1
+
+    manager.hide_active()
+
+    assert tip.destroy_calls == 1
+
+
+def test_hide_active_reentrant_call_does_not_double_destroy():
+    """A destroy() call that reenters hide_tooltip() must not race itself."""
+    manager = HelperTooltipManager()
+    widget = FakeWidget()
+
+    manager.show(widget, "Reentrant tip")
+    tip = manager.state.active_tip
+
+    original_destroy = tip.destroy
+
+    def reentrant_destroy() -> None:
+        original_destroy()
+        # Simulate a nested hide triggered while this destroy is unwinding.
+        manager.hide_active()
+
+    tip.destroy = reentrant_destroy
+    manager.hide_active()
+
+    assert tip.destroy_calls == 1
