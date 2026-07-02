@@ -6,7 +6,11 @@ Date: 2026-07-01
 
 - Android reconnect implementation: preserved
 - Device installability: proven
-- Reconnect reliability: pending real device QA
+- Reconnect reliability: **tested live 2026-07-01, mixed result.**
+  `Not now` truthfulness and Keep Connected notification/no-crash confirmed
+  `PASS`. Silent reconnect via `Connect this time` (reusing a remembered,
+  non-revoked pairing after a desktop restart) confirmed `FAIL` - only a
+  manual `Re-pair` succeeds. Not "reliable" yet.
 - Release/publish: `HOLD`
 
 ## Guardrails
@@ -109,6 +113,71 @@ Date: 2026-07-01
 - Android screenshots directory: `C:\Users\KickA\Desktop\CacheVault\qa_artifacts\android_reconnect_2026-07-01\android\`
 - Desktop screenshots directory: `C:\Users\KickA\Desktop\CacheVault\qa_artifacts\android_reconnect_2026-07-01\desktop\`
 - Logcat path on failure: `C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-07-01.txt`
+
+## Live Device QA Pass (2026-07-01, 22:20-22:52, First-Hand)
+
+Executed against the preflight-verified clean-source runtime (`python app.py`,
+PID `8876`, `C:\Python313\python.exe app.py`; Android `mobile/android-reconnect-lifecycle-qa`
+top commit `4efc452` at test time) on device `R3CW40FY82W`. All actions driven
+directly via `adb` (screenshots, UI dumps, taps, logcat) with fresh evidence
+saved to `qa_artifacts\android_reconnect_2026-07-01\android\step3_*` and
+`...\desktop\desktop_step3_*`.
+
+- **Reopen -> approval prompt: `PASS`.** Every relaunch of the Android app
+  after the prior day's pairing consistently surfaced the "Cache Vault found
+  on this Wi-Fi" bottom sheet (`Connect this time` / `Always reconnect on this
+  Wi-Fi` / `Not now` / `Manual Setup`), never a false connected state.
+  Evidence: `step3_01_launch.png`, `step3_02_prompt_recheck.png`,
+  `step3_06_before_tap.png`, `step3_11_reconnect_attempt.png`.
+- **`Not now` -> desktop stays offline: `PASS`.** Tapping `Not now` dismissed
+  the sheet, the phone returned to a disconnected "Checking..." vault view
+  (all counts `0`), and the desktop Command Center continued to show only
+  "Mobile: Paired (1)" with no online/connected indicator.
+  Evidence: `step3_03_after_not_now.png` (phone),
+  `desktop_step3_01_after_not_now.png` (desktop).
+- **`Connect this time` (reuse remembered pairing): `FAIL`.** Tapping
+  `Connect this time` against the fresh clean-source desktop process was
+  rejected: "Your phone reached the PC, but the pairing code was rejected.
+  Generate a fresh code on the PC." This happened even though a non-revoked
+  paired-device record already existed on disk
+  (`%LOCALAPPDATA%\CacheVault\settings.json`: `device_id=phone-1`,
+  `device_name=Test Pixel`, `created_at=2026-07-01T21:17:23-07:00`,
+  `revoked_at=null`). This directly contradicts the Step 3 expectation that a
+  remembered pairing silently reconnects without user action across a desktop
+  restart. Only the one-tap `Re-pair` action (which re-registers the device
+  and issues a fresh token, no code entry required) succeeded.
+  Evidence: `step3_07_after_connect_fixed.png`, `step3_11_reconnect_attempt.png`.
+- **`Re-pair` (one-tap): `PASS_WITH_RUNTIME_CONSTRAINT` (reconfirmed).**
+  After the rejection above, tapping `Re-pair` immediately connected:
+  phone showed "Connected - 192.168.0.11" with live vault counts (228 Text
+  Clips, 256 Links, 151 Code, 10 Commands, 183 Screenshots) matching the
+  desktop's 839-item vault. Desktop still showed only "Mobile: Paired (1)"
+  with no distinct online/offline indicator on the Command Center screen.
+  Evidence: `step3_12_after_repair_tap.png` (phone),
+  `desktop_step3_06_final_connected.png` (desktop).
+- **Keep Connected notification: `PASS`.** Enabling "Keep connected in
+  background" in Settings triggered the Android notification-permission
+  prompt (confirming the `7f0728f` fix path is live), and after granting
+  it, `ActivityManager` logged `Background started FGS: Allowed` and a
+  persistent `ONGOING_EVENT|FOREGROUND_SERVICE` notification
+  ("Cache Vault Desktop found. Open Cache Vault Mobile to approve
+  re[connect]...") appeared in the shade.
+  Evidence: `step3_16_after_allow.png`, `step3_17_notification_shade.png`.
+- **No crash: `PASS`.** The app process (`pidof` / `ps -A`, PID `553` after
+  the relaunch cycle) remained alive throughout the entire Keep Connected
+  enable/disable sequence. No `FATAL EXCEPTION`, `AndroidRuntime` crash, or
+  `ForegroundServiceStartNotAllowed` appeared in logcat at any point.
+- **Stop action: `PARTIAL`.** Toggling "Keep connected in background" back
+  off did not immediately clear the notification. The service/notification
+  were only torn down ~29 seconds later via a system-enforced
+  `ActivityManager: Stop FGS timeout` log line, not an immediate
+  app-initiated stop. The app did not crash and the notification did
+  eventually clear honestly (no stale "connected" claim persisted
+  indefinitely), but the stop was not instantaneous as the expected result
+  implies.
+- **Not tested in this pass:** Step 5 (Auto-Connect Consent), Step 7
+  (Killed-App Limitation), Step 8 (Revoke), Step 9 (Desktop Labels beyond
+  the "Paired (1)" chip), Step 10 regression (send-to-PC/mobile inbox).
 
 ## Evidence Analysis (Cautious, Non-Certifying)
 
@@ -237,7 +306,7 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 
 ### 2. Pairing
 
-- Status: `PENDING`
+- Status: `PARTIAL - see Live Device QA Pass`
 - Exact steps performed:
   - Pair phone to desktop.
   - Confirm pairing completes on both devices.
@@ -248,20 +317,19 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Desktop trusted phone record is saved.
   - Phone shows PC name, IP, and last seen.
 - Actual result:
-  - `BLOCKED / PREREQUISITE_NOT_MET` for full step certification.
-  - Phone-side evidence exists for one interactive re-pair action against the
-    clean-source runtime (see `Runtime Mismatch Finding`, verdict
-    `PASS_WITH_RUNTIME_CONSTRAINT`), but that only proves one manual re-pair
-    tap worked, not that trusted metadata (PC name/IP/last seen) is
-    persisted and displayed correctly.
-  - Desktop-side confirmation has zero evidence: `qa_artifacts\...\desktop\`
-    is empty, so the desktop trusted-phone record has never been observed.
+  - `PARTIAL`, confirmed live 2026-07-01 22:20-22:52. A paired device record
+    (`phone-1` / "Test Pixel") does persist on disk across desktop restarts,
+    and the phone shows PC name/IP ("Connected - 192.168.0.11") after a
+    successful `Re-pair`. However, the record's mere existence did **not**
+    let the phone reconnect via `Connect this time` (see Step 3: rejected).
+    Desktop-side confirmation of the trusted-phone entry (a dedicated
+    paired-devices UI, not just the "Paired (1)" toolbar chip) was still not
+    captured.
 - Android screenshot filename/path:
-  - Partial/indirect only: `repair_retry_screen.png`,
-    `cachevault_ui_repair_retry.xml` (re-pair action, not steady-state pairing
-    metadata).
+  - `step3_12_after_repair_tap.png` (connected state with PC name/IP shown).
 - Desktop screenshot filename/path:
-  - None captured.
+  - `desktop_step3_06_final_connected.png` (still only "Mobile: Paired (1)",
+    no dedicated trusted-device panel captured).
 - Logcat filename/path if relevant:
   - Pending only if failure occurs.
 - Notes / caveats:
@@ -270,7 +338,7 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 
 ### 3. Close/Reopen Reconnect Prompt
 
-- Status: `PENDING`
+- Status: `PARTIAL - approval prompt PASS, silent reconnect FAIL`
 - Exact steps performed:
   - Close the app normally.
   - Reopen the app.
@@ -283,23 +351,34 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Tap `Connect` re-establishes connection without retyping token.
   - Desktop moves to online/connected.
 - Actual result:
-  - `BLOCKED / PREREQUISITE_NOT_MET`. No evidence of a persistent remembered-PC
-    pairing surviving a close/reopen cycle exists; only a single interactive
-    `Re-pair` tap (after a rejected code) has been observed. This step tests a
-    different flow (silent rediscovery + approval prompt on reopen) that has
-    not been exercised.
+  - Confirmed live 2026-07-01 22:20-22:49 across multiple relaunch cycles:
+    - Approval prompt appears after reopen: `PASS`. Every relaunch showed the
+      "Cache Vault found on this Wi-Fi" sheet reliably.
+    - Tap `Connect` re-establishes connection without retyping token: `FAIL`.
+      Tapping `Connect this time` against the freshly-restarted clean-source
+      desktop was rejected ("the pairing code was rejected"), even with a
+      valid, non-revoked paired-device record on disk. Only `Re-pair`
+      (issuing a brand new token, no code entry) succeeded.
+    - Desktop moves to online/connected: not independently observable; the
+      desktop Command Center only ever showed "Mobile: Paired (1)" with no
+      distinct online/offline state, before or after a successful reconnect.
 - Android screenshot filename/path:
-  - None captured for this exact flow.
+  - `step3_01_launch.png`, `step3_07_after_connect_fixed.png` (rejection),
+    `step3_12_after_repair_tap.png` (eventual connect via Re-pair).
 - Desktop screenshot filename/path:
-  - Pending.
+  - `desktop_step3_00_baseline.png`, `desktop_step3_06_final_connected.png`.
 - Logcat filename/path if relevant:
-  - Pending only if failure occurs.
+  - Not applicable; no crash occurred during this flow.
 - Notes / caveats:
   - Record how long rediscovery took on this Wi-Fi.
+  - The `Connect this time` rejection against a same-day, same-machine,
+    clean-source desktop restart is a real reconnect-reliability gap, not an
+    artifact of a stale build. Root cause not yet diagnosed (out of scope for
+    this QA pass; no source changes were made).
 
 ### 4. Not Now Path
 
-- Status: `PENDING`
+- Status: `PASS`
 - Exact steps performed:
   - Reopen the app again after prior pairing.
   - When the approval prompt appears, tap `Not now`.
@@ -308,16 +387,22 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Desktop does not falsely show online.
   - Phone remains paired but offline or waiting.
 - Actual result:
-  - `BLOCKED / PREREQUISITE_NOT_MET`. Requires the persistent-pairing state
-    from Step 3, which has not been evidenced. Not tested.
+  - Confirmed live 2026-07-01 22:20. Tapping `Not now` dismissed the sheet;
+    the phone showed a disconnected "Checking..." vault view with all
+    section counts at `0` (no false connected data). The desktop Command
+    Center continued to show only "Mobile: Paired (1)", no online claim.
 - Android screenshot filename/path:
-  - Pending.
+  - `step3_03_after_not_now.png`.
 - Desktop screenshot filename/path:
-  - Pending.
+  - `desktop_step3_01_after_not_now.png`.
 - Logcat filename/path if relevant:
-  - Pending only if failure occurs.
+  - Not applicable; no failure occurred.
 - Notes / caveats:
   - This is a truthfulness check for paired-vs-live state separation.
+  - The desktop has no distinct "online" indicator at all on this screen
+    (only ever shows "Paired (N)"), so this result is based on the absence
+    of a false-positive claim, not a positive "correctly shows offline"
+    indicator. See Step 9 note about desktop label granularity.
 
 ### 5. Auto-Connect Consent
 
@@ -345,7 +430,7 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 
 ### 6. Keep Connected Foreground Service
 
-- Status: `PENDING`
+- Status: `PARTIAL - notification PASS, stop delayed`
 - Exact steps performed:
   - Enable `Keep Connected`.
   - Confirm Android foreground notification appears.
@@ -359,24 +444,46 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Stop action works.
   - Status updates honestly after stop.
 - Actual result:
-  - `BLOCKED / PREREQUISITE_NOT_MET`. **Not** `PASS`, and not to be inferred
-    as such: `live_check.png` (`20:56:15`) and `foreground_check.png`
-    (`20:56:24`) are verified byte-identical (SHA256 match) and show only the
-    phone home screen with unrelated third-party apps, with **no visible
-    Cache Vault notification**. This is not evidence the foreground service
-    works, nor proof it fails, since these captures predate confirmation of
-    the clean-runtime fix (`21:00:16`) and may not even reflect an attempt to
-    enable Keep Connected. `Keep Connected` has not been exercised against
-    the clean-source runtime with usable evidence.
+  - Confirmed live 2026-07-01 22:49-22:52 against the clean-source runtime
+    (superseding the earlier inconclusive `live_check.png`/`foreground_check.png`
+    evidence from the prior day, which remains inconclusive/duplicate and was
+    not relied on):
+    - Foreground notification appears: `PASS`. Enabling the toggle triggered
+      the Android notification-permission prompt; after granting it,
+      `ActivityManager` logged `Background started FGS: Allowed` and a
+      persistent `ONGOING_EVENT|FOREGROUND_SERVICE` notification appeared
+      in the shade ("Cache Vault Desktop found. Open Cache Vault Mobile to
+      approve re[connect]...").
+    - Background behavior improved relative to normal mode: not tested
+      (app was not backgrounded/compared in this pass).
+    - Stop action works: `PARTIAL`. Toggling off did not clear the
+      notification immediately. Teardown happened ~29 seconds later via a
+      system-enforced `ActivityManager: Stop FGS timeout`, not an
+      app-initiated immediate stop.
+    - Status updates honestly after stop: `PASS` (eventually). The
+      notification and service record were both gone after teardown; no
+      stale "connected" claim persisted indefinitely.
+    - No crash: `PASS`. App process (PID `553`) stayed alive throughout
+      enable, notification display, and disable. No `FATAL EXCEPTION` or
+      `ForegroundServiceStartNotAllowed` in logcat.
 - Android screenshot filename/path:
-  - Inconclusive/duplicate only: `live_check.png`, `foreground_check.png`
-    (identical file, not two independent observations).
+  - `step3_15_keep_connected_toggled.png`, `step3_16_after_allow.png`,
+    `step3_17_notification_shade.png`, `step3_19_toggle_off_retry.png`.
+  - Superseded/inconclusive prior evidence: `live_check.png`,
+    `foreground_check.png` (byte-identical, home-screen only, no notification
+    visible; predates this confirmed pass).
 - Desktop screenshot filename/path:
-  - Optional if state transition is visible.
+  - Not captured for this sub-step.
 - Logcat filename/path if relevant:
-  - Pending only if failure occurs.
+  - No failure occurred; live logcat inspected directly (not archived to a
+    separate file for this step).
 - Notes / caveats:
-  - Do not interpret “better” as “guaranteed.”
+  - Do not interpret "better" as "guaranteed."
+  - The ~29s delayed stop is a real, first-hand-observed nuance, not
+    confirmed as a blocking defect, since it self-resolved honestly with no
+    crash and no stale-connected claim. Worth a follow-up look at whether the
+    app calls `stopForeground()`/`stopSelf()` explicitly on toggle-off versus
+    relying on the OS timeout.
 
 ### 7. Killed-App Limitation
 
