@@ -23,6 +23,19 @@ Date: 2026-07-01
   "reliable" claim: Steps 5, 7, 9, and 10 remain untested, and the Keep
   Connected ~29s stop delay and missing desktop online/offline indicator are
   still open, non-blocking findings.
+  **Update 2026-07-02 (remaining QA matrix):** Steps 5 (Auto-Connect
+  Consent) and 7 (Killed-App Limitation) retested live and confirmed `PASS`.
+  Step 9 (Desktop Labels) is `PARTIAL`: per-device Online/Offline/Revoked
+  state exists in code but is not reachable from the live desktop UI, which
+  only shows an aggregate count - a desktop UX follow-up, not a reconnect
+  blocker. Step 10 (Regression) confirmed `PASS`: send-to-PC/mobile inbox
+  works end-to-end, the Keep Connected foreground-service stop clears in
+  ~0.4s with no crash, and no Android or desktop crash occurred during this
+  pass. A separate, previously-undiscovered desktop Tk native crash was
+  found live during Step 9 testing (unrelated to the Android reconnect
+  logic), root-caused, fixed (`019fc14`), and verified stable under repeated
+  live stress-retesting - see the "QA finding during Step 9" subsection
+  under Step 9 for full detail.
 - Release/publish: `HOLD`
 
 ## Guardrails
@@ -568,7 +581,7 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 
 ### 5. Auto-Connect Consent
 
-- Status: `PENDING`
+- Status: `PASS`
 - Exact steps performed:
   - Explicitly enable auto-connect consent on the phone.
   - Close and reopen the app.
@@ -579,16 +592,29 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Reconnect occurs without manual token entry.
   - Status remains clear and honest.
 - Actual result:
-  - `BLOCKED / PREREQUISITE_NOT_MET`. No evidence of the consent toggle being
-    exercised or of a reconnect-without-retyping flow. Not tested.
+  - Confirmed live 2026-07-02, against the clean-source, fixed-build APK
+    (`9cf3178f...`). Tapped "Always reconnect on this Wi-Fi" on the discovery
+    sheet (explicit consent, not a default). Killed and restarted the desktop
+    process, force-stopped and relaunched the phone app. It reconnected
+    silently with no approval prompt and no manual token/code entry, showing
+    "Connected · 192.168.0.11" immediately. Verified server-side: the
+    device's `last_seen_at` in `settings.json` updated to the exact second
+    shown on the phone's clock, confirming a real authenticated reconnect,
+    not a stale cached UI state.
 - Android screenshot filename/path:
-  - Pending.
+  - `step5_00_baseline_launch.png` (sheet before consent),
+    `step5_02_after_always_reconnect_tap.png` (immediately connected after
+    consent tap), `step5_03_relaunch_after_restart.png` (silent reconnect
+    after desktop restart + phone relaunch, no prompt shown).
 - Desktop screenshot filename/path:
-  - Optional if helpful.
+  - Not captured for this sub-step (server-side `settings.json` used
+    instead for corroboration).
 - Logcat filename/path if relevant:
-  - Pending only if failure occurs.
+  - Not applicable; no failure occurred.
 - Notes / caveats:
-  - If the app reconnects before consent, mark as `FAIL`.
+  - Consent was explicit (a deliberate tap on "Always reconnect on this
+    Wi-Fi"), not a default-on behavior. No auto-connect occurred before
+    that tap in any earlier step.
 
 ### 6. Keep Connected Foreground Service
 
@@ -646,12 +672,23 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
     crash and no stale-connected claim. Worth a follow-up look at whether the
     app calls `stopForeground()`/`stopSelf()` explicitly on toggle-off versus
     relying on the OS timeout.
+  - **Update 2026-07-02:** re-verified as part of Step 10 with a more
+    carefully-instrumented check (the phone's Settings-screen toggle-off was
+    confirmed by code read to call `BackgroundConnectionService.stop()`,
+    which sends `ACTION_STOP` and triggers an explicit
+    `stopForeground(STOP_FOREGROUND_REMOVE)` + `stopSelf()`, not just an OS
+    timeout) and cleared the live notification in `~0.4s` on that pass, with
+    no code change made. See Step 10 for the full result and for a
+    methodology note about a test-tooling false positive encountered along
+    the way. The ~29s figure above is left as-is since it was a genuine
+    first-hand observation on 2026-07-01; both figures are kept for the
+    record rather than reconciled into a single number.
 
 ### 7. Killed-App Limitation
 
-- Status: `PENDING`
+- Status: `PASS`
 - Exact steps performed:
-  - Force stop or swipe away the app if applicable on this device.
+  - Force stop the app via `adb shell am force-stop`.
   - Observe whether UI/desktop makes any false wake claim.
   - Reopen the app.
   - Verify reconnect flow resumes.
@@ -659,16 +696,27 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - No fake claim that the PC can wake a killed app.
   - Reopen resumes reconnect flow honestly.
 - Actual result:
-  - `BLOCKED / PREREQUISITE_NOT_MET`. No evidence of a force-stop/kill cycle
-    being performed. Not tested.
+  - Confirmed live 2026-07-02. Force-stopped the app (`adb shell ps -A`
+    confirmed the process was gone). Captured the desktop window while the
+    phone app was dead: no crash, no visual change, still only "Mobile:
+    Paired (2)" - no false "connected" claim and no wake-related copy
+    anywhere. Code search confirmed no wake/push/FCM/GCM mechanism exists
+    anywhere in the desktop source at all, so there is no code path that
+    could ever attempt to wake a killed app. Reopening the app (a user
+    action, not a PC-initiated wake) correctly resumed the reconnect flow,
+    showing an honest "Connected · 192.168.0.11" status. The discovery
+    sheet's own copy already states "A killed app cannot be woken by the
+    PC."
 - Android screenshot filename/path:
-  - Pending.
+  - `step7_02_reopen_after_kill.png`.
 - Desktop screenshot filename/path:
-  - Optional if useful.
+  - `step7_00_before_kill.png`, `step7_01_after_kill.png` (no change while
+    phone app was dead).
 - Logcat filename/path if relevant:
-  - Pending only if failure occurs.
+  - Not applicable; no failure occurred.
 - Notes / caveats:
-  - This is a critical product honesty check.
+  - This is a critical product honesty check, and it holds: the app makes
+    no wake claim, and reopening is the only thing that resumes reconnect.
 
 ### 8. Revoke
 
@@ -697,7 +745,7 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 
 ### 9. Desktop Labels
 
-- Status: `PENDING`
+- Status: `PARTIAL`
 - Exact steps performed:
   - Exercise the phone flow needed to show each desktop state.
   - Capture desktop UI in:
@@ -709,46 +757,173 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 - Expected result:
   - Desktop clearly distinguishes all target states.
 - Actual result:
-  - `BLOCKED / PREREQUISITE_NOT_MET`. The desktop evidence folder
-    (`qa_artifacts\android_reconnect_2026-07-01\desktop\`) is empty; zero
-    desktop-side screenshots exist for any state. Not tested.
+  - Code-level per-device `Online` / `Offline` / `Waiting for phone
+    approval` / `Revoked` / `Paired` states exist and are correctly
+    implemented (`paired_device_status()` in `cache_vault/core/mobile/models.py`,
+    used by `PairedDevicesDialog` in `cache_vault/ui/mobile_dialogs.py`).
+    However, the live-reachable desktop UI tested (toolbar "Mobile: Paired
+    (N)" chip and the sidebar "Mobile Access" screen) only ever showed an
+    aggregate paired-device count and a single aggregate "Last phone
+    connection" value, never a per-device online/offline/revoked panel.
+    `PairedDevicesDialog` (the dialog that does show per-device state) is
+    only wired to the deprecated fallback `SettingsDialog`, which the app
+    skips whenever the current Settings Hub loads successfully - i.e.
+    effectively always in the live app. A clean supporting screenshot of
+    the "Mobile Access" screen was not obtained because sidebar-scroll
+    automation to reach it was unreliable (scroll position drifted between
+    capture attempts); that automation limitation is not being treated as
+    proof of anything, so this section relies on the code-level finding
+    plus the toolbar-chip screenshots already on file, not on an
+    unconfirmed screenshot.
 - Android screenshot filename/path:
-  - N/A unless paired state on phone helps explain.
+  - N/A.
 - Desktop screenshot filename/path:
-  - None captured.
+  - `step7_00_before_kill.png`, `step9_09_fresh_natural.png` (both show the
+    toolbar's aggregate "Mobile: Paired (N)" chip; no per-device panel was
+    captured).
 - Logcat filename/path if relevant:
-  - Usually N/A.
+  - N/A.
 - Notes / caveats:
   - This is a desktop-truthfulness verification tied to the Android lane.
+  - Not a reconnect blocker: the underlying reconnect/re-pair credential
+    behavior (Steps 2-4, 8) was already fully tested and is unaffected by
+    this UI-surfacing gap. This is a desktop UX follow-up: wire
+    `PairedDevicesDialog` (or equivalent per-device detail) into the
+    current Settings Hub / Mobile Access screen so operators can actually
+    see per-device Online/Offline/Revoked state.
+
+#### QA finding during Step 9: desktop Tk native crash (found and fixed)
+
+While live-testing Step 9 (navigating the desktop sidebar to reach the
+Mobile Access screen), the desktop process crashed. This is a **desktop
+QA blocker found during this pass**, not a defect in the Android
+reconnect/re-pair logic already tested and confirmed above.
+
+- Crash signature: `tk86t.dll` `0xc0000005` ACCESS_VIOLATION, fault offset
+  `0xd780f` - the same deterministic offset documented in
+  `docs/CACHE_VAULT_TK_NATIVE_CRASH_AUDIT_2026-07-01.md`. Confirmed via
+  `%LOCALAPPDATA%\CacheVault\crash_native.log` and the Windows Application
+  event log (Event ID 1000). Always from clean-source `python.exe`
+  running `app.py`, never from a stale EXE.
+- Full Python traceback (this time available, unlike the original
+  unsymbolized minidumps in the prior audit): main thread, inside
+  `TooltipManager.hide_active()` -> `CTkToplevel.destroy()`, triggered via
+  the global `<Configure>`/`<FocusOut>`/`<Unmap>`/`Button`/`MouseWheel`
+  hide-tooltip bindings in `shell.py` (`_bind_tooltip_hide_events`).
+- Root cause: `hide_active()` called `tip.destroy()` with no
+  `winfo_exists()` guard, and only cleared `state.active_tip` **after**
+  the destroy attempt. Two real trigger paths follow from that: (1) the
+  tooltip's owning widget hierarchy can be torn down elsewhere (e.g. a
+  sidebar rebuild during navigation), already cascading a Tcl-level
+  destroy of the same `Toplevel`, so this call destroys it a second time;
+  (2) `destroy()` can pump a pending Tk event synchronously, reentering
+  `hide_tooltip()` while the outer call's tip reference is still set,
+  racing to destroy the same window twice. Double-destroying an
+  `overrideredirect` `Toplevel` on Windows Tcl/Tk 8.6.2.15 is a documented
+  native crash trigger, not a catchable `TclError`, so the existing
+  `try/except Exception` could not protect against it.
+- Fix commit: `019fc14` - clear active-tip state before attempting
+  cleanup (so a reentrant call sees nothing to destroy) and check
+  `winfo_exists()` before calling `destroy()` a second time. Adds two
+  regression tests (`test_hide_active_skips_destroy_when_already_gone`,
+  `test_hide_active_reentrant_call_does_not_double_destroy`) covering both
+  trigger paths in `tests/test_tooltip.py`.
+- Verification:
+  - `pytest tests/ -q`: full suite `PASS` (all tests, including the two
+    new regression tests).
+  - `python -m compileall cache_vault`: `PASS`.
+  - `python app.py --selftest`: `PASS`.
+  - Live re-test: restarted the desktop from the fixed build and
+    reproduced the same rapid scroll + navigation-click sequence that
+    crashed it before, multiple times in a row. The process stayed alive
+    and responsive (`Get-Process ... | Select Responding` = `True`)
+    throughout; no further `crash_native.log` entries were produced.
+- Classification: `FIXED / RETESTED`. This is scoped as a desktop UI
+  stability fix discovered during this QA pass, independent of the
+  Android reconnect/re-pair narrow fix (`f9bcfbe`, `e99e355`) documented
+  above.
 
 ### 10. Regression
 
-- Status: `PENDING`
+- Status: `PASS`
 - Exact steps performed:
   - Verify send-to-PC/mobile inbox still works.
+  - Re-verify Keep Connected's foreground-service clean stop (enable, confirm
+    notification, disable, confirm clean stop, confirm no crash).
   - Watch for Android crash during lifecycle testing.
   - Watch for desktop crash during pairing, reconnect, revoke, and inbox flow.
+  - Confirm port 8742 stays owned by the committed-source desktop process.
 - Expected result:
   - Send-to-PC/mobile inbox still works.
+  - Foreground service stops cleanly.
   - No Android crash.
   - No desktop crash.
 - Actual result:
-  - `PENDING`, not `PASS`. The captured logcat (`android_reconnect_logcat_2026-07-01.txt`)
-    shows no Cache Vault-specific crash/exception signature, but it only spans
-    up to `18:01:32` and does not cover the `20:40`-`21:00` window where the
-    actual repair-retry/Keep-Connected testing happened. This absence of
-    evidence cannot certify crash-free behavior for the full lifecycle, and
-    send-to-PC/mobile inbox regression has not been checked at all.
+  - Confirmed live 2026-07-02, against the re-paired real phone (see the
+    settings.json note below) and the clean-source desktop (PID `15240`).
+  - **Send-to-PC / mobile inbox: `PASS`.** Fired a real Android
+    `ACTION_SEND` share intent at the app's registered `ShareAssistantActivity`
+    (the same activity any app's share sheet reaches; confirmed registered
+    with `text/plain`/`image/*` intent filters in `AndroidManifest.xml`).
+    The app showed "Send to your PC vault" / "Connected to Cache Vault PC",
+    and after tapping "Send to Cache Vault" showed "Sent to Cache Vault ·
+    Default Safe · receipt stamped". Verified directly in the desktop's
+    `cache_vault.db` (not just UI): a new row appeared in `clips` with the
+    exact test payload, `source_app='Android Share'`, `source_window` set to
+    the phone's model string, timestamped to the moment of the test. This
+    confirms the phone-to-desktop send path is intact end-to-end, independent
+    of the reconnect fix.
+  - **Foreground-service clean stop re-verification: `PASS`.** First pass
+    used an over-broad `dumpsys notification` grep that matched Android's
+    permanent notification *history archive* (not the live shade), producing
+    a false "notification never clears" reading after 5+ minutes - this was
+    a test-methodology bug, not a product bug, and is called out here so it
+    is not mistaken for evidence later. Re-tested with a corrected check
+    that reads only the live `Notification List:` section: enabling Keep
+    Connected posts the ongoing "Cache Vault Mobile connected" notification
+    (`flags=ONGOING_EVENT|ONLY_ALERT_ONCE|NO_CLEAR|FOREGROUND_SERVICE`) as
+    expected; toggling it off in the phone's Settings screen correctly
+    invokes `BackgroundConnectionService.stop(context)` (confirmed by
+    reading `CacheVaultMobileRoot.kt`'s `onKeepConnectedChanged` wiring),
+    which sends `ACTION_STOP` to the service, and the service's
+    `stopForeground(STOP_FOREGROUND_REMOVE)` + `stopSelf()` handler clears
+    the live notification in `~0.4s` with the app process staying alive
+    throughout (`pidof` unchanged). This supersedes the ~29s figure
+    recorded in Step 6 on 2026-07-01 for this specific build; no code
+    change was needed or made.
+  - **No Android crash: `PASS`.** `adb logcat -d` searched for
+    `FATAL EXCEPTION` across the full send-to-PC and Keep Connected test
+    window: no matches. App process PID stayed the same throughout.
+  - **No desktop crash: `PASS`.** Desktop process (PID `15240`, clean
+    source, matches the fix build) stayed alive and `Responding: True`
+    across the entire Step 10 window; no new `crash_native.log` entries.
+  - **Port ownership: `PASS`.** `netstat` confirms `0.0.0.0:8742 LISTENING`
+    is still owned by PID `15240` throughout.
+  - **Incidental note:** before this step, the real phone had briefly
+    dropped to a "This PC no longer trusts this phone. Re-pair to continue."
+    state (the desktop's `settings.json` `paired_devices` array had been
+    replaced by a single `phone-1`/`Test Pixel` record with a suspicious
+    timestamp - the same recurring test-fixture-shaped artifact noted
+    earlier in this document; the write path is still not conclusively
+    identified, `pytest` and `app.py --selftest` were both re-checked and
+    ruled out again). Per direction, this was not chased further: the real
+    phone was re-paired fresh (itself an incidental live confirmation that
+    the repair-needed copy fix and Re-pair flow both still work correctly),
+    and Step 10 proceeded normally from there.
 - Android screenshot filename/path:
-  - Optional.
+  - Not captured (share-intent and toggle flows verified via `uiautomator`
+    dumps and direct system state, not screenshots).
 - Desktop screenshot filename/path:
-  - Optional.
+  - Not captured; verified via direct `cache_vault.db` query and process/port
+    state instead.
 - Logcat filename/path if relevant:
-  - `android_reconnect_logcat_2026-07-01.txt` (partial coverage only, see above).
+  - Not archived to a file; inspected live via `adb logcat -d` for this pass.
 - Notes / caveats:
-  - Treat crashes as blocking failures even if reconnect otherwise works.
-  - A fresh logcat capture spanning the full live test window is required for
-    this step to be answerable.
+  - Treat crashes as blocking failures even if reconnect otherwise works;
+    none occurred in this pass.
+  - The Keep Connected stop-delay figure from Step 6 (~29s) is superseded
+    for this build by this step's more carefully-instrumented ~0.4s result;
+    both are left in the document rather than deleting the earlier entry.
 
 ## Post-Run Verdict
 
@@ -761,6 +936,34 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   Fix (2026-07-02)". Verdict remains `HOLD` because Steps 5, 7, 9, and 10 are
   still untested and the Keep Connected stop-delay / desktop online-offline
   indicator gaps remain open.
+- **Update 2026-07-02 (remaining QA matrix complete):** all previously
+  untested steps have now been run live.
+  - Android reconnect/re-pair core (Steps 2-4, 8): `PASS`, fixed and
+    retested as above.
+  - Auto-Connect Consent (Step 5): `PASS`.
+  - Killed-App Limitation (Step 7): `PASS`.
+  - Desktop Labels (Step 9): `PARTIAL` - per-device Online/Offline/Revoked
+    state exists in code but is not reachable in the live desktop UI, which
+    only shows an aggregate count. This is a desktop UX follow-up, not a
+    reconnect blocker.
+  - Regression (Step 10): `PASS` - send-to-PC/mobile inbox confirmed
+    end-to-end via a real Android share intent and a direct database check;
+    the Keep Connected foreground-service stop clears in ~0.4s with no
+    crash (superseding the ~29s figure from Step 6 for this build); no
+    Android or desktop crash occurred.
+  - A separate, previously-undiscovered desktop Tk native crash was found
+    live during Step 9 testing (`tooltip.py` double-destroy on hide,
+    unrelated to the Android reconnect logic), root-caused, fixed
+    (`019fc14`), and verified stable under full pytest, compileall,
+    selftest, and live stress-retesting.
+  - **Verdict stays `HOLD`, not `PASS`.** Every individual step above is
+    now `PASS` or `PARTIAL` (no step is `FAIL` or untested), but this
+    document has not been treated as sufficient on its own to promote the
+    lane to an APK RC candidate: that decision, and any `/proof` update,
+    APK publish, or `rc4/rc5` merge, is deliberately left to a separate,
+    explicit release-gate review rather than being auto-triggered by this
+    QA pass finishing. The Step 9 aggregate-only desktop label gap is
+    tracked as an open, non-blocking follow-up rather than a blocker.
 
 ## Commit Guidance After QA
 
