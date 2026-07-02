@@ -21,14 +21,39 @@ Date: 2026-07-01
 
 - Branch: `mobile/android-reconnect-lifecycle-qa`
 - Remote tracking: pushed to `origin`
-- Top commit: `2d23cb36b5096e90464c13d630f8d2897065df29`
+- Top commit: `7f0728f fix: harden Android background connect toggle`
 - APK path: `C:\Users\KickA\Desktop\CacheVault\android\app\build\outputs\apk\debug\app-debug.apk`
-- APK SHA256: `62FC51F9B5CD213F4D9572BFA0FB7CF975269164580A15FDF77BA97AE35B48D4`
+- APK SHA256: `85CA720C5D32374DFF76077FF592B90018667563BE66968110DEA1298F2CAB42`
 - Device serial: `R3CW40FY82W`
 - Device model: `SM-S911W`
 - Android version: `16`
 - Android SDK: `36`
 - Current verdict: `HOLD / DEVICE_QA_PENDING`
+
+## Blocker / Fix Receipt
+
+- Finding:
+  - `Keep Connected` toggle could crash the Android app.
+- Likely cause:
+  - Foreground service was declared as `dataSync` without the required type-specific permission.
+  - Service startup and notification permission path did not fail gracefully on-device.
+- Fix commit:
+  - `7f0728f fix: harden Android background connect toggle`
+- Code changes:
+  - Added Android manifest foreground service permission for `dataSync`.
+  - Added notification permission handling before background-service start.
+  - Added clean in-app error handling if service startup fails.
+  - App startup check now respects notification availability before restarting background mode.
+  - Desktop `Connect Phone` entry point added to surface the PC-side connect flow more clearly.
+- Validation:
+  - `pytest tests\test_dialogs.py tests\test_mobile_connection_lifecycle.py -q` PASS
+  - `python -m compileall cache_vault` PASS
+  - `.\gradlew.bat testDebugUnitTest` PASS
+  - `.\gradlew.bat assembleDebug` PASS
+  - `adb install -r app-debug.apk` SUCCESS
+- Verdict:
+  - `FIXED_CANDIDATE / RETEST_REQUIRED`
+  - Overall device QA remains `HOLD`
 
 ## Evidence Paths
 
