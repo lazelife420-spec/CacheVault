@@ -6,11 +6,23 @@ Date: 2026-07-01
 
 - Android reconnect implementation: preserved
 - Device installability: proven
-- Reconnect reliability: **tested live 2026-07-01, mixed result.**
-  `Not now` truthfulness and Keep Connected notification/no-crash confirmed
-  `PASS`. Silent reconnect via `Connect this time` (reusing a remembered,
-  non-revoked pairing after a desktop restart) confirmed `FAIL` - only a
-  manual `Re-pair` succeeds. Not "reliable" yet.
+- Reconnect reliability: **tested live 2026-07-01, mixed result; root-caused
+  and fixed 2026-07-02, see "Root Cause Investigation and Narrow Fix
+  (2026-07-02)" below.** `Not now` truthfulness and Keep Connected
+  notification/no-crash confirmed `PASS` on 2026-07-01. Silent reconnect via
+  `Connect this time` (reusing a remembered, non-revoked pairing after a
+  desktop restart) confirmed `FAIL` on 2026-07-01 - only a manual `Re-pair`
+  succeeded. **Update 2026-07-02:** root cause identified as `Re-pair`
+  minting a brand-new device identity instead of refreshing the remembered
+  one, plus misleading repair-required copy in two places. Both fixed
+  (`f9bcfbe`, `e99e355`) and retested live: `Connect this time` now succeeds
+  after a real desktop restart without needing `Re-pair`, revoke correctly
+  blocks reconnect with accurate copy, and `Re-pair` after revoke reuses the
+  same `device_id` (confirmed directly in `settings.json`, not just
+  screenshots) instead of creating a duplicate. This is not yet a full
+  "reliable" claim: Steps 5, 7, 9, and 10 remain untested, and the Keep
+  Connected ~29s stop delay and missing desktop online/offline indicator are
+  still open, non-blocking findings.
 - Release/publish: `HOLD`
 
 ## Guardrails
@@ -33,6 +45,14 @@ Date: 2026-07-01
 - Android version: `16`
 - Android SDK: `36`
 - Current verdict: `HOLD / DEVICE_QA_PENDING`
+
+**Update 2026-07-02** (see "Root Cause Investigation and Narrow Fix" section
+below for full detail; original values above left intact for history):
+
+- Top commit: `e99e355 fix(mobile): update repair-needed bottom sheet copy to match UserMessages`
+  (on top of `f9bcfbe fix(mobile): reuse remembered device_id on re-pair...`)
+- Clean-source APK SHA256 (final, string-fix included): `9cf3178fcdeeda3c65c093380be0cbb8517d0b813a0a108000cc56aba472e934`
+- Current verdict: `HOLD / NARROW_FIX_RETESTED_PASS` (Steps 5, 7, 9, 10 still untested; not a full-reliability claim)
 
 ## Blocker / Fix Receipt
 
@@ -178,6 +198,140 @@ saved to `qa_artifacts\android_reconnect_2026-07-01\android\step3_*` and
 - **Not tested in this pass:** Step 5 (Auto-Connect Consent), Step 7
   (Killed-App Limitation), Step 8 (Revoke), Step 9 (Desktop Labels beyond
   the "Paired (1)" chip), Step 10 regression (send-to-PC/mobile inbox).
+
+## Root Cause Investigation and Narrow Fix (2026-07-02)
+
+This section documents work done **after** the Live Device QA Pass above,
+in response to its "Connect this time: FAIL" finding. It supersedes that
+finding's conclusion (the defect is now fixed and retested) but does not
+retract or delete the original observation, which remains accurate for the
+build tested that night.
+
+### Investigation
+
+The initial working hypothesis (architectural conflation of Pair and
+Reconnect into one code path) was checked by reading the full chain:
+`android/.../data/BridgeClient.kt`, `.../data/BridgeRepository.kt`,
+`.../connect/ConnectionPlanner.kt`, `cache_vault/mobile/bridge.py::_authenticate`,
+and `cache_vault/mobile/models.py`. The code already separates:
+
+- **Pair** (`POST /mobile/v1/pair-device`): used only for first-time pairing
+  or explicit `Re-pair`.
+- **Reconnect**: any authenticated call using the stored Bearer token;
+  `PcOfferMode.REPAIR_NEEDED` is set specifically on a `401 Unauthorized`
+  response, not on every call.
+
+This contradicted the conflation hypothesis. To be sure, the hypothesis was
+tested empirically before writing any code: the desktop process was killed
+and restarted cleanly, the phone app was force-stopped and relaunched, and
+`Connect this time` was tapped. **It succeeded** against the freshly
+restarted desktop, with `last_seen_at` updating server-side. This proved the
+2026-07-01 `FAIL` was not a reproducible architecture defect and narrowed
+the search to something more specific.
+
+### Real root causes found
+
+1. `BridgeRepository.pairDiscoveredPc()` never passed the phone's existing
+   remembered `device_id` into `client.pairDevice()`. Every `Re-pair` (and,
+   per the two-conflicting-records evidence found in the live
+   `settings.json` that night — one never-authenticated `phone-1` record and
+   one successfully-authenticated `c0ef497e...` record) minted a brand-new
+   random device identity, orphaning the old non-revoked record instead of
+   refreshing it in place.
+2. `UserMessages.REPAIR_NEEDED` ("Your phone reached the PC, but the pairing
+   code was rejected...") is generic copy written for the code-entry pairing
+   flow. It is misleading when shown for the code-less, automatic
+   reconnect-rejection path, and a **second, separate** copy of the same
+   wording existed in `strings.xml::repair_needed_body`
+   (`PcFoundBottomSheet`'s dedicated string resource) that was missed in the
+   first pass and only caught via live on-device observation during the
+   revoke retest below.
+
+The `"phone-1"` / `"Test Pixel"` device-id/name seen repeatedly in the real
+`settings.json` was traced to the `tests/test_mobile_bridge.py::_pair()`
+pytest fixture default. Confirmed this is not the leak path: that fixture
+only touches an in-memory `Settings()` via `tests/conftest.py`'s isolated
+fixtures and never writes the real `%LOCALAPPDATA%\CacheVault\settings.json`.
+No dev smoke script defaults to `"phone-1"` either (see the evidence
+manifest's "Test-state hygiene finding" section for the full script-by-script
+check). See the evidence manifest for the complete writeup, including a
+second, unexplained-but-harmless `"phone-1"` reappearance mid-session
+attributed most plausibly to manual GUI interaction on the operator's
+machine.
+
+### Fix (narrow scope, no bridge/protocol rewrite)
+
+- `ConnectionPlanner.deviceIdForPairing(existingDeviceId)`: pure helper,
+  reuses a non-blank remembered device ID, else returns `null` for
+  first-time pairing.
+- `BridgeRepository.pairDiscoveredPc()`: now passes the existing `deviceId`
+  through to `client.pairDevice()` when one is remembered.
+- `UserMessages.REPAIR_NEEDED` and `strings.xml::repair_needed_body`: both
+  corrected to "This PC no longer trusts this phone.\nRe-pair to continue."
+
+Commits: `f9bcfbe` (core fix + device_id reuse + `UserMessages` copy + tests),
+`e99e355` (second, missed `strings.xml` copy instance, found live during
+retest).
+
+### Tests added
+
+- Android (`ConnectionPlannerTest.kt`): 3 cases for `deviceIdForPairing`
+  (reuse existing, null when none remembered, blank treated as none).
+- Android (`UserMessagesTest.kt`): 1 case asserting the corrected copy and
+  the absence of the old "pairing code was rejected" string.
+- Desktop (`tests/test_mobile_bridge.py`): `test_last_seen_updates_on_successful_reconnect`,
+  `test_repair_with_same_device_id_refreshes_not_duplicates`,
+  `test_repair_after_revoke_succeeds_with_fresh_credential`,
+  `test_reconnect_succeeds_after_desktop_restart` (full restart simulated via
+  a fresh `Vault`/`Settings.load()`).
+
+### Gates run (all PASS)
+
+- `pytest tests/test_mobile_bridge.py tests/test_dialogs.py tests/test_mobile_connection_lifecycle.py -q`
+- `python -m compileall cache_vault`
+- `python app.py --selftest`
+- `.\gradlew.bat testDebugUnitTest`
+- `.\gradlew.bat assembleDebug`
+
+(Run twice: once after `f9bcfbe`, once after `e99e355`'s `strings.xml` fix.)
+
+### Live retest (2026-07-02, 00:07-00:13, clean source, final APK)
+
+Full sequence executed on-device (`R3CW40FY82W`), APK SHA256
+`9cf3178fcdeeda3c65c093380be0cbb8517d0b813a0a108000cc56aba472e934`. Full
+per-artifact detail and SHA256s are in
+`docs/CACHE_VAULT_ANDROID_RECONNECT_EVIDENCE_MANIFEST_2026-07-01.md`,
+Section A.
+
+1. Cleared phone app data, paired fresh against a running desktop: `PASS`
+   (new `device_id=04ff3a088a494cd9a3009768a5709614`).
+2. Killed and restarted the desktop process, relaunched the phone app,
+   tapped `Connect this time`: **`PASS`** — reconnected without needing
+   `Re-pair`. This directly supersedes the 2026-07-01 `FAIL` for this exact
+   scenario.
+3. Revoked the device via the app's own `bridge.revoke_device()` (not a
+   manual settings edit), restarted the desktop, relaunched the phone,
+   tapped `Connect this time`: correctly rejected, `PASS`. First observed
+   with the *old*, not-yet-rebuilt bottom-sheet copy still showing (caught
+   here, fixed via `e99e355`, rebuilt, reverified showing the corrected
+   copy: `PASS`).
+4. Tapped `Re-pair` after revoke: `PASS`, and confirmed directly in
+   `settings.json` (not just the screenshot) that the **same**
+   `device_id=04ff3a088a494cd9a3009768a5709614` was reused with a refreshed
+   `created_at`/`token_hash`, `revoked_at` cleared, `last_seen_at` updated,
+   and the paired-devices list still held exactly the same 2 total records
+   (no duplicate created).
+
+### What is still open / not claimed by this fix
+
+- Steps 5 (Auto-Connect Consent), 7 (Killed-App Limitation), 9 (Desktop
+  Labels), and 10 (Regression) remain untested.
+- The Keep Connected ~29s toggle-off delay (Step 6 above) is unaddressed.
+- The desktop's lack of a distinct online/offline indicator (only "Mobile:
+  Paired (N)") is unaddressed.
+- No `/proof` update, no APK publish, no merge into desktop `rc4`/`rc5`, and
+  no "Android reconnect is reliable" claim beyond this specific, now-fixed
+  defect.
 
 ## Evidence Analysis (Cautious, Non-Certifying)
 
@@ -335,6 +489,10 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 - Notes / caveats:
   - Confirm this uses the new reconnect lifecycle flow, not a stale prior pairing.
   - Live QA must capture the desktop trusted-device UI, which has never been evidenced.
+  - **Update 2026-07-02:** the "record's mere existence didn't let reconnect
+    work" gap above is fixed and retested; see "Root Cause Investigation and
+    Narrow Fix (2026-07-02)". Desktop trusted-device UI is still not
+    evidenced.
 
 ### 3. Close/Reopen Reconnect Prompt
 
@@ -375,6 +533,10 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
     clean-source desktop restart is a real reconnect-reliability gap, not an
     artifact of a stale build. Root cause not yet diagnosed (out of scope for
     this QA pass; no source changes were made).
+  - **Update 2026-07-02:** root-caused (`Re-pair` was minting a new device
+    identity instead of reusing the remembered one) and fixed (`f9bcfbe`).
+    Retested live: `Connect this time` now succeeds after a real desktop
+    restart. See "Root Cause Investigation and Narrow Fix (2026-07-02)".
 
 ### 4. Not Now Path
 
@@ -593,6 +755,12 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 - Final verdict: `HOLD`
 - Promote to `PASS` only if all critical reconnect, revoke, truthfulness, and regression flows pass on-device.
 - Keep as `HOLD` if any blocker remains or any critical step is still untested.
+- **Update 2026-07-02:** the specific blocker found on 2026-07-01
+  (`Connect this time` failing after a desktop restart) is root-caused,
+  fixed, and retested `PASS` live — see "Root Cause Investigation and Narrow
+  Fix (2026-07-02)". Verdict remains `HOLD` because Steps 5, 7, 9, and 10 are
+  still untested and the Keep Connected stop-delay / desktop online-offline
+  indicator gaps remain open.
 
 ## Commit Guidance After QA
 
