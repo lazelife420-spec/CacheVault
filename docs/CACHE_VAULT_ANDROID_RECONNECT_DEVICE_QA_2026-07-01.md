@@ -110,6 +110,63 @@ Date: 2026-07-01
 - Desktop screenshots directory: `C:\Users\KickA\Desktop\CacheVault\qa_artifacts\android_reconnect_2026-07-01\desktop\`
 - Logcat path on failure: `C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-07-01.txt`
 
+## Evidence Analysis (Cautious, Non-Certifying)
+
+This section reviews the existing `qa_artifacts` captures and logcat against the
+Run Sheet below. It does not promote any step to `PASS`. It only records what
+the existing evidence does and does not show, so later live testing is not
+duplicated or misinterpreted.
+
+- Logcat coverage gap:
+  - `android_reconnect_logcat_2026-07-01.txt` spans only `18:01:32` and earlier
+    (file `LastWriteTime` `7/1/2026 6:01:31 PM`; first captured entries align
+    with app activity starting around `17:54:46`).
+  - It does **not** cover the `20:40`-`21:00` window where the runtime-mismatch
+    finding, repair retry, and re-pair actually happened.
+  - No `FATAL EXCEPTION`, `AndroidRuntime` crash, `ForegroundServiceStartNotAllowed`,
+    or Cache Vault package exception was found in the captured window. The only
+    exceptions present are unrelated `com.android.phone` `AppOps` `SecurityException`
+    lines (system telephony noise, not Cache Vault).
+  - This means the logcat neither confirms nor denies crash-free behavior for
+    the actual repair/reconnect/Keep Connected testing later that evening.
+- Screenshot inventory (`qa_artifacts\android_reconnect_2026-07-01\android\`):
+  - `cachevault_ui.xml` / `cachevault_initial_retest.png` (`17:54:46`): shows a
+    "Cache Vault found on this Wi-Fi / Pair This Phone" discovery sheet. Predates
+    the runtime-mismatch fix; cannot be attributed to the clean-source runtime.
+  - `cachevault_ui_now.png` (`18:01:31`) and `cachevault_scan_now.png` (`18:02:29`):
+    show a different, earlier-onboarding-style "Connect to Cache Vault on this PC"
+    screen. This is a non-sequential/contradictory state relative to the `17:54`
+    capture and is not attributable to a known runtime.
+  - `resume_check.png` (`20:40:55`): shows only the phone OS lock screen (clock,
+    battery). Contains no Cache Vault app content; usable only as a timeline
+    anchor, not as app-state evidence.
+  - `live_check.png` (`20:56:15`) and `foreground_check.png` (`20:56:24`) are
+    **byte-identical** (verified via SHA256, both `C99C9AD1...`): a single
+    capture saved under two names, not two independent observations. Both show
+    the phone home screen/launcher with unrelated third-party apps and **no
+    visible Cache Vault notification or foreground-service indicator**. This
+    evidence predates the confirmed clean-runtime fix and does not demonstrate
+    Keep Connected foreground-service behavior either way.
+  - `after_repair.png` (`20:56:36`) is timestamped **before** the rejected-pairing
+    screens (`cachevault_ui_now.xml` / `cachevault_ui_aftertap.xml`, `20:58:xx`)
+    and before the successful re-pair (`repair_retry_screen.png`, `21:00:16`).
+    The filename does not match its position in the timeline; treat it as
+    unordered/unconfirmed, not as a "post-repair" state.
+  - `repair_retry_screen.png` / `cachevault_ui_repair_retry.xml` (`21:00:16`-`24`):
+    the successful re-pair evidence, already credited above under
+    `PASS_WITH_RUNTIME_CONSTRAINT`. This remains the only clean, attributable,
+    already-scoped piece of evidence in the set.
+- Desktop evidence:
+  - `qa_artifacts\android_reconnect_2026-07-01\desktop\` is **empty**. No
+    desktop-side screenshot exists for any Run Sheet step (paired-device list,
+    online/offline/revoked labels, waiting-for-approval state, etc.).
+- Conclusion:
+  - None of the above evidence is sufficient to mark any numbered Run Sheet
+    step `PASS`. Where evidence directly bears on a step's prerequisites, the
+    step below is marked `BLOCKED / PREREQUISITE_NOT_MET` instead, with the
+    supporting reasoning inline. All other steps remain `PENDING` for live
+    device QA.
+
 ## Mandatory Preflight
 
 Run this before every phone QA pass to confirm runtime custody:
@@ -163,9 +220,14 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - No false connected state.
   - No trusted PC state if none exists.
 - Actual result:
-  - Pending manual execution.
+  - Pending manual execution against the clean-source runtime.
+  - Existing captures (`cachevault_initial_retest.png` `17:54:46`,
+    `cachevault_scan_now.png` `18:02:29`) show two different, non-sequential
+    pre-pairing states and predate the runtime-mismatch fix, so they cannot be
+    attributed to a known-clean runtime. Not usable to certify this step.
 - Android screenshot filename/path:
-  - Pending.
+  - Inconclusive prior capture only: `cachevault_initial_retest.png`,
+    `cachevault_scan_now.png`. Fresh capture still pending.
 - Desktop screenshot filename/path:
   - N/A unless desktop shows unexpected state.
 - Logcat filename/path if relevant:
@@ -186,15 +248,25 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Desktop trusted phone record is saved.
   - Phone shows PC name, IP, and last seen.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET` for full step certification.
+  - Phone-side evidence exists for one interactive re-pair action against the
+    clean-source runtime (see `Runtime Mismatch Finding`, verdict
+    `PASS_WITH_RUNTIME_CONSTRAINT`), but that only proves one manual re-pair
+    tap worked, not that trusted metadata (PC name/IP/last seen) is
+    persisted and displayed correctly.
+  - Desktop-side confirmation has zero evidence: `qa_artifacts\...\desktop\`
+    is empty, so the desktop trusted-phone record has never been observed.
 - Android screenshot filename/path:
-  - Pending.
+  - Partial/indirect only: `repair_retry_screen.png`,
+    `cachevault_ui_repair_retry.xml` (re-pair action, not steady-state pairing
+    metadata).
 - Desktop screenshot filename/path:
-  - Pending.
+  - None captured.
 - Logcat filename/path if relevant:
   - Pending only if failure occurs.
 - Notes / caveats:
   - Confirm this uses the new reconnect lifecycle flow, not a stale prior pairing.
+  - Live QA must capture the desktop trusted-device UI, which has never been evidenced.
 
 ### 3. Close/Reopen Reconnect Prompt
 
@@ -211,9 +283,13 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Tap `Connect` re-establishes connection without retyping token.
   - Desktop moves to online/connected.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET`. No evidence of a persistent remembered-PC
+    pairing surviving a close/reopen cycle exists; only a single interactive
+    `Re-pair` tap (after a rejected code) has been observed. This step tests a
+    different flow (silent rediscovery + approval prompt on reopen) that has
+    not been exercised.
 - Android screenshot filename/path:
-  - Pending.
+  - None captured for this exact flow.
 - Desktop screenshot filename/path:
   - Pending.
 - Logcat filename/path if relevant:
@@ -232,7 +308,8 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Desktop does not falsely show online.
   - Phone remains paired but offline or waiting.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET`. Requires the persistent-pairing state
+    from Step 3, which has not been evidenced. Not tested.
 - Android screenshot filename/path:
   - Pending.
 - Desktop screenshot filename/path:
@@ -255,7 +332,8 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Reconnect occurs without manual token entry.
   - Status remains clear and honest.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET`. No evidence of the consent toggle being
+    exercised or of a reconnect-without-retyping flow. Not tested.
 - Android screenshot filename/path:
   - Pending.
 - Desktop screenshot filename/path:
@@ -281,9 +359,18 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Stop action works.
   - Status updates honestly after stop.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET`. **Not** `PASS`, and not to be inferred
+    as such: `live_check.png` (`20:56:15`) and `foreground_check.png`
+    (`20:56:24`) are verified byte-identical (SHA256 match) and show only the
+    phone home screen with unrelated third-party apps, with **no visible
+    Cache Vault notification**. This is not evidence the foreground service
+    works, nor proof it fails, since these captures predate confirmation of
+    the clean-runtime fix (`21:00:16`) and may not even reflect an attempt to
+    enable Keep Connected. `Keep Connected` has not been exercised against
+    the clean-source runtime with usable evidence.
 - Android screenshot filename/path:
-  - Pending.
+  - Inconclusive/duplicate only: `live_check.png`, `foreground_check.png`
+    (identical file, not two independent observations).
 - Desktop screenshot filename/path:
   - Optional if state transition is visible.
 - Logcat filename/path if relevant:
@@ -303,7 +390,8 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - No fake claim that the PC can wake a killed app.
   - Reopen resumes reconnect flow honestly.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET`. No evidence of a force-stop/kill cycle
+    being performed. Not tested.
 - Android screenshot filename/path:
   - Pending.
 - Desktop screenshot filename/path:
@@ -327,7 +415,8 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - Phone shows revoked / needs re-pair state.
   - Fresh re-pair works.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET`. `Revoke All Devices` has not been
+    exercised; no evidence exists either way. Not tested.
 - Android screenshot filename/path:
   - Pending.
 - Desktop screenshot filename/path:
@@ -351,11 +440,13 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
 - Expected result:
   - Desktop clearly distinguishes all target states.
 - Actual result:
-  - Pending manual execution.
+  - `BLOCKED / PREREQUISITE_NOT_MET`. The desktop evidence folder
+    (`qa_artifacts\android_reconnect_2026-07-01\desktop\`) is empty; zero
+    desktop-side screenshots exist for any state. Not tested.
 - Android screenshot filename/path:
   - N/A unless paired state on phone helps explain.
 - Desktop screenshot filename/path:
-  - Pending.
+  - None captured.
 - Logcat filename/path if relevant:
   - Usually N/A.
 - Notes / caveats:
@@ -373,15 +464,22 @@ adb logcat -d > C:\Users\KickA\Desktop\CacheVault\android_reconnect_logcat_2026-
   - No Android crash.
   - No desktop crash.
 - Actual result:
-  - Pending manual execution.
+  - `PENDING`, not `PASS`. The captured logcat (`android_reconnect_logcat_2026-07-01.txt`)
+    shows no Cache Vault-specific crash/exception signature, but it only spans
+    up to `18:01:32` and does not cover the `20:40`-`21:00` window where the
+    actual repair-retry/Keep-Connected testing happened. This absence of
+    evidence cannot certify crash-free behavior for the full lifecycle, and
+    send-to-PC/mobile inbox regression has not been checked at all.
 - Android screenshot filename/path:
   - Optional.
 - Desktop screenshot filename/path:
   - Optional.
 - Logcat filename/path if relevant:
-  - Required if any failure or crash occurs.
+  - `android_reconnect_logcat_2026-07-01.txt` (partial coverage only, see above).
 - Notes / caveats:
   - Treat crashes as blocking failures even if reconnect otherwise works.
+  - A fresh logcat capture spanning the full live test window is required for
+    this step to be answerable.
 
 ## Post-Run Verdict
 
