@@ -27,6 +27,7 @@ class SettingsHub(ctk.CTkToplevel):
         settings: Settings,
         registry: ModuleRegistry,
         on_save: Callable[[Settings], None],
+        on_close: Callable[[ctk.CTkToplevel], None] | None = None,
     ):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings Hub")
@@ -36,10 +37,14 @@ class SettingsHub(ctk.CTkToplevel):
         self._settings = settings
         self._registry = registry
         self._on_save = on_save
+        self._on_close = on_close
         self._selected_category_id: str | None = None
-        
+        self._present_job = None
+        self._closed = False
+
         # Mapping: field.key -> (variable, widget)
         self._field_bindings: dict[str, tuple[Any, ctk.CTkBaseClass]] = {}
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         # --- Layout ---
         self.grid_columnconfigure(1, weight=1)
@@ -111,6 +116,53 @@ class SettingsHub(ctk.CTkToplevel):
         cats = self._registry.settings_categories()
         if cats:
             self._select_category(cats[0].id)
+
+    def present(self) -> None:
+        """Raise the hub above the main window after CTk finishes mapping."""
+        try:
+            self.transient(self.master)
+        except Exception:  # noqa: BLE001 - best effort only
+            pass
+
+        if self._present_job is not None:
+            try:
+                self.after_cancel(self._present_job)
+            except Exception:  # noqa: BLE001 - stale job or destroyed widget
+                pass
+            self._present_job = None
+
+        def _raise() -> None:
+            self._present_job = None
+            try:
+                if not self.winfo_exists():
+                    return
+                self.deiconify()
+                self.lift()
+                self.focus_force()
+            except Exception:  # noqa: BLE001 - window may have closed
+                pass
+
+        self._present_job = self.after(200, _raise)
+
+    def _cleanup(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._present_job is not None:
+            try:
+                self.after_cancel(self._present_job)
+            except Exception:  # noqa: BLE001 - window may already be gone
+                pass
+            self._present_job = None
+        if self._on_close is not None:
+            try:
+                self._on_close(self)
+            except Exception:  # noqa: BLE001 - cleanup should not crash close
+                pass
+
+    def destroy(self) -> None:
+        self._cleanup()
+        super().destroy()
 
     def _refresh_categories(self):
         """Render the category list in the sidebar."""
