@@ -10,7 +10,7 @@ import customtkinter as ctk
 from cache_vault.core.settings import Settings
 from cache_vault.modules.registry import build_default_registry
 from cache_vault.ui.settings_hub import SettingsHub
-from tk_support import probe_tk_ui
+from tk_support import _tcl_unavailable, probe_tk_ui
 
 # Check if UI tests can run in this environment
 TK_OK, TK_REASON = probe_tk_ui()
@@ -160,6 +160,138 @@ class TestSettingsHub(unittest.TestCase):
         self.assertEqual(new_settings.history_max_clips, 500)
         self.assertEqual(new_settings.manual_save_hotkey, "ctrl+alt+s")
         
+        hub.destroy()
+
+
+class _KeyEvent:
+    def __init__(self, keysym: str):
+        self.keysym = keysym
+
+
+class TestSettingsHubHotkeyRecorder(unittest.TestCase):
+    """The Settings Hub hotkey fields use the shared DialogHotkeyRecorder."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not TK_OK:
+            raise unittest.SkipTest(TK_REASON)
+        ctk.set_appearance_mode("dark")
+        # One shared root per class keeps Tcl-interpreter churn low; CTk()
+        # can transiently fail on CI runner images, so skip (not fail) then.
+        try:
+            cls.root = ctk.CTk()
+        except Exception as exc:  # noqa: BLE001 - transient Tcl runtime flake
+            if _tcl_unavailable(exc):
+                raise unittest.SkipTest(f"Tk/CTk runtime unavailable: {exc}")
+            raise
+        cls.root.withdraw()
+
+    @classmethod
+    def tearDownClass(cls):
+        root = getattr(cls, "root", None)
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def setUp(self):
+        self.settings = Settings()
+        self.registry = build_default_registry()
+        self.on_save = MagicMock()
+        self._hubs = []
+
+    def tearDown(self):
+        for hub in self._hubs:
+            try:
+                if hub.winfo_exists():
+                    hub.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _hub(self):
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        hub._select_category("shortcuts")
+        self._hubs.append(hub)
+        return hub
+
+    def _recorder_for(self, hub, key):
+        _var, entry = hub._field_bindings[key]
+        for rec in hub._active_recorders:
+            if rec._entry is entry:
+                return rec
+        return None
+
+    def test_hotkey_field_has_recorder(self):
+        hub = self._hub()
+        self.assertTrue(hub._active_recorders)
+        self.assertIsNotNone(self._recorder_for(hub, "manual_save_hotkey"))
+        hub.destroy()
+
+    def test_record_writes_combo_into_field(self):
+        hub = self._hub()
+        rec = self._recorder_for(hub, "quick_paste_hotkey")
+        _var, entry = hub._field_bindings["quick_paste_hotkey"]
+        rec.toggle()
+        self.assertTrue(rec.recording)
+        rec._on_key_press(_KeyEvent("Control_L"))
+        rec._on_key_press(_KeyEvent("b"))
+        self.assertEqual(entry.get(), "ctrl+b")
+        self.assertFalse(rec.recording)
+        hub.destroy()
+
+    def test_escape_cancels_without_recording_esc(self):
+        hub = self._hub()
+        rec = self._recorder_for(hub, "manual_save_hotkey")
+        _var, entry = hub._field_bindings["manual_save_hotkey"]
+        before = entry.get()
+        rec.toggle()
+        rec._on_key_press(_KeyEvent("Escape"))
+        self.assertFalse(rec.recording)
+        self.assertEqual(entry.get(), before)
+        self.assertNotIn("esc", entry.get().lower())
+        hub.destroy()
+
+    def test_retry_after_cancel_records(self):
+        hub = self._hub()
+        rec = self._recorder_for(hub, "manual_save_hotkey")
+        _var, entry = hub._field_bindings["manual_save_hotkey"]
+        rec.toggle()
+        rec._on_key_press(_KeyEvent("Escape"))
+        rec.toggle()
+        rec._on_key_press(_KeyEvent("Control_L"))
+        rec._on_key_press(_KeyEvent("j"))
+        self.assertEqual(entry.get(), "ctrl+j")
+        self.assertFalse(rec.recording)
+        hub.destroy()
+
+    def test_duplicate_hotkey_blocks_save(self):
+        hub = self._hub()
+        var_manual, _ = hub._field_bindings["manual_save_hotkey"]
+        var_arm, _ = hub._field_bindings["arm_next_copy_hotkey"]
+        var_arm.set(var_manual.get())
+        hub._save()
+        self.on_save.assert_not_called()
+        self.assertTrue(hub._save_error.cget("text"))
+        hub.destroy()
+
+    def test_valid_hotkeys_allow_save(self):
+        hub = self._hub()
+        hub._save()
+        self.on_save.assert_called_once()
+
+    def test_close_while_recording_is_safe(self):
+        hub = self._hub()
+        rec = self._recorder_for(hub, "manual_save_hotkey")
+        rec.toggle()
+        self.assertTrue(rec.recording)
+        hub.destroy()  # must not raise
+
+    def test_category_switch_tears_down_recorders(self):
+        hub = self._hub()
+        self.assertTrue(hub._active_recorders)
+        hub._select_category("general")
+        self.assertEqual(hub._active_recorders, [])
         hub.destroy()
 
 
