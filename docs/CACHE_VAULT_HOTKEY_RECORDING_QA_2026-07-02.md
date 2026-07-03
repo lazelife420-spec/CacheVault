@@ -5,7 +5,7 @@ Date: 2026-07-02
 ## Scope
 
 - Branch: `fix/hotkey-recording-stability`
-- Lane commit(s): pending at receipt authoring time; see git history after lane commit
+- Lane commit(s): `01750b6 fix: stabilize hotkey recording`
 - Base branch: `release/v0.1.4-public-distribution`
 - Base line at lane start: `134781b` on top of packaged QA receipt / `83b6166`
 - Lane verdict: `PASS`
