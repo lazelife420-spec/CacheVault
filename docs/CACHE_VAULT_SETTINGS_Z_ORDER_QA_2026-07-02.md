@@ -8,8 +8,8 @@ Scope: INTERNAL_QA_ONLY
 - Lane: 2C - Settings z-order/window ownership
 - Branch: `fix/settings-z-order-window-ownership`
 - Base branch: `release/v0.1.4-public-distribution`
-- Base commit before lane work: `567d220`
-- Implementation commit: `fee9a63` (`fix: keep settings hub owned and single-instance`)
+- Base commit before lane work: `38a10b8`
+- Implementation commit: `3bfdb34` (`fix: keep settings hub owned and single-instance`)
 
 ## Goal
 
