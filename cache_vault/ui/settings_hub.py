@@ -12,10 +12,16 @@ from typing import Callable, Any
 import customtkinter as ctk
 
 from .. import brand
+from ..core.hotkey import diagnose_hotkey_spec
 from ..core.settings import Settings
 from ..modules.registry import ModuleRegistry
 from ..modules.settings_schema import SettingsCategory, SettingsField, StatusRow
 from . import theme
+from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
+from .hotkey_recording import DialogHotkeyRecorder
+
+# diagnose_hotkey_spec kinds that must block saving.
+_BLOCKING_HOTKEY_KINDS = frozenset({"invalid", "duplicate", "conflict"})
 
 
 class SettingsHub(ctk.CTkToplevel):
@@ -44,6 +50,9 @@ class SettingsHub(ctk.CTkToplevel):
 
         # Mapping: field.key -> (variable, widget)
         self._field_bindings: dict[str, tuple[Any, ctk.CTkBaseClass]] = {}
+        # Hotkey recorders and hint labels for the currently rendered view.
+        self._active_recorders: list[DialogHotkeyRecorder] = []
+        self._hotkey_hints: dict[str, ctk.CTkLabel] = {}
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         # --- Layout ---
@@ -110,6 +119,12 @@ class SettingsHub(ctk.CTkToplevel):
             **theme.secondary_button()
         ).pack(side="right")
 
+        self._save_error = ctk.CTkLabel(
+            self._footer, text="", anchor="w", justify="left",
+            font=ctk.CTkFont(size=12), text_color="#F56C6C", wraplength=420,
+        )
+        self._save_error.pack(side="left")
+
         self._refresh_categories()
         
         # Default selection
@@ -148,6 +163,7 @@ class SettingsHub(ctk.CTkToplevel):
         if self._closed:
             return
         self._closed = True
+        self._teardown_recorders()
         if self._present_job is not None:
             try:
                 self.after_cancel(self._present_job)
@@ -276,8 +292,19 @@ class SettingsHub(ctk.CTkToplevel):
                 self._render_field_row(search_frame, f)
 
     def _clear_settings_area(self):
+        self._teardown_recorders()
         for widget in self._settings_scroll.winfo_children():
             widget.destroy()
+
+    def _teardown_recorders(self) -> None:
+        """Stop and unbind any live hotkey recorders before their widgets die."""
+        for rec in self._active_recorders:
+            try:
+                rec.cleanup()
+            except Exception:  # noqa: BLE001 - teardown must not raise
+                pass
+        self._active_recorders.clear()
+        self._hotkey_hints.clear()
 
     def _render_status_card(self, rows: list[StatusRow]):
         card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
@@ -397,9 +424,37 @@ class SettingsHub(ctk.CTkToplevel):
             self._field_bindings[field.key] = (var, combo)
             
         elif field.field_type == "hotkey":
-            entry = ctk.CTkEntry(control_col, textvariable=var, width=180)
-            entry.pack()
+            holder = ctk.CTkFrame(control_col, fg_color="transparent")
+            holder.pack(anchor="e")
+            entry = ctk.CTkEntry(holder, textvariable=var, width=150)
+            entry.pack(side="left")
+            record_btn = ctk.CTkButton(
+                holder, text="Record", width=90, **theme.secondary_button(),
+            )
+            record_btn.pack(side="left", padx=(6, 0))
+            hint = ctk.CTkLabel(
+                control_col, text="", anchor="e", justify="right",
+                font=ctk.CTkFont(size=10), text_color=brand.MUTED_FG,
+                wraplength=246,
+            )
+            hint.pack(fill="x")
+            recorder = DialogHotkeyRecorder(
+                self,
+                entry=entry,
+                button=record_btn,
+                normalize_keysym=_normalize_keysym,
+                modifier_keysyms=_MODIFIER_KEYSYMS,
+                on_complete=lambda k=field.key: self._on_hotkey_recorded(k),
+                on_hint=lambda text, k=field.key: self._set_hotkey_hint(k, text),
+                button_idle_text="Record",
+                button_recording_text="Recording...",
+            )
+            record_btn.configure(command=recorder.toggle)
+            entry.bind("<KeyRelease>", lambda _e, k=field.key: self._refresh_hotkey_hint(k))
             self._field_bindings[field.key] = (var, entry)
+            self._active_recorders.append(recorder)
+            self._hotkey_hints[field.key] = hint
+            self._refresh_hotkey_hint(field.key)
             
         elif field.field_type == "readonly":
             current_val = getattr(self._settings, field.key, field.default)
@@ -409,6 +464,87 @@ class SettingsHub(ctk.CTkToplevel):
                 font=ctk.CTkFont(size=13, weight="bold"),
                 text_color=brand.MUTED_FG,
             ).pack()
+
+    # --- hotkey recording / validation ------------------------------------
+
+    def _hotkey_keys(self) -> list[str]:
+        """Distinct Settings keys backing hotkey fields across all categories."""
+        keys: list[str] = []
+        for cat in self._registry.settings_categories():
+            for f in cat.fields:
+                if f.field_type == "hotkey" and f.key not in keys:
+                    keys.append(f.key)
+        return keys
+
+    def _current_spec(self, key: str) -> str:
+        binding = self._field_bindings.get(key)
+        if binding is not None:
+            try:
+                return str(binding[0].get())
+            except Exception:  # noqa: BLE001
+                pass
+        return str(getattr(self._settings, key, "") or "")
+
+    def _all_hotkey_specs(self) -> dict[str, str]:
+        return {key: self._current_spec(key) for key in self._hotkey_keys()}
+
+    def _diagnose(self, key: str) -> tuple[str, str]:
+        return diagnose_hotkey_spec(
+            self._current_spec(key), key, self._all_hotkey_specs(),
+        )
+
+    def _set_hotkey_hint(self, key: str, text: str) -> None:
+        label = self._hotkey_hints.get(key)
+        if label is None:
+            return
+        try:
+            if label.winfo_exists():
+                label.configure(text=text, text_color=brand.MUTED_FG)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _refresh_hotkey_hint(self, key: str) -> None:
+        label = self._hotkey_hints.get(key)
+        if label is None:
+            return
+        # Do not fight the live "Press keys now..." prompt while recording.
+        for rec in self._active_recorders:
+            if rec.recording:
+                return
+        kind, message = self._diagnose(key)
+        color = brand.PROOF_TEAL if kind == "ok" else (
+            "#E6A23C" if kind in ("reserved", "unavailable") else "#F56C6C"
+        )
+        try:
+            if label.winfo_exists():
+                label.configure(text=message, text_color=color)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_hotkey_recorded(self, key: str) -> None:
+        # A combo landed (or recording was cancelled): re-validate every
+        # rendered hotkey field so duplicate detection stays consistent.
+        if self._save_error_visible():
+            self._save_error.configure(text="")
+        for k in list(self._hotkey_hints.keys()):
+            self._refresh_hotkey_hint(k)
+
+    def _save_error_visible(self) -> bool:
+        try:
+            return bool(self._save_error.cget("text"))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _validate_all_hotkeys(self) -> list[str]:
+        """Return human messages for hotkey fields that block saving."""
+        errors: list[str] = []
+        for key in self._hotkey_keys():
+            if not self._current_spec(key).strip():
+                continue
+            kind, message = self._diagnose(key)
+            if kind in _BLOCKING_HOTKEY_KINDS:
+                errors.append(message)
+        return errors
 
     def _collect_settings(self) -> Settings:
         """Collect values from all bindings into a new Settings object."""
@@ -447,6 +583,15 @@ class SettingsHub(ctk.CTkToplevel):
 
     def _save(self):
         """Collect settings and trigger the save callback."""
+        errors = self._validate_all_hotkeys()
+        if errors:
+            try:
+                self._save_error.configure(
+                    text=f"Fix hotkey conflicts before saving: {errors[0]}"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return
         new_settings = self._collect_settings()
         self._on_save(new_settings)
         self.destroy()
