@@ -25,6 +25,7 @@ from ..core.vault_macros import (
 )
 from . import theme
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
+from .hotkey_recording import DialogHotkeyRecorder
 
 
 def _bring_to_front(win: ctk.CTkToplevel) -> None:
@@ -204,8 +205,6 @@ class MacroEditDialog(ctk.CTkToplevel):
         self._reserved_specs = {
             normalize_hotkey(s) for s in (reserved_specs or set()) if s
         }
-        self._recording = False
-        self._held: set[str] = set()
         self._TRIGGER_ORDER = (TRIGGER_MENU_ONLY, TRIGGER_HOTKEY, TRIGGER_TEXT_SHORTCUT)
         self._TRIGGER_LABELS = {
             TRIGGER_MENU_ONLY: "Menu only (no shortcut)",
@@ -294,6 +293,17 @@ class MacroEditDialog(ctk.CTkToplevel):
             font=theme.body_font(10), wraplength=460,
         )
         self._trigger_status.pack(anchor="w", pady=(4, 8))
+        self._recorder = DialogHotkeyRecorder(
+            self,
+            entry=self._hotkey,
+            button=self._record_btn,
+            normalize_keysym=_normalize_keysym,
+            modifier_keysyms=_MODIFIER_KEYSYMS,
+            on_complete=self._refresh_hotkey_status,
+            on_hint=lambda text: self._trigger_status.configure(
+                text=text, text_color=brand.MUTED_FG,
+            ),
+        )
 
         ctk.CTkLabel(body, text="Output mode").pack(anchor="w")
         self._output = ctk.CTkOptionMenu(body, values=["Clipboard paste", "Keystroke"])
@@ -355,14 +365,16 @@ class MacroEditDialog(ctk.CTkToplevel):
                 text_color=brand.MUTED_FG,
             )
         else:
-            if self._recording:
-                self._stop_record()
+            if self._recorder.recording:
+                self._recorder.stop(cancelled=True)
             self._trigger_status.configure(
                 text="Run from the macro menu or the Run button only.",
                 text_color=brand.MUTED_FG,
             )
 
     def _refresh_hotkey_status(self) -> None:
+        if self._recorder.recording:
+            return
         spec = normalize_hotkey(self._hotkey.get())
         if not spec:
             self._trigger_status.configure(
@@ -396,43 +408,7 @@ class MacroEditDialog(ctk.CTkToplevel):
         )
 
     def _toggle_record(self) -> None:
-        if self._recording:
-            self._stop_record()
-            return
-        self._recording = True
-        self._held.clear()
-        self._record_btn.configure(text="Recording… press keys")
-        self.bind("<KeyPress>", self._on_key_press)
-        self.bind("<KeyRelease>", self._on_key_release)
-        self.focus_set()
-
-    def _stop_record(self) -> None:
-        self._recording = False
-        self._record_btn.configure(text="Press shortcut now")
-        self.unbind("<KeyPress>")
-        self.unbind("<KeyRelease>")
-
-    def _on_key_press(self, event):
-        mod = _MODIFIER_KEYSYMS.get(event.keysym)
-        if mod:
-            self._held.add(mod)
-            return "break"
-        key = _normalize_keysym(event.keysym)
-        if key is None:
-            return "break"
-        order = [m for m in ("ctrl", "alt", "shift", "win") if m in self._held]
-        spec = "+".join(order + [key])
-        self._hotkey.delete(0, "end")
-        self._hotkey.insert(0, spec)
-        self._stop_record()
-        self._refresh_hotkey_status()
-        return "break"
-
-    def _on_key_release(self, event):
-        mod = _MODIFIER_KEYSYMS.get(event.keysym)
-        if mod:
-            self._held.discard(mod)
-        return "break"
+        self._recorder.toggle()
 
     def _save(self) -> None:
         from ..core.vault_macros import SMART_TYPE_LABELS, SMART_TYPES
@@ -447,6 +423,33 @@ class MacroEditDialog(ctk.CTkToplevel):
         trigger_type = self._current_trigger()
         if trigger_type == TRIGGER_HOTKEY:
             trigger_value = normalize_hotkey(self._hotkey.get())
+            if not trigger_value:
+                self._trigger_status.configure(
+                    text="Enter or record a hotkey combo (e.g. ctrl+shift+1).",
+                    text_color=brand.WARNING_RED,
+                )
+                return
+            if trigger_value in RESERVED_HOTKEYS or trigger_value in self._reserved_specs:
+                self._trigger_status.configure(
+                    text=f"'{trigger_value}' is reserved by Cache Vault - choose another combo.",
+                    text_color=brand.WARNING_RED,
+                )
+                return
+            clash = next(
+                (
+                    m for m in self._other_macros
+                    if m.id != self._macro.id
+                    and m.trigger_type == TRIGGER_HOTKEY
+                    and normalize_hotkey(m.trigger_value) == trigger_value
+                ),
+                None,
+            )
+            if clash is not None:
+                self._trigger_status.configure(
+                    text=f"Conflicts with macro '{clash.name}' - both use {trigger_value}.",
+                    text_color=brand.WARNING_RED,
+                )
+                return
         elif trigger_type == TRIGGER_TEXT_SHORTCUT:
             trigger_value = self._shortcut.get().strip()
         else:
@@ -462,6 +465,11 @@ class MacroEditDialog(ctk.CTkToplevel):
 
         self._on_save(self._macro)
         self.destroy()
+
+    def destroy(self) -> None:
+        if hasattr(self, "_recorder"):
+            self._recorder.cleanup()
+        super().destroy()
 
 
 class MacroTemplatePicker(ctk.CTkToplevel):

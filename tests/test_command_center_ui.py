@@ -85,6 +85,102 @@ def test_hotkey_action_dialog_blocks_invalid_hotkey(tk_root):
     dlg.destroy()
 
 
+def test_hotkey_action_dialog_escape_cancels_recording(tk_root):
+    from cache_vault.ui.command_center import HotkeyActionDialog
+
+    dlg = HotkeyActionDialog(
+        tk_root, None,
+        safes=[("default", "Default Safe")],
+        macros=[],
+        other_actions=[],
+        reserved_specs=set(),
+        win32_available=True,
+        on_save=lambda a: None,
+    )
+    dlg._hotkey.delete(0, "end")
+    dlg._toggle_record()
+
+    class _Event:
+        keysym = "Escape"
+
+    dlg._recorder._on_key_press(_Event())
+
+    assert dlg._hotkey.get() == ""
+    assert not dlg._recorder.recording
+    assert dlg._record_btn.cget("text") == "Press shortcut now"
+    assert "Ready" not in dlg._status.cget("text")
+    dlg.destroy()
+
+
+def test_hotkey_action_dialog_retry_after_cancel_records_combo(tk_root):
+    from cache_vault.ui.command_center import HotkeyActionDialog
+
+    dlg = HotkeyActionDialog(
+        tk_root, None,
+        safes=[("default", "Default Safe")],
+        macros=[],
+        other_actions=[],
+        reserved_specs=set(),
+        win32_available=True,
+        on_save=lambda a: None,
+    )
+
+    class _Event:
+        def __init__(self, keysym):
+            self.keysym = keysym
+
+    dlg._toggle_record()
+    dlg._recorder._on_key_press(_Event("Escape"))
+    dlg._toggle_record()
+    dlg._recorder._on_key_press(_Event("Control_L"))
+    dlg._recorder._on_key_press(_Event("s"))
+
+    assert dlg._hotkey.get() == "ctrl+s"
+    assert not dlg._recorder.recording
+    assert dlg._status.cget("text").startswith("Ready")
+    dlg.destroy()
+
+
+def test_hotkey_action_dialog_blocks_conflicting_hotkey(tk_root):
+    from cache_vault.ui.command_center import HotkeyActionDialog
+
+    saved = {}
+    other = HotkeyAction(id="other", name="Existing action", hotkey="ctrl+alt+v")
+    dlg = HotkeyActionDialog(
+        tk_root, None,
+        safes=[("default", "Default Safe")],
+        macros=[],
+        other_actions=[other],
+        reserved_specs=set(),
+        win32_available=True,
+        on_save=lambda a: saved.setdefault("action", a),
+    )
+    dlg._name.insert(0, "Conflict")
+    dlg._hotkey.delete(0, "end")
+    dlg._hotkey.insert(0, "ctrl+alt+v")
+    dlg._save()
+
+    assert "action" not in saved
+    assert "Already used" in dlg._status.cget("text")
+    dlg.destroy()
+
+
+def test_hotkey_action_dialog_destroy_while_recording_is_safe(tk_root):
+    from cache_vault.ui.command_center import HotkeyActionDialog
+
+    dlg = HotkeyActionDialog(
+        tk_root, None,
+        safes=[("default", "Default Safe")],
+        macros=[],
+        other_actions=[],
+        reserved_specs=set(),
+        win32_available=True,
+        on_save=lambda a: None,
+    )
+    dlg._toggle_record()
+    dlg.destroy()
+
+
 def test_hotkey_actions_screen_renders(tk_root):
     from cache_vault.ui.vault_screens import VaultScreenHost
 
