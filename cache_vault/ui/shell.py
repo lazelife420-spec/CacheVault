@@ -252,6 +252,7 @@ class CacheVaultApp(ctk.CTk):
         self._last_height = 0
         self._mouse_handler = None
         self._is_compact_width = False
+        self._settings_window = None
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -2749,20 +2750,37 @@ class CacheVaultApp(ctk.CTk):
             self._navigate_screen(NAV_STAMPED_RECEIPTS)
         RegexMacroDialog(self, on_view_receipts=_view)
 
+    def _clear_settings_window_reference(self, window=None) -> None:
+        if window is not None and self._settings_window is not window:
+            return
+        self._settings_window = None
+
     def _open_settings(self) -> None:
+        if self._settings_window is not None:
+            try:
+                if self._settings_window.winfo_exists():
+                    self._settings_window.present()
+                    return
+            except Exception:
+                pass
+            self._settings_window = None
+
         # Prefer the new registry-backed Settings Hub (Chunk C2).
         if SettingsHub is not None:
             try:
                 from ..modules.registry import build_default_registry
                 registry = build_default_registry()
-                SettingsHub(
+                self._settings_window = SettingsHub(
                     self,
                     self.vault.settings,
                     registry,
                     on_save=self._apply_settings,
+                    on_close=self._clear_settings_window_reference,
                 )
+                self._settings_window.present()
                 return
             except Exception:
+                self._settings_window = None
                 # Fallback to old dialog if hub construction fails.
                 pass
 

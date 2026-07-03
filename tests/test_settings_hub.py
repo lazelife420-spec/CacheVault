@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import customtkinter as ctk
 
@@ -44,6 +44,33 @@ class TestSettingsHub(unittest.TestCase):
         self.assertIsInstance(hub, SettingsHub)
         self.assertEqual(hub.title(), "Cache Vault™ — Settings Hub")
         hub.destroy()
+
+    def test_present_uses_owned_raise_helper(self):
+        """Verify the hub schedules a delayed raise tied to the main window."""
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        with patch.object(hub, "transient") as mock_transient, \
+             patch.object(hub, "after", return_value="raise-job") as mock_after:
+            hub.present()
+        mock_transient.assert_called_once_with(self.root)
+        mock_after.assert_called_once()
+        self.assertEqual(hub._present_job, "raise-job")
+        hub.destroy()
+
+    def test_destroy_clears_pending_present_and_notifies_once(self):
+        """Verify closing cancels delayed raise work and clears the owner once."""
+        on_close = MagicMock()
+        hub = SettingsHub(
+            self.root,
+            self.settings,
+            self.registry,
+            self.on_save,
+            on_close=on_close,
+        )
+        hub._present_job = "raise-job"
+        with patch.object(hub, "after_cancel") as mock_after_cancel:
+            hub.destroy()
+        mock_after_cancel.assert_called_once_with("raise-job")
+        on_close.assert_called_once_with(hub)
 
     def test_category_rendering(self):
         """Verify that categories from the registry appear in the sidebar."""

@@ -49,14 +49,41 @@ class TestSettingsHubIntegration(unittest.TestCase):
             pass
 
     def test_open_settings_prefers_hub(self):
-        """Verify that _open_settings attempts to open SettingsHub first."""
-        with patch('cache_vault.ui.shell.SettingsHub') as mock_hub:
+        """Verify that _open_settings opens once and reuses the existing hub."""
+        hub_window = MagicMock()
+        hub_window.winfo_exists.return_value = True
+        with patch('cache_vault.ui.shell.SettingsHub', return_value=hub_window) as mock_hub:
             self.app._open_settings()
-            mock_hub.assert_called_once()
-            # Ensure SettingsDialog was NOT called if Hub succeeded
-            with patch('cache_vault.ui.shell.SettingsDialog') as mock_dialog:
-                self.app._open_settings()
-                mock_dialog.assert_not_called()
+            self.assertIs(self.app._settings_window, hub_window)
+            self.app._open_settings()
+        mock_hub.assert_called_once()
+        self.assertEqual(hub_window.present.call_count, 2)
+
+    def test_open_settings_close_clears_reference(self):
+        """Verify the shell forgets the hub when the window closes."""
+        hub_window = MagicMock()
+        hub_window.winfo_exists.return_value = True
+        with patch('cache_vault.ui.shell.SettingsHub', return_value=hub_window) as mock_hub:
+            self.app._open_settings()
+        on_close = mock_hub.call_args.kwargs["on_close"]
+        on_close(hub_window)
+        self.assertIsNone(self.app._settings_window)
+
+    def test_open_settings_recreates_window_after_destroy(self):
+        """Verify a destroyed hub does not block opening a fresh one."""
+        first_window = MagicMock()
+        second_window = MagicMock()
+        first_window.winfo_exists.return_value = False
+        second_window.winfo_exists.return_value = True
+        with patch(
+            'cache_vault.ui.shell.SettingsHub',
+            side_effect=[first_window, second_window],
+        ) as mock_hub:
+            self.app._open_settings()
+            self.app._open_settings()
+        self.assertEqual(mock_hub.call_count, 2)
+        self.assertIs(self.app._settings_window, second_window)
+        second_window.present.assert_called_once()
 
     def test_open_settings_fallback_on_construction_failure(self):
         """Verify fallback to SettingsDialog if SettingsHub construction fails."""
