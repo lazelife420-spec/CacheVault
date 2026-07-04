@@ -59,6 +59,28 @@ class TestSettingsHubIntegration(unittest.TestCase):
         mock_hub.assert_called_once()
         self.assertEqual(hub_window.present.call_count, 2)
 
+    def test_open_settings_wires_live_mobile_bridge_into_registry(self):
+        """Regression: the registry passed into SettingsHub must carry the
+        app's live MobileBridge, not a disconnected default — otherwise
+        Settings always shows "Bridge not started" while the top bar can
+        show Paired (see CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS_AUDIT)."""
+        captured = {}
+
+        def _capture_hub(app, settings, registry, **kwargs):
+            captured["registry"] = registry
+            hub = MagicMock()
+            hub.winfo_exists.return_value = True
+            return hub
+
+        with patch('cache_vault.ui.shell.SettingsHub', side_effect=_capture_hub):
+            self.app._open_settings()
+
+        mobile_module = captured["registry"].get("mobile_bridge")
+        rows = {row.label: row.value_getter() for row in mobile_module.get_status_rows()}
+        # A live-but-unstarted bridge reads "Not listening", distinct from
+        # the pre-fix disconnected default's "Not started".
+        self.assertEqual(rows["Bridge"], "Not listening")
+
     def test_open_settings_close_clears_reference(self):
         """Verify the shell forgets the hub when the window closes."""
         hub_window = MagicMock()

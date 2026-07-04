@@ -53,6 +53,22 @@ def test_build_default_registry():
     assert ids == {"mobile_bridge", "image_viewer", "quick_paste", "proof"}
 
 
+def test_build_default_registry_threads_mobile_bridge(vault):
+    """mobile_bridge=... wires the live bridge into MobileBridgeModule so its
+    status rows reflect real state instead of always reporting "not started"
+    (see docs/CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS_AUDIT_2026-07-03.md, Q5).
+    """
+    from cache_vault.core.mobile.bridge import MobileBridge
+
+    bridge = MobileBridge(vault)
+    reg = build_default_registry(mobile_bridge=bridge)
+    mod = reg.get("mobile_bridge")
+    rows = {row.label: row.value_getter() for row in mod.get_status_rows()}
+    # A live-but-not-yet-started bridge reads "Not listening", distinct from
+    # the disconnected default's "Not started" — proves bridge_ref is real.
+    assert rows["Bridge"] == "Not listening"
+
+
 # ---------------------------------------------------------------------------
 # 2. duplicate module id
 # ---------------------------------------------------------------------------
@@ -230,6 +246,35 @@ def test_mobile_bridge_status_rows_without_bridge():
         # Should not raise when called without a live bridge.
         value = row.value_getter()
         assert isinstance(value, str)
+
+
+def test_mobile_bridge_status_rows_reflect_live_bridge_state(vault):
+    """Status rows must read the live bridge's real attributes.
+
+    Regression for two latent bugs found while wiring bridge_ref: the
+    "Bridge" row checked a nonexistent ``running`` attribute (the real
+    property is ``is_running``), and "Paired devices" read a nonexistent
+    ``bridge._settings`` (the real path is ``bridge.vault.settings``). Both
+    were invisible before because bridge_ref was always None in production.
+    """
+    from cache_vault.core.mobile.bridge import MobileBridge
+    from cache_vault.modules.mobile_bridge import MobileBridgeModule
+
+    vault.settings.mobile_access_enabled = True
+    bridge = MobileBridge(vault)
+    bridge.pair_device("phone-1", "Test Phone")
+    bridge.sync(vault.settings)
+    try:
+        mod = MobileBridgeModule(
+            bridge_ref=bridge,
+            receipts_getter=bridge.receipts.recent,
+            mdns_status_getter=lambda: bridge.discovery.is_advertising,
+        )
+        rows = {row.label: row.value_getter() for row in mod.get_status_rows()}
+        assert rows["Bridge"] == "Listening"
+        assert rows["Paired devices"] == "1 paired device"
+    finally:
+        bridge.stop()
 
 
 # ---------------------------------------------------------------------------
