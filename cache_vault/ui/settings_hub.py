@@ -24,6 +24,30 @@ from .hotkey_recording import DialogHotkeyRecorder
 _BLOCKING_HOTKEY_KINDS = frozenset({"invalid", "duplicate", "conflict"})
 
 
+class _ListTextVar:
+    """Persists a textarea's newline-separated content independent of the
+    widget's lifecycle.
+
+    Category switches destroy and recreate every field widget
+    (``_clear_settings_area``); ``StringVar``/``BooleanVar``-backed fields
+    survive that because their value lives in the Tcl variable, not the
+    widget. ``CTkTextbox`` has no variable binding, so this fills that gap
+    for list[str] "text" fields (e.g. excluded_apps) -- both to preserve
+    in-progress edits across category switches and so ``_collect_settings``
+    can safely call ``.get()`` on every ever-rendered field, including ones
+    whose widget has since been destroyed.
+    """
+
+    def __init__(self, initial: str) -> None:
+        self._value = initial
+
+    def get(self) -> str:
+        return self._value
+
+    def set(self, value: str) -> None:
+        self._value = value
+
+
 class SettingsHub(ctk.CTkToplevel):
     """Unified Settings Hub — replaces SettingsDialog."""
 
@@ -425,9 +449,28 @@ class SettingsHub(ctk.CTkToplevel):
             self._field_bindings[field.key] = (var, entry)
             
         elif field.field_type == "text":
-            entry = ctk.CTkEntry(control_col, textvariable=var, width=250)
-            entry.pack()
-            self._field_bindings[field.key] = (var, entry)
+            current_val = getattr(self._settings, field.key, field.default)
+            if isinstance(current_val, list):
+                # list[str] fields render as a newline-separated textarea,
+                # not a single-line entry (see settings_schema.FIELD_TYPES).
+                if not isinstance(var, _ListTextVar):
+                    var = _ListTextVar("\n".join(current_val))
+                textbox = ctk.CTkTextbox(control_col, width=250, height=80)
+                textbox.insert("1.0", var.get())
+                textbox.bind(
+                    "<KeyRelease>",
+                    lambda _e, k=field.key, tb=textbox: self._sync_list_textarea(k, tb),
+                )
+                textbox.bind(
+                    "<FocusOut>",
+                    lambda _e, k=field.key, tb=textbox: self._sync_list_textarea(k, tb),
+                )
+                textbox.pack()
+                self._field_bindings[field.key] = (var, textbox)
+            else:
+                entry = ctk.CTkEntry(control_col, textvariable=var, width=250)
+                entry.pack()
+                self._field_bindings[field.key] = (var, entry)
             
         elif field.field_type == "choice" and field.choices:
             combo = ctk.CTkComboBox(control_col, values=field.choices, variable=var, width=180)
@@ -503,6 +546,13 @@ class SettingsHub(ctk.CTkToplevel):
         return diagnose_hotkey_spec(
             self._current_spec(key), key, self._all_hotkey_specs(),
         )
+
+    def _sync_list_textarea(self, key: str, textbox: ctk.CTkTextbox) -> None:
+        """Copies a list-backed textarea's live content into its persistent
+        _ListTextVar (see _ListTextVar's docstring for why a plain widget
+        binding isn't enough)."""
+        var, _ = self._field_bindings[key]
+        var.set(textbox.get("1.0", "end-1c"))
 
     def _set_hotkey_hint(self, key: str, text: str) -> None:
         label = self._hotkey_hints.get(key)
@@ -581,8 +631,12 @@ class SettingsHub(ctk.CTkToplevel):
                 except (ValueError, TypeError):
                     pass
             elif isinstance(orig_val, list):
-                # We don't support editing lists directly yet, but keep them
-                pass
+                # list[str] "text" fields render as a newline-separated
+                # textarea (see _render_field_row); mirrors the parsing the
+                # legacy SettingsDialog used for excluded_apps.
+                new_data[key] = [
+                    line.strip() for line in val.splitlines() if line.strip()
+                ]
             else:
                 new_data[key] = val
         
