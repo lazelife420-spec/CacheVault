@@ -81,6 +81,36 @@ class TestSettingsHubIntegration(unittest.TestCase):
         # the pre-fix disconnected default's "Not started".
         self.assertEqual(rows["Bridge"], "Not listening")
 
+    def test_open_settings_wires_mobile_actions_into_registry(self):
+        """12A: the registry's Mobile Bridge status rows must call the app's
+        real pair/paired-devices/receipts methods (already-shipped shell.py
+        flows), not leave the buttons unwired or pointed at no-ops."""
+        captured = {}
+
+        def _capture_hub(app, settings, registry, **kwargs):
+            captured["registry"] = registry
+            hub = MagicMock()
+            hub.winfo_exists.return_value = True
+            return hub
+
+        with patch('cache_vault.ui.shell.SettingsHub', side_effect=_capture_hub), \
+             patch.object(self.app, '_open_pair_android') as mock_pair, \
+             patch.object(self.app, '_open_paired_devices') as mock_devices, \
+             patch.object(self.app, '_open_mobile_receipts') as mock_receipts:
+            self.app._open_settings()
+
+            rows = {
+                row.label: row
+                for row in captured["registry"].get("mobile_bridge").get_status_rows()
+            }
+            rows["Bridge"].action()
+            rows["Paired devices"].action()
+            rows["Last phone request"].action()
+
+        mock_pair.assert_called_once_with()
+        mock_devices.assert_called_once_with()
+        mock_receipts.assert_called_once_with()
+
     def test_open_settings_close_clears_reference(self):
         """Verify the shell forgets the hub when the window closes."""
         hub_window = MagicMock()

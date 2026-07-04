@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import customtkinter as ctk
 
+from cache_vault import brand
 from cache_vault.core.settings import Settings
 from cache_vault.modules.registry import build_default_registry
 from cache_vault.ui.settings_hub import SettingsHub
@@ -14,6 +15,16 @@ from tk_support import _tcl_unavailable, probe_tk_ui
 
 # Check if UI tests can run in this environment
 TK_OK, TK_REASON = probe_tk_ui()
+
+
+def _find_all(widget, widget_type):
+    """Recursively collect all descendant widgets of ``widget_type``."""
+    found = []
+    for child in widget.winfo_children():
+        if isinstance(child, widget_type):
+            found.append(child)
+        found.extend(_find_all(child, widget_type))
+    return found
 
 
 class TestSettingsHub(unittest.TestCase):
@@ -82,6 +93,44 @@ class TestSettingsHub(unittest.TestCase):
         buttons = [w for w in hub._category_list.winfo_children() if isinstance(w, ctk.CTkButton)]
         
         self.assertEqual(len(buttons), len(categories))
+        hub.destroy()
+
+    def test_status_row_without_action_renders_no_button(self):
+        """StatusRow.action=None (the default) draws no button — matches
+        pre-12A behavior exactly (see CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS
+        _AUDIT_2026-07-03.md, Q3/Q4)."""
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        hub._select_category("mobile_bridge")
+        buttons = _find_all(hub._settings_scroll, ctk.CTkButton)
+        self.assertEqual(buttons, [])
+        hub.destroy()
+
+    def test_status_row_action_renders_and_invokes_button(self):
+        """12A: a StatusRow with .action set draws a real button that calls
+        it, for each of the three wired Mobile Bridge actions."""
+        pair = MagicMock()
+        devices = MagicMock()
+        receipts = MagicMock()
+        registry = build_default_registry(
+            mobile_pair_action=pair,
+            mobile_devices_action=devices,
+            mobile_receipts_action=receipts,
+        )
+        hub = SettingsHub(self.root, self.settings, registry, self.on_save)
+        hub._select_category("mobile_bridge")
+
+        buttons_by_text = {
+            b.cget("text"): b for b in _find_all(hub._settings_scroll, ctk.CTkButton)
+        }
+        expected_labels = {
+            "Pair Android Device": pair,
+            "Paired Devices": devices,
+            brand.TERM_MOBILE_ACCESS_RECEIPTS: receipts,
+        }
+        self.assertEqual(set(buttons_by_text), set(expected_labels))
+        for label, mock in expected_labels.items():
+            buttons_by_text[label].cget("command")()
+            mock.assert_called_once()
         hub.destroy()
 
     def test_search_filtering(self):

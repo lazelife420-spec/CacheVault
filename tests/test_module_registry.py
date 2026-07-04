@@ -69,6 +69,34 @@ def test_build_default_registry_threads_mobile_bridge(vault):
     assert rows["Bridge"] == "Not listening"
 
 
+def test_build_default_registry_threads_mobile_actions():
+    """mobile_pair_action / mobile_devices_action / mobile_receipts_action
+    become the Bridge / Paired devices / Last phone request rows' clickable
+    actions (12A). Omitting them (the default) leaves all rows action-free,
+    identical to pre-12A behavior."""
+    pair, devices, receipts = object(), object(), object()
+
+    reg = build_default_registry(
+        mobile_pair_action=lambda: pair,
+        mobile_devices_action=lambda: devices,
+        mobile_receipts_action=lambda: receipts,
+    )
+    rows = {row.label: row for row in reg.get("mobile_bridge").get_status_rows()}
+    assert rows["Bridge"].action() is pair
+    assert rows["Bridge"].action_label == "Pair Android Device"
+    assert rows["Paired devices"].action() is devices
+    assert rows["Paired devices"].action_label == "Paired Devices"
+    assert rows["Last phone request"].action() is receipts
+    assert rows["Last phone request"].action_label == "Mobile Access Receipts"
+    # Untouched rows still carry no action.
+    assert rows["LAN discovery (mDNS)"].action is None
+    assert rows["LAN IP"].action is None
+
+    # No actions passed -> no module carries a button (matches Q3/Q4 finding).
+    default_rows = build_default_registry().get("mobile_bridge").get_status_rows()
+    assert all(row.action is None and row.action_label == "" for row in default_rows)
+
+
 # ---------------------------------------------------------------------------
 # 2. duplicate module id
 # ---------------------------------------------------------------------------
