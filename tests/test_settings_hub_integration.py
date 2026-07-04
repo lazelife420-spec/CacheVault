@@ -111,6 +111,30 @@ class TestSettingsHubIntegration(unittest.TestCase):
         mock_devices.assert_called_once_with()
         mock_receipts.assert_called_once_with()
 
+    def test_open_settings_wires_show_guide_action_into_registry(self):
+        """12C: the registry's General status card "First-use guide" row must
+        call the app's real _open_first_use_guide_from_settings method (the
+        same callable already used by the old SettingsDialog's help wiring)."""
+        captured = {}
+
+        def _capture_hub(app, settings, registry, **kwargs):
+            captured["registry"] = registry
+            hub = MagicMock()
+            hub.winfo_exists.return_value = True
+            return hub
+
+        with patch('cache_vault.ui.shell.SettingsHub', side_effect=_capture_hub), \
+             patch.object(self.app, '_open_first_use_guide_from_settings') as mock_guide:
+            self.app._open_settings()
+
+            rows = {
+                row.label: row
+                for row in captured["registry"].get("general").get_status_rows()
+            }
+            rows["First-use guide"].action()
+
+        mock_guide.assert_called_once_with()
+
     def test_open_settings_close_clears_reference(self):
         """Verify the shell forgets the hub when the window closes."""
         hub_window = MagicMock()

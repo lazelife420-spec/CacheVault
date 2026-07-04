@@ -46,11 +46,11 @@ class _DummyModule(ModuleManifest):
 # ---------------------------------------------------------------------------
 
 def test_build_default_registry():
-    """build_default_registry() returns a registry with exactly 4 modules."""
+    """build_default_registry() returns a registry with exactly 5 modules."""
     reg = build_default_registry()
-    assert len(reg.all()) == 4
+    assert len(reg.all()) == 5
     ids = {m.id for m in reg.all()}
-    assert ids == {"mobile_bridge", "image_viewer", "quick_paste", "proof"}
+    assert ids == {"general", "mobile_bridge", "image_viewer", "quick_paste", "proof"}
 
 
 def test_build_default_registry_threads_mobile_bridge(vault):
@@ -95,6 +95,69 @@ def test_build_default_registry_threads_mobile_actions():
     # No actions passed -> no module carries a button (matches Q3/Q4 finding).
     default_rows = build_default_registry().get("mobile_bridge").get_status_rows()
     assert all(row.action is None and row.action_label == "" for row in default_rows)
+
+
+def test_build_default_registry_threads_show_guide_action():
+    """show_guide_action=... becomes the General category's "First-use guide"
+    row action (12C). Omitting it (the default) leaves the row action-free,
+    matching every other status row's default behavior."""
+    guide = object()
+
+    reg = build_default_registry(show_guide_action=lambda: guide)
+    rows = {row.label: row for row in reg.get("general").get_status_rows()}
+    assert rows["First-use guide"].action() is guide
+    assert rows["First-use guide"].action_label == "Show first-use guide again"
+    # Untouched rows still carry no action; Data folder's action is
+    # unconditional (wired from inside the module, no external kwarg needed).
+    assert rows["Version"].action is None
+    assert rows["Running from"].action is None
+    assert rows["Data folder"].action is not None
+    assert rows["Data folder"].action_label == "Open Data Folder"
+
+    # No action passed -> First-use guide row carries no button.
+    default_rows = build_default_registry().get("general").get_status_rows()
+    default_by_label = {row.label: row for row in default_rows}
+    assert default_by_label["First-use guide"].action is None
+    assert default_by_label["First-use guide"].action_label == ""
+
+
+def test_general_info_module_status_rows():
+    """GeneralInfoModule (12C) surfaces version/build, packaged-vs-source,
+    and the data folder as read-only status rows under the existing global
+    "general" category (no new sidebar entry -- get_settings_schema() stays
+    empty; see docs/CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS_AUDIT_2026-07-03.md,
+    Q6/Q7/Q9)."""
+    from cache_vault import __release_label__, __version__
+    from cache_vault.core.settings import default_settings_path
+
+    reg = build_default_registry()
+    mod = reg.get("general")
+    assert mod.get_settings_schema() == []
+    rows = {row.label: row.value_getter() for row in mod.get_status_rows()}
+    assert rows["Version"] == f"Version {__version__} \u00b7 {__release_label__}"
+    # Test process is unpackaged (no _MEIPASS), so this always reads "source".
+    assert rows["Running from"] == "Running from source"
+    assert rows["Data folder"] == str(default_settings_path().parent)
+
+
+def test_general_info_module_open_data_folder_action(monkeypatch, tmp_path):
+    """The Data folder row's action is unconditional (no external wiring
+    needed, unlike the mobile actions / show_guide_action) -- it creates the
+    real settings folder if missing and opens it via pathutil.open_path."""
+    import cache_vault.core.pathutil as pathutil_mod
+    import cache_vault.core.settings as settings_mod
+
+    fake_settings_path = tmp_path / "CacheVaultFake" / "settings.json"
+    monkeypatch.setattr(settings_mod, "default_settings_path", lambda: fake_settings_path)
+    opened = {}
+    monkeypatch.setattr(pathutil_mod, "open_path", lambda p: opened.setdefault("path", p))
+
+    reg = build_default_registry()
+    rows = {row.label: row for row in reg.get("general").get_status_rows()}
+    rows["Data folder"].action()
+
+    assert fake_settings_path.parent.is_dir()
+    assert opened["path"] == str(fake_settings_path.parent)
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +289,7 @@ def test_health_report():
     """health_report() returns a dict keyed by module id, each with 'status'."""
     reg = build_default_registry()
     report = reg.health_report()
-    assert set(report.keys()) == {"mobile_bridge", "image_viewer", "quick_paste", "proof"}
+    assert set(report.keys()) == {"general", "mobile_bridge", "image_viewer", "quick_paste", "proof"}
     for mid, result in report.items():
         assert "status" in result, f"Module {mid} health check missing 'status'"
 

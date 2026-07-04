@@ -238,8 +238,9 @@ def build_default_registry(
     mobile_pair_action: Callable[[], None] | None = None,
     mobile_devices_action: Callable[[], None] | None = None,
     mobile_receipts_action: Callable[[], None] | None = None,
+    show_guide_action: Callable[[], None] | None = None,
 ) -> ModuleRegistry:
-    """Create the registry with global categories and the four foundation modules.
+    """Create the registry with global categories and the five foundation modules.
 
     ``mobile_bridge``, when provided, is threaded into ``MobileBridgeModule``
     so its status rows reflect the live bridge (running state, mDNS
@@ -251,8 +252,13 @@ def build_default_registry(
     when provided, become the Mobile Bridge status rows' clickable actions
     (Pair Android Device / Paired Devices / Mobile Access Receipts). Without
     them, those rows render with no button, same as before.
+
+    ``show_guide_action``, when provided, becomes the General category's
+    "Show first-use guide again" action. Without it, that row renders with
+    no button.
     """
     from .mobile_bridge import MobileBridgeModule
+    from .general_info import GeneralInfoModule
     from .image_viewer import ImageViewerModule
     from .quick_paste import QuickPasteModule
     from .proof import ProofModule
@@ -262,6 +268,8 @@ def build_default_registry(
     for cat in _GLOBAL_CATEGORIES:
         reg.register_global_category(cat)
     reg.set_category_order(_CATEGORY_ORDER)
+
+    reg.register(GeneralInfoModule(show_guide_action=show_guide_action))
 
     mobile_action_kwargs = dict(
         pair_action=mobile_pair_action,
