@@ -27,6 +27,16 @@ class MobileBridgeModule(ModuleManifest):
         self._receipts_getter = receipts_getter
         self._mdns_status_getter = mdns_status_getter
 
+    def _bridge_settings(self) -> Any | None:
+        """The live ``Settings`` behind ``self._bridge``, or ``None``.
+
+        ``MobileBridge`` exposes its settings via ``bridge.vault.settings``
+        (there is no ``bridge._settings`` attribute); this centralizes that
+        lookup so status rows and the health check agree on where to find it.
+        """
+        vault = getattr(self._bridge, "vault", None)
+        return getattr(vault, "settings", None) if vault is not None else None
+
     @property
     def id(self) -> str:
         return "mobile_bridge"
@@ -78,7 +88,7 @@ class MobileBridgeModule(ModuleManifest):
         def _bridge_status() -> str:
             if self._bridge is None:
                 return "Not started"
-            return "Listening" if getattr(self._bridge, "running", False) else "Not listening"
+            return "Listening" if getattr(self._bridge, "is_running", False) else "Not listening"
 
         rows.append(StatusRow("Bridge", _bridge_status, level="info"))
 
@@ -116,7 +126,7 @@ class MobileBridgeModule(ModuleManifest):
         def _paired_count() -> str:
             if self._bridge is None:
                 return "Bridge not started"
-            settings = getattr(self._bridge, "_settings", None)
+            settings = self._bridge_settings()
             if settings is not None:
                 count = len(getattr(settings, "paired_devices", []))
                 return f"{count} paired device{'s' if count != 1 else ''}"
@@ -133,10 +143,10 @@ class MobileBridgeModule(ModuleManifest):
             return {"status": "info", "details": "bridge not started"}
         try:
             from cache_vault.core.mobile.connection_doctor import connection_doctor_report
-            settings = getattr(self._bridge, "_settings", None)
+            settings = self._bridge_settings()
             report = connection_doctor_report(
                 mobile_access_enabled=getattr(settings, "mobile_access_enabled", False) if settings else False,
-                bridge_listening=getattr(self._bridge, "running", False),
+                bridge_listening=getattr(self._bridge, "is_running", False),
                 port=getattr(settings, "mobile_access_port", 8742) if settings else 8742,
                 mdns_advertising=self._mdns_status_getter() if self._mdns_status_getter else False,
             )

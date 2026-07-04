@@ -6,8 +6,13 @@ global (non-module-owned) settings categories.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from .settings_schema import SettingsCategory, SettingsField, StatusRow
 from . import ModuleManifest
+
+if TYPE_CHECKING:
+    from ..core.mobile.bridge import MobileBridge
 
 
 class ModuleRegistry:
@@ -227,8 +232,15 @@ _CATEGORY_ORDER = [
 ]
 
 
-def build_default_registry() -> ModuleRegistry:
-    """Create the registry with global categories and the four foundation modules."""
+def build_default_registry(*, mobile_bridge: "MobileBridge | None" = None) -> ModuleRegistry:
+    """Create the registry with global categories and the four foundation modules.
+
+    ``mobile_bridge``, when provided, is threaded into ``MobileBridgeModule``
+    so its status rows reflect the live bridge (running state, mDNS
+    advertising, receipts, paired-device count) instead of a disconnected
+    instance that always reports "not started". Without it, behavior is
+    unchanged from before (bridge_ref=None).
+    """
     from .mobile_bridge import MobileBridgeModule
     from .image_viewer import ImageViewerModule
     from .quick_paste import QuickPasteModule
@@ -240,7 +252,14 @@ def build_default_registry() -> ModuleRegistry:
         reg.register_global_category(cat)
     reg.set_category_order(_CATEGORY_ORDER)
 
-    reg.register(MobileBridgeModule())
+    if mobile_bridge is not None:
+        reg.register(MobileBridgeModule(
+            bridge_ref=mobile_bridge,
+            receipts_getter=mobile_bridge.receipts.recent,
+            mdns_status_getter=lambda: mobile_bridge.discovery.is_advertising,
+        ))
+    else:
+        reg.register(MobileBridgeModule())
     reg.register(ImageViewerModule())
     reg.register(QuickPasteModule())
     reg.register(ProofModule())
