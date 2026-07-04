@@ -2774,6 +2774,7 @@ class CacheVaultApp(ctk.CTk):
                     mobile_pair_action=lambda: self._open_pair_android(),
                     mobile_devices_action=self._open_paired_devices,
                     mobile_receipts_action=self._open_mobile_receipts,
+                    show_guide_action=self._open_first_use_guide_from_settings,
                 )
                 self._settings_window = SettingsHub(
                     self,
