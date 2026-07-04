@@ -2769,7 +2769,12 @@ class CacheVaultApp(ctk.CTk):
         if SettingsHub is not None:
             try:
                 from ..modules.registry import build_default_registry
-                registry = build_default_registry(mobile_bridge=self._mobile_bridge)
+                registry = build_default_registry(
+                    mobile_bridge=self._mobile_bridge,
+                    mobile_pair_action=lambda: self._open_pair_android(),
+                    mobile_devices_action=self._open_paired_devices,
+                    mobile_receipts_action=self._open_mobile_receipts,
+                )
                 self._settings_window = SettingsHub(
                     self,
                     self.vault.settings,

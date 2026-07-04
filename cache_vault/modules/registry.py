@@ -6,7 +6,7 @@ global (non-module-owned) settings categories.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from .settings_schema import SettingsCategory, SettingsField, StatusRow
 from . import ModuleManifest
@@ -232,7 +232,13 @@ _CATEGORY_ORDER = [
 ]
 
 
-def build_default_registry(*, mobile_bridge: "MobileBridge | None" = None) -> ModuleRegistry:
+def build_default_registry(
+    *,
+    mobile_bridge: "MobileBridge | None" = None,
+    mobile_pair_action: Callable[[], None] | None = None,
+    mobile_devices_action: Callable[[], None] | None = None,
+    mobile_receipts_action: Callable[[], None] | None = None,
+) -> ModuleRegistry:
     """Create the registry with global categories and the four foundation modules.
 
     ``mobile_bridge``, when provided, is threaded into ``MobileBridgeModule``
@@ -240,6 +246,11 @@ def build_default_registry(*, mobile_bridge: "MobileBridge | None" = None) -> Mo
     advertising, receipts, paired-device count) instead of a disconnected
     instance that always reports "not started". Without it, behavior is
     unchanged from before (bridge_ref=None).
+
+    ``mobile_pair_action`` / ``mobile_devices_action`` / ``mobile_receipts_action``,
+    when provided, become the Mobile Bridge status rows' clickable actions
+    (Pair Android Device / Paired Devices / Mobile Access Receipts). Without
+    them, those rows render with no button, same as before.
     """
     from .mobile_bridge import MobileBridgeModule
     from .image_viewer import ImageViewerModule
@@ -252,14 +263,20 @@ def build_default_registry(*, mobile_bridge: "MobileBridge | None" = None) -> Mo
         reg.register_global_category(cat)
     reg.set_category_order(_CATEGORY_ORDER)
 
+    mobile_action_kwargs = dict(
+        pair_action=mobile_pair_action,
+        devices_action=mobile_devices_action,
+        receipts_action=mobile_receipts_action,
+    )
     if mobile_bridge is not None:
         reg.register(MobileBridgeModule(
             bridge_ref=mobile_bridge,
             receipts_getter=mobile_bridge.receipts.recent,
             mdns_status_getter=lambda: mobile_bridge.discovery.is_advertising,
+            **mobile_action_kwargs,
         ))
     else:
-        reg.register(MobileBridgeModule())
+        reg.register(MobileBridgeModule(**mobile_action_kwargs))
     reg.register(ImageViewerModule())
     reg.register(QuickPasteModule())
     reg.register(ProofModule())

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from ... import brand
 from .. import ModuleManifest
 from ..settings_schema import SettingsCategory, SettingsField, StatusRow
 
@@ -22,10 +23,16 @@ class MobileBridgeModule(ModuleManifest):
         bridge_ref: Any | None = None,
         receipts_getter: Callable[[], list[dict]] | None = None,
         mdns_status_getter: Callable[[], bool] | None = None,
+        pair_action: Callable[[], None] | None = None,
+        devices_action: Callable[[], None] | None = None,
+        receipts_action: Callable[[], None] | None = None,
     ) -> None:
         self._bridge = bridge_ref
         self._receipts_getter = receipts_getter
         self._mdns_status_getter = mdns_status_getter
+        self._pair_action = pair_action
+        self._devices_action = devices_action
+        self._receipts_action = receipts_action
 
     def _bridge_settings(self) -> Any | None:
         """The live ``Settings`` behind ``self._bridge``, or ``None``.
@@ -90,7 +97,11 @@ class MobileBridgeModule(ModuleManifest):
                 return "Not started"
             return "Listening" if getattr(self._bridge, "is_running", False) else "Not listening"
 
-        rows.append(StatusRow("Bridge", _bridge_status, level="info"))
+        rows.append(StatusRow(
+            "Bridge", _bridge_status, level="info",
+            action_label="Pair Android Device" if self._pair_action else "",
+            action=self._pair_action,
+        ))
 
         # mDNS advertising.
         def _mdns_status() -> str:
@@ -120,7 +131,11 @@ class MobileBridgeModule(ModuleManifest):
             except Exception:
                 return "Unknown"
 
-        rows.append(StatusRow("Last phone request", _last_request, level="info"))
+        rows.append(StatusRow(
+            "Last phone request", _last_request, level="info",
+            action_label=brand.TERM_MOBILE_ACCESS_RECEIPTS if self._receipts_action else "",
+            action=self._receipts_action,
+        ))
 
         # Paired device count.
         def _paired_count() -> str:
@@ -132,7 +147,11 @@ class MobileBridgeModule(ModuleManifest):
                 return f"{count} paired device{'s' if count != 1 else ''}"
             return "Unknown"
 
-        rows.append(StatusRow("Paired devices", _paired_count, level="info"))
+        rows.append(StatusRow(
+            "Paired devices", _paired_count, level="info",
+            action_label="Paired Devices" if self._devices_action else "",
+            action=self._devices_action,
+        ))
 
         return rows
 

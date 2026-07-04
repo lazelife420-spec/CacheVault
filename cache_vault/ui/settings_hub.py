@@ -346,6 +346,17 @@ class SettingsHub(ctk.CTkToplevel):
                 text_color=val_color
             ).pack(side="right")
 
+            if row.action is not None:
+                ctk.CTkButton(
+                    row_frame,
+                    text=row.action_label or "Open",
+                    command=row.action,
+                    width=150,
+                    height=26,
+                    font=ctk.CTkFont(size=11),
+                    **theme.secondary_button(),
+                ).pack(side="right", padx=(0, 12))
+
     def _render_group_card(self, group_name: str, fields: list[SettingsField]):
         card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
         card.pack(fill="x", padx=10, pady=(0, 20))
