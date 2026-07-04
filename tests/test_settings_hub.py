@@ -175,6 +175,91 @@ class TestSettingsHub(unittest.TestCase):
         self.on_save.assert_called_once()
         hub.destroy()
 
+    def test_excluded_apps_renders_as_textarea(self):
+        """excluded_apps is list[str]; it must render as a multi-line
+        CTkTextbox (one app per line), not a single-line CTkEntry showing
+        a raw Python list repr (the real-controls audit's fake-control
+        finding)."""
+        self.settings.excluded_apps = ["notepad.exe", "chrome.exe"]
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        hub._select_category("capture")
+
+        var, widget = hub._field_bindings["excluded_apps"]
+        self.assertIsInstance(widget, ctk.CTkTextbox)
+        self.assertEqual(widget.get("1.0", "end-1c"), "notepad.exe\nchrome.exe")
+        hub.destroy()
+
+    def test_excluded_apps_collect_saves_edits(self):
+        """Editing the excluded_apps textarea and saving must actually
+        persist the new list -- previously _collect_settings() silently
+        discarded any edit to a list-typed field."""
+        self.settings.excluded_apps = ["notepad.exe"]
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        hub._select_category("capture")
+
+        _var, widget = hub._field_bindings["excluded_apps"]
+        widget.delete("1.0", "end")
+        widget.insert("1.0", "foo.exe\n\n  bar.exe  \nnotepad.exe\n")
+        hub._sync_list_textarea("excluded_apps", widget)
+
+        new_settings = hub._collect_settings()
+        self.assertEqual(
+            new_settings.excluded_apps, ["foo.exe", "bar.exe", "notepad.exe"]
+        )
+        hub.destroy()
+
+    def test_excluded_apps_collect_handles_empty_textarea(self):
+        """Clearing every line must save an empty list, not keep the old
+        one and not crash on blank/whitespace-only lines."""
+        self.settings.excluded_apps = ["notepad.exe"]
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        hub._select_category("capture")
+
+        _var, widget = hub._field_bindings["excluded_apps"]
+        widget.delete("1.0", "end")
+        hub._sync_list_textarea("excluded_apps", widget)
+
+        new_settings = hub._collect_settings()
+        self.assertEqual(new_settings.excluded_apps, [])
+        hub.destroy()
+
+    def test_excluded_apps_preserved_across_category_switch(self):
+        """Category switches destroy and recreate every field widget; the
+        in-progress textarea edit must survive that (and must not crash
+        _collect_settings(), which calls .get() on every ever-rendered
+        binding regardless of which category is currently shown)."""
+        self.settings.excluded_apps = ["notepad.exe"]
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        hub._select_category("capture")
+
+        _var, widget = hub._field_bindings["excluded_apps"]
+        widget.delete("1.0", "end")
+        widget.insert("1.0", "foo.exe\nbar.exe")
+        hub._sync_list_textarea("excluded_apps", widget)
+
+        hub._select_category("general")  # destroys the capture-tab widgets
+        # Must not raise even though the old textbox widget is now gone.
+        new_settings_mid_switch = hub._collect_settings()
+        self.assertEqual(
+            new_settings_mid_switch.excluded_apps, ["foo.exe", "bar.exe"]
+        )
+
+        hub._select_category("capture")
+        _var2, widget2 = hub._field_bindings["excluded_apps"]
+        self.assertEqual(widget2.get("1.0", "end-1c"), "foo.exe\nbar.exe")
+        hub.destroy()
+
+    def test_other_text_fields_unaffected_by_textarea_change(self):
+        """Plain str "text" fields (e.g. default_safe_id) must keep using
+        a single-line CTkEntry; only list[str] fields switch to a
+        textarea."""
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        hub._select_category("capture")
+
+        _var, widget = hub._field_bindings["default_safe_id"]
+        self.assertIsInstance(widget, ctk.CTkEntry)
+        hub.destroy()
+
     def test_settings_round_trip(self):
         """Verify that settings can be modified and collected correctly."""
         # Start with default settings
