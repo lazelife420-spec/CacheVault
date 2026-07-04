@@ -6,6 +6,13 @@ No cloud account. No subscription.
 This is the current public release. It includes all Founder MVP functionality
 plus the improvements shipped in PR #33–#37.
 
+> **Status update (2026-07-04):** Additional Settings Hub and mobile-stability
+> work has accumulated on `release/v0.1.4-public-distribution` since this file
+> was last finalized — see "Accumulated changes since v0.1.4" below. That work
+> has **not been published**. Publish remains **HOLD**, `/proof` is unchanged,
+> and nothing below should be read as a "stable" claim beyond what is already
+> live in the section above.
+
 ## What is new in v0.1.4
 
 ### Multi-select clips (PR #34)
@@ -71,3 +78,42 @@ See `CHANGELOG.md` for the full entry.
 
 - `CacheVault-v0.1.4-windows.zip`
 - `SHA256SUMS.txt`
+
+## Accumulated changes since v0.1.4 (unpublished, internal QA only)
+
+The following changes exist on `release/v0.1.4-public-distribution` through
+the pre-reconciliation runtime baseline (`aed77e5`) but have not shipped in
+any public release. This section is a truthful record of the branch, not a
+release announcement. Publish remains **HOLD** until this is reviewed and
+folded into an actual versioned release (v0.1.4.x or v0.1.5 — not yet
+decided).
+
+### Mobile and Android
+
+- Android reconnect lifecycle hardening (PR #6).
+- Mobile Access screen shows per-device status: Online, Offline, Waiting for phone approval, Revoked (PR #8).
+- Settings Hub Mobile Bridge category shows live status — Bridge, LAN discovery, LAN IP, last phone request, paired-device count — and wires the Pair Android Device / Mobile Access Receipts / Paired Devices actions (PR #15, PR #16).
+
+### Settings Hub
+
+- Fixed window ownership, single-instance behavior, and z-order (PR #10).
+- Hotkey recording stabilized; Settings Hub now uses the same recorder as the rest of the app (PR #9, PR #11).
+- New General category: live version/build, packaged-vs-source detection, data folder path, first-use guide replay (PR #17).
+- New Diagnostics category: crash log path (action only when a log exists), live database path, selftest shown as text, CLI-only, never a button (PR #18).
+- Excluded apps field now renders as a multi-line textarea and correctly saves/loads the list; previously silently discarded edits (PR #19).
+
+### CI
+
+- Dropped Python 3.11 from the required PR/push gate matrix; 3.12 and 3.13 remain required and green (PR #14).
+
+### Internal QA
+
+A full packaged-EXE QA pass ran against a fresh rebuild from `aed77e5`:
+selftest, founder license smoke, packaged GUI checks, mobile bridge runtime
+proof, and a real Android phone Send-to-PC proof all passed. This is internal
+QA only — the tested artifact
+(SHA256 `AB653CE790243C3BDA50C4365A5A169F163CE708BAB1B4EEB2AB1290BCA14531`)
+has not been published and should not be distributed unless this exact
+artifact is later explicitly promoted to a release.
+
+See `CHANGELOG.md` "Unreleased" for the full itemized list.
