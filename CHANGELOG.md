@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-Accumulated work on `release/v0.1.4-public-distribution` since the last release-notes refresh (`b405e478`, 2026-06-29). **Not yet published.** Publish remains **HOLD**. `/proof` is unchanged. Nothing in this section is a "stable" claim.
+_No unreleased changes yet._
+
+## Cache Vault v0.1.5
+
+Target release. Not yet published. Publish remains **HOLD**. `/proof` unchanged. Stable not claimed.
 
 ### Added
 
