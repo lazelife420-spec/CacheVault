@@ -98,6 +98,10 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
         ],
     ),
     SettingsCategory(
+        id="diagnostics", label="Diagnostics", icon="\U0001F50D",
+        fields=[],
+    ),
+    SettingsCategory(
         id="capture", label="Capture", icon="\u25C9",
         fields=[
             SettingsField("capture_paused", "Pause capture", "toggle",
@@ -217,7 +221,7 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
 
 # Fixed display order for settings sidebar.
 _CATEGORY_ORDER = [
-    "general", "capture", "shortcuts",
+    "general", "diagnostics", "capture", "shortcuts",
     # Module categories interleave here by registration order:
     "quick_paste",
     "macros",
@@ -239,8 +243,9 @@ def build_default_registry(
     mobile_devices_action: Callable[[], None] | None = None,
     mobile_receipts_action: Callable[[], None] | None = None,
     show_guide_action: Callable[[], None] | None = None,
+    db_path_getter: Callable[[], str] | None = None,
 ) -> ModuleRegistry:
-    """Create the registry with global categories and the five foundation modules.
+    """Create the registry with global categories and the six foundation modules.
 
     ``mobile_bridge``, when provided, is threaded into ``MobileBridgeModule``
     so its status rows reflect the live bridge (running state, mDNS
@@ -256,9 +261,14 @@ def build_default_registry(
     ``show_guide_action``, when provided, becomes the General category's
     "Show first-use guide again" action. Without it, that row renders with
     no button.
+
+    ``db_path_getter``, when provided, becomes the Diagnostics category's
+    "Database" row value (the live vault's real db path). Without it, that
+    row reads "Unavailable".
     """
     from .mobile_bridge import MobileBridgeModule
     from .general_info import GeneralInfoModule
+    from .diagnostics import DiagnosticsModule
     from .image_viewer import ImageViewerModule
     from .quick_paste import QuickPasteModule
     from .proof import ProofModule
@@ -270,6 +280,7 @@ def build_default_registry(
     reg.set_category_order(_CATEGORY_ORDER)
 
     reg.register(GeneralInfoModule(show_guide_action=show_guide_action))
+    reg.register(DiagnosticsModule(db_path_getter=db_path_getter))
 
     mobile_action_kwargs = dict(
         pair_action=mobile_pair_action,

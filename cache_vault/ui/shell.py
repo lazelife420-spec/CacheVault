@@ -2775,6 +2775,7 @@ class CacheVaultApp(ctk.CTk):
                     mobile_devices_action=self._open_paired_devices,
                     mobile_receipts_action=self._open_mobile_receipts,
                     show_guide_action=self._open_first_use_guide_from_settings,
+                    db_path_getter=lambda: str(self.vault.storage.db_path),
                 )
                 self._settings_window = SettingsHub(
                     self,

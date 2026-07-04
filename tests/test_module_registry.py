@@ -46,11 +46,11 @@ class _DummyModule(ModuleManifest):
 # ---------------------------------------------------------------------------
 
 def test_build_default_registry():
-    """build_default_registry() returns a registry with exactly 5 modules."""
+    """build_default_registry() returns a registry with exactly 6 modules."""
     reg = build_default_registry()
-    assert len(reg.all()) == 5
+    assert len(reg.all()) == 6
     ids = {m.id for m in reg.all()}
-    assert ids == {"general", "mobile_bridge", "image_viewer", "quick_paste", "proof"}
+    assert ids == {"general", "diagnostics", "mobile_bridge", "image_viewer", "quick_paste", "proof"}
 
 
 def test_build_default_registry_threads_mobile_bridge(vault):
@@ -158,6 +158,83 @@ def test_general_info_module_open_data_folder_action(monkeypatch, tmp_path):
 
     assert fake_settings_path.parent.is_dir()
     assert opened["path"] == str(fake_settings_path.parent)
+
+
+def test_build_default_registry_threads_db_path_getter():
+    """db_path_getter=... becomes the Diagnostics category's "Database" row
+    value (12D) -- the live vault's real db path, not a recomputed default
+    (see docs/CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS_AUDIT_2026-07-03.md,
+    Q7). Omitting it (the default) reads "Unavailable"."""
+    reg = build_default_registry(db_path_getter=lambda: r"C:\fake\vault.db")
+    rows = {row.label: row.value_getter() for row in reg.get("diagnostics").get_status_rows()}
+    assert rows["Database"] == r"C:\fake\vault.db"
+
+    default_rows = {
+        row.label: row.value_getter()
+        for row in build_default_registry().get("diagnostics").get_status_rows()
+    }
+    assert default_rows["Database"] == "Unavailable"
+
+
+def test_diagnostics_module_selftest_row_is_informational_only():
+    """Selftest must stay CLI-only per the real-controls audit's rule (Q9):
+    no button, ever -- just a copyable command. DiagnosticsModule also adds
+    no new sidebar entry of its own (registers under the existing global
+    "diagnostics" category, mirroring GeneralInfoModule's pattern)."""
+    reg = build_default_registry()
+    mod = reg.get("diagnostics")
+    assert mod.get_settings_schema() == []
+    row = next(r for r in mod.get_status_rows() if r.label == "Selftest")
+    assert row.action is None
+    assert row.action_label == ""
+    assert "app.py --selftest" in row.value_getter()
+
+
+def test_diagnostics_module_crash_log_row(monkeypatch, tmp_path):
+    """Crash log row's value/action depend on live file existence -- it must
+    never draw a button for a log that doesn't exist yet (Q9: "not a fake
+    button")."""
+    import cache_vault.core.settings as settings_mod
+
+    fake_settings_path = tmp_path / "CacheVaultFake" / "settings.json"
+    monkeypatch.setattr(settings_mod, "default_settings_path", lambda: fake_settings_path)
+
+    # No crash log yet.
+    rows = {row.label: row for row in build_default_registry().get("diagnostics").get_status_rows()}
+    assert rows["Crash log"].value_getter() == "No crashes recorded"
+    assert rows["Crash log"].action is None
+    assert rows["Crash log"].action_label == ""
+
+    # Crash log now exists.
+    crash_log = fake_settings_path.parent / "crash.log"
+    crash_log.parent.mkdir(parents=True, exist_ok=True)
+    crash_log.write_text("boom")
+    rows2 = {row.label: row for row in build_default_registry().get("diagnostics").get_status_rows()}
+    assert rows2["Crash log"].value_getter() == str(crash_log)
+    assert rows2["Crash log"].action_label == "Open Crash Log"
+    assert rows2["Crash log"].action is not None
+
+
+def test_diagnostics_module_open_crash_log_action(monkeypatch, tmp_path):
+    """The Crash log row's action is unconditional once a log file exists
+    (no external wiring needed) -- it opens the real file via
+    pathutil.open_file."""
+    import cache_vault.core.pathutil as pathutil_mod
+    import cache_vault.core.settings as settings_mod
+
+    fake_settings_path = tmp_path / "CacheVaultFake" / "settings.json"
+    monkeypatch.setattr(settings_mod, "default_settings_path", lambda: fake_settings_path)
+    crash_log = fake_settings_path.parent / "crash.log"
+    crash_log.parent.mkdir(parents=True, exist_ok=True)
+    crash_log.write_text("boom")
+
+    opened = {}
+    monkeypatch.setattr(pathutil_mod, "open_file", lambda p: opened.setdefault("path", p))
+
+    rows = {row.label: row for row in build_default_registry().get("diagnostics").get_status_rows()}
+    rows["Crash log"].action()
+
+    assert opened["path"] == str(crash_log)
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +366,7 @@ def test_health_report():
     """health_report() returns a dict keyed by module id, each with 'status'."""
     reg = build_default_registry()
     report = reg.health_report()
-    assert set(report.keys()) == {"general", "mobile_bridge", "image_viewer", "quick_paste", "proof"}
+    assert set(report.keys()) == {"general", "diagnostics", "mobile_bridge", "image_viewer", "quick_paste", "proof"}
     for mid, result in report.items():
         assert "status" in result, f"Module {mid} health check missing 'status'"
 
@@ -304,8 +381,8 @@ def test_module_categories_order():
     cats = reg.settings_categories()
     ids = [c.id for c in cats]
     # Global categories must appear before any module categories.
-    global_ids = {"general", "capture", "shortcuts", "macros", "display",
-                  "vault_lock", "history"}
+    global_ids = {"general", "diagnostics", "capture", "shortcuts", "macros",
+                  "display", "vault_lock", "history"}
     module_ids = {"mobile_bridge", "quick_paste", "proof"}
     # image_viewer has no settings schema, so it won't appear.
     first_module_idx = None

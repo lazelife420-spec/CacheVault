@@ -135,6 +135,29 @@ class TestSettingsHubIntegration(unittest.TestCase):
 
         mock_guide.assert_called_once_with()
 
+    def test_open_settings_wires_db_path_getter_into_registry(self):
+        """12D: the registry's Diagnostics "Database" row must read the
+        app's real live vault.storage.db_path, not a recomputed default --
+        so a non-default db location would still show correctly (see
+        CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS_AUDIT_2026-07-03.md, Q7)."""
+        self.vault.storage.db_path = "C:\\fake\\test_vault.db"
+        captured = {}
+
+        def _capture_hub(app, settings, registry, **kwargs):
+            captured["registry"] = registry
+            hub = MagicMock()
+            hub.winfo_exists.return_value = True
+            return hub
+
+        with patch('cache_vault.ui.shell.SettingsHub', side_effect=_capture_hub):
+            self.app._open_settings()
+
+        rows = {
+            row.label: row.value_getter()
+            for row in captured["registry"].get("diagnostics").get_status_rows()
+        }
+        self.assertEqual(rows["Database"], "C:\\fake\\test_vault.db")
+
     def test_open_settings_close_clears_reference(self):
         """Verify the shell forgets the hub when the window closes."""
         hub_window = MagicMock()
