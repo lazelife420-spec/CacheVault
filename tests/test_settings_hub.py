@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +26,22 @@ def _find_all(widget, widget_type):
             found.append(child)
         found.extend(_find_all(child, widget_type))
     return found
+
+
+def _wait_viewable(widget, timeout: float = 2.0) -> None:
+    """Pump the Tk event loop until ``widget`` is actually mapped.
+
+    CTkToplevel briefly withdraws itself on Windows while applying the
+    dark-titlebar attribute, then reverts via a deferred callback; a single
+    ``update()`` right after construction is not enough to observe the
+    window as viewable/focusable, which real keyboard-event tests need.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        widget.update()
+        if widget.winfo_viewable():
+            return
+        time.sleep(0.02)
 
 
 class TestSettingsHub(unittest.TestCase):
@@ -427,6 +444,48 @@ class TestSettingsHubHotkeyRecorder(unittest.TestCase):
         hub._select_category("general")
         self.assertEqual(hub._active_recorders, [])
         hub.destroy()
+
+    def test_real_keypress_dispatch_captures_combo(self):
+        """Regression test for the focus-only capture bug: drive the real
+        Tk event pipeline (event_generate) instead of calling
+        ``_on_key_press`` directly, so a bindtag/focus regression would
+        actually be caught here.
+        """
+        hub = self._hub()
+        rec = self._recorder_for(hub, "quick_paste_hotkey")
+        _var, entry = hub._field_bindings["quick_paste_hotkey"]
+        _wait_viewable(hub)
+        try:
+            rec.toggle()
+            hub.update()
+            entry.event_generate("<KeyPress>", keysym="Control_L")
+            hub.update()
+            entry.event_generate("<KeyPress>", keysym="b")
+            hub.update()
+            self.assertEqual(entry.get(), "ctrl+b")
+            self.assertFalse(rec.recording)
+            # Grab must not still be held by the hub once capture completes,
+            # regardless of whether grab_set() actually succeeded on this
+            # environment/display (see _release_grab: releasing an unowned
+            # grab is a no-op, so this holds either way).
+            self.assertNotEqual(str(hub.grab_current()), str(hub))
+        finally:
+            hub.withdraw()
+            hub.destroy()
+
+    def test_recording_grab_released_on_cancel(self):
+        hub = self._hub()
+        rec = self._recorder_for(hub, "manual_save_hotkey")
+        _wait_viewable(hub)
+        try:
+            rec.toggle()
+            hub.update()
+            rec.stop(cancelled=True)
+            self.assertFalse(rec.recording)
+            self.assertNotEqual(str(hub.grab_current()), str(hub))
+        finally:
+            hub.withdraw()
+            hub.destroy()
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ class DialogHotkeyRecorder:
         self._recording = False
         self._held: set[str] = set()
         self._bind_ids: dict[str, str] = {}
+        self._grab_owned = False
 
     @property
     def recording(self) -> bool:
@@ -57,6 +58,41 @@ class DialogHotkeyRecorder:
             self._owner.focus_force()
         except Exception:  # noqa: BLE001
             pass
+        self._acquire_grab()
+
+    def _acquire_grab(self) -> None:
+        """Best-effort local input grab so key events reliably reach us.
+
+        ``focus_force()`` alone can be silently refused by the OS (e.g.
+        Windows foreground-lock) when the owner window isn't already the
+        foreground app, which is how a hotkey recorder can enter "Recording..."
+        state and then never see a keypress. ``grab_set()`` routes events at
+        the Tk level instead and doesn't depend on OS foreground rules.
+
+        If the owner already holds the grab (e.g. a modal dialog like
+        Command Center's ``HotkeyActionDialog`` grabs itself for its whole
+        lifetime), leave it alone — it isn't ours to release later.
+        """
+        try:
+            current = self._owner.grab_current()
+        except Exception:  # noqa: BLE001
+            current = None
+        if current is not None and str(current) == str(self._owner):
+            return
+        try:
+            self._owner.grab_set()
+            self._grab_owned = True
+        except Exception:  # noqa: BLE001 - unmapped/headless: capture still works via bindings
+            self._grab_owned = False
+
+    def _release_grab(self) -> None:
+        if not self._grab_owned:
+            return
+        self._grab_owned = False
+        try:
+            self._owner.grab_release()
+        except Exception:  # noqa: BLE001
+            pass
 
     def stop(self, *, cancelled: bool) -> None:
         if self._recording:
@@ -69,6 +105,7 @@ class DialogHotkeyRecorder:
                     except Exception:  # noqa: BLE001
                         pass
             self._bind_ids.clear()
+            self._release_grab()
         self._set_button_text(self._button_idle_text)
         if cancelled:
             self._on_complete()

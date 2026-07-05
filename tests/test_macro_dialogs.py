@@ -1,7 +1,25 @@
 from __future__ import annotations
 
+import time
+
 from cache_vault.core.settings import Settings
 from cache_vault.core.vault_macros import Macro, MacroSafeRegistry, TRIGGER_HOTKEY
+
+
+def _wait_viewable(widget, timeout: float = 2.0) -> None:
+    """Pump the Tk event loop until ``widget`` is actually mapped.
+
+    CTkToplevel briefly withdraws itself on Windows while applying the
+    dark-titlebar attribute, then reverts via a deferred callback; a single
+    ``update()`` right after construction is not enough to observe the
+    window as viewable/focusable, which real keyboard-event tests need.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        widget.update()
+        if widget.winfo_viewable():
+            return
+        time.sleep(0.02)
 
 
 def test_macro_edit_escape_cancels_recording(tk_root):
@@ -113,4 +131,36 @@ def test_macro_edit_destroy_while_recording_is_safe(tk_root):
     dlg._trigger.set("Hotkey combo")
     dlg._on_trigger_changed()
     dlg._toggle_record()
+    dlg.destroy()
+
+
+def test_macro_edit_real_keypress_dispatch_captures_combo(tk_root):
+    """Regression test for the focus-only capture bug: drive the real Tk
+    event pipeline (event_generate) instead of calling ``_on_key_press``
+    directly.
+    """
+    from cache_vault.ui.macro_dialogs import MacroEditDialog
+
+    settings = Settings()
+    registry = MacroSafeRegistry(settings)
+    dlg = MacroEditDialog(
+        tk_root,
+        macro=Macro(id="m1", name="Sig", body="Best"),
+        registry=registry,
+        on_save=lambda m: None,
+        other_macros=[],
+        reserved_specs=set(),
+    )
+    dlg._trigger.set("Hotkey combo")
+    dlg._on_trigger_changed()
+    _wait_viewable(dlg)
+    dlg._toggle_record()
+    dlg.update()
+    dlg._hotkey.event_generate("<KeyPress>", keysym="Control_L")
+    dlg.update()
+    dlg._hotkey.event_generate("<KeyPress>", keysym="2")
+    dlg.update()
+    assert dlg._hotkey.get() == "ctrl+2"
+    assert not dlg._recorder.recording
+    assert str(dlg.grab_current()) != str(dlg)
     dlg.destroy()
