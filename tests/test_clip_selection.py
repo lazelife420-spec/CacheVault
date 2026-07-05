@@ -3,9 +3,37 @@ from __future__ import annotations
 from types import SimpleNamespace
 import inspect
 
+import pytest
+
 from cache_vault import brand
+from cache_vault.core import models
+from cache_vault.core.models import Clip
 from cache_vault.ui.clip_grid import ClipGrid
 from cache_vault.ui.clip_list import ClipList
+from cache_vault.ui.shell import CacheVaultApp
+from tests.tk_support import probe_tk_ui, _tcl_unavailable
+
+OK, REASON = probe_tk_ui()
+
+
+def _make_app(vault):
+    try:
+        return CacheVaultApp(vault=vault)
+    except Exception as exc:  # noqa: BLE001
+        if _tcl_unavailable(exc):
+            pytest.skip(f"Tk runtime unavailable at app construction: {exc}")
+        raise
+
+
+def _png_bytes(color: str = "blue") -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("RGB", (8, 6), color)
+    out = BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
 
 
 class FakeWidget:
@@ -432,3 +460,86 @@ def test_command_center_context_copy_avoids_forbidden_claims():
 
     for claim in ("cloud sync", "encrypted safes", "final release", "bank-grade", "military-grade"):
         assert claim not in source
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_selected_action_strip_always_shows_more(vault):
+    """The single-select toolbar strip must always surface 'More', even when
+    a clip type (link/default) already has 5 type-specific actions defined.
+
+    Regression guard for the actions[:5] truncation bug: appending "More"
+    to an already-5-item list silently dropped it before this fix.
+    """
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+
+        link_clip = Clip(
+            content="https://example.com", preview="https://example.com",
+            classification=models.CLASS_LINK,
+        )
+        app._update_selected_action_strip(link_clip)
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert "More" in labels
+        assert len(labels) <= 5
+
+        text_clip = Clip(content="plain text note", preview="plain text note")
+        app._update_selected_action_strip(text_clip)
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert "More" in labels
+        assert len(labels) <= 5
+
+        image_clip = Clip(
+            content="asset", preview="asset",
+            classification=models.CLASS_IMAGE, content_type=models.CONTENT_IMAGE,
+        )
+        app._update_selected_action_strip(image_clip)
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert "More" in labels
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_bulk_action_strip_includes_remove_for_all_classes(vault, tmp_path, monkeypatch):
+    """Remove must be reachable from the multi-select toolbar for every
+    selection class, matching what the right-click context menu already
+    offers (link_only/text_only/image_only were previously missing it;
+    mixed already had it).
+    """
+    # capture_image() persists real asset files under %LOCALAPPDATA%; redirect
+    # to a tmp dir so this test never touches the real user profile.
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+
+        text1 = vault.capture("first note")
+        text2 = vault.capture("second note")
+        app._update_bulk_action_strip([text1.id, text2.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert "Remove" in labels
+
+        link1 = vault.capture("https://example.com/1")
+        link2 = vault.capture("https://example.com/2")
+        app._update_bulk_action_strip([link1.id, link2.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert "Remove" in labels
+
+        # Distinct colors: capture_image() silently returns None for
+        # byte-identical duplicate captures.
+        img1 = vault.capture_image(_png_bytes("red"), width=8, height=6)
+        img2 = vault.capture_image(_png_bytes("blue"), width=8, height=6)
+        assert img1 is not None and img2 is not None
+        app._update_bulk_action_strip([img1.id, img2.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert "Remove" in labels
+
+        # Mixed selection already had Remove before this fix; confirm unchanged.
+        app._update_bulk_action_strip([text1.id, img1.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert "Remove" in labels
+        assert labels == ["Export Bundle", "Copy Text+Links", "Save PNGs", "Receipt", "Remove"]
+    finally:
+        app.destroy()

@@ -88,6 +88,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             ]
         elif summary.selection_class == "image_only":
             return [
+                MenuItem("copy_pngs", "Copy PNG Files"),
                 MenuItem("save_pngs", "Save All As PNG"),
                 MenuItem("export_zip", "Export ZIP"),
                 MenuItem("copy_paths", "Copy File Paths"),
@@ -105,6 +106,8 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
         else:  # text_only / other
             return [
                 MenuItem("copy_plain", "Copy as Plain List"),
+                MenuItem("copy_markdown", "Copy as Markdown"),
+                MenuItem("copy_numbered", "Copy as Numbered List"),
                 MenuItem("move_safe", "Save to Safe…", separator_before=True),
                 MenuItem("receipt", "Create Receipt"),
                 MenuItem("remove", "Delete Selected", separator_before=True),
