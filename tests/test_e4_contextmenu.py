@@ -67,11 +67,34 @@ def test_multiple_images_flat_menu():
     items = clip_menu_items([c1, c2])
 
     keys = [item.key for item in items]
-    assert "copy_pngs" not in keys
+    assert "copy_pngs" in keys
     assert "save_pngs" in keys
     assert "export_zip" in keys
     assert "copy_paths" in keys
     assert "view_proof" in keys
+    assert "remove" in keys
+
+    for item in items:
+        assert len(item.children) == 0
+
+
+def test_multiple_text_flat_menu():
+    """Verify multiple selected plain-text clips returns flat list of text actions.
+
+    text_only mirrors link_only's copy-format options (Markdown/Numbered were
+    already declared in SelectionSummary.available_actions but never wired
+    into the actual menu items for this class).
+    """
+    c1 = _clip("first note", models.CLASS_PLAIN, models.CONTENT_TEXT)
+    c2 = _clip("second note", models.CLASS_PLAIN, models.CONTENT_TEXT)
+    items = clip_menu_items([c1, c2])
+
+    keys = [item.key for item in items]
+    assert "copy_plain" in keys
+    assert "copy_markdown" in keys
+    assert "copy_numbered" in keys
+    assert "move_safe" in keys
+    assert "receipt" in keys
     assert "remove" in keys
 
     for item in items:

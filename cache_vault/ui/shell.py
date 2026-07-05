@@ -845,8 +845,9 @@ class CacheVaultApp(ctk.CTk):
                 ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
                 to_macros,
             ]
+        actions = actions[:4]
         actions.append(("More", self._keyboard_open_context_menu))
-        for text, command in actions[:5]:
+        for text, command in actions:
             btn = ctk.CTkButton(
                 self._selected_action_frame,
                 text=text,
@@ -1996,6 +1997,7 @@ class CacheVaultApp(ctk.CTk):
                 ("Copy Num", lambda: self._bulk_copy_format("numbered")),
                 ("Move Safe", self._bulk_move_to_safe),
                 ("Receipt", lambda: self._bulk_create_receipt(summary)),
+                ("Remove", self._bulk_remove),
             ]
         elif summary.selection_class == "image_only":
             actions = [
@@ -2004,6 +2006,7 @@ class CacheVaultApp(ctk.CTk):
                 ("Export ZIP", self._bulk_export_zip),
                 ("Copy Paths", self._bulk_copy_paths),
                 ("View Proof", self._bulk_view_proof),
+                ("Remove", self._bulk_remove),
             ]
         else:  # mixed
             actions = [
