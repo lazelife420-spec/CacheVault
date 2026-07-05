@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 
 import customtkinter as ctk
 
@@ -7,6 +8,22 @@ from cache_vault.core.command_center import (
     ACTION_SAVE_CLIPBOARD_TO_SAFE,
     HotkeyAction,
 )
+
+
+def _wait_viewable(widget, timeout: float = 2.0) -> None:
+    """Pump the Tk event loop until ``widget`` is actually mapped.
+
+    CTkToplevel briefly withdraws itself on Windows while applying the
+    dark-titlebar attribute, then reverts via a deferred callback; a single
+    ``update()`` right after construction is not enough to observe the
+    window as viewable/focusable, which real keyboard-event tests need.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        widget.update()
+        if widget.winfo_viewable():
+            return
+        time.sleep(0.02)
 
 
 def test_hotkey_action_dialog_saves(tk_root):
@@ -178,6 +195,66 @@ def test_hotkey_action_dialog_destroy_while_recording_is_safe(tk_root):
         on_save=lambda a: None,
     )
     dlg._toggle_record()
+    dlg.destroy()
+
+
+def test_hotkey_action_dialog_real_keypress_dispatch_captures_combo(tk_root):
+    """Regression test for the focus-only capture bug: drive the real Tk
+    event pipeline (event_generate) instead of calling ``_on_key_press``
+    directly.
+    """
+    from cache_vault.ui.command_center import HotkeyActionDialog
+
+    dlg = HotkeyActionDialog(
+        tk_root, None,
+        safes=[("default", "Default Safe")],
+        macros=[],
+        other_actions=[],
+        reserved_specs=set(),
+        win32_available=True,
+        on_save=lambda a: None,
+    )
+    _wait_viewable(dlg)
+    dlg._hotkey.delete(0, "end")
+    dlg._toggle_record()
+    dlg.update()
+    dlg._hotkey.event_generate("<KeyPress>", keysym="Control_L")
+    dlg.update()
+    dlg._hotkey.event_generate("<KeyPress>", keysym="s")
+    dlg.update()
+    assert dlg._hotkey.get() == "ctrl+s"
+    assert not dlg._recorder.recording
+    dlg.destroy()
+
+
+def test_hotkey_action_dialog_preserves_own_modal_grab(tk_root):
+    """The recorder's new grab_set()/grab_release() must not clobber a
+    dialog's own pre-existing modal grab (Command Center's dialog grabs
+    itself for its whole lifetime via ``_bring_to_front``).
+    """
+    from cache_vault.ui.command_center import HotkeyActionDialog
+
+    dlg = HotkeyActionDialog(
+        tk_root, None,
+        safes=[("default", "Default Safe")],
+        macros=[],
+        other_actions=[],
+        reserved_specs=set(),
+        win32_available=True,
+        on_save=lambda a: None,
+    )
+    _wait_viewable(dlg)
+    dlg.grab_set()  # simulate _bring_to_front's deferred grab having already run
+    dlg._hotkey.delete(0, "end")
+    dlg._toggle_record()
+    dlg.update()
+    dlg._hotkey.event_generate("<KeyPress>", keysym="Control_L")
+    dlg.update()
+    dlg._hotkey.event_generate("<KeyPress>", keysym="s")
+    dlg.update()
+    assert dlg._hotkey.get() == "ctrl+s"
+    assert not dlg._recorder.recording
+    assert str(dlg.grab_current()) == str(dlg)
     dlg.destroy()
 
 
