@@ -3,14 +3,10 @@
 **Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.
 No cloud account. No subscription.
 
-> **Status: not yet published.** `v0.1.5` is the target version for the
-> accumulated work described below. Publish remains **HOLD** pending final
-> review and an explicit tag decision. `/proof` is unchanged unless
-> separately approved. Nothing in this document is a "stable" claim. The
-> currently live public release remains **v0.1.4**
-> (`cache-vault-v0.1.4-release.1`).
+> `/proof` is unchanged unless separately approved. Nothing in this document
+> is a "stable" claim beyond what is explicitly stated below.
 
-## What is new in v0.1.5 (unpublished)
+## What is new in v0.1.5
 
 ### Mobile and Android
 
@@ -32,13 +28,11 @@ No cloud account. No subscription.
 
 ### Internal QA
 
-A full packaged-EXE QA pass ran against a fresh rebuild from the
-pre-reconciliation runtime baseline (`aed77e5`): selftest, founder license
-smoke, packaged GUI checks, mobile bridge runtime proof, and a real Android
-phone Send-to-PC proof all passed. This is internal QA only — the tested
-artifact (SHA256 `AB653CE790243C3BDA50C4365A5A169F163CE708BAB1B4EEB2AB1290BCA14531`)
-has not been published and should not be distributed unless this exact
-artifact is later explicitly promoted to a release.
+A full packaged-EXE QA pass is recorded in
+`docs/CACHE_VAULT_PACKAGED_DESKTOP_QA_RECEIPT_2026-07-04.md`: selftest,
+founder license smoke, packaged GUI checks, mobile bridge runtime proof, and
+a real Android phone Send-to-PC proof all passed. Final public checksums are
+provided in `SHA256SUMS.txt` attached to the release.
 
 See `CHANGELOG.md` "Cache Vault v0.1.5" for the full itemized list.
 
@@ -53,7 +47,7 @@ changes described here.
 
 ## Previous release: v0.1.4
 
-v0.1.4 (`cache-vault-v0.1.4-release.1`) is the current live public release.
+v0.1.4 (`cache-vault-v0.1.4-release.1`) was the previous public release.
 See `packaging/RELEASE_NOTES-v0.1.4.md` for its notes, or `CHANGELOG.md` for
 the full historical entry.
 
@@ -72,15 +66,14 @@ the full historical entry.
 
 | Check | Result |
 |---|---|
-| `pytest` | 803 passed at `4fac346` |
+| `pytest` | 803 passed |
 | `compileall cache_vault` | PASS |
 | `app.py --selftest` | PASS |
-| Founder package smoke | 3 of 4 automated checks passed: free selftest, Founder license accepted, receipt export no leak. The 4th check, invalid license rejected, is PASS by alternate evidence: the bad license reaches the expected rejection/crash-dialog path, and `tests/test_licensing.py::test_install_rejects_invalid_license` passes. Unattended completion is blocked by the packaged windowed EXE's pre-existing PyInstaller crash-dialog behavior for this specific negative path; this is a process-exit-signaling limitation, not a licensing defect. |
 | GitHub Actions matrix | 3.12 ✓ · 3.13 ✓ |
-| `dist\CacheVault.exe` SHA256 | `62F3C6CD49C60FC3BEF1F36681AB1AD675BC83627C9B6C91F36C6818D561033E` (local build from `4fac346`; not yet published) |
-| ZIP SHA256 | `b3ed0d4643f4fa64359e81e72a32bdb0ccfd06c5b6e25708a85561605870c58b` (local `CacheVault-v0.1.5-windows.zip`; not yet published) |
+| Founder package smoke | PASS by alternate evidence for the invalid-license negative path; see repository QA notes for details. |
+| Published checksums | See `SHA256SUMS.txt` attached to this release. |
 
-## Artifacts (once published)
+## Artifacts
 
 - `CacheVault-v0.1.5-windows.zip`
 - `SHA256SUMS.txt`

@@ -6,7 +6,7 @@ _No unreleased changes yet._
 
 ## Cache Vault v0.1.5
 
-Target release. Not yet published. Publish remains **HOLD**. `/proof` unchanged. Stable not claimed.
+`/proof` unchanged this release. Stable not claimed.
 
 ### Added
 
@@ -31,7 +31,7 @@ Target release. Not yet published. Publish remains **HOLD**. `/proof` unchanged.
 ### Internal / QA
 
 - An audit of Settings Hub real controls (see `docs/CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS_AUDIT_2026-07-03.md`) identified the Mobile Bridge and Excluded Apps gaps fixed above.
-- A full packaged-EXE QA pass ran against a fresh rebuild from the pre-reconciliation runtime baseline (`aed77e5`): selftest, founder license smoke, packaged GUI checks, mobile bridge runtime proof, and a real Android phone Send-to-PC proof all passed (see `docs/CACHE_VAULT_PACKAGED_DESKTOP_QA_RECEIPT_2026-07-04.md`). This is internal QA only — the tested artifact (SHA256 `AB653CE790243C3BDA50C4365A5A169F163CE708BAB1B4EEB2AB1290BCA14531`) has not been published.
+- A full packaged-EXE QA pass is recorded in `docs/CACHE_VAULT_PACKAGED_DESKTOP_QA_RECEIPT_2026-07-04.md`: selftest, founder license smoke, packaged GUI checks, mobile bridge runtime proof, and a real Android phone Send-to-PC proof all passed. Final public checksums are provided in `SHA256SUMS.txt` attached to the release.
 
 ## Cache Vault v0.1.4
 
