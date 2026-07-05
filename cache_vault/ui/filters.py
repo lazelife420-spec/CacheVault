@@ -155,7 +155,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         for heading, items in FILTER_GROUPS:
             parent = self
             if heading:
-                parent = self._section(heading, default_open=True)
+                parent = self._section(heading, default_open=False)
             for key, label in items:
                 self._labels_text[key] = label
                 display = _NAV_ICONS.get(key, "") + label
@@ -169,7 +169,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._collections_empty.pack(fill="x", padx=14, pady=2)
 
         self._separator()
-        self._safes_frame = self._section("SAFES", default_open=True)
+        self._safes_frame = self._section("SAFES", default_open=False)
         safes_heading = self._section_buttons["SAFES"]
         bind_tooltip(safes_heading, TOOLTIP_SAFES)
         self._safes_empty = ctk.CTkLabel(
@@ -186,6 +186,9 @@ class FilterNav(ctk.CTkScrollableFrame):
             fill="x", padx=10, pady=6)
 
     def _section(self, heading: str, *, default_open: bool) -> ctk.CTkFrame:
+        # default_open only tweaks this button's top padding; actual initial
+        # visibility comes from settings.sidebar_collapsed_sections via
+        # self._collapsed, so a fresh profile's real default lives there.
         frame = ctk.CTkFrame(self, fg_color="transparent")
         self._section_frames[heading] = frame
         btn = ctk.CTkButton(
