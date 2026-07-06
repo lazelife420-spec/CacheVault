@@ -473,6 +473,42 @@ class TestSettingsHubHotkeyRecorder(unittest.TestCase):
             hub.withdraw()
             hub.destroy()
 
+    def test_numpad_digit_keysym_with_numpad_keycode(self):
+        """Windows often reports keysym '2' for numpad — keycode disambiguates."""
+        hub = self._hub()
+        rec = self._recorder_for(hub, "quick_paste_hotkey")
+        _var, entry = hub._field_bindings["quick_paste_hotkey"]
+        _wait_viewable(hub)
+        try:
+            rec.toggle()
+            hub.update()
+            entry.event_generate("<KeyPress>", keysym="Control_L")
+            hub.update()
+            entry.event_generate("<KeyPress>", keysym="2", keycode=98)
+            hub.update()
+            self.assertEqual(entry.get(), "ctrl+num2")
+            self.assertFalse(rec.recording)
+        finally:
+            hub.withdraw()
+            hub.destroy()
+
+    def test_top_row_digit_keycode_stays_top_row(self):
+        hub = self._hub()
+        rec = self._recorder_for(hub, "quick_paste_hotkey")
+        _var, entry = hub._field_bindings["quick_paste_hotkey"]
+        _wait_viewable(hub)
+        try:
+            rec.toggle()
+            hub.update()
+            entry.event_generate("<KeyPress>", keysym="Control_L")
+            hub.update()
+            entry.event_generate("<KeyPress>", keysym="2", keycode=50)
+            hub.update()
+            self.assertEqual(entry.get(), "ctrl+2")
+        finally:
+            hub.withdraw()
+            hub.destroy()
+
     def test_recording_grab_released_on_cancel(self):
         hub = self._hub()
         rec = self._recorder_for(hub, "manual_save_hotkey")

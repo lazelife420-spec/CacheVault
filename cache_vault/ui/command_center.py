@@ -19,6 +19,7 @@ from ..core.command_center import (
     implemented_action_keys,
 )
 from . import theme
+from ..core.hotkey import normalize_keysym as _normalize_keysym
 from .hotkey_recording import DialogHotkeyRecorder
 
 _MODIFIER_KEYSYMS = {
@@ -27,24 +28,6 @@ _MODIFIER_KEYSYMS = {
     "Alt_L": "alt", "Alt_R": "alt",
     "Super_L": "win", "Super_R": "win", "Win_L": "win", "Win_R": "win",
 }
-
-_KEYSYM_ALIASES = {
-    "Return": "enter", "KP_Enter": "enter", "Escape": "esc", "Tab": "tab",
-    "space": "space", "Delete": "delete", "Insert": "insert", "Home": "home",
-    "End": "end", "Prior": "pageup", "Next": "pagedown",
-}
-
-
-def _normalize_keysym(keysym: str) -> str | None:
-    if not keysym:
-        return None
-    if keysym in _KEYSYM_ALIASES:
-        return _KEYSYM_ALIASES[keysym]
-    if len(keysym) == 1 and keysym.isalnum():
-        return keysym.lower()
-    if keysym.lower().startswith("f") and keysym[1:].isdigit():
-        return keysym.lower()
-    return None
 
 
 def _bring_to_front(win: ctk.CTkToplevel, master) -> None:

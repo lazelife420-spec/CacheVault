@@ -543,7 +543,7 @@ class SettingsDialog(ctk.CTkToplevel):
         if mod:
             self._held.add(mod)
             return "break"
-        key = _normalize_keysym(event.keysym)
+        key = _normalize_keysym(event.keysym, getattr(event, "keycode", None))
         if key is None:
             return "break"
         order = [m for m in ("ctrl", "alt", "shift", "win") if m in self._held]
