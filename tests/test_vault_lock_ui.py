@@ -4,6 +4,7 @@ import inspect
 
 import customtkinter as ctk
 
+from cache_vault import brand
 from cache_vault.core import models, vault_lock
 from cache_vault.core.models import Clip
 from cache_vault.core.settings import Settings
@@ -96,6 +97,16 @@ def test_inspector_tabs_render(tk_root):
     panel._set_tab("Metadata")
     assert panel._active_tab == "Metadata"
     panel.destroy()
+
+
+def test_sidebar_title_uses_brand_constant(tk_root):
+    # Guards against the title reverting to a literal that bypasses
+    # brand.py, which would silently stop following brand changes.
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    title_label = nav.winfo_children()[0]
+    assert brand.PRODUCT_NAME in title_label.cget("text")
+    nav.destroy()
 
 
 def test_sidebar_sections_collapse_and_persist(tk_root, tmp_path):

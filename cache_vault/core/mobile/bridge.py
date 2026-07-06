@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 from urllib.parse import unquote
 
+from ... import brand
 from .. import models, search
 from ..settings import Settings
 from ..storage import FILTER_ALL, FILTER_FAVORITES, FILTER_RECENTLY_REMOVED, FILTER_SEARCH_ALL
@@ -433,7 +434,7 @@ class MobileBridge:
         if family == "/mobile/v1/status":
             return 200, {
                 "product": "Cache Vault",
-                "byline": "A Proof Foundry companion app",
+                "byline": brand.MOBILE_BYLINE,
                 "mobile_api_version": MOBILE_API_VERSION,
                 "mobile_access_enabled": True,
                 "cache_vault_version": __version__,

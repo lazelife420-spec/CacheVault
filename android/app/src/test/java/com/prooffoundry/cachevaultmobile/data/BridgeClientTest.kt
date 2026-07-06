@@ -37,7 +37,7 @@ class BridgeClientTest {
                 """
                 {
                   "product": "Cache Vault",
-                  "byline": "A Proof Foundry companion app",
+                  "byline": "Product by The Proof Foundry™",
                   "mobile_api_version": "1",
                   "mobile_access_enabled": true,
                   "cache_vault_version": "0.1.2",
