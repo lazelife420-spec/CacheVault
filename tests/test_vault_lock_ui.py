@@ -173,3 +173,33 @@ def test_sidebar_filtering_works_when_group_starts_collapsed(tk_root):
     assert nav.active == FILTER_FAVORITES
     assert selected == [FILTER_FAVORITES]
     nav.destroy()
+
+
+def test_sidebar_sections_expand_in_place_not_at_end(tk_root):
+    settings = Settings()  # fresh profile: every section starts collapsed
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+
+    # Expand out of the sidebar's fixed visual order (VAULT, TIME, COMMAND
+    # are not adjacent in FILTER_GROUPS). A regression here would show up
+    # as content sinking to the end of the sibling list instead of staying
+    # directly under its own heading.
+    for heading in ("VAULT", "TIME", "COMMAND"):
+        nav._toggle_section(heading)
+
+    slaves = nav.pack_slaves()
+    for heading in ("VAULT", "TIME", "COMMAND"):
+        btn = nav._section_buttons[heading]
+        frame = nav._section_frames[heading]
+        assert slaves.index(frame) == slaves.index(btn) + 1, (
+            f"{heading} content should be immediately after its own heading"
+        )
+
+    # Collapsing and re-expanding an already-opened section must not move
+    # it either (this is the exact forget/re-pack path the fix targets).
+    nav._toggle_section("TIME")
+    nav._toggle_section("TIME")
+    slaves = nav.pack_slaves()
+    time_btn = nav._section_buttons["TIME"]
+    time_frame = nav._section_frames["TIME"]
+    assert slaves.index(time_frame) == slaves.index(time_btn) + 1
+    nav.destroy()
