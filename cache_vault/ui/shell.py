@@ -64,6 +64,7 @@ from .filters import (
     NAV_QUICK_PASTE,
     NAV_SCREEN_KEYS,
     NAV_FOUNDER,
+    NAV_NEW_SAFE,
     NAV_SETTINGS,
     NAV_STAMPED_RECEIPTS,
     NAV_VAULT_MACROS,
@@ -1839,6 +1840,9 @@ class CacheVaultApp(ctk.CTk):
         if key == NAV_FOUNDER:
             self._open_founder()
             return
+        if key == NAV_NEW_SAFE:
+            self._open_new_safe()
+            return
         gate = _FOUNDER_NAV_GATES.get(key)
         if gate and not self._require_founder(gate):
             return
@@ -2558,6 +2562,14 @@ class CacheVaultApp(ctk.CTk):
         if not self._require_founder("safes_advanced"):
             return None
         return self.vault.create_safe(name)
+
+    def _open_new_safe(self) -> None:
+        SafePickerDialog(
+            self, self.vault.settings,
+            title="New Safe",
+            picker_mode=False,
+            on_create=lambda _name: self.refresh(),
+        )
 
     # --- export ------------------------------------------------------------
     def _save_asset_as(self, clip_id: str) -> None:
