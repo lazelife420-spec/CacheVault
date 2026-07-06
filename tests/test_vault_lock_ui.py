@@ -7,8 +7,8 @@ import customtkinter as ctk
 from cache_vault.core import models, vault_lock
 from cache_vault.core.models import Clip
 from cache_vault.core.settings import Settings
-from cache_vault.core.storage import FILTER_ALL
-from cache_vault.ui.filters import FilterNav
+from cache_vault.core.storage import FILTER_ALL, FILTER_FAVORITES
+from cache_vault.ui.filters import FILTER_GROUPS, FilterNav
 from cache_vault.ui.preview import PreviewPanel
 from cache_vault.ui.vault_lock import LOCK_COPY, VaultControlStrip, VaultLockScreen
 
@@ -104,12 +104,72 @@ def test_sidebar_sections_collapse_and_persist(tk_root, tmp_path):
     settings.save(path)
     nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
 
-    nav._toggle_section("VAULT")
+    # Fresh profile: VAULT starts collapsed by default.
     assert "VAULT" in settings.sidebar_collapsed_sections
-    assert "VAULT" in Settings.load(path).sidebar_collapsed_sections
 
     nav._toggle_section("VAULT")
     assert "VAULT" not in settings.sidebar_collapsed_sections
+    assert "VAULT" not in Settings.load(path).sidebar_collapsed_sections
+
+    nav._toggle_section("VAULT")
+    assert "VAULT" in settings.sidebar_collapsed_sections
     nav.set_active(FILTER_ALL)
     assert nav.active == FILTER_ALL
+    nav.destroy()
+
+
+def test_sidebar_all_sections_collapsed_on_fresh_profile(tk_root):
+    settings = Settings()  # no file on disk, no prior interaction
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    headings = [h for h, _items in FILTER_GROUPS if h] + ["COLLECTIONS", "SAFES"]
+    for heading in headings:
+        assert heading in nav._collapsed, f"{heading} should start collapsed"
+        assert heading in settings.sidebar_collapsed_sections
+    nav.destroy()
+
+
+def test_sidebar_manually_opened_group_persists_open(tk_root, tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings()
+    settings.save(path)
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    assert "ACCESS" in nav._collapsed  # fresh default starts collapsed
+
+    nav._toggle_section("ACCESS")  # user opens it
+    nav.destroy()
+
+    reloaded = Settings.load(path)
+    assert "ACCESS" not in reloaded.sidebar_collapsed_sections
+    nav2 = FilterNav(tk_root, on_select=lambda _key: None, settings=reloaded)
+    assert "ACCESS" not in nav2._collapsed
+    nav2.destroy()
+
+
+def test_sidebar_manually_collapsed_group_persists_collapsed(tk_root, tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings()
+    settings.save(path)
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+
+    nav._toggle_section("REVIEW")  # open it first, away from the collapsed default
+    assert "REVIEW" not in settings.sidebar_collapsed_sections
+    nav._toggle_section("REVIEW")  # user explicitly re-collapses it
+    nav.destroy()
+
+    reloaded = Settings.load(path)
+    assert "REVIEW" in reloaded.sidebar_collapsed_sections
+    nav2 = FilterNav(tk_root, on_select=lambda _key: None, settings=reloaded)
+    assert "REVIEW" in nav2._collapsed
+    nav2.destroy()
+
+
+def test_sidebar_filtering_works_when_group_starts_collapsed(tk_root):
+    selected = []
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=selected.append, settings=settings)
+    assert "VAULT" in nav._collapsed  # the group containing FILTER_FAVORITES
+
+    nav._select(FILTER_FAVORITES)
+    assert nav.active == FILTER_FAVORITES
+    assert selected == [FILTER_FAVORITES]
     nav.destroy()
