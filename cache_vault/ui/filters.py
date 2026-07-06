@@ -205,6 +205,9 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._section_buttons[heading] = btn
         btn.pack(fill="x", padx=6, pady=(8 if default_open else 2, 4))
         if heading not in self._collapsed:
+            # No after= needed here: this is the frame's first-ever pack
+            # call, immediately following its own button in this same
+            # construction sequence, so it already lands in the right spot.
             frame.pack(fill="x")
         return frame
 
@@ -215,7 +218,10 @@ class FilterNav(ctk.CTkScrollableFrame):
         frame = self._section_frames[heading]
         if heading in self._collapsed:
             self._collapsed.remove(heading)
-            frame.pack(fill="x")
+            # Anchor after our own heading button — a bare pack() would
+            # append to the end of the whole sidebar's sibling list instead
+            # of restoring this section's original position.
+            frame.pack(fill="x", after=self._section_buttons[heading])
         else:
             self._collapsed.add(heading)
             frame.pack_forget()
