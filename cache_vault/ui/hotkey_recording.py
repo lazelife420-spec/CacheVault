@@ -125,7 +125,7 @@ class DialogHotkeyRecorder:
         if mod:
             self._held.add(mod)
             return "break"
-        key = self._normalize_keysym(keysym)
+        key = self._normalize_keysym(keysym, getattr(event, "keycode", None))
         if key is None:
             self._set_hint("Unsupported key. Use Ctrl/Alt/Shift + letter, digit, F-key, or Esc.")
             return "break"

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from . import models, safe_io
-from .hotkey import normalize_hotkey, parse_hotkey
+from .hotkey import canonical_hotkey_spec, normalize_hotkey, parse_hotkey
 
 # --- Action types ------------------------------------------------------------
 ACTION_OPEN_VAULT = "open_vault"
@@ -249,7 +249,7 @@ class HotkeyActionStore:
 
 # --- Conflict / reserved detection -------------------------------------------
 def _canon(spec: str) -> str:
-    return "+".join(p.lower() for p in normalize_hotkey(spec).split("+") if p)
+    return canonical_hotkey_spec(spec)
 
 
 def diagnose_action_hotkey(

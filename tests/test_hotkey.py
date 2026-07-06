@@ -40,6 +40,50 @@ def test_normalize_orders_modifiers():
     assert hotkey.normalize_hotkey("WIN+ALT+space") == "Alt+Win+Space"
 
 
+def test_parse_numpad_digit():
+    mods, vk = hotkey.parse_hotkey("ctrl+num2")
+    assert mods == 0x0002
+    assert vk == 0x62  # VK_NUMPAD2
+
+
+def test_parse_top_row_digit_distinct_from_numpad():
+    _mods, vk_top = hotkey.parse_hotkey("ctrl+2")
+    _mods, vk_num = hotkey.parse_hotkey("ctrl+num2")
+    assert vk_top == ord("2")
+    assert vk_num == 0x62
+    assert vk_top != vk_num
+
+
+def test_normalize_keysym_kp_prefix():
+    assert hotkey.normalize_keysym("KP_2") == "num2"
+
+
+def test_normalize_keysym_digit_uses_keycode_for_numpad():
+    assert hotkey.normalize_keysym("2", keycode=98) == "num2"
+    assert hotkey.normalize_keysym("2", keycode=50) == "2"
+
+
+def test_normalize_display_numpad():
+    assert hotkey.normalize_hotkey("ctrl+num2") == "Ctrl+Num 2"
+
+
+def test_canonical_spec_preserves_numpad_identity():
+    assert hotkey.canonical_hotkey_spec("ctrl+Num 2") == "ctrl+num2"
+    assert hotkey.canonical_hotkey_spec("ctrl+2") == "ctrl+2"
+    assert hotkey.canonical_hotkey_spec("ctrl+2") != hotkey.canonical_hotkey_spec("ctrl+num2")
+
+
+def test_diagnose_numpad_and_top_row_not_duplicate():
+    kind, msg = hotkey.diagnose_hotkey_spec(
+        "ctrl+num2",
+        "quick_paste",
+        {"quick_paste": "ctrl+num2", "manual_save": "ctrl+2"},
+        win32_available=True,
+    )
+    assert kind == "ok"
+    assert "Num 2" in msg
+
+
 def _wait_for(predicate, timeout=2.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
