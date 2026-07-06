@@ -25,6 +25,7 @@ from tkinter import filedialog
 from .. import brand
 from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, search, vault_lock
 from .. import feature_gate
+from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -1429,6 +1430,7 @@ class CacheVaultApp(ctk.CTk):
             self._filters.update_counts(counts)
             self._filters.update_collections(self.vault.list_collections())
             self._filters.update_safes(self.vault.list_safes())
+            self._filters.update_founder_status(licensing.load_license())
 
             if active in NAV_SCREEN_KEYS:
                 self._show_vault_screen(active)

@@ -7,6 +7,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
+from .. import licensing
 from ..core import storage as S
 from ..core.settings import Settings
 from ..core.smart_folders import SMART_FOLDER_NAV
@@ -293,7 +294,10 @@ class FilterNav(ctk.CTkScrollableFrame):
                     font=ctk.CTkFont(size=12, weight="bold" if active else "normal"),
                 )
             cnt = self._counts.get(key)
-            if cnt:
+            # Founder's slot is a license-status badge, not an item count —
+            # its color is owned by update_founder_status(), not the active
+            # row highlight (Founder can never be "active", it's dialog-only).
+            if cnt and key != NAV_FOUNDER:
                 cnt.configure(
                     text_color=(brand.FOUNDRY_BLACK, brand.STAMP_GOLD) if active else brand.MUTED_FG,
                 )
@@ -303,8 +307,23 @@ class FilterNav(ctk.CTkScrollableFrame):
             if key == S.FILTER_HOME:
                 self._counts[key].configure(text="")
                 continue
+            if key == NAV_FOUNDER:
+                continue  # owned by update_founder_status(), not a count.
             n = counts.get(key, 0)
             self._counts[key].configure(text=str(n) if n else "")
+
+    def update_founder_status(self, status: licensing.LicenseStatus) -> None:
+        badge = self._counts.get(NAV_FOUNDER)
+        if not badge:
+            return
+        if status.state == licensing.LicenseState.FOUNDER_VALID:
+            badge.configure(text="FOUNDER", text_color=brand.STAMP_GOLD)
+        elif status.state == licensing.LicenseState.MISSING_LICENSE:
+            badge.configure(text="FREE", text_color=brand.MUTED_FG)
+        elif status.state == licensing.LicenseState.EXPIRED_LICENSE:
+            badge.configure(text="EXPIRED", text_color=brand.WARNING_RED)
+        else:
+            badge.configure(text="ISSUE", text_color=brand.WARNING_RED)
 
     def update_collections(self, collections: list[dict]) -> None:
         for row in self._collection_rows.values():
