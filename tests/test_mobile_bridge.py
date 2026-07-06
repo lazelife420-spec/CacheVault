@@ -6,6 +6,7 @@ import time
 import pytest
 from unittest.mock import MagicMock
 
+from cache_vault import brand
 from cache_vault.core.mobile.api import READ_ONLY_ROUTES, is_forbidden_route
 from cache_vault.core.mobile.bridge import MobileBridge
 from cache_vault.core.mobile.receipts import MobileReceiptLog
@@ -88,6 +89,16 @@ def test_status_includes_mobile_api_version(vault, mobile_bridge):
     assert body["mobile_api_version"] == "1"
     assert body["read_only"] is True
     assert "token" not in json.dumps(body).lower()
+
+
+def test_status_byline_matches_brand_constant(vault, mobile_bridge):
+    # Guards against the byline drifting back into a hardcoded literal
+    # that no longer follows brand.py when it changes.
+    device, token = _pair(mobile_bridge, vault)
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 200
+    assert body["byline"] == brand.MOBILE_BYLINE
 
 
 def test_public_pair_device_returns_token_without_logging_plaintext(vault, mobile_bridge):

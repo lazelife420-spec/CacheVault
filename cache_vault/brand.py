@@ -14,7 +14,7 @@ STUDIO_MOTTO = "Build it. Prove it. Ship it."
 
 # --- Product ----------------------------------------------------------------
 PRODUCT_NAME = "Cache Vault™"
-PRODUCT_BYLINE = "A Proof Foundry product"
+PRODUCT_BYLINE = "Product by The Proof Foundry™"
 PRODUCT_POSITIONING = (
     "A modern clipboard vault from The Proof Foundry."
 )
@@ -52,7 +52,7 @@ TERM_FAVORITES = "Favorites"
 TERM_COLLECTIONS = "Collections"
 
 MOBILE_PRODUCT_NAME = "Cache Vault Mobile"
-MOBILE_BYLINE = "A Proof Foundry companion app"
+MOBILE_BYLINE = "Product by The Proof Foundry™"
 MOBILE_PROMISE = "Saved on your PC. Ready on your phone. Keep the receipt."
 TERM_MOBILE_ACCESS = "Mobile Access"
 TERM_MOBILE_ACCESS_RECEIPTS = "Mobile Access Receipts"

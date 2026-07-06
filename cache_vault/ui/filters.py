@@ -131,12 +131,13 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._section_frames: dict[str, ctk.CTkFrame] = {}
         self._section_buttons: dict[str, ctk.CTkButton] = {}
 
-        title = ctk.CTkLabel(self, text="◈ Cache Vault", anchor="w",
-                             font=ctk.CTkFont(size=18, weight="bold"))
+        title = ctk.CTkLabel(self, text=f"◈ {brand.PRODUCT_NAME}", anchor="w",
+                             text_color=brand.PROOF_TEAL,
+                             font=ctk.CTkFont(size=20, weight="bold"))
         title.pack(fill="x", padx=8, pady=(6, 0))
         byline = ctk.CTkLabel(self, text=brand.VAULT_TAGLINE, anchor="w",
                               text_color=brand.MUTED_FG,
-                              font=ctk.CTkFont(size=10), wraplength=200,
+                              font=ctk.CTkFont(size=11), wraplength=200,
                               justify="left")
         byline.pack(fill="x", padx=8, pady=(0, 2))
         seal = ctk.CTkLabel(
