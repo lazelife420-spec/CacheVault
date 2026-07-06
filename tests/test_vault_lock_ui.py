@@ -9,7 +9,7 @@ from cache_vault.core import models, vault_lock
 from cache_vault.core.models import Clip
 from cache_vault.core.settings import Settings
 from cache_vault.core.storage import FILTER_ALL, FILTER_FAVORITES
-from cache_vault.ui.filters import FILTER_GROUPS, FilterNav, NAV_FOUNDER
+from cache_vault.ui.filters import FILTER_GROUPS, FilterNav, NAV_FOUNDER, NAV_NEW_SAFE
 from cache_vault.ui.preview import PreviewPanel
 from cache_vault.ui.vault_lock import LOCK_COPY, VaultControlStrip, VaultLockScreen
 
@@ -272,3 +272,65 @@ def test_founder_badge_not_touched_by_update_counts(tk_root):
 
     assert badge.cget("text") == "FOUNDER"
     nav.destroy()
+
+
+def test_collapse_all_hides_every_section(tk_root):
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    for heading in ("VAULT", "TIME", "COMMAND"):
+        nav._toggle_section(heading)  # open a few first
+
+    nav.collapse_all()
+
+    slaves = nav.pack_slaves()
+    for heading, frame in nav._section_frames.items():
+        assert heading in nav._collapsed
+        assert frame not in slaves
+    assert settings.sidebar_collapsed_sections == sorted(nav._section_frames)
+    nav.destroy()
+
+
+def test_expand_all_shows_every_section_in_place(tk_root):
+    settings = Settings()  # fresh profile: every section starts collapsed
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+
+    nav.expand_all()
+
+    slaves = nav.pack_slaves()
+    for heading, frame in nav._section_frames.items():
+        assert heading not in nav._collapsed
+        btn = nav._section_buttons[heading]
+        assert slaves.index(frame) == slaves.index(btn) + 1
+    assert settings.sidebar_collapsed_sections == []
+    nav.destroy()
+
+
+def test_new_safe_is_dialog_only_and_never_active(tk_root):
+    selected = []
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=selected.append, settings=settings)
+    before = nav.active
+
+    nav._select(NAV_NEW_SAFE)
+
+    assert selected == [NAV_NEW_SAFE]
+    assert nav.active == before  # dialog-only action must not steal selection
+    nav.destroy()
+
+
+def test_shell_routes_new_safe_to_dialog():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    src = inspect.getsource(CacheVaultApp)
+    assert "if key == NAV_NEW_SAFE:" in src
+    assert "self._open_new_safe()" in src
+    assert "picker_mode=False" in inspect.getsource(CacheVaultApp._open_new_safe)
+
+
+def test_delete_and_export_safe_remain_disabled():
+    from cache_vault.ui import clip_context
+
+    src = inspect.getsource(clip_context)
+    assert 'menu.add_command(label="Export Safe Proof Zip", state="disabled")' in src
+    # Delete Safe stays disabled and unwired (no command=).
+    assert 'label="Delete Safe",\n        state="disabled",\n    )' in src

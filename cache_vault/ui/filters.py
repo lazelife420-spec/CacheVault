@@ -27,8 +27,9 @@ NAV_VAULT_MACROS = "nav_vault_macros"
 NAV_HOTKEY_ACTIONS = "nav_hotkey_actions"
 NAV_FOUNDER = "nav_founder"
 NAV_SETTINGS = "nav_settings"
+NAV_NEW_SAFE = "nav_new_safe"
 
-NAV_DIALOG_ONLY = frozenset({NAV_QUICK_PASTE, NAV_FOUNDER})
+NAV_DIALOG_ONLY = frozenset({NAV_QUICK_PASTE, NAV_FOUNDER, NAV_NEW_SAFE})
 NAV_SCREEN_KEYS = frozenset({
     NAV_STAMPED_RECEIPTS,
     NAV_EXPORTS,
@@ -146,7 +147,18 @@ class FilterNav(ctk.CTkScrollableFrame):
             anchor="w", text_color=brand.STAMP_GOLD,
             font=ctk.CTkFont(size=10, weight="bold"),
         )
-        seal.pack(fill="x", padx=8, pady=(0, 10))
+        seal.pack(fill="x", padx=8, pady=(0, 6))
+
+        section_tools = ctk.CTkFrame(self, fg_color="transparent")
+        section_tools.pack(fill="x", padx=6, pady=(0, 8))
+        ctk.CTkButton(
+            section_tools, text="Collapse All", height=22,
+            command=self.collapse_all, **theme.secondary_button(),
+        ).pack(side="left", expand=True, fill="x", padx=(0, 3))
+        ctk.CTkButton(
+            section_tools, text="Expand All", height=22,
+            command=self.expand_all, **theme.secondary_button(),
+        ).pack(side="left", expand=True, fill="x", padx=(3, 0))
 
         # Always visible — license import must not hide behind collapsed ACCESS.
         self._labels_text[NAV_FOUNDER] = "Founder"
@@ -174,6 +186,12 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._safes_frame = self._section("SAFES", default_open=False)
         safes_heading = self._section_buttons["SAFES"]
         bind_tooltip(safes_heading, TOOLTIP_SAFES)
+        self._new_safe_btn = ctk.CTkButton(
+            self._safes_frame, text="+ New Safe", height=24, anchor="w",
+            command=lambda: self._select(NAV_NEW_SAFE),
+            **theme.secondary_button(),
+        )
+        self._new_safe_btn.pack(fill="x", padx=10, pady=(2, 4))
         self._safes_empty = ctk.CTkLabel(
             self._safes_frame, text=EMPTY_SAFES, anchor="w",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
@@ -228,6 +246,31 @@ class FilterNav(ctk.CTkScrollableFrame):
             self._collapsed.add(heading)
             frame.pack_forget()
         self._section_buttons[heading].configure(text=self._section_label(heading))
+        if self._settings is not None:
+            self._settings.sidebar_collapsed_sections = sorted(self._collapsed)
+            self._settings.save()
+
+    def collapse_all(self) -> None:
+        for heading in self._section_frames:
+            if heading not in self._collapsed:
+                self._collapsed.add(heading)
+                self._section_frames[heading].pack_forget()
+                self._section_buttons[heading].configure(
+                    text=self._section_label(heading))
+        self._persist_collapsed()
+
+    def expand_all(self) -> None:
+        for heading, frame in self._section_frames.items():
+            if heading in self._collapsed:
+                self._collapsed.discard(heading)
+                # Anchor after each heading button so sections keep their
+                # original order instead of collecting at the sidebar's end.
+                frame.pack(fill="x", after=self._section_buttons[heading])
+                self._section_buttons[heading].configure(
+                    text=self._section_label(heading))
+        self._persist_collapsed()
+
+    def _persist_collapsed(self) -> None:
         if self._settings is not None:
             self._settings.sidebar_collapsed_sections = sorted(self._collapsed)
             self._settings.save()
