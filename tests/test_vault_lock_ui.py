@@ -4,12 +4,12 @@ import inspect
 
 import customtkinter as ctk
 
-from cache_vault import brand
+from cache_vault import brand, licensing
 from cache_vault.core import models, vault_lock
 from cache_vault.core.models import Clip
 from cache_vault.core.settings import Settings
 from cache_vault.core.storage import FILTER_ALL, FILTER_FAVORITES
-from cache_vault.ui.filters import FILTER_GROUPS, FilterNav
+from cache_vault.ui.filters import FILTER_GROUPS, FilterNav, NAV_FOUNDER
 from cache_vault.ui.preview import PreviewPanel
 from cache_vault.ui.vault_lock import LOCK_COPY, VaultControlStrip, VaultLockScreen
 
@@ -17,6 +17,13 @@ from cache_vault.ui.vault_lock import LOCK_COPY, VaultControlStrip, VaultLockScr
 def test_lock_copy_has_no_forbidden_claims():
     assert "Safes organize your items" in LOCK_COPY
     assert vault_lock.no_forbidden_lock_claims(LOCK_COPY)
+
+
+def test_shell_refreshes_founder_badge():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    src = inspect.getsource(CacheVaultApp)
+    assert "update_founder_status(licensing.load_license())" in src
 
 
 def test_shell_has_lock_guards():
@@ -213,4 +220,55 @@ def test_sidebar_sections_expand_in_place_not_at_end(tk_root):
     time_btn = nav._section_buttons["TIME"]
     time_frame = nav._section_frames["TIME"]
     assert slaves.index(time_frame) == slaves.index(time_btn) + 1
+    nav.destroy()
+
+
+def test_founder_badge_reflects_license_state(tk_root):
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    badge = nav._counts[NAV_FOUNDER]
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.FOUNDER_VALID))
+    assert badge.cget("text") == "FOUNDER"
+    assert badge.cget("text_color") == brand.STAMP_GOLD
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.MISSING_LICENSE))
+    assert badge.cget("text") == "FREE"
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.EXPIRED_LICENSE))
+    assert badge.cget("text") == "EXPIRED"
+    assert badge.cget("text_color") == brand.WARNING_RED
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.CORRUPT_LICENSE))
+    assert badge.cget("text") == "ISSUE"
+    assert badge.cget("text_color") == brand.WARNING_RED
+    nav.destroy()
+
+
+def test_founder_badge_survives_other_row_selection(tk_root):
+    # Regression guard: _highlight() runs on every nav click and used to
+    # force every row's count label back to gray, since Founder can never
+    # become the "active" row (it's dialog-only, see NAV_DIALOG_ONLY).
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    badge = nav._counts[NAV_FOUNDER]
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.FOUNDER_VALID))
+
+    nav._select(FILTER_ALL)
+    nav._select(FILTER_FAVORITES)
+
+    assert badge.cget("text") == "FOUNDER"
+    assert badge.cget("text_color") == brand.STAMP_GOLD
+    nav.destroy()
+
+
+def test_founder_badge_not_touched_by_update_counts(tk_root):
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    badge = nav._counts[NAV_FOUNDER]
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.FOUNDER_VALID))
+
+    nav.update_counts({"all": 42, "favorites": 3})
+
+    assert badge.cget("text") == "FOUNDER"
     nav.destroy()
