@@ -49,6 +49,7 @@ from .dialogs import (
 )
 from . import batch_actions
 from . import clip_context
+from . import sidebar_context
 try:
     from .settings_hub import SettingsHub
 except ImportError:
@@ -544,6 +545,8 @@ class CacheVaultApp(ctk.CTk):
                                   settings=self.vault.settings,
                                   on_safe_context=self._open_safe_menu,
                                   on_collection_context=self._open_collection_sidebar_menu,
+                                  on_section_context=self._open_sidebar_section_menu,
+                                  on_nav_context=self._open_sidebar_nav_menu,
                                   width=210, corner_radius=0)
 
         self._filters.grid(row=1, column=0, sticky="nsew")
@@ -2242,7 +2245,16 @@ class CacheVaultApp(ctk.CTk):
         clip_context.open_collection_sidebar_menu(self, name, x_root, y_root)
 
     def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
-        clip_context.open_safe_menu(self, safe, x_root, y_root)
+        sidebar_context.open_safe_menu(self, safe, x_root, y_root)
+
+    def _open_sidebar_section_menu(self, heading: str, x_root: int, y_root: int) -> None:
+        if heading == "SAFES":
+            sidebar_context.open_safes_heading_menu(self, x_root, y_root)
+        else:
+            sidebar_context.open_section_heading_menu(self, heading, x_root, y_root)
+
+    def _open_sidebar_nav_menu(self, nav_key: str, x_root: int, y_root: int) -> None:
+        sidebar_context.open_nav_row_menu(self, nav_key, x_root, y_root)
 
     def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
         clip_context.open_receipt_menu(self, row, x_root, y_root)

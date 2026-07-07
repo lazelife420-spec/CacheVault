@@ -114,12 +114,16 @@ class FilterNav(ctk.CTkScrollableFrame):
         settings: Settings | None = None,
         on_safe_context: Callable[[dict, int, int], None] | None = None,
         on_collection_context: Callable[[str, int, int], None] | None = None,
+        on_section_context: Callable[[str, int, int], None] | None = None,
+        on_nav_context: Callable[[str, int, int], None] | None = None,
         **kw,
     ):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._on_safe_context = on_safe_context
         self._on_collection_context = on_collection_context
+        self._on_section_context = on_section_context
+        self._on_nav_context = on_nav_context
         self._settings = settings
         self._collapsed = set(getattr(settings, "sidebar_collapsed_sections", []) or [])
         self._active = S.FILTER_HOME
@@ -164,6 +168,7 @@ class FilterNav(ctk.CTkScrollableFrame):
         self._labels_text[NAV_FOUNDER] = "Founder"
         founder_label = _NAV_ICONS.get(NAV_FOUNDER, "") + "Founder"
         self._rows[NAV_FOUNDER] = self._nav_row(self, NAV_FOUNDER, founder_label)
+        self._bind_nav_context(NAV_FOUNDER)
         self._separator()
 
         for heading, items in FILTER_GROUPS:
@@ -174,6 +179,8 @@ class FilterNav(ctk.CTkScrollableFrame):
                 self._labels_text[key] = label
                 display = _NAV_ICONS.get(key, "") + label
                 self._rows[key] = self._nav_row(parent, key, display)
+                if key in (NAV_QUICK_PASTE, NAV_VAULT_MACROS):
+                    self._bind_nav_context(key)
 
         self._separator()
         self._collections_frame = self._section("COLLECTIONS", default_open=False)
@@ -223,6 +230,11 @@ class FilterNav(ctk.CTkScrollableFrame):
             font=ctk.CTkFont(size=10, weight="bold"),
         )
         self._section_buttons[heading] = btn
+        if self._on_section_context is not None:
+            btn.bind(
+                "<Button-3>",
+                lambda e, h=heading: self._on_section_context(h, e.x_root, e.y_root),
+            )
         btn.pack(fill="x", padx=6, pady=(8 if default_open else 2, 4))
         if heading not in self._collapsed:
             # No after= needed here: this is the frame's first-ever pack
@@ -235,20 +247,29 @@ class FilterNav(ctk.CTkScrollableFrame):
         return ("▸ " if heading in self._collapsed else "▾ ") + heading
 
     def _toggle_section(self, heading: str) -> None:
-        frame = self._section_frames[heading]
         if heading in self._collapsed:
-            self._collapsed.remove(heading)
-            # Anchor after our own heading button — a bare pack() would
-            # append to the end of the whole sidebar's sibling list instead
-            # of restoring this section's original position.
-            frame.pack(fill="x", after=self._section_buttons[heading])
+            self.expand_section(heading)
         else:
-            self._collapsed.add(heading)
-            frame.pack_forget()
+            self.collapse_section(heading)
+
+    def expand_section(self, heading: str) -> None:
+        if heading not in self._collapsed:
+            return
+        self._collapsed.remove(heading)
+        # Anchor after our own heading button — a bare pack() would append
+        # to the end of the whole sidebar's sibling list instead of
+        # restoring this section's original position.
+        self._section_frames[heading].pack(fill="x", after=self._section_buttons[heading])
         self._section_buttons[heading].configure(text=self._section_label(heading))
-        if self._settings is not None:
-            self._settings.sidebar_collapsed_sections = sorted(self._collapsed)
-            self._settings.save()
+        self._persist_collapsed()
+
+    def collapse_section(self, heading: str) -> None:
+        if heading in self._collapsed:
+            return
+        self._collapsed.add(heading)
+        self._section_frames[heading].pack_forget()
+        self._section_buttons[heading].configure(text=self._section_label(heading))
+        self._persist_collapsed()
 
     def collapse_all(self) -> None:
         for heading in self._section_frames:
@@ -298,6 +319,14 @@ class FilterNav(ctk.CTkScrollableFrame):
         row.bind("<Enter>", lambda _e, r=row: self._hover_row(r, key, True))
         row.bind("<Leave>", lambda _e, r=row: self._hover_row(r, key, False))
         return row
+
+    def _bind_nav_context(self, key: str) -> None:
+        if self._on_nav_context is None:
+            return
+        row = self._rows[key]
+        row.bind("<Button-3>", lambda e, k=key: self._on_nav_context(k, e.x_root, e.y_root))
+        for child in row.winfo_children():
+            child.bind("<Button-3>", lambda e, k=key: self._on_nav_context(k, e.x_root, e.y_root))
 
     def _hover_row(self, row: ctk.CTkFrame, key: str, inside: bool) -> None:
         if key == self._active:
