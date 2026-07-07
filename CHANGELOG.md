@@ -4,6 +4,27 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.1.6
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+
+- **Sidebar right-click context menus** — added context menus for headings (expand/collapse options), individual safes (full management options like delete, rename, etc.), the Founder badge, and macro/paste rows.
+- **Numpad hotkey correctness** — preserved numpad identity in hotkeys (e.g. distinguishing Ctrl+Numpad2 from Ctrl+2) (PR #32).
+
+### Fixed
+
+- **Collapse All / Expand All persistence** — fixed coordinate alignment in automated packaged QA, and verified full settings persistence to settings.json (PR #31, PR #34).
+- **`+ New Safe` dialog and disabled safe actions** — verified dialog opens correctly and destructive actions (Rename, Delete, Export) remain disabled on the Default Safe.
+- **Settings Hub hotkey recorder** — verified the recorder enters "Recording..." state and correctly captures keyboard combos (e.g., Ctrl+F9).
+- **Selection parity** — verified toolbar actions match right-click context menu options for single/multi selection.
+- **Hotkey reliability** — focus and window-ownership stability fixes for the hotkey recorder.
+
+### Changed
+
+- **Hero/header redesign** — redesigned home dashboard hero showing status pills and custody stats tiles, and a cleaner window toolbar header with a 2px teal accent line (PR #34).
+
 ## Cache Vault v0.1.5
 
 `/proof` unchanged this release. Stable not claimed.
