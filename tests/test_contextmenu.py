@@ -224,3 +224,21 @@ def test_mark_keep_handler_sets_kept_flag(vault):
     reloaded = vault.storage.get_clip(clip.id)
     assert reloaded.is_kept is True
     assert reloaded.is_pinned is False  # must NOT toggle favorite (the old bug)
+
+
+def test_create_paste_macro_menu_item_present():
+    """Verify that 'Create Paste Macro' exists in the Organize submenu children."""
+    items = clip_menu_items(_clip("hello macro"))
+    organize = _children(items, "organize")
+    organize_keys = [item.key for item in organize]
+    assert "create_paste_macro" in organize_keys
+    create_item = next(item for item in organize if item.key == "create_paste_macro")
+    assert create_item.label == "Create Paste Macro…"
+
+
+def test_clip_menu_dispatch_wires_create_paste_macro():
+    """Verify that the dispatch map has the create_paste_macro lambda wired correctly."""
+    from cache_vault.ui import clip_context
+    src = inspect.getsource(clip_context.open_clip_menu)
+    assert '"create_paste_macro": lambda: window._create_macro_from_clip(clip.id)' in src
+

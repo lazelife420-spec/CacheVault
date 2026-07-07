@@ -164,3 +164,52 @@ def test_macro_edit_real_keypress_dispatch_captures_combo(tk_root):
     assert not dlg._recorder.recording
     assert str(dlg.grab_current()) != str(dlg)
     dlg.destroy()
+
+
+def test_create_macro_from_clip_dialog_prepopulates(tk_root, monkeypatch):
+    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.core.vault import Vault
+    from cache_vault.core.models import Clip
+    from cache_vault.core import models
+    from cache_vault.core.settings import Settings
+
+    settings = Settings()
+    settings.founder_license_key = "founder-license-active"
+    vault = Vault(settings=settings)
+    clip = Clip(
+        id=models.new_id(),
+        content="This is macro content",
+        title="My Macro Title",
+        preview="This is macro content",
+        content_hash=models.content_hash("This is macro content"),
+    )
+    vault.storage.add_clip(clip)
+
+    dialog_called_with = []
+    from cache_vault.ui import macro_dialogs
+    monkeypatch.setattr(macro_dialogs, "MacroEditDialog", lambda master, macro, **kw: dialog_called_with.append(macro))
+
+    class MockMainWindow:
+        def __init__(self):
+            self.vault = vault
+            self.settings = settings
+            self._macro_store = vault.macros
+        def _guard_unlocked(self):
+            return True
+        def _require_founder(self, feature):
+            return True
+        def _macro_record_receipt(self, name, data):
+            pass
+        def _sync_macro_triggers(self):
+            pass
+        def _macro_editor_context(self, macro_id):
+            return [], set()
+
+    mock_win = MockMainWindow()
+    CacheVaultApp._create_macro_from_clip(mock_win, clip.id)
+
+    assert len(dialog_called_with) == 1
+    macro = dialog_called_with[0]
+    assert macro.name == "My Macro Title"
+    assert macro.body == "This is macro content"
+

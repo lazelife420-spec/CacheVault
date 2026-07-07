@@ -622,7 +622,11 @@ class PreviewPanel(ctk.CTkFrame):
         add("Copy Metadata", "copy_metadata", **theme.secondary_button())
         if self._actions.get("send_to_macro"):
             section("Snippet Macros")
-            add("Save to Snippet Macros", "send_to_macro", **theme.primary_button())
+            if self._actions.get("create_paste_macro"):
+                add("Create Paste Macro…", "create_paste_macro", **theme.primary_button())
+                add("Save to Snippet Macros", "send_to_macro", **theme.secondary_button())
+            else:
+                add("Save to Snippet Macros", "send_to_macro", **theme.primary_button())
 
         section("Export")
         from ..core import pathutil
