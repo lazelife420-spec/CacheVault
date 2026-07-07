@@ -148,6 +148,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             enabled=not clip.is_pinned,
         ),
         MenuItem("send_to_macro_safe", "Send to Snippet Macros", separator_before=True),
+        MenuItem("create_paste_macro", "Create Paste Macro…"),
     ]
 
     proof_children = [

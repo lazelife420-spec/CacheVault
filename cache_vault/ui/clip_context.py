@@ -46,6 +46,7 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         "mark_keep": lambda: window._mark_keep(clip.id),
         "move_safe": lambda: window._move_to_safe(clip.id),
         "send_to_macro_safe": lambda: window._send_to_macro_safe(clip.id),
+        "create_paste_macro": lambda: window._create_macro_from_clip(clip.id),
         "create_editable_copy": lambda: window._create_editable_copy(clip.id),
         "export_proof_zip": lambda: window._export_clip_proof(clip.id),
         "view_receipts": window._open_events,

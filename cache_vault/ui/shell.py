@@ -1385,6 +1385,7 @@ class CacheVaultApp(ctk.CTk):
             "clip_inspector_context": self.vault.clip_inspector_context,
             "copy_path": self._copy_path,
             "send_to_macro": self._send_to_macro_safe,
+            "create_paste_macro": self._create_macro_from_clip,
             "get_storage": lambda: self.vault.storage,
         }
 
@@ -2569,6 +2570,68 @@ class CacheVaultApp(ctk.CTk):
                 "Text clips and links work best.",
                 parent=self,
             )
+
+    def _create_macro_from_clip(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        if not self._require_founder("macros_advanced"):
+            return
+        if not self.vault.settings.vault_macros_setup_completed:
+            from ..core.vault_macros import complete_macro_setup
+            complete_macro_setup(
+                self.vault.settings,
+                record_receipt=self._macro_record_receipt,
+            )
+            self._sync_macro_triggers()
+
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+
+        if clip.content_type == models.CONTENT_IMAGE:
+            body = (clip.title or clip.preview or "").strip()
+        else:
+            body = (clip.content or "").strip()
+        if not body:
+            from tkinter import messagebox
+            messagebox.showinfo(
+                "Snippet Macros",
+                "This clip has no text body to save as a macro.\n"
+                "Text clips and links work best.",
+                parent=self,
+            )
+            return
+
+        from .macro_dialogs import MacroEditDialog
+        from ..core.vault_macros import MacroSafeRegistry, Macro, suggest_smart_type
+        registry = MacroSafeRegistry(self.vault.settings)
+        sid = registry.default_safe().id
+
+        macro = Macro(
+            id=models.new_id(),
+            name=(clip.title or clip.preview or "New Macro")[:64],
+            body=body,
+            safe_id=sid,
+            smart_type=suggest_smart_type(body, clip.title or ""),
+        )
+
+        def on_save(updated) -> None:
+            self._macro_store.upsert(updated)
+            self._macro_record_receipt("sent_to_macros", {
+                "macro_id": updated.id,
+                "clip_id": clip_id,
+                "safe_id": updated.safe_id,
+                "success": True,
+            })
+            self._sync_macro_triggers()
+            self.refresh()
+            self._show_toast("Saved to Snippet Macros.")
+
+        other, reserved = self._macro_editor_context(macro.id)
+        MacroEditDialog(
+            self, macro=macro, registry=registry, on_save=on_save,
+            other_macros=other, reserved_specs=reserved,
+        )
 
     def _create_safe_if_allowed(self, name: str):
         if not self._require_founder("safes_advanced"):
