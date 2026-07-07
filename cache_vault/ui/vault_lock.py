@@ -194,6 +194,12 @@ class VaultControlStrip(ctk.CTkFrame):
         )
         self._quick.grid(row=0, column=5, padx=4, pady=6)
 
+        # Accent line — gives the toolbar a defined edge instead of blending
+        # flat into the content below it.
+        accent = ctk.CTkFrame(self, height=2, corner_radius=0,
+                              fg_color=brand.PROOF_TEAL)
+        accent.grid(row=1, column=0, columnspan=7, sticky="ew")
+
     def update_state(self, summary: dict) -> None:
         self._summary = summary
         capture = "Capture: Paused" if summary.get("capture_paused") else "Capture: On"

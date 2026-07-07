@@ -391,7 +391,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         strip.pack(fill="x", pady=(0, 18))
 
         top = ctk.CTkFrame(strip, fg_color="transparent")
-        top.pack(fill="x", padx=14, pady=(12, 4))
+        top.pack(fill="x", padx=14, pady=(12, 8))
         seal_icon = ctk.CTkLabel(
             top, text="◈", font=ctk.CTkFont(size=14),
             text_color=brand.STAMP_GOLD,
@@ -405,42 +405,48 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         vault_lbl.pack(side="left")
         bind_tooltip(vault_lbl, TOOLTIP_LOCAL_VAULT_ACTIVE)
 
-        capture = (
-            brand.LABEL_CAPTURE_ACTIVE
-            if not summary.get("capture_paused")
-            else "Capture paused"
-        )
-        mobile = (
+        # State chips — was a single "·"-joined sentence; now scannable pills.
+        capture_active = not summary.get("capture_paused")
+        mobile_on = bool(summary.get("mobile_enabled"))
+        mobile_text = (
             f"Mobile Access · {summary.get('paired_count', 0)} paired"
-            if summary.get("mobile_enabled")
+            if mobile_on
             else "Mobile Access off"
         )
-        detail = (
-            f"{brand.LABEL_LOCAL_ONLY} · {capture} · "
-            f"{brand.LABEL_RECEIPTS_AVAILABLE} · {mobile}"
+        state_row = ctk.CTkFrame(strip, fg_color="transparent")
+        state_row.pack(fill="x", padx=14, pady=(0, 10))
+        self._state_chip(state_row, "◆", brand.LABEL_LOCAL_ONLY, active=True)
+        self._state_chip(
+            state_row, "●",
+            brand.LABEL_CAPTURE_ACTIVE if capture_active else "Capture paused",
+            active=capture_active,
         )
-        detail_lbl = ctk.CTkLabel(
-            strip, text=detail, anchor="w",
-            font=theme.body_font(11), text_color=brand.MUTED_FG,
-        )
-        detail_lbl.pack(fill="x", padx=14, pady=(0, 4))
+        self._state_chip(state_row, "⬢", brand.LABEL_RECEIPTS_AVAILABLE, active=True)
+        self._state_chip(state_row, "◉", mobile_text, active=mobile_on)
 
-        counts = (
-            f"{summary.get('all', 0)} saved · "
-            f"{summary.get('safe_count', 0)} safes · "
-            f"{summary.get('receipts', 0)} receipts · "
-            f"{summary.get('exports', 0)} exports · "
-            f"{summary.get('editable_copies', 0)} editable copies · "
-            f"{summary.get('html_bundles', 0)} HTML bundles · "
-            f"{summary.get('mobile_inbox', 0)} mobile inbox"
-        )
+        # Stat chips — was a dense counts sentence; now grouped tiles like
+        # the Custody Summary cards below, at a more compact scale.
+        stats = [
+            ("Saved", summary.get("all", 0)),
+            ("Safes", summary.get("safe_count", 0)),
+            ("Receipts", summary.get("receipts", 0)),
+            ("Exports", summary.get("exports", 0)),
+            ("Editable copies", summary.get("editable_copies", 0)),
+            ("HTML bundles", summary.get("html_bundles", 0)),
+            ("Mobile inbox", summary.get("mobile_inbox", 0)),
+        ]
         if summary.get("recent_pasted_count", 0):
-            counts += f" · {summary['recent_pasted_count']} recent paste(s)"
-        ctk.CTkLabel(
-            strip, text=counts, anchor="w",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=brand.STAMP_GOLD,
-        ).pack(fill="x", padx=14, pady=(0, 4))
+            stats.append(("Recent pastes", summary["recent_pasted_count"]))
+
+        stats_wrap = ctk.CTkFrame(strip, fg_color="transparent")
+        stats_wrap.pack(fill="x", padx=14, pady=(0, 10))
+        row = ctk.CTkFrame(stats_wrap, fg_color="transparent")
+        row.pack(fill="x")
+        for i, (label, value) in enumerate(stats):
+            if i and i % 4 == 0:
+                row = ctk.CTkFrame(stats_wrap, fg_color="transparent")
+                row.pack(fill="x", pady=(6, 0))
+            self._stat_chip(row, label, value)
 
         ctk.CTkLabel(
             strip, text=brand.VAULT_STATUS_NOTE,
@@ -448,6 +454,37 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             text_color=brand.MUTED_FG, font=theme.body_font(10),
         ).pack(fill="x", padx=14, pady=(0, 12))
         self._bind_context(strip, lambda e: self._open_status_context("vault_status", e))
+
+    @staticmethod
+    def _state_chip(parent, icon: str, text: str, *, active: bool) -> None:
+        color = brand.PROOF_TEAL if active else brand.MUTED_FG
+        chip = ctk.CTkFrame(
+            parent, corner_radius=12, fg_color=brand.ROW_BG,
+            border_width=1,
+            border_color=brand.PROOF_TEAL if active else brand.VAULT_CARD_BORDER,
+        )
+        chip.pack(side="left", padx=(0, 6))
+        inner = ctk.CTkFrame(chip, fg_color="transparent")
+        inner.pack(padx=10, pady=4)
+        ctk.CTkLabel(inner, text=icon, text_color=color,
+                     font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 5))
+        ctk.CTkLabel(inner, text=text, text_color=color,
+                     font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
+
+    @staticmethod
+    def _stat_chip(parent, label: str, value: int) -> None:
+        color = brand.STAMP_GOLD if value else brand.MUTED_FG
+        chip = ctk.CTkFrame(
+            parent, corner_radius=8, fg_color=brand.SURFACE_BG,
+            border_width=1, border_color=_CARD_BORDER,
+        )
+        chip.pack(side="left", padx=(0, 6), pady=2)
+        inner = ctk.CTkFrame(chip, fg_color="transparent")
+        inner.pack(padx=10, pady=5)
+        ctk.CTkLabel(inner, text=str(value), text_color=color,
+                     font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(inner, text=label, text_color=brand.MUTED_FG,
+                     font=ctk.CTkFont(size=9)).pack(anchor="w")
 
     def _quick_actions(self, summary: dict) -> None:
         frame = ctk.CTkFrame(self._body, **theme.vault_card())
