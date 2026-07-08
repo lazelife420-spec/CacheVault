@@ -227,12 +227,13 @@ auto-paste behaviour are configurable in Settings; the hotkey re-registers
 live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
 dedicated message-loop thread (requires pywin32).
 
-## Honest scope & limitations (v0.1.7)
+## Honest scope & limitations (v0.1.8)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
 global quick-paste hotkey (`Ctrl+Shift+V`) with auto-paste, local event log,
-screenshot capture, multi-select batch copy/export, Proof Manifest exports,
+screenshot capture, **desktop photo viewer** (zoom/pan/navigate image clips),
+multi-select batch copy/export, Proof Manifest exports,
 Snippet Macros, Safes, Collections, mobile LAN bridge (developer mode),
 browser extension companion (developer mode).
 
