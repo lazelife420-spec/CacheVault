@@ -9,6 +9,7 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 
 from .. import brand
+from ..core.models import CONTENT_IMAGE
 from . import theme
 
 
@@ -42,7 +43,7 @@ class PhotoViewer(ctk.CTkToplevel):
         self._image_ids = []
         for cid in all_clip_ids:
             clip = self._get_clip_fn(cid)
-            if clip and getattr(clip, "content_type", None) == "IMAGE":
+            if clip and getattr(clip, "content_type", None) == CONTENT_IMAGE:
                 self._image_ids.append(cid)
 
         # Fallback if initial_clip_id is not in the filtered list
