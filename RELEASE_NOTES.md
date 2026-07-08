@@ -1,3 +1,30 @@
+# Cache Vault v0.1.7
+
+**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.
+No cloud account. No subscription.
+
+> `/proof` is unchanged unless separately approved. Nothing in this document
+> is a "stable" claim beyond what is explicitly stated below.
+
+## What is new in v0.1.7
+
+### Paste Macro One-Shot UX
+- **Create Paste Macro from selected clip** — right-click a clip or use the preview panel to open the macro editor prefilled with the clip's title and body. Set a hotkey, save — the macro is immediately active and pastes anywhere in the system (PR #39).
+- **Save to Snippet Macros** remains available as the silent/secondary path with no dialog.
+
+### Bug Fix — Keyboard Focus Crash
+- **`_keyboard_focus_is_text_input` string path resolution** — when focus was inside a `CTkToplevel` dialog (such as the macro editor), Tkinter passed the focused widget as a hierarchical string path rather than a widget object. This caused an `AttributeError` followed by a `TclError: bad window path name` crash visible to users as an Application Error dialog. Fixed by resolving string paths via `nametowidget` with exception safety (commit `30d942e`).
+
+### QA Basis
+- Automated packaged Paste Macro QA: selected clip → MacroEditDialog prefilled → Ctrl+8 hotkey recorded → saved → pasted cleanly in Notepad (compiled EXE).
+- 838-test suite: PASS.
+- `compileall`: PASS. `--selftest`: PASS.
+- `v0.1.6` tag: unchanged at `6f316a9`.
+
+See `CHANGELOG.md` "Cache Vault v0.1.7" for the full itemized list.
+
+---
+
 # Cache Vault v0.1.6
 
 **Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.

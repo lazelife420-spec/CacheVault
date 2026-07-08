@@ -4,6 +4,26 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.1.7
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+
+- **Paste Macro one-shot UX** — selected clip → right-click or preview panel → Create Paste Macro… opens the macro editor prefilled with the clip's title and body. Save to Snippet Macros remains available as the silent/secondary path (PR #39).
+
+### Fixed
+
+- **Keyboard-focus crash on dialog close** — `_keyboard_focus_is_text_input` now resolves string widget paths (Tkinter passes hierarchical path strings instead of widget objects when focus is inside a `CTkToplevel`) via `nametowidget` with exception safety, preventing `AttributeError` and the subsequent `TclError: bad window path name` crash (commit `30d942e`).
+
+### QA
+
+- Verified by automated packaged Paste Macro QA (EXE build): selected clip → MacroEditDialog prefilled → Ctrl+8 hotkey recorded → saved → pasted cleanly in Notepad.
+- 838-test suite: PASS.
+- `compileall`: PASS. `--selftest`: PASS.
+
+
+
 ## Cache Vault v0.1.6
 
 `/proof` unchanged this release. Stable not claimed.
