@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import customtkinter as ctk
 
-from cache_vault.core.models import Clip
+from cache_vault.core.models import Clip, CONTENT_IMAGE, CONTENT_TEXT
 from cache_vault.ui.photo_viewer import PhotoViewer
 from tk_support import probe_tk_ui
 
@@ -41,9 +41,9 @@ class TestPhotoViewer(unittest.TestCase):
 
         # Mock data: clip_1 and clip_3 are IMAGE; clip_2 is TEXT
         self.clips = {
-            "clip_1": Clip(id="clip_1", content_type="IMAGE", preview="Image 1"),
-            "clip_2": Clip(id="clip_2", content_type="TEXT", preview="Text 1"),
-            "clip_3": Clip(id="clip_3", content_type="IMAGE", preview="Image 2"),
+            "clip_1": Clip(id="clip_1", content_type=CONTENT_IMAGE, preview="Image 1"),
+            "clip_2": Clip(id="clip_2", content_type=CONTENT_TEXT, preview="Text 1"),
+            "clip_3": Clip(id="clip_3", content_type=CONTENT_IMAGE, preview="Image 2"),
         }
         self.assets = {
             "clip_1": (_PNG_10X10, "image/png"),
@@ -135,7 +135,7 @@ class TestPhotoViewer(unittest.TestCase):
             viewer.destroy()
 
     def test_photo_viewer_missing_asset(self):
-        self.clips["clip_4"] = Clip(id="clip_4", content_type="IMAGE", preview="Missing")
+        self.clips["clip_4"] = Clip(id="clip_4", content_type=CONTENT_IMAGE, preview="Missing")
         viewer = self._viewer("clip_4")
         try:
             self.assertIsNone(viewer._pil_image)
@@ -263,7 +263,7 @@ class TestPhotoViewer(unittest.TestCase):
 
     def test_missing_asset_updates_nav_label(self):
         """Nav label must update to '1 / N' even when the asset file is missing."""
-        self.clips["clip_4"] = Clip(id="clip_4", content_type="IMAGE", preview="Missing")
+        self.clips["clip_4"] = Clip(id="clip_4", content_type=CONTENT_IMAGE, preview="Missing")
         all_ids = ["clip_4", "clip_1", "clip_3"]
         viewer = PhotoViewer(
             self.root,
@@ -286,7 +286,7 @@ class TestPhotoViewer(unittest.TestCase):
 
     def test_missing_asset_next_button_enabled_when_more_images_exist(self):
         """Next button must be enabled when a missing-asset clip has images after it."""
-        self.clips["clip_4"] = Clip(id="clip_4", content_type="IMAGE", preview="Missing")
+        self.clips["clip_4"] = Clip(id="clip_4", content_type=CONTENT_IMAGE, preview="Missing")
         all_ids = ["clip_4", "clip_1", "clip_3"]
         viewer = PhotoViewer(
             self.root,
