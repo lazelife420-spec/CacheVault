@@ -286,3 +286,22 @@ def test_cleanup_2_disabled_stubs_and_home_status():
     assert '"Copy Receipt Path (no local file)"' in inspect.getsource(clip_context.open_receipt_menu)
     assert '"Open Receipt File / Folder (no local file)"' in inspect.getsource(clip_context.open_receipt_menu)
 
+
+def test_photo_viewer_context_and_preview():
+    """Verify that 'View Larger' is wired to the context menu, dispatch, and preview panel."""
+    import inspect
+    from cache_vault.ui import clip_context, preview
+    from cache_vault.core import contextmenu
+    
+    # 1. MenuItem view_larger is inserted for images in contextmenu.py
+    menu_src = inspect.getsource(contextmenu.clip_menu_items)
+    assert 'MenuItem("view_larger", "View Larger")' in menu_src
+    
+    # 2. Mapped in clip_context.py dispatch
+    assert '"view_larger": lambda: window._open_photo_viewer(clip.id)' in inspect.getsource(clip_context.open_clip_menu)
+    
+    # 3. View Larger button is added in preview.py
+    assert 'add("View Larger", "view_larger", **theme.secondary_button())' in inspect.getsource(preview.PreviewPanel._render_buttons)
+    # Double-click is bound to view_larger
+    assert 'lambda _e, c=clip: self._fire("view_larger", c)' in inspect.getsource(preview.PreviewPanel._render_image_preview)
+

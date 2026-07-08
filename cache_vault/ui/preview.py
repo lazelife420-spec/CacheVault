@@ -419,8 +419,12 @@ class PreviewPanel(ctk.CTkFrame):
                 self._image_ref = ctk.CTkImage(
                     light_image=thumb, dark_image=thumb, size=thumb.size)
                 self._image_label.configure(image=self._image_ref, text="")
+                self._image_label.configure(cursor="hand2")
+                self._image_label.bind(
+                    "<Double-Button-1>",
+                    lambda _e, c=clip: self._fire("view_larger", c),
+                )
                 if self._actions.get("drag_out"):
-                    self._image_label.configure(cursor="hand2")
                     self._image_label.bind(
                         "<ButtonPress-1>",
                         lambda _e, c=clip: self._fire("drag_out", c),
@@ -543,6 +547,7 @@ class PreviewPanel(ctk.CTkFrame):
             section("Primary")
             if clip.content_type == models.CONTENT_IMAGE:
                 add("Copy Image", "copy_again", **theme.primary_button())
+                add("View Larger", "view_larger", **theme.secondary_button())
             else:
                 add("Copy Again", "copy_again", **theme.primary_button())
             add("Restore", "restore", **theme.primary_button())
@@ -553,6 +558,7 @@ class PreviewPanel(ctk.CTkFrame):
         section("Primary")
         if clip.content_type == models.CONTENT_IMAGE:
             add("Copy Image", "copy_again", **theme.primary_button())
+            add("View Larger", "view_larger", **theme.secondary_button())
             if self._actions.get("drag_out"):
                 add("Drag PNG", "drag_out", **theme.secondary_button())
             add("Save As PNG", "save_asset_as", **theme.secondary_button())
