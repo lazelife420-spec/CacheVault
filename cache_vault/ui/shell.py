@@ -905,8 +905,16 @@ class CacheVaultApp(ctk.CTk):
         widget = getattr(event, "widget", None)
         if widget is None:
             return False
-        cls = widget.winfo_class()
-        return cls in {"Entry", "Text"} or "Entry" in cls or "Textbox" in cls
+        if isinstance(widget, str):
+            try:
+                widget = self.nametowidget(widget)
+            except Exception:
+                return False
+        try:
+            cls = widget.winfo_class()
+            return cls in {"Entry", "Text"} or "Entry" in cls or "Textbox" in cls
+        except Exception:
+            return False
 
     def _keyboard_move_selection(self, delta: int, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
