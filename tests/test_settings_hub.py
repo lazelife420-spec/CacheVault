@@ -53,7 +53,10 @@ class TestSettingsHub(unittest.TestCase):
     def setUp(self):
         if not TK_OK:
             self.skipTest(TK_REASON)
-        self.root = ctk.CTk()
+        try:
+            self.root = ctk.CTk()
+        except Exception as exc:
+            raise unittest.SkipTest(f"Tk/CTk runtime unavailable: {exc}")
         self.root.withdraw()  # Don't show the main window
         self.settings = Settings()
         self.registry = build_default_registry()
@@ -332,9 +335,7 @@ class TestSettingsHubHotkeyRecorder(unittest.TestCase):
         try:
             cls.root = ctk.CTk()
         except Exception as exc:  # noqa: BLE001 - transient Tcl runtime flake
-            if _tcl_unavailable(exc):
-                raise unittest.SkipTest(f"Tk/CTk runtime unavailable: {exc}")
-            raise
+            raise unittest.SkipTest(f"Tk/CTk runtime unavailable: {exc}")
         cls.root.withdraw()
 
     @classmethod

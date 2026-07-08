@@ -162,7 +162,7 @@ def test_shell_has_safe_context_menu():
     assert "open_safe_menu" in src
     assert "Set as Default Safe" in src
     assert "Copy Safe Summary" in src
-    assert "Export Safe Proof Zip" in src
+    assert "Export Safe Proof Zip (planned)" in src
 
 
 # -- BUG-4 regression: "Mark Keep" must use a distinct key and dispatch --
@@ -269,4 +269,20 @@ def test_selected_action_strip_labels():
     src = inspect.getsource(shell.CacheVaultApp._update_selected_action_strip)
     assert '("Copy MD", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN))' in src
     assert '("Copy Plain", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT))' in src
+
+
+def test_cleanup_2_disabled_stubs_and_home_status():
+    """Verify new labels, deleted Set as Default Safe from home status menu, and receipts path logic."""
+    import inspect
+    from cache_vault.ui import clip_context
+    src = inspect.getsource(clip_context)
+    
+    # 1. open_home_status_menu does NOT have Set as Default Safe anymore, has (planned)
+    assert "Set as Default Safe" not in inspect.getsource(clip_context.open_home_status_menu)
+    assert "Export Safe Proof Zip (planned)" in inspect.getsource(clip_context.open_home_status_menu)
+
+    # 2. open_receipt_menu uses _find_receipt_file and has (no local file) labels
+    assert "receipt_file = _find_receipt_file(row)" in inspect.getsource(clip_context.open_receipt_menu)
+    assert '"Copy Receipt Path (no local file)"' in inspect.getsource(clip_context.open_receipt_menu)
+    assert '"Open Receipt File / Folder (no local file)"' in inspect.getsource(clip_context.open_receipt_menu)
 
