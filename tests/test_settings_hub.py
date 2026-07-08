@@ -360,9 +360,10 @@ class TestSettingsHubHotkeyRecorder(unittest.TestCase):
             except Exception:  # noqa: BLE001
                 pass
 
-    def _hub(self):
-        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
-        hub._select_category("shortcuts")
+    def _hub(self, category_id: str | None = None):
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save, category_id=category_id)
+        if category_id is None:
+            hub._select_category("shortcuts")
         self._hubs.append(hub)
         return hub
 
@@ -522,6 +523,26 @@ class TestSettingsHubHotkeyRecorder(unittest.TestCase):
         finally:
             hub.withdraw()
             hub.destroy()
+
+
+    def test_category_deep_linking(self):
+        # Category ID "shortcuts" should be selected
+        hub = self._hub(category_id="shortcuts")
+        _wait_viewable(hub)
+        try:
+            self.assertEqual(hub._selected_category_id, "shortcuts")
+        finally:
+            hub.withdraw()
+            hub.destroy()
+
+        # Invalid category ID should fallback to default first category ("general")
+        hub2 = self._hub(category_id="nonexistent_category")
+        _wait_viewable(hub2)
+        try:
+            self.assertEqual(hub2._selected_category_id, "general")
+        finally:
+            hub2.withdraw()
+            hub2.destroy()
 
 
 if __name__ == "__main__":

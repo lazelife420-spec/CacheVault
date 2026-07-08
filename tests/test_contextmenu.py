@@ -242,3 +242,31 @@ def test_clip_menu_dispatch_wires_create_paste_macro():
     src = inspect.getsource(clip_context.open_clip_menu)
     assert '"create_paste_macro": lambda: window._create_macro_from_clip(clip.id)' in src
 
+
+def test_sidebar_safe_menu_delegates_to_clip_context():
+    """Verify that sidebar_context.open_safe_menu delegates to clip_context."""
+    import inspect
+    from cache_vault.ui import sidebar_context
+    src = inspect.getsource(sidebar_context.open_safe_menu)
+    assert "from .clip_context import open_safe_menu" in src
+    assert "_open_safe_menu(window, safe, x_root, y_root)" in src
+
+
+def test_shortcuts_quick_paste_macros_configure_hotkey_deep_links():
+    """Verify Configure Hotkey actions pass shortcuts/macros category to open_settings."""
+    import inspect
+    from cache_vault.ui import sidebar_context
+    src1 = inspect.getsource(sidebar_context.open_quick_paste_nav_menu)
+    assert 'window._open_settings("shortcuts")' in src1
+    src2 = inspect.getsource(sidebar_context.open_macros_nav_menu)
+    assert 'window._open_settings("macros")' in src2
+
+
+def test_selected_action_strip_labels():
+    """Verify that the single selection action strip uses Copy MD and Copy Plain labels."""
+    import inspect
+    from cache_vault.ui import shell
+    src = inspect.getsource(shell.CacheVaultApp._update_selected_action_strip)
+    assert '("Copy MD", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN))' in src
+    assert '("Copy Plain", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT))' in src
+

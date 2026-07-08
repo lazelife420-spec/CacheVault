@@ -58,6 +58,7 @@ class SettingsHub(ctk.CTkToplevel):
         registry: ModuleRegistry,
         on_save: Callable[[Settings], None],
         on_close: Callable[[ctk.CTkToplevel], None] | None = None,
+        category_id: str | None = None,
     ):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings Hub")
@@ -154,7 +155,8 @@ class SettingsHub(ctk.CTkToplevel):
         # Default selection
         cats = self._registry.settings_categories()
         if cats:
-            self._select_category(cats[0].id)
+            start_cat = category_id if any(c.id == category_id for c in cats) else cats[0].id
+            self._select_category(start_cat)
 
     def present(self) -> None:
         """Raise the hub above the main window after CTk finishes mapping."""

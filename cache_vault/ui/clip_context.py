@@ -391,7 +391,19 @@ def open_safe_menu(window, safe: dict, x_root: int, y_root: int) -> None:
         return
     safe_id = str(safe.get("id") or "")
     builtin = bool(safe.get("builtin"))
-    menu = tk.Menu(window, tearoff=0)
+    menu = tk.Menu(
+        window,
+        tearoff=0,
+        bg="#1c1c1e" if ctk.get_appearance_mode() == "Dark" else "#f2f2f7",
+        fg="#ffffff" if ctk.get_appearance_mode() == "Dark" else "#000000",
+        activebackground="#008080",
+        activeforeground="#ffffff",
+        font=("Segoe UI", 10),
+    )
+    menu.add_command(
+        label="Open Safe",
+        command=lambda: window._navigate_filter(f"{S.SAFE_PREFIX}{safe_id}"),
+    )
     menu.add_command(
         label="Set as Default Safe",
         command=lambda: window._set_default_safe(safe_id),
@@ -399,6 +411,14 @@ def open_safe_menu(window, safe: dict, x_root: int, y_root: int) -> None:
     menu.add_command(
         label="Copy Safe Summary",
         command=lambda: window._copy_safe_summary(safe),
+    )
+    menu.add_command(
+        label="New Safe",
+        command=window._open_new_safe,
+    )
+    menu.add_command(
+        label="Collapse/Expand Safes",
+        command=lambda: window._filters._toggle_section("SAFES"),  # noqa: SLF001
     )
     menu.add_separator()
     menu.add_command(
@@ -416,11 +436,8 @@ def open_safe_menu(window, safe: dict, x_root: int, y_root: int) -> None:
         state=("disabled" if builtin else "normal"),
         command=lambda: window._customize_safe_text(safe, "accent", "Safe accent color"),
     )
+    menu.add_separator()
     menu.add_command(label="Export Safe Proof Zip", state="disabled")
-    menu.add_command(
-        label="Collapse/Expand Safes",
-        command=lambda: window._filters._toggle_section("SAFES"),  # noqa: SLF001
-    )
     menu.add_command(
         label="Delete Safe",
         state="disabled",
