@@ -1,3 +1,61 @@
+# Cache Vault v0.1.8
+
+**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.
+No cloud account. No subscription.
+
+> `/proof` is unchanged unless separately approved. Nothing in this document
+> is a "stable" claim beyond what is explicitly stated below.
+
+## What is new in v0.1.8
+
+### Desktop Photo Viewer
+
+- **View Larger** — double-click any image clip (or use right-click → View
+  Larger, or the primary action button) to open a dedicated photo viewer window.
+- **Zoom & Pan** — mouse-wheel zoom, `f`/`F` to Fit, double-click canvas to
+  toggle Fit ↔ 1:1, `+`/`-` keys, and Fit / 1:1 / Zoom − / Zoom + toolbar
+  buttons. Drag to pan.
+- **Navigation** — Previous / Next buttons and arrow keys cycle through all
+  image clips in the vault, skipping text clips automatically.
+- **Actions** — Copy Image, Save As PNG, Open Asset Folder reachable from the
+  viewer toolbar.
+- **Dynamic title** — window title updates to show the current clip name.
+- **Missing-asset safe** — gracefully shows a placeholder and keeps nav
+  buttons/label correct when an asset file is unavailable.
+
+### Action Surface Cleanup
+
+- Duplicate Safe context menu construction removed; safe action labels
+  standardised across clip list and sidebar.
+- SettingsHub category deep-linking from "Configure Hotkey" actions.
+- `Copy MD` / `Copy Plain` label parity clarified.
+- Export Safe Proof Zip and Delete Safe stubs now carry "(planned)" labels.
+- Receipt path / Open Receipt actions conditionally enabled only when a local
+  receipt file exists; redundant "Set as Default Safe" Home status item removed.
+
+### Bug Fix — Photo Viewer Navigation
+
+- **Image filter case mismatch** — the viewer compared clip `content_type`
+  against `"IMAGE"` (uppercase) while the real stored value is `"image"`.
+  This silently broke Prev/Next navigation in production, collapsing the
+  navigation list to one entry. Fixed by using `CONTENT_IMAGE` constant.
+  Discovered during the packaged sanity pass (PR #46).
+
+### QA Basis
+
+- Packaged EXE built and sanity-checked against the 10-point Photo Viewer
+  checklist: construction, wheel zoom, f-key fit, double-click toggle, dynamic
+  title, missing-asset nav, action callbacks, zoom label correctness.
+- Navigation bug (PR #46) found by sanity pass using real `VaultStorage`;
+  was invisible in unit tests using matching mock strings.
+- Full test suite: PASS.
+- `compileall`: PASS. `--selftest`: PASS.
+- `v0.1.7` tag: unchanged at `604812e`.
+
+See `CHANGELOG.md` "Cache Vault v0.1.8" for the full itemized list.
+
+---
+
 # Cache Vault v0.1.7
 
 **Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.

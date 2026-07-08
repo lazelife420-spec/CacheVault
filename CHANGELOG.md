@@ -4,6 +4,46 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.1.8
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+
+- **Desktop Photo Viewer** — double-click any image clip to open a full-screen
+  viewer with canvas-based zoom/pan, Fit and 1:1 controls, and Previous/Next
+  navigation across all image clips in the vault (PR #44).
+
+### Fixed
+
+- **Action surface cleanup** — removed duplicated Safe context menu construction;
+  standardised safe action labels; deep-linked SettingsHub category routing from
+  "Configure Hotkey"; clarified "Copy MD" / "Copy Plain" label parity (PR #42).
+- **Disabled-stub clarity** — Export Safe Proof Zip and Delete Safe stubs now
+  carry "(planned)" labels; receipt path / Open Receipt actions are conditionally
+  enabled only when a local receipt file exists; redundant Home status
+  "Set as Default Safe" removed (PR #43).
+- **Photo Viewer — Polish 1** — mouse-wheel zoom (`<MouseWheel>`), `f`/`F`
+  keyboard shortcut for Fit, double-click canvas to toggle Fit ↔ 1:1, dynamic
+  window title showing current clip name, nav label/buttons always update even on
+  missing-asset early-return, clean zoom labels `Zoom −` / `Zoom +` (PR #45).
+- **Photo Viewer — image filter case bug** — the viewer filtered clips by
+  comparing against hardcoded `"IMAGE"` while the real DB constant is
+  `CONTENT_IMAGE = "image"` (lowercase). This silently collapsed the navigation
+  list to one entry, breaking Prev/Next in production. Fixed by importing and
+  using `CONTENT_IMAGE`; test fixtures corrected to match real model values
+  (PR #46, found during packaged sanity pass).
+
+### QA
+
+- Packaged EXE built and sanity-checked: viewer construction, wheel zoom,
+  f-key fit, double-click toggle, dynamic title, missing-asset nav, action
+  callbacks, zoom label correctness.
+- Production navigation bug (PR #46) discovered by the sanity pass with real
+  `VaultStorage`; invisible in unit tests which used matching mock strings.
+- Full test suite PASS.
+- `compileall`: PASS. `--selftest`: PASS.
+
 ## Cache Vault v0.1.7
 
 `/proof` unchanged this release. Stable not claimed.
