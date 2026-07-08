@@ -66,50 +66,8 @@ def open_safes_heading_menu(window, x_root: int, y_root: int) -> None:
 
 def open_safe_menu(window, safe: dict, x_root: int, y_root: int) -> None:
     """Right-click on an individual Safe row in the sidebar."""
-    tooltip.before_menu_open()
-    if _locked(window):
-        try:
-            from .clip_context import open_locked_menu
-            open_locked_menu(window, x_root, y_root)
-        finally:
-            tooltip.after_menu_close()
-        return
-    safe_id = str(safe.get("id") or "")
-    builtin = bool(safe.get("builtin"))
-    menu = tk.Menu(window, tearoff=0)
-    menu.add_command(
-        label="Open Safe",
-        command=lambda: window._navigate_filter(f"{S.SAFE_PREFIX}{safe_id}"),
-    )
-    menu.add_command(
-        label="Set as Default",
-        command=lambda: window._set_default_safe(safe_id),
-    )
-    menu.add_separator()
-    menu.add_command(
-        label="Rename",
-        state=("disabled" if builtin else "normal"),
-        command=lambda: window._rename_safe(safe),
-    )
-    menu.add_command(
-        label="Change Icon",
-        state=("disabled" if builtin else "normal"),
-        command=lambda: window._customize_safe_text(safe, "icon", "Safe icon"),
-    )
-    menu.add_command(
-        label="Change Color",
-        state=("disabled" if builtin else "normal"),
-        command=lambda: window._customize_safe_text(safe, "accent", "Safe accent color"),
-    )
-    menu.add_command(
-        label="Copy Safe Summary",
-        command=lambda: window._copy_safe_summary(safe),
-    )
-    menu.add_command(label="New Safe", command=window._open_new_safe)
-    menu.add_separator()
-    menu.add_command(label="Export Safe Proof Zip", state="disabled")
-    menu.add_command(label="Delete Safe", state="disabled")
-    popup_menu(window, menu, x_root, y_root)
+    from .clip_context import open_safe_menu as _open_safe_menu
+    _open_safe_menu(window, safe, x_root, y_root)
 
 
 def open_founder_nav_menu(window, x_root: int, y_root: int) -> None:
@@ -137,7 +95,7 @@ def open_quick_paste_nav_menu(window, x_root: int, y_root: int) -> None:
         return
     menu = tk.Menu(window, tearoff=0)
     menu.add_command(label="Open", command=window._schedule_quick_paste)
-    menu.add_command(label="Configure Hotkey", command=window._open_settings)
+    menu.add_command(label="Configure Hotkey", command=lambda: window._open_settings("shortcuts"))
     popup_menu(window, menu, x_root, y_root)
 
 
@@ -155,7 +113,7 @@ def open_macros_nav_menu(window, x_root: int, y_root: int) -> None:
         label="Open",
         command=lambda: window._navigate_screen(NAV_VAULT_MACROS),
     )
-    menu.add_command(label="Configure Hotkey", command=window._open_settings)
+    menu.add_command(label="Configure Hotkey", command=lambda: window._open_settings("macros"))
     popup_menu(window, menu, x_root, y_root)
 
 

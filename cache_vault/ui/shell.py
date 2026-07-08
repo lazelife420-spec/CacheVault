@@ -824,7 +824,7 @@ class CacheVaultApp(ctk.CTk):
             actions = [
                 ("Open", lambda c=clip: self._open_clip_link(c.id)),
                 ("Copy Link", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_LINK_ONLY)),
-                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN)),
+                ("Copy MD", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN)),
                 ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
                 to_macros,
             ]
@@ -845,7 +845,7 @@ class CacheVaultApp(ctk.CTk):
         else:
             actions = [
                 ("Copy", lambda c=clip: self._copy_again(c.id)),
-                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT)),
+                ("Copy Plain", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT)),
                 ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
                 ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
                 to_macros,
@@ -2855,11 +2855,13 @@ class CacheVaultApp(ctk.CTk):
             return
         self._settings_window = None
 
-    def _open_settings(self) -> None:
+    def _open_settings(self, category_id: str | None = None) -> None:
         if self._settings_window is not None:
             try:
                 if self._settings_window.winfo_exists():
                     self._settings_window.present()
+                    if category_id:
+                        self._settings_window._select_category(category_id)  # noqa: SLF001
                     return
             except Exception:
                 pass
@@ -2883,6 +2885,7 @@ class CacheVaultApp(ctk.CTk):
                     registry,
                     on_save=self._apply_settings,
                     on_close=self._clear_settings_window_reference,
+                    category_id=category_id,
                 )
                 self._settings_window.present()
                 return
