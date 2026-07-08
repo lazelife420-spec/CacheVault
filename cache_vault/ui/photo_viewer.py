@@ -64,11 +64,18 @@ class PhotoViewer(ctk.CTkToplevel):
         self._offset_y: float = 0.0
         self._drag_start_x: float = 0.0
         self._drag_start_y: float = 0.0
+        # True until the canvas has had its first real Configure event with valid size
         self._is_first_load: bool = True
+        # Whether the last intentional zoom action was "fit" (used for double-click toggle)
+        self._is_fitted: bool = True
 
         self._setup_ui()
         self._setup_bindings()
         self._load_image()
+
+    # ------------------------------------------------------------------ #
+    # UI setup
+    # ------------------------------------------------------------------ #
 
     def _setup_ui(self) -> None:
         # Main layout: Canvas in middle, toolbar at bottom
@@ -79,7 +86,7 @@ class PhotoViewer(ctk.CTkToplevel):
         self._toolbar = ctk.CTkFrame(self, height=50, fg_color="#121212", corner_radius=0)
         self._toolbar.pack(fill="x", side="bottom")
 
-        # Center/navigation container in toolbar
+        # Navigation container (left)
         self._nav_frame = ctk.CTkFrame(self._toolbar, fg_color="transparent")
         self._nav_frame.pack(side="left", padx=10, pady=5)
 
@@ -101,7 +108,7 @@ class PhotoViewer(ctk.CTkToplevel):
         )
         self._btn_next.pack(side="left", padx=2)
 
-        # Zoom container
+        # Zoom container (centre)
         self._zoom_frame = ctk.CTkFrame(self._toolbar, fg_color="transparent")
         self._zoom_frame.pack(side="left", expand=True, pady=5)
 
@@ -116,7 +123,7 @@ class PhotoViewer(ctk.CTkToplevel):
         ).pack(side="left", padx=2)
 
         ctk.CTkButton(
-            self._zoom_frame, text=" Zoom -", width=70, height=28,
+            self._zoom_frame, text="Zoom −", width=70, height=28,
             command=self._zoom_out, **theme.secondary_button()
         ).pack(side="left", padx=2)
 
@@ -127,11 +134,11 @@ class PhotoViewer(ctk.CTkToplevel):
         self._zoom_label.pack(side="left", padx=2)
 
         ctk.CTkButton(
-            self._zoom_frame, text="Zoom + ", width=70, height=28,
+            self._zoom_frame, text="Zoom +", width=70, height=28,
             command=self._zoom_in, **theme.secondary_button()
         ).pack(side="left", padx=2)
 
-        # Actions container (reused copy, save, folder)
+        # Actions container (right — reused copy, save, folder)
         self._actions_frame = ctk.CTkFrame(self._toolbar, fg_color="transparent")
         self._actions_frame.pack(side="right", padx=10, pady=5)
 
@@ -150,13 +157,26 @@ class PhotoViewer(ctk.CTkToplevel):
             command=self._action_folder, **theme.secondary_button()
         ).pack(side="left", padx=2)
 
+    # ------------------------------------------------------------------ #
+    # Bindings
+    # ------------------------------------------------------------------ #
+
     def _setup_bindings(self) -> None:
         # Drag to pan
         self._canvas.bind("<ButtonPress-1>", self._on_drag_start)
         self._canvas.bind("<B1-Motion>", self._on_drag_motion)
 
+        # Double-click canvas: toggle Fit ↔ 1:1
+        self._canvas.bind("<Double-Button-1>", self._on_double_click)
+
         # Canvas resize listener
         self._canvas.bind("<Configure>", lambda e: self._on_resize())
+
+        # Mouse-wheel zoom (Windows sends <MouseWheel> with delta multiples of 120)
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        # Linux/X11 fallback
+        self._canvas.bind("<Button-4>", lambda e: self._zoom_in())
+        self._canvas.bind("<Button-5>", lambda e: self._zoom_out())
 
         # Keyboard shortcuts
         self.bind("<Left>", lambda e: self._prev_image())
@@ -164,7 +184,13 @@ class PhotoViewer(ctk.CTkToplevel):
         self.bind("<plus>", lambda e: self._zoom_in())
         self.bind("<equal>", lambda e: self._zoom_in())
         self.bind("<minus>", lambda e: self._zoom_out())
+        self.bind("<f>", lambda e: self._zoom_fit())
+        self.bind("<F>", lambda e: self._zoom_fit())
         self.bind("<Escape>", lambda e: self.destroy())
+
+    # ------------------------------------------------------------------ #
+    # Event handlers
+    # ------------------------------------------------------------------ #
 
     def _on_drag_start(self, event: tk.Event) -> None:
         self._drag_start_x = event.x
@@ -177,49 +203,107 @@ class PhotoViewer(ctk.CTkToplevel):
         self._offset_y += dy
         self._drag_start_x = event.x
         self._drag_start_y = event.y
+        self._is_fitted = False
         self._draw_image()
 
-    def _on_resize(self) -> None:
-        if self._is_first_load:
+    def _on_double_click(self, event: tk.Event) -> None:
+        """Toggle between Fit and 1:1 zoom on canvas double-click."""
+        if self._is_fitted:
+            self._zoom_reset()
+        else:
             self._zoom_fit()
-            self._is_first_load = False
+
+    def _on_mousewheel(self, event: tk.Event) -> None:
+        """Zoom in/out on Windows mouse-wheel scroll."""
+        if event.delta > 0:
+            self._zoom_in()
+        else:
+            self._zoom_out()
+
+    def _on_resize(self) -> None:
+        """On canvas resize: only re-draw (not re-fit) to avoid a second fit flash.
+
+        The initial fit is triggered by _load_image → _zoom_fit when
+        _is_first_load is True and the canvas already has real dimensions.
+        After that, resize events just re-centre the existing zoom level.
+        """
+        if self._is_first_load:
+            # Canvas may not have real dimensions yet on very first event;
+            # only commit the first-load fit if canvas is properly sized.
+            w = self._canvas.winfo_width()
+            h = self._canvas.winfo_height()
+            if w > 10 and h > 10 and self._pil_image is not None:
+                self._zoom_fit()
+                self._is_first_load = False
         else:
             self._draw_image()
+
+    # ------------------------------------------------------------------ #
+    # Navigation helpers
+    # ------------------------------------------------------------------ #
 
     def _get_current_clip_id(self) -> str | None:
         if 0 <= self._current_index < len(self._image_ids):
             return self._image_ids[self._current_index]
         return None
 
+    def _update_nav_state(self) -> None:
+        """Always update nav label and button states, even on load failure."""
+        count = len(self._image_ids)
+        self._info_label.configure(text=f"{self._current_index + 1} / {count}")
+        self._btn_prev.configure(state="normal" if self._current_index > 0 else "disabled")
+        self._btn_next.configure(state="normal" if self._current_index < count - 1 else "disabled")
+
+    def _update_title(self) -> None:
+        """Set window title to include current clip display name if available."""
+        clip_id = self._get_current_clip_id()
+        if clip_id:
+            clip = self._get_clip_fn(clip_id)
+            name = getattr(clip, "display_name", None) or getattr(clip, "source_app", None)
+            if name:
+                self.title(f"{brand.PRODUCT_NAME} — Photo Viewer — {name}")
+                return
+        self.title(f"{brand.PRODUCT_NAME} — Photo Viewer")
+
+    # ------------------------------------------------------------------ #
+    # Image loading & drawing
+    # ------------------------------------------------------------------ #
+
     def _load_image(self) -> None:
         clip_id = self._get_current_clip_id()
         if not clip_id:
             self._pil_image = None
             self._draw_placeholder("No image selected.")
+            self._update_nav_state()
             return
 
-        clip = self._get_clip_fn(clip_id)
         loaded = self._load_asset_fn(clip_id)
         if not loaded:
             self._pil_image = None
             self._draw_placeholder("Image file unavailable.")
+            self._update_nav_state()
+            self._update_title()
             return
 
         png_bytes, _mime = loaded
         try:
             self._pil_image = Image.open(io.BytesIO(png_bytes))
             if self._is_first_load:
-                self._zoom_fit()
+                # Let _on_resize trigger the first fit once the canvas is measured.
+                # If canvas already has real dimensions (e.g. on navigation), fit now.
+                w = self._canvas.winfo_width()
+                h = self._canvas.winfo_height()
+                if w > 10 and h > 10:
+                    self._zoom_fit()
+                    self._is_first_load = False
             else:
-                self._draw_image()
+                self._zoom_fit()
         except Exception:
             self._pil_image = None
             self._draw_placeholder("Failed to load image.")
 
-        # Update navigation info
-        self._info_label.configure(text=f"{self._current_index + 1} / {len(self._image_ids)}")
-        self._btn_prev.configure(state="normal" if self._current_index > 0 else "disabled")
-        self._btn_next.configure(state="normal" if self._current_index < len(self._image_ids) - 1 else "disabled")
+        self._update_nav_state()
+        self._update_title()
 
     def _draw_placeholder(self, text: str) -> None:
         self._canvas.delete("all")
@@ -255,6 +339,10 @@ class PhotoViewer(ctk.CTkToplevel):
         except Exception:
             self._draw_placeholder("Error scaling image.")
 
+    # ------------------------------------------------------------------ #
+    # Zoom controls
+    # ------------------------------------------------------------------ #
+
     def _zoom_fit(self) -> None:
         if not self._pil_image:
             return
@@ -268,21 +356,30 @@ class PhotoViewer(ctk.CTkToplevel):
         self._zoom_factor = min(scale_w, scale_h, 1.0)
         self._offset_x = 0.0
         self._offset_y = 0.0
+        self._is_fitted = True
         self._draw_image()
 
     def _zoom_reset(self) -> None:
+        """Set zoom to 1:1 (100%)."""
         self._zoom_factor = 1.0
         self._offset_x = 0.0
         self._offset_y = 0.0
+        self._is_fitted = False
         self._draw_image()
 
     def _zoom_in(self) -> None:
         self._zoom_factor = min(self._zoom_factor * 1.2, 5.0)
+        self._is_fitted = False
         self._draw_image()
 
     def _zoom_out(self) -> None:
         self._zoom_factor = max(self._zoom_factor / 1.2, 0.05)
+        self._is_fitted = False
         self._draw_image()
+
+    # ------------------------------------------------------------------ #
+    # Navigation
+    # ------------------------------------------------------------------ #
 
     def _prev_image(self) -> None:
         if self._current_index > 0:
@@ -293,6 +390,10 @@ class PhotoViewer(ctk.CTkToplevel):
         if self._current_index < len(self._image_ids) - 1:
             self._current_index += 1
             self._load_image()
+
+    # ------------------------------------------------------------------ #
+    # Actions
+    # ------------------------------------------------------------------ #
 
     def _action_copy(self) -> None:
         clip_id = self._get_current_clip_id()
