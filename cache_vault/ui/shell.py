@@ -256,6 +256,7 @@ class CacheVaultApp(ctk.CTk):
         self._mouse_handler = None
         self._is_compact_width = False
         self._settings_window = None
+        self._photo_viewer_window = None
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -1366,6 +1367,7 @@ class CacheVaultApp(ctk.CTk):
 
         return {
             "copy_again": self._copy_again,
+            "view_larger": self._open_photo_viewer,
             "reveal": self.vault.reveal_sensitive,
             "toggle_favorite": self._toggle_favorite,
             "mark_keep": self._mark_keep,
@@ -3304,6 +3306,61 @@ class CacheVaultApp(ctk.CTk):
             ),
         )
         Toast(self, "Opened image." if opened else "Could not open image.")
+
+    def _open_photo_viewer(self, clip_id: str) -> None:
+        if self._photo_viewer_window is not None:
+            try:
+                if self._photo_viewer_window.winfo_exists():
+                    self._photo_viewer_window.destroy()
+            except Exception:
+                pass
+            self._photo_viewer_window = None
+
+        from .photo_viewer import PhotoViewer
+        
+        # Get visible clip ids from active view
+        all_clip_ids = getattr(self, "_visible_clip_ids", [clip_id])
+        if not all_clip_ids:
+            all_clip_ids = [clip_id]
+
+        def get_clip_fn(cid: str) -> Any:
+            return self.vault.storage.get_clip(cid)
+
+        def load_asset_fn(cid: str) -> tuple[bytes, str] | None:
+            return self.vault.storage.load_clip_asset_bytes(cid)
+
+        def asset_meta_fn(cid: str) -> dict | None:
+            rec = self.vault.storage.get_asset_record(cid)
+            if rec is None:
+                return None
+            return {
+                "sha256": rec.sha256,
+                "size_bytes": rec.size_bytes,
+                "width": rec.width,
+                "height": rec.height,
+            }
+
+        def open_asset_folder(cid: str) -> None:
+            from ..core import image_assets
+            rec = self.vault.storage.get_asset_record(cid)
+            if rec is None:
+                return
+            path = image_assets.assets_dir() / rec.storage_name
+            if path.is_file():
+                subprocess.run(["explorer", "/select,", str(path)], check=False)
+
+        self._photo_viewer_window = PhotoViewer(
+            self,
+            initial_clip_id=clip_id,
+            all_clip_ids=all_clip_ids,
+            get_clip_fn=get_clip_fn,
+            load_asset_fn=load_asset_fn,
+            asset_meta_fn=asset_meta_fn,
+            copy_image_fn=self._copy_again,
+            save_image_as_fn=self._save_asset_as,
+            open_asset_folder_fn=open_asset_folder,
+        )
+        self._photo_viewer_window.present()
 
     def _quick_paste_copy_path(self, clip) -> None:
         path_text = clip.content or ""
