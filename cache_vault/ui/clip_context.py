@@ -264,6 +264,45 @@ def open_home_app_menu(window, x_root: int, y_root: int) -> None:
     popup_menu(window, menu, x_root, y_root)
 
 
+def _find_receipt_file(row) -> Path | None:
+    import os
+    import json
+    from pathlib import Path
+    if not row or not getattr(row, "timestamp", None):
+        return None
+    date_part = row.timestamp[:10]
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    receipts_root = Path(base) / "CacheVault" / "Receipts"
+    if not receipts_root.is_dir():
+        return None
+    dir_path = receipts_root / date_part
+    if not dir_path.is_dir():
+        return None
+    
+    action_raw = getattr(row, "action_raw", "")
+    clip_id = getattr(row, "clip_id", None)
+    receipt_id = getattr(row, "receipt_id", "")
+    
+    if not action_raw:
+        return None
+        
+    pattern = f"{action_raw}-*.json"
+    try:
+        for f in dir_path.glob(pattern):
+            name = f.name
+            if clip_id and f"-{clip_id}-" in name:
+                return f
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data.get("id") == receipt_id or (clip_id and data.get("clip_id") == clip_id):
+                    return f
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
 def open_home_status_menu(window, surface: str, x_root: int, y_root: int) -> None:
     from .filters import NAV_MOBILE_ACCESS, NAV_MOBILE_INBOX, NAV_STAMPED_RECEIPTS
 
@@ -274,9 +313,8 @@ def open_home_status_menu(window, surface: str, x_root: int, y_root: int) -> Non
     menu = tk.Menu(window, tearoff=0)
     if surface == "vault_status":
         menu.add_command(label="Open Safe", command=lambda: window._navigate_filter(f"{S.SAFE_PREFIX}{summary.get('default_safe', 'default')}"))
-        menu.add_command(label="Set as Default Safe", state="disabled")
         menu.add_command(label="Copy Safe Summary", command=window._copy_default_safe_summary)
-        menu.add_command(label="Export Safe Proof Zip", state="disabled")
+        menu.add_command(label="Export Safe Proof Zip (planned)", state="disabled")
         menu.add_separator()
     menu.add_command(label="Open Receipts", command=lambda: window._navigate_screen(NAV_STAMPED_RECEIPTS))
     menu.add_command(label="Open Mobile Inbox", command=lambda: window._navigate_screen(NAV_MOBILE_INBOX))
@@ -292,6 +330,9 @@ def open_receipt_menu(window, row, x_root: int, y_root: int) -> None:
         finally:
             tooltip.after_menu_close()
         return
+    
+    import subprocess
+    receipt_file = _find_receipt_file(row)
     clip_id = getattr(row, "clip_id", None)
     proof_hash = getattr(row, "proof_hash", "") or ""
     menu = tk.Menu(window, tearoff=0)
@@ -299,10 +340,16 @@ def open_receipt_menu(window, row, x_root: int, y_root: int) -> None:
         label="Copy Receipt Summary",
         command=lambda: window._copy_receipt_summary(row),
     )
-    menu.add_command(
-        label="Copy Receipt Path",
-        state="disabled",
-    )
+    if receipt_file is not None:
+        menu.add_command(
+            label="Copy Receipt Path",
+            command=lambda: window._copy_text(str(receipt_file), "Copied receipt path."),
+        )
+    else:
+        menu.add_command(
+            label="Copy Receipt Path (no local file)",
+            state="disabled",
+        )
     menu.add_command(
         label="Copy Item ID",
         state=("normal" if clip_id else "disabled"),
@@ -314,10 +361,16 @@ def open_receipt_menu(window, row, x_root: int, y_root: int) -> None:
         command=lambda: window._copy_text(proof_hash, "Copied hash."),
     )
     menu.add_separator()
-    menu.add_command(
-        label="Open Receipt File / Folder",
-        state="disabled",
-    )
+    if receipt_file is not None:
+        menu.add_command(
+            label="Open Receipt File / Folder",
+            command=lambda: subprocess.run(["explorer", "/select,", str(receipt_file)], check=False),
+        )
+    else:
+        menu.add_command(
+            label="Open Receipt File / Folder (no local file)",
+            state="disabled",
+        )
     menu.add_command(
         label="Export Proof Zip",
         state=("normal" if clip_id else "disabled"),
@@ -437,9 +490,9 @@ def open_safe_menu(window, safe: dict, x_root: int, y_root: int) -> None:
         command=lambda: window._customize_safe_text(safe, "accent", "Safe accent color"),
     )
     menu.add_separator()
-    menu.add_command(label="Export Safe Proof Zip", state="disabled")
+    menu.add_command(label="Export Safe Proof Zip (planned)", state="disabled")
     menu.add_command(
-        label="Delete Safe",
+        label="Delete Safe (planned)",
         state="disabled",
     )
     popup_menu(window, menu, x_root, y_root)
