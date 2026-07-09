@@ -4,6 +4,19 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.1.9
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+- **Multi-link Save workflows** — save links separately, combined as one text clip, or as a batch.
+- **Edit & Duplicate Clip** — edit text clips directly and duplicate clips as editable.
+- **Cards Multi-Select visuals** — active card borders, rails, and SELECTED badges are correctly repainted for all elements in multi-selection.
+
+### Fixed
+- **TclError Late Callback Guard** — wrapped `report_callback_exception` to intercept and safely log/suppress benign tkinter event-loop lifecycle TclErrors.
+- **MultiLinkPasteDialog geometry** — resized dialog default geometry to prevent button clipping.
+
 ## Cache Vault v0.1.8
 
 `/proof` unchanged this release. Stable not claimed.
