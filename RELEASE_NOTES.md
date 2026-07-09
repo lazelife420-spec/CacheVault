@@ -1,3 +1,34 @@
+# Cache Vault v0.1.9
+
+**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.
+No cloud account. No subscription.
+
+> `/proof` is unchanged unless separately approved. Nothing in this document
+> is a "stable" claim beyond what is explicitly stated below.
+
+## What is new in v0.1.9
+
+### Clip UX Workflows
+- **Multi-link Save separate** — parse clipboard content containing multiple links and save them as separate clips cleanly.
+- **Multi-link Save one text clip** — save parsed link payload as a single, combined text clip.
+- **Copy clean list** — copy links/text from clipboard cleanly without extra formatting.
+- **Create Batch** — save raw receipt metadata along with individual per-link clips.
+- **Edit Clip Text & Duplicate** — edit clip text directly or duplicate as an editable copy to revise while keeping the original.
+
+### Packaged Dialog Crash Fix
+- **TclError Late Callback Guard** — added event-loop exception interceptor for benign `TclError` window callbacks (`bad window path name`, etc.) preventing application crash dialogs in windowed executables.
+
+### Selection Visual Polish
+- **Cards multi-select visual feedback** — every card in a multi-selected group now correctly displays the active teal border, 8px teal visual rail, and the "SELECTED" badge in real-time.
+- **Grid/table selection compatibility** — wired selection status updates to ensure that both Grid view and Cards view selection updates and actions behave consistently.
+
+### Verification
+- Full pytest suite (873 tests passed, including selection validation).
+- Executable self-test validation (selftest OK).
+- Package metadata checked.
+
+---
+
 # Cache Vault v0.1.8
 
 **Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.
