@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from . import models
@@ -158,6 +159,57 @@ def status_badges(clip, storage=None) -> list[str]:
         badges.append("Proof Recorded")
 
     return badges
+
+
+def parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+
+def format_captured_at(iso: str | None) -> str:
+    dt = parse_iso(iso)
+    if dt is None:
+        return "Unknown time"
+    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    if now.date() == dt.date():
+        return f"Today {dt.strftime('%I:%M %p').lstrip('0')}"
+    yesterday = now.date() - timedelta(days=1)
+    if yesterday == dt.date():
+        return f"Yesterday {dt.strftime('%I:%M %p').lstrip('0')}"
+    return dt.strftime("%b %d, %Y")
+
+
+def relative_age(iso: str | None) -> str:
+    dt = parse_iso(iso)
+    if dt is None:
+        return "Unknown age"
+    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    delta = now - dt
+    seconds = max(0, int(delta.total_seconds()))
+    if seconds < 60:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hr ago" if hours == 1 else f"{hours} hrs ago"
+    days = delta.days
+    if days < 7:
+        return f"{days} day ago" if days == 1 else f"{days} days ago"
+    weeks = max(1, days // 7)
+    return f"{weeks} week ago" if weeks == 1 else f"{weeks} weeks ago"
+
+
+def source_summary_line(clip) -> str:
+    source = display(getattr(clip, "source_app", None))
+    captured = format_captured_at(getattr(clip, "created_at", None))
+    age = relative_age(getattr(clip, "created_at", None))
+    return f"{source} · {captured} · {age}"
 
 
 def _time_bucket(iso: str) -> str:

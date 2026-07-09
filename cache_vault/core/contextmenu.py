@@ -80,6 +80,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             return [
                 MenuItem("copy_plain", "Copy as Plain List"),
                 MenuItem("copy_markdown", "Copy as Markdown"),
+                MenuItem("combine", "Combine Clips…"),
                 MenuItem("copy_numbered", "Copy as Numbered List"),
                 MenuItem("move_safe", "Save to Safe…", separator_before=True),
                 MenuItem("receipt", "Create Receipt"),
@@ -107,6 +108,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             return [
                 MenuItem("copy_plain", "Copy as Plain List"),
                 MenuItem("copy_markdown", "Copy as Markdown"),
+                MenuItem("combine", "Combine Clips…"),
                 MenuItem("copy_numbered", "Copy as Numbered List"),
                 MenuItem("move_safe", "Save to Safe…", separator_before=True),
                 MenuItem("receipt", "Create Receipt"),
@@ -164,6 +166,16 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
             "create_editable_copy",
             "Create Editable Copy",
             enabled=pathutil.is_local_path(clip.content),
+        ),
+        MenuItem(
+            "edit_clip_text",
+            "Edit Clip Text",
+            enabled=clip.content_type != models.CONTENT_IMAGE,
+        ),
+        MenuItem(
+            "duplicate_editable_clip",
+            "Duplicate as Editable Clip",
+            enabled=clip.content_type != models.CONTENT_IMAGE,
         ),
         MenuItem("copy_metadata", "Copy Metadata"),
         MenuItem("copy_item_id", "Copy Item ID"),

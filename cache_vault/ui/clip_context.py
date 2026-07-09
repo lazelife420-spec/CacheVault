@@ -49,6 +49,8 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         "send_to_macro_safe": lambda: window._send_to_macro_safe(clip.id),
         "create_paste_macro": lambda: window._create_macro_from_clip(clip.id),
         "create_editable_copy": lambda: window._create_editable_copy(clip.id),
+        "edit_clip_text": lambda: window._edit_clip_text(clip.id),
+        "duplicate_editable_clip": lambda: window._duplicate_as_editable_clip(clip.id),
         "export_proof_zip": lambda: window._export_clip_proof(clip.id),
         "view_receipts": window._open_events,
         "view_mobile_receipt": window._open_events,
@@ -125,6 +127,7 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
     dispatch = {
         "copy_plain": lambda: window._bulk_copy_format("plain"),
         "copy_markdown": lambda: window._bulk_copy_format("markdown"),
+        "combine": window._open_clip_composer,
         "copy_numbered": lambda: window._bulk_copy_format("numbered"),
         "move_safe": window._bulk_move_to_safe,
         "receipt": lambda: window._bulk_create_receipt(summary),

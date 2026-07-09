@@ -191,12 +191,24 @@ class ClipList(ctk.CTkScrollableFrame):
         row = ctk.CTkFrame(
             self, corner_radius=8,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
-            border_width=1 if selected else 0,
+            border_width=2 if selected else 1,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
         row.pack(fill="x", padx=4, pady=2)
         self._row_by_id[clip.id] = row
         self._render_order.append(clip.id)
+
+        frame = ctk.CTkFrame(row, fg_color="transparent")
+        frame.pack(fill="x")
+        rail = ctk.CTkFrame(
+            frame,
+            width=8 if selected else 4,
+            fg_color=brand.PROOF_TEAL if selected else brand.PROOF_TEAL_DIM,
+            corner_radius=6,
+        )
+        rail.pack(side="left", fill="y", padx=(0, 8), pady=8)
+        body = ctk.CTkFrame(frame, fg_color="transparent")
+        body.pack(side="left", fill="both", expand=True, pady=4, padx=(0, 6))
 
         badge = clip_metadata.format_label(clip.classification, clip.content_type).upper()
         if clip.is_sensitive:
@@ -204,8 +216,8 @@ class ClipList(ctk.CTkScrollableFrame):
         elif clip.duplicate_of:
             badge = f"{badge} · DUPLICATE"
 
-        top = ctk.CTkFrame(row, fg_color="transparent")
-        top.pack(fill="x", padx=10, pady=(6, 0))
+        top = ctk.CTkFrame(body, fg_color="transparent")
+        top.pack(fill="x", padx=2, pady=(6, 0))
         badge_style = clip_accents.type_accent(clip.classification, clip.content_type)
         if clip.is_sensitive:
             badge_style = clip_accents.label_accent("Sensitive")
@@ -213,9 +225,20 @@ class ClipList(ctk.CTkScrollableFrame):
             badge_style = clip_accents.label_accent("Duplicate")
 
         ctk.CTkLabel(
-            top, text=badge, font=ctk.CTkFont(size=9, weight="bold"),
+            top, text=badge, font=ctk.CTkFont(size=10, weight="bold"),
             text_color=badge_style.accent,
         ).pack(side="left")
+        if selected:
+            ctk.CTkLabel(
+                top,
+                text="SELECTED",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=brand.FOUNDRY_BLACK,
+                fg_color=brand.PROOF_TEAL,
+                corner_radius=999,
+                padx=10,
+                pady=2,
+            ).pack(side="left", padx=(8, 0))
         trail = ctk.CTkFrame(top, fg_color="transparent")
         trail.pack(side="right")
         if clip.is_pinned:
@@ -229,34 +252,50 @@ class ClipList(ctk.CTkScrollableFrame):
                          text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
-        ctk.CTkLabel(row, text=title, anchor="w",
-                     font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x", padx=10)
+        ctk.CTkLabel(
+            body, text=title, anchor="w",
+            font=ctk.CTkFont(size=13 if selected else 12, weight="bold"),
+            text_color=brand.RECEIPT_WHITE,
+        ).pack(fill="x", padx=2)
 
         preview_lines = (clip.preview or "(empty)").splitlines()[:3]
         preview = "\n".join(preview_lines)
         if len((clip.preview or "").splitlines()) > 3:
             preview += "…"
-        ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
-                     font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
+        ctk.CTkLabel(
+            body, text=preview, anchor="w", justify="left", wraplength=420,
+            font=ctk.CTkFont(size=11),
+            text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
+        ).pack(fill="x", padx=2, pady=(2, 4))
 
         # Labels/chips
         try:
             from ..core.clip_metadata import labels_for_clip
             labels = labels_for_clip(clip)
-            chips = ctk.CTkFrame(row, fg_color="transparent")
-            chips.pack(fill="x", padx=10, pady=(0, 6))
+            chips = ctk.CTkFrame(body, fg_color="transparent")
+            chips.pack(fill="x", padx=2, pady=(0, 6))
             for lab in labels[:4]:
                 self._build_chip(chips, lab)
         except Exception:
             pass
 
-        src = clip_metadata.display(clip.source_app)
-        added = _short_time(clip.created_at)
-        used = _short_time(clip.date_used or clip.updated_at)
         ctk.CTkLabel(
-            row, text=f"{src} · Added {added} · Last used {used}",
-            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=9),
-        ).pack(fill="x", padx=10, pady=(0, 8))
+            body,
+            text=clip_metadata.source_summary_line(clip),
+            anchor="w",
+            text_color=brand.RECEIPT_WHITE,
+            font=ctk.CTkFont(size=11, weight="bold"),
+        ).pack(fill="x", padx=2, pady=(0, 2))
+        ctk.CTkLabel(
+            body,
+            text=(
+                f"Type {clip_metadata.format_label(clip.classification, clip.content_type)}"
+                f" · Safe {clip_metadata.display(clip.safe_name)}"
+            ),
+            anchor="w",
+            text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=10),
+        ).pack(fill="x", padx=2, pady=(0, 8))
 
         self._bind_clip_events(row, clip)
         return row
@@ -386,7 +425,7 @@ class ClipList(ctk.CTkScrollableFrame):
             is_selected = clip_id in self._selected_ids
             row.configure(
                 fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                border_width=1 if is_selected else 0,
+                border_width=2 if is_selected else 1,
                 border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
             )
 
@@ -400,7 +439,7 @@ class ClipList(ctk.CTkScrollableFrame):
         elif previous_id:
             row = self._row_by_id.get(previous_id)
             if row is not None:
-                row.configure(fg_color=brand.ROW_BG, border_width=0)
+                row.configure(fg_color=brand.ROW_BG, border_width=1)
 
     def open_context_for_selected(self, clip: Clip) -> None:
         row = self._row_by_id.get(clip.id)
@@ -423,7 +462,7 @@ class ClipList(ctk.CTkScrollableFrame):
             if is_selected:
                 row.configure(
                     fg_color=brand.ROW_SELECTED_BG,
-                    border_width=1,
+                    border_width=2,
                     border_color=brand.PROOF_TEAL,
                 )
                 # Ensure the row is visible in the scrollable frame.
@@ -431,7 +470,7 @@ class ClipList(ctk.CTkScrollableFrame):
             else:
                 row.configure(
                     fg_color=brand.ROW_BG,
-                    border_width=0,
+                    border_width=1,
                 )
 
     def _safe_see(self, widget) -> None:

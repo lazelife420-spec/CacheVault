@@ -32,6 +32,8 @@ def test_text_clip_has_no_file_actions():
     assert keys == ["primary", "copy_clean", "organize", "proof", "advanced", "danger"]
     assert "open" not in _all_keys(items) and "reveal" not in _all_keys(items)
     assert advanced["create_editable_copy"].enabled is False
+    assert advanced["edit_clip_text"].enabled is True
+    assert advanced["duplicate_editable_clip"].enabled is True
 
 
 def test_removed_clip_menu_offers_restore():
@@ -126,8 +128,11 @@ def test_image_clip_gets_image_and_asset_actions():
     ))
 
     primary = _children(items, "primary")
+    advanced = {i.key: i for i in _children(items, "advanced")}
     assert primary[0].label == "Copy Image"
     assert "open_asset_folder" in _all_keys(items)
+    assert advanced["edit_clip_text"].enabled is False
+    assert advanced["duplicate_editable_clip"].enabled is False
 
 
 def test_context_menu_uses_professional_groups():
@@ -305,3 +310,14 @@ def test_photo_viewer_context_and_preview():
     # Double-click is bound to view_larger
     assert 'lambda _e, c=clip: self._fire("view_larger", c)' in inspect.getsource(preview.PreviewPanel._render_image_preview)
 
+
+def test_shell_clip_workflows_are_wired():
+    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
+
+    shell_src = inspect.getsource(CacheVaultApp)
+    ctx_src = inspect.getsource(clip_context)
+    assert "Combine" in shell_src
+    assert "MultiLinkPasteDialog" in shell_src
+    assert '"edit_clip_text": lambda: window._edit_clip_text(clip.id)' in ctx_src
+    assert '"duplicate_editable_clip": lambda: window._duplicate_as_editable_clip(clip.id)' in ctx_src

@@ -260,6 +260,14 @@ def test_clip_metadata_display():
     assert display("Cursor") == "Cursor"
 
 
+def test_clip_metadata_capture_labels():
+    from cache_vault.core.clip_metadata import format_captured_at, relative_age
+
+    iso = "2026-07-08T18:42:00+00:00"
+    assert format_captured_at(iso)
+    assert "ago" in relative_age(iso) or relative_age(iso) == "just now"
+
+
 def test_duplicate_dialog_warning_copy():
     from cache_vault.ui.duplicate_dialog import DuplicateReviewDialog
     assert DuplicateReviewDialog is not None
