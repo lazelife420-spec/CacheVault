@@ -27,6 +27,8 @@ class ClipList(ctk.CTkScrollableFrame):
         self._selected_ids: set[str] = set()
         self._render_order: list[str] = []
         self._anchor_id: str | None = None
+        self._rail_by_id: dict[str, ctk.CTkFrame] = {}
+        self._selected_badge_by_id: dict[str, ctk.CTkLabel] = {}
         self._collapsed_groups: set[tuple[str, str]] = set()
         self._last_clips: list[Clip] = []
         self._last_empty_message: str | None = None
@@ -65,6 +67,8 @@ class ClipList(ctk.CTkScrollableFrame):
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
+        self._rail_by_id.clear()
+        self._selected_badge_by_id.clear()
         self._render_order.clear()
         self._empty.pack_forget()
 
@@ -101,6 +105,8 @@ class ClipList(ctk.CTkScrollableFrame):
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
+        self._rail_by_id.clear()
+        self._selected_badge_by_id.clear()
         self._render_order.clear()
         self._empty.pack_forget()
 
@@ -207,6 +213,7 @@ class ClipList(ctk.CTkScrollableFrame):
             corner_radius=6,
         )
         rail.pack(side="left", fill="y", padx=(0, 8), pady=8)
+        self._rail_by_id[clip.id] = rail
         body = ctk.CTkFrame(frame, fg_color="transparent")
         body.pack(side="left", fill="both", expand=True, pady=4, padx=(0, 6))
 
@@ -228,17 +235,20 @@ class ClipList(ctk.CTkScrollableFrame):
             top, text=badge, font=ctk.CTkFont(size=10, weight="bold"),
             text_color=badge_style.accent,
         ).pack(side="left")
+
+        badge_lbl = ctk.CTkLabel(
+            top,
+            text="SELECTED",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=brand.FOUNDRY_BLACK,
+            fg_color=brand.PROOF_TEAL,
+            corner_radius=999,
+            padx=10,
+            pady=2,
+        )
+        self._selected_badge_by_id[clip.id] = badge_lbl
         if selected:
-            ctk.CTkLabel(
-                top,
-                text="SELECTED",
-                font=ctk.CTkFont(size=10, weight="bold"),
-                text_color=brand.FOUNDRY_BLACK,
-                fg_color=brand.PROOF_TEAL,
-                corner_radius=999,
-                padx=10,
-                pady=2,
-            ).pack(side="left", padx=(8, 0))
+            badge_lbl.pack(side="left", padx=(8, 0))
         trail = ctk.CTkFrame(top, fg_color="transparent")
         trail.pack(side="right")
         if clip.is_pinned:
@@ -420,14 +430,38 @@ class ClipList(ctk.CTkScrollableFrame):
             ordered = [cid for cid in order if cid in self._selected_ids]
             callback(ordered)
 
-    def _repaint_selection(self) -> None:
-        for clip_id, row in self._row_by_id.items():
-            is_selected = clip_id in self._selected_ids
-            row.configure(
-                fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                border_width=2 if is_selected else 1,
-                border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+    def _update_row_visuals(self, clip_id: str, is_selected: bool) -> None:
+        if not hasattr(self, "_rail_by_id"):
+            self._rail_by_id = {}
+        if not hasattr(self, "_selected_badge_by_id"):
+            self._selected_badge_by_id = {}
+        row = self._row_by_id.get(clip_id)
+        if row is None:
+            return
+        row.configure(
+            fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
+            border_width=2 if is_selected else 1,
+            border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+        )
+        rail = self._rail_by_id.get(clip_id)
+        if rail is not None:
+            rail.configure(
+                width=8 if is_selected else 4,
+                fg_color=brand.PROOF_TEAL if is_selected else brand.PROOF_TEAL_DIM,
             )
+        badge_lbl = self._selected_badge_by_id.get(clip_id)
+        if badge_lbl is not None:
+            if is_selected:
+                if not badge_lbl.winfo_ismapped():
+                    badge_lbl.pack(side="left", padx=(8, 0))
+            else:
+                if badge_lbl.winfo_ismapped():
+                    badge_lbl.pack_forget()
+
+    def _repaint_selection(self) -> None:
+        for clip_id in self._row_by_id:
+            is_selected = clip_id in self._selected_ids
+            self._update_row_visuals(clip_id, is_selected)
 
     def set_selected(self, clip_id: str | None) -> None:
         previous_id = self._selected_id
@@ -437,9 +471,7 @@ class ClipList(ctk.CTkScrollableFrame):
         if clip_id is not None:
             self._apply_selection(previous_id, clip_id)
         elif previous_id:
-            row = self._row_by_id.get(previous_id)
-            if row is not None:
-                row.configure(fg_color=brand.ROW_BG, border_width=1)
+            self._update_row_visuals(previous_id, False)
 
     def open_context_for_selected(self, clip: Clip) -> None:
         row = self._row_by_id.get(clip.id)
@@ -459,19 +491,10 @@ class ClipList(ctk.CTkScrollableFrame):
             if row is None:
                 continue
             is_selected = clip_id == selected_id
+            self._update_row_visuals(clip_id, is_selected)
             if is_selected:
-                row.configure(
-                    fg_color=brand.ROW_SELECTED_BG,
-                    border_width=2,
-                    border_color=brand.PROOF_TEAL,
-                )
                 # Ensure the row is visible in the scrollable frame.
                 self._safe_see(row)
-            else:
-                row.configure(
-                    fg_color=brand.ROW_BG,
-                    border_width=1,
-                )
 
     def _safe_see(self, widget) -> None:
         try:

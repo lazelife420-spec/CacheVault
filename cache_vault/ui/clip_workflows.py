@@ -171,8 +171,8 @@ class MultiLinkPasteDialog(ctk.CTkToplevel):
     ):
         super().__init__(master)
         self.title("Multi-Link Paste Detected")
-        self.geometry("620x420")
-        self.minsize(560, 400)
+        self.geometry("620x480")
+        self.minsize(560, 460)
         self._payload = payload
 
         ctk.CTkLabel(

@@ -90,6 +90,38 @@ def main() -> int:
     from cache_vault.ui.shell import CacheVaultApp
     from cache_vault.ui.theme import apply_app_theme
 
+    # Wrap report_callback_exception to suppress/log benign late Tk callbacks
+    _orig_report = CacheVaultApp.report_callback_exception
+
+    def _secured_report(self, exc, val, tb):
+        is_tcl_error = False
+        if exc is not None:
+            if getattr(exc, "__name__", "") == "TclError":
+                is_tcl_error = True
+        if not is_tcl_error and val is not None:
+            if getattr(type(val), "__name__", "") == "TclError":
+                is_tcl_error = True
+
+        if is_tcl_error:
+            err_text = str(val or "")
+            is_benign = (
+                "bad window path name" in err_text
+                or ("bitmap" in err_text and "not defined" in err_text)
+                or "CustomTkinter_icon_Windows.ico" in err_text
+            )
+            if is_benign:
+                try:
+                    from cache_vault.ui.crashlog import write_crash
+                    err = val if isinstance(val, BaseException) else Exception(val)
+                    write_crash("benign Tk callback error (suppressed)", err)
+                except Exception:  # noqa: BLE001
+                    pass
+                return
+
+        _orig_report(self, exc, val, tb)
+
+    CacheVaultApp.report_callback_exception = _secured_report
+
     install_global_hook()
     apply_app_theme()
     app = CacheVaultApp()
