@@ -30,12 +30,18 @@ if ROOT not in sys.path:
 
 from cache_vault.build_meta import windows_version_strings, windows_version_tuple
 
+import customtkinter
+
 datas, binaries, hiddenimports = [], [], []
 for pkg in ("customtkinter", "zeroconf"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
     hiddenimports += h
+
+# Explicitly bundle customtkinter assets to guarantee availability of icon and fonts
+ctk_dir = os.path.dirname(customtkinter.__file__)
+datas.append((os.path.join(ctk_dir, "assets"), os.path.join("customtkinter", "assets")))
 
 hiddenimports += [
     "pystray._win32",
