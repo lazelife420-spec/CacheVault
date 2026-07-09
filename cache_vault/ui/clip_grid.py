@@ -180,7 +180,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         row = ctk.CTkFrame(
             self._rows_frame, corner_radius=6, height=40,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
-            border_width=1 if selected else 0,
+            border_width=2 if selected else 1,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
         row.pack(fill="x", pady=2, padx=4)
@@ -193,7 +193,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             text = values[key]
             lbl = ctk.CTkLabel(
                 row, text=text, anchor="w",
-                font=ctk.CTkFont(size=11, weight="bold" if key == "name" else "normal"),
+                font=ctk.CTkFont(size=12 if key == "name" else 11, weight="bold" if key == "name" else "normal"),
                 text_color=brand.PROOF_TEAL if key == "name" and selected else brand.MUTED_FG,
             )
             lbl.grid(row=0, column=col, sticky="ew", padx=8, pady=8)
@@ -222,10 +222,10 @@ class ClipGrid(ctk.CTkScrollableFrame):
             preview_type += f" · {' · '.join(badges)}"
 
         return {
-            "name": name[:36] + ("…" if len(name) > 36 else ""),
+            "name": ("SELECTED · " if clip.id == self._selected_id else "") + name[:28] + ("…" if len(name) > 28 else ""),
             "type": preview_type,
-            "added": clip_metadata.human_timestamp(clip.created_at),
-            "used": clip_metadata.human_timestamp(clip.date_used or clip.updated_at),
+            "added": clip_metadata.format_captured_at(clip.created_at),
+            "used": clip_metadata.relative_age(clip.date_used or clip.updated_at),
             "source": clip_metadata.display(clip.source_app)[:16],
             "favorite": "★" if clip.is_pinned else "",
             "proof": clip_metadata.shorten_hash(clip.content_hash),
@@ -314,7 +314,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             is_selected = clip_id in self._selected_ids
             row.configure(
                 fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                border_width=1 if is_selected else 0,
+                border_width=2 if is_selected else 1,
                 border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
             )
             name_label = self._name_label_by_id.get(clip_id)
@@ -333,7 +333,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         elif previous_id:
             row = self._row_by_id.get(previous_id)
             if row is not None:
-                row.configure(fg_color=brand.ROW_BG, border_width=0)
+                row.configure(fg_color=brand.ROW_BG, border_width=1)
             name_label = self._name_label_by_id.get(previous_id)
             if name_label is not None:
                 name_label.configure(text_color=brand.MUTED_FG)
@@ -365,14 +365,14 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 if is_selected:
                     row.configure(
                         fg_color=brand.ROW_SELECTED_BG,
-                        border_width=1,
+                        border_width=2,
                         border_color=brand.PROOF_TEAL,
                     )
                     self._safe_see(row)
                 else:
                     row.configure(
                         fg_color=brand.ROW_BG,
-                        border_width=0,
+                        border_width=1,
                     )
             name_label = self._name_label_by_id.get(clip_id)
             if name_label is not None:

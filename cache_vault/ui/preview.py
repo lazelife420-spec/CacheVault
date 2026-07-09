@@ -455,8 +455,11 @@ class PreviewPanel(ctk.CTkFrame):
         ctx = ctx_fn(clip.id) if ctx_fn else None
         lines = [
             f"Item ID:      {clip.id}",
+            f"Captured:     {clip_metadata.format_captured_at(clip.created_at)}",
+            f"Age:          {clip_metadata.relative_age(clip.created_at)}",
             f"First Saved:  {clip_metadata.human_timestamp(clip.created_at)}",
             f"Last Used:    {clip_metadata.human_timestamp(clip.date_used or clip.updated_at)}",
+            f"Type:         {clip_metadata.format_label(clip.classification, clip.content_type)}",
             f"Use Count:    {clip.use_count}",
             f"Source App:   {clip_metadata.display(clip.source_app)}",
             f"Window:       {clip_metadata.display(clip.source_window)}",

@@ -23,7 +23,7 @@ import customtkinter as ctk
 from tkinter import filedialog
 
 from .. import brand
-from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, search, vault_lock
+from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, multi_link, search, vault_lock
 from .. import feature_gate
 from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
@@ -54,6 +54,7 @@ try:
     from .settings_hub import SettingsHub
 except ImportError:
     SettingsHub = None
+from .clip_workflows import ClipComposerDialog, EditClipTextDialog, MultiLinkPasteDialog
 from .filters import (
     FilterNav,
     NAV_EDITABLE_COPIES,
@@ -890,8 +891,67 @@ class CacheVaultApp(ctk.CTk):
         view.select_all()
         return "break"
 
+    def _selected_text_clips(self) -> list[models.Clip]:
+        clips: list[models.Clip] = []
+        for clip_id in self._selected_clip_ids:
+            clip = self.vault.storage.get_clip(clip_id)
+            if clip is None or clip.content_type == models.CONTENT_IMAGE:
+                continue
+            clips.append(clip)
+        return clips
+
+    def _open_clip_composer(self) -> None:
+        if not self._guard_unlocked():
+            return
+        clips = self._selected_text_clips()
+        if len(clips) < 2:
+            self._show_toast("Select at least two text clips to combine them.")
+            return
+        parts = [clip.content for clip in clips if clip.content]
+        if len(parts) < 2:
+            self._show_toast("Not enough text in the selection to combine.")
+            return
+        ClipComposerDialog(
+            self,
+            parts=parts,
+            on_copy=lambda text: self._copy_generated_text(text, "Copied combined clip."),
+            on_save_clip=lambda text, base=clips[-1]: self._save_generated_clip(text, base.safe_id),
+            on_save_macro=self._save_generated_macro,
+        )
+
     def _bulk_copy(self) -> None:
         batch_actions.bulk_copy(self)
+
+    def _copy_generated_text(self, text: str, toast: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self._show_toast(toast)
+
+    def _save_generated_clip(self, text: str, safe_id: str | None = None) -> None:
+        clip = self.vault.capture(
+            text,
+            source_app=brand.PRODUCT_NAME,
+            capture_mode=models.CAPTURE_EXTERNAL_APP,
+            safe_id=safe_id,
+            force=True,
+        )
+        if clip is not None:
+            self.refresh()
+            self._on_clip_select(clip)
+            self._show_toast("Saved as a new clip.")
+
+    def _save_generated_macro(self, text: str) -> None:
+        clip = self.vault.capture(
+            text,
+            source_app=brand.PRODUCT_NAME,
+            capture_mode=models.CAPTURE_EXTERNAL_APP,
+            safe_id=self.vault.settings.default_safe_id,
+            force=True,
+        )
+        if clip is None:
+            return
+        self._send_to_macro_safe(clip.id)
 
     def _bulk_export_proof(self) -> None:
         batch_actions.bulk_export_proof(self)
@@ -1732,6 +1792,10 @@ class CacheVaultApp(ctk.CTk):
         self._manual_save_to_safe(payload, picked[0])
 
     def _manual_save_to_safe(self, payload: dict, safe_id: str) -> None:
+        detected = multi_link.detect_multi_link_payload(payload.get("text", ""))
+        if detected is not None:
+            self._open_multi_link_dialog(payload, safe_id, detected)
+            return
         self._save_payload(
             payload,
             safe_id=safe_id,
@@ -1739,6 +1803,87 @@ class CacheVaultApp(ctk.CTk):
             force=True,
         )
         self._show_toast("Clipboard saved to Safe.")
+
+    def _open_multi_link_dialog(
+        self,
+        payload: dict,
+        safe_id: str,
+        detected: multi_link.MultiLinkPayload,
+    ) -> None:
+        def save_text_clip() -> None:
+            self._save_payload(
+                payload,
+                safe_id=safe_id,
+                capture_mode=models.CAPTURE_MANUAL_SAVE_HOTKEY,
+                force=True,
+            )
+            self._show_toast("Saved raw link paste as one text clip.")
+
+        def save_separate() -> None:
+            self._save_multi_link_batch(
+                detected,
+                safe_id=safe_id,
+                source_app=payload.get("source_app"),
+                source_window=payload.get("source_window"),
+                batch_label="Saved links as separate clips.",
+            )
+
+        def copy_list() -> None:
+            self._copy_generated_text(
+                multi_link.one_per_line(detected),
+                "Copied clean download list.",
+            )
+
+        def create_batch() -> None:
+            self._save_multi_link_batch(
+                detected,
+                safe_id=safe_id,
+                source_app=payload.get("source_app"),
+                source_window=payload.get("source_window"),
+                batch_label="Saved link batch with raw receipt.",
+            )
+
+        MultiLinkPasteDialog(
+            self,
+            payload=detected,
+            on_separate=save_separate,
+            on_text_clip=save_text_clip,
+            on_copy_list=copy_list,
+            on_batch=create_batch,
+        )
+
+    def _save_multi_link_batch(
+        self,
+        detected: multi_link.MultiLinkPayload,
+        *,
+        safe_id: str,
+        source_app: str | None,
+        source_window: str | None,
+        batch_label: str,
+    ) -> None:
+        # Keep the original raw paste as a receipt clip before saving each URL.
+        self.vault.capture(
+            detected.raw_text,
+            source_app=f"{brand.PRODUCT_NAME} Multi-Link Receipt",
+            source_window=source_window,
+            capture_mode=models.CAPTURE_EXTERNAL_APP,
+            safe_id=safe_id,
+            force=True,
+        )
+        saved = 0
+        for url in detected.urls:
+            clip = self.vault.capture(
+                url,
+                source_app=source_app,
+                source_window=source_window,
+                capture_mode=models.CAPTURE_MANUAL_SAVE_HOTKEY,
+                safe_id=safe_id,
+                force=True,
+            )
+            if clip is not None:
+                saved += 1
+        self.refresh()
+        self._show_toast(f"{batch_label} {saved} link{'s' if saved != 1 else ''} saved.")
 
     def _arm_next_copy(self) -> None:
         if not self._guard_unlocked():
@@ -2014,6 +2159,7 @@ class CacheVaultApp(ctk.CTk):
             actions = [
                 ("Copy Plain", lambda: self._bulk_copy_format("plain")),
                 ("Copy MD", lambda: self._bulk_copy_format("markdown")),
+                ("Combine", self._open_clip_composer),
                 ("Copy Num", lambda: self._bulk_copy_format("numbered")),
                 ("Move Safe", self._bulk_move_to_safe),
                 ("Receipt", lambda: self._bulk_create_receipt(summary)),
@@ -2036,7 +2182,6 @@ class CacheVaultApp(ctk.CTk):
                 ("Receipt", lambda: self._bulk_create_receipt(summary)),
                 ("Remove", self._bulk_remove),
             ]
-
         for text, command in actions:
             btn = ctk.CTkButton(
                 self._selected_action_frame,
@@ -2159,6 +2304,32 @@ class CacheVaultApp(ctk.CTk):
             },
         )
         self._show_toast("Copied clean format.")
+
+    def _edit_clip_text(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None or clip.content_type == models.CONTENT_IMAGE:
+            return
+        EditClipTextDialog(
+            self,
+            title="Edit Clip Text",
+            initial_text=clip.content or "",
+            on_save=lambda text, c=clip: self._save_generated_clip(text, c.safe_id),
+        )
+
+    def _duplicate_as_editable_clip(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None or clip.content_type == models.CONTENT_IMAGE:
+            return
+        EditClipTextDialog(
+            self,
+            title="Duplicate as Editable Clip",
+            initial_text=clip.content or "",
+            on_save=lambda text, c=clip: self._save_generated_clip(text, c.safe_id),
+        )
 
     def _copy_receipt_summary(self, row) -> None:
         if not self._guard_unlocked():
