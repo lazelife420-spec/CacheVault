@@ -89,11 +89,10 @@ def test_ux_preview_panel_stacked_layout(tk_root):
 
     # Verify body (text preview) is packed
     assert "fill" in panel._body.pack_info()
-    # Verify metadata, seal and history are packed/active in hierarchy
+    # Verify metadata and buttons are packed/active in hierarchy
     assert "fill" in panel._meta_title.pack_info()
     assert "fill" in panel._meta.pack_info()
-    assert "fill" in panel._usage_title.pack_info()
-    assert "fill" in panel._usage.pack_info()
+    assert "fill" in panel._buttons.pack_info()
 
     panel.destroy()
 

@@ -76,14 +76,16 @@ class ClipComposerDialog(ctk.CTkToplevel):
             actions, text="Copy Combined Text",
             command=self._copy, **theme.primary_button(),
         ).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(
+        self._save_clip_btn = ctk.CTkButton(
             actions, text="Save as New Clip",
             command=self._save_clip, **theme.secondary_button(),
-        ).pack(side="left", padx=8)
-        ctk.CTkButton(
+        )
+        self._save_clip_btn.pack(side="left", padx=8)
+        self._save_macro_btn = ctk.CTkButton(
             actions, text="Save to Snippet Macro",
             command=self._save_macro, **theme.secondary_button(),
-        ).pack(side="left", padx=8)
+        )
+        self._save_macro_btn.pack(side="left", padx=8)
         ctk.CTkButton(
             actions, text="Close",
             command=self.destroy, **theme.secondary_button(),
@@ -107,12 +109,18 @@ class ClipComposerDialog(ctk.CTkToplevel):
     def _save_clip(self) -> None:
         text = self._text()
         if text:
+            self._save_clip_btn.configure(state="disabled", text="Saving...")
+            self.update_idletasks()
             self._on_save_clip(text)
+            self.destroy()
 
     def _save_macro(self) -> None:
         text = self._text()
         if text:
+            self._save_macro_btn.configure(state="disabled", text="Saving...")
+            self.update_idletasks()
             self._on_save_macro(text)
+            self.destroy()
 
 
 class EditClipTextDialog(ctk.CTkToplevel):
@@ -141,10 +149,11 @@ class EditClipTextDialog(ctk.CTkToplevel):
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.pack(fill="x", padx=18, pady=(0, 16))
-        ctk.CTkButton(
+        self._save_btn = ctk.CTkButton(
             actions, text="Save as New Clip",
             command=self._save, **theme.primary_button(),
-        ).pack(side="left")
+        )
+        self._save_btn.pack(side="left")
         ctk.CTkButton(
             actions, text="Cancel",
             command=self.destroy, **theme.secondary_button(),
@@ -155,7 +164,10 @@ class EditClipTextDialog(ctk.CTkToplevel):
     def _save(self) -> None:
         text = self._body.get("1.0", "end").strip()
         if text:
+            self._save_btn.configure(state="disabled", text="Saving...")
+            self.update_idletasks()
             self._on_save(text)
+            self.destroy()
 
 
 class MultiLinkPasteDialog(ctk.CTkToplevel):

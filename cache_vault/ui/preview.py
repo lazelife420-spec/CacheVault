@@ -62,7 +62,7 @@ class PreviewPanel(ctk.CTkFrame):
         )
         self._image_hint.pack(fill="x", padx=10, pady=(0, 8))
 
-        self._meta_title = ctk.CTkLabel(self._scroll, text="Custody metadata", anchor="w",
+        self._meta_title = ctk.CTkLabel(self._scroll, text="Details", anchor="w",
                                         **theme.section_heading())
         self._meta_title.pack(fill="x", padx=10, pady=(4, 2))
         self._meta = ctk.CTkLabel(self._scroll, text="", anchor="w", justify="left",
@@ -70,13 +70,8 @@ class PreviewPanel(ctk.CTkFrame):
                                   font=theme.body_font(11))
         self._meta.pack(fill="x", padx=10, pady=2)
 
-        self._usage_title = ctk.CTkLabel(self._scroll, text="Usage History", anchor="w",
-                                         **theme.section_heading())
-        self._usage_title.pack(fill="x", padx=10, pady=(8, 2))
-        self._usage = ctk.CTkTextbox(self._scroll, height=80, wrap="word",
-                                     font=theme.body_font(11))
-        self._usage.pack(fill="x", padx=10, pady=2)
-        self._usage.configure(state="disabled")
+        self._meta_adv_frame = ctk.CTkFrame(self._scroll, fg_color="transparent")
+        self._meta_adv_frame.pack(fill="x", padx=8, pady=0)
 
         self._buttons = ctk.CTkFrame(self._scroll, fg_color="transparent")
         self._buttons.pack(fill="x", padx=8, pady=8)
@@ -129,8 +124,8 @@ class PreviewPanel(ctk.CTkFrame):
         for w in self._buttons.winfo_children():
             w.destroy()
         self._hide_clip_sections()
-        self._title.configure(text=brand.TERM_VAULT_STATUS)
-        self._subtitle.configure(text=f"{brand.VAULT_TAGLINE} · {brand.LABEL_LOCAL_ONLY}")
+        self._title.configure(text="CacheVault")
+        self._subtitle.configure(text="")
         self._hide_tabs()
         self._seal_frame.pack_forget()
         self._set_body("")
@@ -140,97 +135,25 @@ class PreviewPanel(ctk.CTkFrame):
         for w in self._vault_frame.winfo_children():
             w.destroy()
 
-        ctk.CTkLabel(self._vault_frame, text=brand.TERM_VAULT_STATUS, anchor="w",
-                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(10, 4))
-
-        capture = (
-            brand.LABEL_CAPTURE_ACTIVE
-            if not summary.get("capture_paused")
-            else "Capture paused"
-        )
-        mobile = (
-            "Mobile Access active" if summary.get("mobile_enabled")
-            else "Mobile Access off"
-        )
-        status_lines = [
-            (brand.VAULT_STATUS_ACTIVE, brand.STAMP_GOLD),
-            (capture, brand.PROOF_TEAL if not summary.get("capture_paused") else brand.MUTED_FG),
-            (brand.LABEL_RECEIPTS_AVAILABLE, brand.STAMP_GOLD),
-            (mobile, brand.PROOF_TEAL if summary.get("mobile_enabled") else brand.MUTED_FG),
-        ]
-        for line, color in status_lines:
-            row = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
-            row.pack(fill="x", padx=12, pady=2)
-            ctk.CTkLabel(row, text="●", text_color=color,
-                         font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 6))
-            ctk.CTkLabel(row, text=line, anchor="w",
-                         font=theme.body_font(11)).pack(side="left")
+        # Premium Identity Empty State
+        center_frame = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
+        center_frame.pack(expand=True, fill="both", pady=40)
 
         ctk.CTkLabel(
-            self._vault_frame, text=brand.VAULT_STATUS_NOTE,
-            anchor="w", justify="left", wraplength=280,
-            text_color=brand.MUTED_FG, font=theme.body_font(10),
-        ).pack(anchor="w", padx=12, pady=(6, 4))
+            center_frame,
+            text="Save it. Prove it. Find it again.",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=brand.PROOF_TEAL,
+        ).pack(pady=(0, 16))
 
-        ctk.CTkLabel(self._vault_frame, text=brand.TERM_CUSTODY_SUMMARY, anchor="w",
-                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(12, 4))
-        lines = [
-            ("Saved", summary.get("all", 0)),
-            ("Safes", summary.get("safe_count", 0)),
-            ("Receipts", summary.get("receipts", 0)),
-            ("Exports", summary.get("exports", 0)),
-            ("Editable copies", summary.get("editable_copies", 0)),
-            ("HTML bundles", summary.get("html_bundles", 0)),
-            ("Snippet macros", summary.get("vault_macros", 0)),
-            ("Mobile inbox", summary.get("mobile_inbox", 0)),
-        ]
-        for label, count in lines:
-            row = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
-            row.pack(fill="x", padx=12, pady=3)
-            row.grid_columnconfigure(0, weight=1)
-            ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(12)).grid(
-                row=0, column=0, sticky="w")
-            ctk.CTkLabel(row, text=str(count), anchor="e",
-                         text_color=brand.STAMP_GOLD,
-                         font=ctk.CTkFont(size=13, weight="bold")).grid(
-                row=0, column=1, sticky="e")
-
-        ctk.CTkLabel(self._vault_frame, text=brand.TERM_QUICK_ACTIONS, anchor="w",
-                     **theme.section_heading()).pack(anchor="w", padx=12, pady=(12, 4))
-        actions = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
-        actions.pack(fill="x", padx=10, pady=(0, 12))
-        if callbacks.get("open_receipts"):
-            ctk.CTkButton(actions, text=f"View {brand.TERM_STAMPED_RECEIPTS}",
-                          command=callbacks["open_receipts"],
-                          **theme.secondary_button()).pack(fill="x", pady=2)
-        if callbacks.get("view_editable_copies"):
-            ctk.CTkButton(actions, text=brand.TERM_EDITABLE_COPIES,
-                          command=callbacks["view_editable_copies"],
-                          **theme.secondary_button()).pack(fill="x", pady=2)
-        if callbacks.get("view_html_bundles"):
-            ctk.CTkButton(actions, text=brand.TERM_HTML_BUNDLES,
-                          command=callbacks["view_html_bundles"],
-                          **theme.secondary_button()).pack(fill="x", pady=2)
-        if callbacks.get("review_duplicates"):
-            ctk.CTkButton(actions, text="Review Duplicates",
-                          command=callbacks["review_duplicates"],
-                          **theme.secondary_button()).pack(fill="x", pady=2)
-        if callbacks.get("open_receipts"):
-            ctk.CTkButton(actions, text=f"Open {brand.TERM_STAMPED_RECEIPTS}",
-                          command=callbacks["open_receipts"],
-                          **theme.secondary_button()).pack(fill="x", pady=2)
-        if callbacks.get("pair_android"):
-            ctk.CTkButton(actions, text="Pair Android Device",
-                          command=callbacks["pair_android"],
-                          **theme.primary_button()).pack(fill="x", pady=2)
-        if callbacks.get("export"):
-            ctk.CTkButton(actions, text=brand.TERM_EXPORT,
-                          command=callbacks["export"],
-                          **theme.secondary_button()).pack(fill="x", pady=2)
-        if callbacks.get("mobile_settings"):
-            ctk.CTkButton(actions, text=brand.TERM_MOBILE_ACCESS,
-                          command=callbacks["mobile_settings"],
-                          **theme.secondary_button()).pack(fill="x", pady=2)
+        ctk.CTkLabel(
+            center_frame,
+            text="CacheVault automatically captures your clipboard and proves its origin.\n\nSelect a clip to view its details, or use the Command Center to process your inbox.",
+            font=theme.body_font(12),
+            text_color=brand.MUTED_FG,
+            wraplength=220,
+            justify="center",
+        ).pack()
 
     def _hide_clip_sections(self) -> None:
         self._hide_tabs()
@@ -239,8 +162,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._image_frame.pack_forget()
         self._meta_title.pack_forget()
         self._meta.pack_forget()
-        self._usage_title.pack_forget()
-        self._usage.pack_forget()
+        self._meta_adv_frame.pack_forget()
 
     def _show_tabs(self) -> None:
         self._tabs.pack(fill="x", padx=10, pady=(8, 4))
@@ -261,8 +183,7 @@ class PreviewPanel(ctk.CTkFrame):
             self._image_frame,
             self._meta_title,
             self._meta,
-            self._usage_title,
-            self._usage,
+            self._meta_adv_frame,
             self._buttons,
         ):
             widget.pack_forget()
@@ -277,15 +198,11 @@ class PreviewPanel(ctk.CTkFrame):
 
         self._meta_title.pack(fill="x", padx=10, pady=(12, 2))
         self._meta.pack(fill="x", padx=10, pady=2)
-
-        self._seal_frame.pack(fill="x", padx=10, pady=(12, 6))
-
-        self._usage_title.pack(fill="x", padx=10, pady=(12, 2))
-        self._usage.pack(fill="x", padx=10, pady=2)
+        self._meta_adv_frame.pack(fill="x", padx=8, pady=0)
 
     def _show_clip_sections(self, *, image: bool = False) -> None:
         self._vault_frame.pack_forget()
-        self._hide_tabs()  # Keep tabs hidden for the premium stacked layout
+        self._hide_tabs()
         if image:
             self._body.pack_forget()
             self._image_frame.pack(fill="x", padx=10, pady=6)
@@ -295,9 +212,7 @@ class PreviewPanel(ctk.CTkFrame):
         self._buttons.pack(fill="x", padx=8, pady=8)
         self._meta_title.pack(fill="x", padx=10, pady=(12, 2))
         self._meta.pack(fill="x", padx=10, pady=2)
-        self._seal_frame.pack(fill="x", padx=10, pady=(12, 6))
-        self._usage_title.pack(fill="x", padx=10, pady=(12, 2))
-        self._usage.pack(fill="x", padx=10, pady=2)
+        self._meta_adv_frame.pack(fill="x", padx=8, pady=0)
 
     def show(self, clip: Clip | None) -> None:
         if clip is None:
@@ -336,7 +251,6 @@ class PreviewPanel(ctk.CTkFrame):
         if badges:
             sub += " · " + " · ".join(badges)
         self._subtitle.configure(text=sub)
-        self._render_seal(clip, ctx)
 
         is_image = clip.content_type == models.CONTENT_IMAGE
         self._show_clip_sections(image=is_image)
@@ -358,46 +272,9 @@ class PreviewPanel(ctk.CTkFrame):
                     lambda _e, c=clip: self._fire("drag_out", c),
                 )
         self._meta.configure(text=self._meta_text(clip))
-        self._set_usage(self._usage_text(clip))
+        self._render_meta_adv(clip)
         self._render_buttons(clip)
         self._apply_tab_visibility()
-
-    def _render_seal(self, clip: Clip, ctx: dict | None) -> None:
-        for w in self._seal_frame.winfo_children():
-            w.destroy()
-        self._seal_frame.pack(fill="x", padx=10, pady=(4, 6))
-        ctk.CTkLabel(
-            self._seal_frame, text=brand.TERM_INSPECTOR_SEAL, anchor="w",
-            **theme.section_heading(),
-        ).pack(anchor="w", padx=10, pady=(8, 4))
-        badges: list[tuple[str, str]] = [
-            (brand.LABEL_LOCAL_ONLY, brand.MUTED_FG),
-        ]
-        if ctx and ctx.get("original_protected"):
-            badges.append((brand.LABEL_ORIGINAL_PROTECTED, brand.STAMP_GOLD))
-        if ctx and ctx.get("receipt_count", 0):
-            badges.append((brand.LABEL_RECEIPT_STAMPED, brand.STAMP_GOLD))
-        if clip.content_hash:
-            badges.append((brand.LABEL_HASH_VERIFIED, brand.PROOF_TEAL))
-        if clip.safe_name:
-            badges.append((f"{brand.LABEL_SAFE_ASSIGNED}: {clip.safe_name}", brand.STAMP_GOLD))
-        if clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
-            badges.append(("Sent from phone", brand.PROOF_TEAL))
-        if ctx and ctx.get("editable_copy"):
-            if ctx.get("is_html"):
-                badges.append((brand.LABEL_HTML_BUNDLE_COPY, brand.MUTED_FG))
-            else:
-                badges.append((brand.LABEL_EDITABLE_COPY, brand.MUTED_FG))
-        if ctx and ctx.get("export_ready"):
-            badges.append((brand.LABEL_READY_EXPORT, brand.PROOF_TEAL))
-        for text, color in badges:
-            row = ctk.CTkFrame(self._seal_frame, fg_color="transparent")
-            row.pack(fill="x", padx=10, pady=1)
-            ctk.CTkLabel(row, text="◈", text_color=color,
-                         font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 6))
-            ctk.CTkLabel(row, text=text, anchor="w",
-                         font=theme.body_font(11)).pack(side="left")
-        ctk.CTkLabel(self._seal_frame, text="").pack(pady=2)
 
     def _render_image_preview(self, clip: Clip) -> None:
         self._image_label.unbind("<ButtonPress-1>")
@@ -442,12 +319,6 @@ class PreviewPanel(ctk.CTkFrame):
             hint += " Use Drag PNG or drag the preview out."
         self._image_hint.configure(text=hint)
 
-    def _set_usage(self, text: str) -> None:
-        self._usage.configure(state="normal")
-        self._usage.delete("1.0", "end")
-        self._usage.insert("1.0", text)
-        self._usage.configure(state="disabled")
-
     def _set_body(self, text: str) -> None:
         self._body.configure(state="normal")
         self._body.delete("1.0", "end")
@@ -458,86 +329,90 @@ class PreviewPanel(ctk.CTkFrame):
         ctx_fn = self._actions.get("clip_inspector_context")
         ctx = ctx_fn(clip.id) if ctx_fn else None
         lines = [
-            f"Item ID:      {clip.id}",
-            f"Captured:     {clip_metadata.format_captured_at(clip.created_at)}",
-            f"Age:          {clip_metadata.relative_age(clip.created_at)}",
-            f"First Saved:  {clip_metadata.human_timestamp(clip.created_at)}",
-            f"Last Used:    {clip_metadata.human_timestamp(clip.date_used or clip.updated_at)}",
-            f"Type:         {clip_metadata.format_label(clip.classification, clip.content_type)}",
-            f"Use Count:    {clip.use_count}",
-            f"Source App:   {clip_metadata.display(clip.source_app)}",
-            f"Window:       {clip_metadata.display(clip.source_window)}",
-            f"Source URL:   {clip_metadata.display(clip.source_url)}",
-            f"Favorite:     {'yes' if clip.is_pinned else 'no'}",
-            f"Collection:   {clip_metadata.display(clip.collection)}",
-            f"Safe:         {clip_metadata.display(clip.safe_name)} ({clip.safe_id})",
-            f"Capture Mode: {clip.capture_mode or models.CAPTURE_AUTO}",
-            f"Proof Hash:   {clip_metadata.shorten_hash(clip.content_hash)}",
+            f"Source:   {clip_metadata.display(clip.source_app)}",
+            f"Captured: {clip_metadata.format_captured_at(clip.created_at)}",
+            f"Type:     {clip_metadata.format_label(clip.classification, clip.content_type)}",
+            f"Safe:     {clip_metadata.display(clip.safe_name)}",
         ]
-        if ctx:
-            lines.append(f"Receipts:     {ctx.get('receipt_count', 0)}")
-            if ctx.get("last_pasted"):
-                lines.append(
-                    f"Last Pasted:  {clip_metadata.human_timestamp(ctx['last_pasted'])}"
-                )
-            if ctx.get("last_exported"):
-                lines.append(
-                    f"Last Exported:{clip_metadata.human_timestamp(ctx['last_exported'])}"
-                )
-            if ctx.get("original_protected"):
-                lines.append(f"Status:       {brand.LABEL_ORIGINAL_PROTECTED}")
-            rec = ctx.get("editable_copy")
-            if rec:
-                lines.append(f"Editable:     rev {rec.revision} — {rec.copy_path}")
-        if clip.deleted_at:
-            lines.append(f"Removed:      {clip.deleted_at.replace('T', ' ')[:19]}")
-        if clip.expires_at:
-            lines.append(f"Expires:      {clip.expires_at.replace('T', ' ')[:19]}")
-        if clip.content_type == models.CONTENT_IMAGE:
-            loader = self._actions.get("asset_meta")
-            if loader:
-                meta = loader(clip.id)
-                if meta:
-                    lines.append(f"Asset SHA256: {clip_metadata.shorten_hash(meta.get('sha256', ''))}")
-                    if meta.get("width") and meta.get("height"):
-                        lines.append(f"Dimensions:   {meta['width']}×{meta['height']}")
-                    lines.append(f"Asset size:   {meta.get('size_bytes', 0)} bytes")
-        summary = self._actions.get("html_bundle_summary")
-        if summary:
-            info = summary(clip.id)
-            if info:
-                lines.extend([
-                    "",
-                    "Original HTML:        " + info.get("original_html", ""),
-                    "Editable HTML Copy:   " + info.get("editable_html_copy", ""),
-                    "Copied Asset Bundle:  " + str(info.get("copied_asset_count", 0)) + " file(s)",
-                    "Missing Assets:       " + str(info.get("missing_asset_count", 0)),
-                    "Remote Assets Skipped:" + str(info.get("remote_asset_count", 0)),
-                ])
-                if info.get("missing_assets"):
-                    lines.append("  missing: " + ", ".join(info["missing_assets"][:5]))
-                if info.get("remote_assets"):
-                    lines.append("  remote:  " + ", ".join(info["remote_assets"][:5]))
+        if ctx and ctx.get("receipt_count", 0):
+            lines.append(f"Receipts: {ctx.get('receipt_count')} stamped")
         return "\n".join(lines)
 
-    def _usage_text(self, clip: Clip) -> str:
-        lines = [
-            f"First Saved:   {clip_metadata.human_timestamp(clip.created_at)}",
-            f"Last Used:     {clip_metadata.human_timestamp(clip.date_used or clip.updated_at)}",
-            f"Used:          {clip.use_count} times",
-            f"Copied Again:  {clip.copied_count}",
-        ]
-        copied = [
-            e for e in self._usage_events
-            if e.get("event_type") in (models.EVENT_COPIED_AGAIN, models.EVENT_CAPTURED)
-        ]
-        if len(copied) > 1:
-            lines.append("")
-            lines.append("Copied on:")
-            for ev in copied[:8]:
-                ts = clip_metadata.human_timestamp(ev.get("created_at") or "")
-                lines.append(f"  {ts}")
-        return "\n".join(lines)
+    def _render_meta_adv(self, clip: Clip) -> None:
+        if not hasattr(self, "_meta_adv_expanded"):
+            self._meta_adv_expanded = False
+
+        for w in self._meta_adv_frame.winfo_children():
+            w.destroy()
+
+        def toggle_meta_adv():
+            self._meta_adv_expanded = not self._meta_adv_expanded
+            self._render_meta_adv(clip)
+
+        adv_header = ctk.CTkFrame(self._meta_adv_frame, fg_color="transparent")
+        adv_header.pack(fill="x", pady=2)
+
+        toggle_char = "▼" if self._meta_adv_expanded else "▶"
+        lbl_adv = ctk.CTkLabel(adv_header, text="Proof & Custody Metadata", font=ctk.CTkFont(size=11, weight="bold"), text_color=brand.MUTED_FG)
+        lbl_adv.pack(side="left", padx=2)
+
+        btn_toggle = ctk.CTkButton(
+            adv_header, text=toggle_char, width=20, height=20,
+            fg_color="transparent", hover_color=brand.ROW_BG,
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
+            command=toggle_meta_adv
+        )
+        btn_toggle.pack(side="right")
+
+        if self._meta_adv_expanded:
+            adv_body = ctk.CTkFrame(self._meta_adv_frame, fg_color="transparent")
+            adv_body.pack(fill="x", pady=2)
+            
+            lines = [
+                f"Item ID:      {clip.id}",
+                f"Age:          {clip_metadata.relative_age(clip.created_at)}",
+                f"First Saved:  {clip_metadata.human_timestamp(clip.created_at)}",
+                f"Last Used:    {clip_metadata.human_timestamp(clip.date_used or clip.updated_at)}",
+                f"Use Count:    {clip.use_count}",
+                f"Window:       {clip_metadata.display(clip.source_window)}",
+                f"Source URL:   {clip_metadata.display(clip.source_url)}",
+                f"Favorite:     {'yes' if clip.is_pinned else 'no'}",
+                f"Collection:   {clip_metadata.display(clip.collection)}",
+                f"Capture Mode: {clip.capture_mode or models.CAPTURE_AUTO}",
+                f"Proof Hash:   {clip_metadata.shorten_hash(clip.content_hash)}",
+            ]
+            
+            ctx_fn = self._actions.get("clip_inspector_context")
+            ctx = ctx_fn(clip.id) if ctx_fn else None
+            if ctx:
+                if ctx.get("last_pasted"):
+                    lines.append(f"Last Pasted:  {clip_metadata.human_timestamp(ctx['last_pasted'])}")
+                if ctx.get("last_exported"):
+                    lines.append(f"Last Exported:{clip_metadata.human_timestamp(ctx['last_exported'])}")
+                rec = ctx.get("editable_copy")
+                if rec:
+                    lines.append(f"Editable:     rev {rec.revision} — {rec.copy_path}")
+            
+            if clip.deleted_at:
+                lines.append(f"Removed:      {clip.deleted_at.replace('T', ' ')[:19]}")
+            if clip.expires_at:
+                lines.append(f"Expires:      {clip.expires_at.replace('T', ' ')[:19]}")
+                
+            copied = [
+                e for e in getattr(self, "_usage_events", [])
+                if e.get("event_type") in (models.EVENT_COPIED_AGAIN, models.EVENT_CAPTURED)
+            ]
+            if len(copied) > 1:
+                lines.append("")
+                lines.append("Copied on:")
+                for ev in copied[:5]:
+                    ts = clip_metadata.human_timestamp(ev.get("created_at") or "")
+                    lines.append(f"  {ts}")
+                    
+            text = "\n".join(lines)
+            lbl = ctk.CTkLabel(adv_body, text=text, anchor="w", justify="left",
+                               text_color=brand.MUTED_FG, font=theme.body_font(10))
+            lbl.pack(fill="x", padx=2, pady=2)
 
     def _render_buttons(self, clip: Clip) -> None:
         if not hasattr(self, "_advanced_expanded"):
@@ -604,27 +479,17 @@ class PreviewPanel(ctk.CTkFrame):
             add_sec("View Larger", "view_larger", 0, 0, **theme.secondary_button())
             add_sec("Save As", "save_asset_as", 0, 1, **theme.secondary_button())
             add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 0, **theme.secondary_button())
-            if self._actions.get("open_asset_folder"):
-                add_sec("Open Folder", "open_asset_folder", 1, 1, **theme.secondary_button())
+            add_sec("Move Safe", "move_safe", 1, 1, **theme.secondary_button())
         elif is_link:
             add_sec("Copy Link", "copy_clean:copy_link_only", 0, 0, **theme.secondary_button())
             add_sec("Edit", "edit_clip_text", 0, 1, **theme.secondary_button())
             add_sec("Duplicate", "duplicate_editable_clip", 1, 0, **theme.secondary_button())
-            add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 1, **theme.secondary_button())
+            add_sec("Receipt", "create_receipt", 1, 1, **theme.secondary_button())
         else:
-            from ..core import pathutil
-            from ..core.editable_copies import is_html_path
-            # Check if this is an editable html or file copy
-            if clip.classification == models.CLASS_PATH and pathutil.is_local_file(clip.content):
-                add_sec("Edit", "edit_clip_text", 0, 0, **theme.secondary_button())
-                add_sec("Duplicate", "duplicate_editable_clip", 0, 1, **theme.secondary_button())
-                add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 0, **theme.secondary_button())
-                add_sec("Move Safe", "move_safe", 1, 1, **theme.secondary_button())
-            else:
-                add_sec("Edit", "edit_clip_text", 0, 0, **theme.secondary_button())
-                add_sec("Duplicate", "duplicate_editable_clip", 0, 1, **theme.secondary_button())
-                add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 0, **theme.secondary_button())
-                add_sec("Move Safe", "move_safe", 1, 1, **theme.secondary_button())
+            add_sec("Edit", "edit_clip_text", 0, 0, **theme.secondary_button())
+            add_sec("Duplicate", "duplicate_editable_clip", 0, 1, **theme.secondary_button())
+            add_sec("Move Safe", "move_safe", 1, 0, **theme.secondary_button())
+            add_sec("Receipt", "create_receipt", 1, 1, **theme.secondary_button())
 
         # 3. Collapsible More Options Accordion
         adv_header = ctk.CTkFrame(self._buttons, fg_color="transparent")

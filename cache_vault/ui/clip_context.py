@@ -83,9 +83,9 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         is_link = (cls == models.CLASS_LINK)
 
         if is_image:
-            primary_keys = ["view_larger", "copy_again", "save_asset_as"]
+            primary_keys = ["view_larger", "copy_again", "save_asset_as", "move_safe"]
         elif is_link:
-            primary_keys = ["open_link", "copy_clean:copy_link_only", "edit_clip_text", "duplicate_editable_clip"]
+            primary_keys = ["open_link", "copy_clean:copy_link_only", "edit_clip_text", "duplicate_editable_clip", "move_safe"]
         else:
             primary_keys = ["edit_clip_text", "duplicate_editable_clip", "copy_again", "combine", "move_safe"]
 
@@ -187,13 +187,10 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
         header_text = f"{summary.image_count} screenshots selected"
     elif summary.selection_class == "text_only":
         header_text = f"{summary.text_count} text clips selected"
+    else:
+        header_text = f"{len(clips)} clips selected"
 
     menu.add_command(label=header_text, state="disabled", font=("Segoe UI", 10, "bold"))
-
-    if summary.selection_class == "mixed":
-        sub_text = f"{summary.link_count} links · {summary.image_count} screenshots · {summary.text_count} text clips"
-        menu.add_command(label=sub_text, state="disabled", font=("Segoe UI", 9, "italic"))
-
     menu.add_separator()
 
     items = clip_menu_items(clips)
@@ -217,10 +214,50 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
         "remove": window._bulk_remove,
     }
 
+    primary_keys = ["combine", "receipt", "export"]
+    if summary.image_count > 0:
+        primary_keys.append("save_pngs")
+
+    all_leaves = []
+    def collect_leaves(menu_item):
+        if menu_item.children:
+            for child in menu_item.children:
+                collect_leaves(child)
+        else:
+            all_leaves.append(menu_item)
+
     for item in items:
-        if item.separator_before:
-            menu.add_separator()
+        collect_leaves(item)
+
+    leaves_by_key = {item.key: item for item in all_leaves}
+
+    primary_menu_items = []
+    for key in primary_keys:
+        if key in leaves_by_key:
+            primary_menu_items.append(leaves_by_key[key])
+
+    used_keys = set(primary_keys)
+    more_menu_items = []
+    for item in all_leaves:
+        if item.key not in used_keys:
+            more_menu_items.append(item)
+
+    # 1. Primary items
+    for item in primary_menu_items:
         _add_single_item(window, menu, item, dispatch, clips)
+
+    # 2. More...
+    if more_menu_items:
+        menu.add_separator()
+        sub = tk.Menu(
+            menu, tearoff=0, bg=menu.cget("bg"), fg=menu.cget("fg"),
+            activebackground=menu.cget("activebackground"),
+            activeforeground=menu.cget("activeforeground"),
+            font=menu.cget("font"),
+        )
+        for item in more_menu_items:
+            _add_single_item(window, sub, item, dispatch, clips)
+        menu.add_cascade(label="More…", menu=sub)
 
     window.vault.events.record(
         copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
@@ -244,19 +281,27 @@ def _add_single_item(window, menu, item, dispatch: dict, clips: list[Clip]) -> N
     elif item.key == "duplicate_editable_clip":
         label = "Duplicate"
     elif item.key == "copy_again":
-        label = "Copy"
+        label = "Copy Image" if any(getattr(c, "classification", None) == "image" for c in clips) else "Copy"
     elif item.key == "combine":
-        label = "Combine with Selected"
+        label = "Copy Combined Text"
     elif item.key == "move_safe":
         label = "Move to Safe"
     elif item.key == "view_larger":
         label = "View Larger"
     elif item.key == "save_asset_as":
-        label = "Save As PNG"
+        label = "Save PNG"
     elif item.key == "open_link":
         label = "Open Link"
     elif item.key.endswith("copy_link_only"):
         label = "Copy Link"
+    elif item.key == "receipt":
+        label = "Create Proof Receipt"
+    elif item.key == "export":
+        label = "Export Selection"
+    elif item.key == "save_pngs":
+        label = "Save Images"
+    elif item.key == "remove":
+        label = "Delete Selected"
 
     menu.add_command(
         label=label,

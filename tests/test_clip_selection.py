@@ -463,12 +463,9 @@ def test_command_center_context_copy_avoids_forbidden_claims():
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
-def test_selected_action_strip_always_shows_more(vault):
-    """The single-select toolbar strip must always surface 'More', even when
-    a clip type (link/default) already has 5 type-specific actions defined.
-
-    Regression guard for the actions[:5] truncation bug: appending "More"
-    to an already-5-item list silently dropped it before this fix.
+def test_selected_action_strip_is_hidden(vault):
+    """The single-select toolbar strip must be hidden, 
+    so it should generate no buttons.
     """
     app = _make_app(vault)
     try:
@@ -480,22 +477,12 @@ def test_selected_action_strip_always_shows_more(vault):
         )
         app._update_selected_action_strip(link_clip)
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "More" in labels
-        assert len(labels) <= 5
+        assert len(labels) == 0
 
         text_clip = Clip(content="plain text note", preview="plain text note")
         app._update_selected_action_strip(text_clip)
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "More" in labels
-        assert len(labels) <= 5
-
-        image_clip = Clip(
-            content="asset", preview="asset",
-            classification=models.CLASS_IMAGE, content_type=models.CONTENT_IMAGE,
-        )
-        app._update_selected_action_strip(image_clip)
-        labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "More" in labels
+        assert len(labels) == 0
     finally:
         app.destroy()
 

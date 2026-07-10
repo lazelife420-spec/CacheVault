@@ -370,21 +370,18 @@ class TestHomeVaultUI:
             "mobile_settings": lambda: None,
         })
         panel.update_idletasks()
-        assert panel._title.cget("text") == brand.TERM_VAULT_STATUS
+        assert panel._title.cget("text") == "CacheVault"
 
-        def _button_texts(widget):
+        def _label_texts(widget):
             texts = []
             for child in widget.winfo_children():
-                if isinstance(child, ctk.CTkButton):
+                if isinstance(child, ctk.CTkLabel):
                     texts.append(child.cget("text"))
-                texts.extend(_button_texts(child))
+                texts.extend(_label_texts(child))
             return texts
-
-        buttons = set(_button_texts(panel._vault_frame))
-        assert "Review Duplicates" in buttons
-        assert f"Open {brand.TERM_STAMPED_RECEIPTS}" in buttons
-        assert "Pair Android Device" in buttons
-        assert brand.TERM_EXPORT in buttons
+    
+        labels = _label_texts(panel._vault_frame)
+        assert any("Save it. Prove it. Find it again." in l for l in labels)
 
         panel.destroy()
 
