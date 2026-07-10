@@ -151,11 +151,6 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             w.destroy()
         self._batch_frame = None
 
-        # Test compatibility labels as immediate children of self._body (not packed)
-        bold_font = ctk.CTkFont(weight="bold")
-        for text in ("Recent Active Clip", "Clips Captured Today", "Images & Screenshots", "Recent Links", "Stamped Proof Receipts", "Sensitive / Expiring Items"):
-            ctk.CTkLabel(self._body, text=text, font=bold_font)
-
         # --- Redesigned Premium Title & Status Header ---
         header_frame = ctk.CTkFrame(self._body, fg_color="transparent")
         header_frame.pack(fill="x", pady=(0, 10))
@@ -270,9 +265,15 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._pane_section_title(left_pane, "What Needs Review")
         self._render_needs_review(left_pane, summary)
 
-        # 3. Receipts Ready (Stamped proof receipts)
+        # 3. Sensitive / Expiring Items
+        if sensitive_items:
+            self._pane_section_title(left_pane, "Sensitive / Expiring Items")
+            for clip in sensitive_items[:3]:
+                self._compact_clip_card(left_pane, clip)
+
+        # 4. Stamped Proof Receipts
         if receipts:
-            self._pane_section_title(left_pane, "Receipts Ready")
+            self._pane_section_title(left_pane, "Stamped Proof Receipts")
             for clip in receipts[:3]:
                 self._compact_clip_card(left_pane, clip)
 
@@ -281,9 +282,9 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._pane_section_title(right_pane, "Quick Actions")
         self._render_quick_actions(right_pane, summary)
 
-        # 2. Captured Today
+        # 2. Clips Captured Today
         if today_clips:
-            self._pane_section_title(right_pane, "Captured Today")
+            self._pane_section_title(right_pane, "Clips Captured Today")
             for clip in today_clips[:4]:
                 self._compact_clip_card(right_pane, clip)
 
@@ -291,6 +292,12 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         if link_clips:
             self._pane_section_title(right_pane, "Recent Links")
             for clip in link_clips[:3]:
+                self._compact_clip_card(right_pane, clip)
+
+        # 4. Images & Screenshots
+        if images:
+            self._pane_section_title(right_pane, "Images & Screenshots")
+            for clip in images[:3]:
                 self._compact_clip_card(right_pane, clip)
 
     def _update_batch_toolbar(self) -> None:

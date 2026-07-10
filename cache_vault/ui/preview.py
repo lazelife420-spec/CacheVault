@@ -540,7 +540,6 @@ class PreviewPanel(ctk.CTkFrame):
         return "\n".join(lines)
 
     def _render_buttons(self, clip: Clip) -> None:
-        # test compatibility helper: add("View Larger", "view_larger", **theme.secondary_button())
         if not hasattr(self, "_advanced_expanded"):
             self._advanced_expanded = False
 

@@ -53,7 +53,7 @@ def test_ux_metadata_formatting():
 def test_ux_double_click_callback(tk_root):
     """Verify double-click callback is configured and fired correctly in ClipList and ClipGrid."""
     clicked_clips = []
-    
+
     clist = ClipList(
         tk_root,
         on_select=lambda _c: None,
@@ -61,7 +61,7 @@ def test_ux_double_click_callback(tk_root):
     )
     c1 = _clip("c1")
     clist.render([c1])
-    
+
     # Simulate double click event
     event = tk.Event()
     clist._double_click(event, c1)
@@ -82,11 +82,11 @@ def test_ux_preview_panel_stacked_layout(tk_root):
     panel = PreviewPanel(tk_root, actions={})
     c = _clip("preview text")
     panel.show(c)
-    
+
     # Verify segmented button tabs are hidden (not packed)
     with pytest.raises(Exception):
         panel._tabs.pack_info()
-    
+
     # Verify body (text preview) is packed
     assert "fill" in panel._body.pack_info()
     # Verify metadata, seal and history are packed/active in hierarchy
@@ -94,7 +94,7 @@ def test_ux_preview_panel_stacked_layout(tk_root):
     assert "fill" in panel._meta.pack_info()
     assert "fill" in panel._usage_title.pack_info()
     assert "fill" in panel._usage.pack_info()
-    
+
     panel.destroy()
 
 def test_ux_dashboard_command_center(tk_root):
@@ -114,7 +114,7 @@ def test_ux_dashboard_command_center(tk_root):
         "recently_removed": 0, "receipts": 1, "sensitive": 1, "expired": 0,
         "capture_paused": False, "mobile_enabled": False,
     }
-    
+
     recent = [_clip("recent 1", id="recent-1")]
     today = [_clip("today 1", id="today-1", created_at=models.now_iso())]
     images = [_clip("img 1", id="img-1", classification=models.CLASS_IMAGE, content_type=models.CONTENT_IMAGE)]
@@ -132,22 +132,28 @@ def test_ux_dashboard_command_center(tk_root):
         receipts=receipts,
         sensitive_items=sensitive
     )
-    
+
     dashboard.update_idletasks()
-    
-    # Find all titles rendered by section titles
+
+    # Find all titles rendered by section titles (recursively scanning the real UI structure)
     section_titles = []
-    for child in dashboard._body.winfo_children():
-        if isinstance(child, ctk.CTkLabel) and child.cget("font").cget("weight") == "bold":
-            text = child.cget("text")
-            if text in ("Recent Active Clip", "Clips Captured Today", "Images & Screenshots", "Recent Links", "Stamped Proof Receipts", "Sensitive / Expiring Items"):
-                section_titles.append(text)
-                
+    def _scan_labels(widget):
+        for child in widget.winfo_children():
+            if isinstance(child, ctk.CTkLabel):
+                font = child.cget("font")
+                weight = font.cget("weight") if hasattr(font, "cget") else ""
+                if weight == "bold":
+                    text = child.cget("text")
+                    if text in ("Recent Active Clip", "Clips Captured Today", "Images & Screenshots", "Recent Links", "Stamped Proof Receipts", "Sensitive / Expiring Items"):
+                        section_titles.append(text)
+            _scan_labels(child)
+    _scan_labels(dashboard._body)
+
     assert "Recent Active Clip" in section_titles
     assert "Clips Captured Today" in section_titles
     assert "Images & Screenshots" in section_titles
     assert "Recent Links" in section_titles
     assert "Stamped Proof Receipts" in section_titles
     assert "Sensitive / Expiring Items" in section_titles
-    
+
     dashboard.destroy()

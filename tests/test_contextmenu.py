@@ -281,7 +281,7 @@ def test_cleanup_2_disabled_stubs_and_home_status():
     import inspect
     from cache_vault.ui import clip_context
     src = inspect.getsource(clip_context)
-    
+
     # 1. open_home_status_menu does NOT have Set as Default Safe anymore, has (planned)
     assert "Set as Default Safe" not in inspect.getsource(clip_context.open_home_status_menu)
     assert "Export Safe Proof Zip (planned)" in inspect.getsource(clip_context.open_home_status_menu)
@@ -297,16 +297,16 @@ def test_photo_viewer_context_and_preview():
     import inspect
     from cache_vault.ui import clip_context, preview
     from cache_vault.core import contextmenu
-    
+
     # 1. MenuItem view_larger is inserted for images in contextmenu.py
     menu_src = inspect.getsource(contextmenu.clip_menu_items)
     assert 'MenuItem("view_larger", "View Larger")' in menu_src
-    
+
     # 2. Mapped in clip_context.py dispatch
     assert '"view_larger": lambda: window._open_photo_viewer(clip.id)' in inspect.getsource(clip_context.open_clip_menu)
-    
+
     # 3. View Larger button is added in preview.py
-    assert 'add("View Larger", "view_larger", **theme.secondary_button())' in inspect.getsource(preview.PreviewPanel._render_buttons)
+    assert 'add_sec("View Larger", "view_larger", 0, 0, **theme.secondary_button())' in inspect.getsource(preview.PreviewPanel._render_buttons)
     # Double-click is bound to view_larger
     assert 'lambda _e, c=clip: self._fire("view_larger", c)' in inspect.getsource(preview.PreviewPanel._render_image_preview)
 
