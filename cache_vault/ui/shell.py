@@ -420,6 +420,8 @@ class CacheVaultApp(ctk.CTk):
             "<Home>": lambda e: self._keyboard_select_edge(first=True, event=e),
             "<End>": lambda e: self._keyboard_select_edge(first=False, event=e),
             "<Return>": lambda e: self._keyboard_primary_action(e),
+            "<Control-d>": lambda e: self._keyboard_duplicate_selected(e),
+            "<Control-D>": lambda e: self._keyboard_duplicate_selected(e),
             "<Control-c>": lambda e: self._keyboard_copy_selected(e),
             "<Control-C>": lambda e: self._keyboard_copy_selected(e),
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
@@ -595,6 +597,7 @@ class CacheVaultApp(ctk.CTk):
             self._center, on_select=self._on_clip_select,
             on_context=self._open_clip_menu,
             on_selection_change=self._on_clip_selection_change,
+            on_double_click=self._on_clip_double_click,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._grid = ClipGrid(
@@ -602,6 +605,7 @@ class CacheVaultApp(ctk.CTk):
             on_sort=self._set_sort,
             on_context=self._open_clip_menu,
             on_selection_change=self._on_clip_selection_change,
+            on_double_click=self._on_clip_double_click,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._home.grid(row=1, column=0, sticky="nsew")
@@ -1003,9 +1007,39 @@ class CacheVaultApp(ctk.CTk):
             return "break"
         if clip.classification == models.CLASS_LINK:
             self._open_clip_link(clip.id)
+        elif clip.content_type != models.CONTENT_IMAGE:
+            # Enter on selected text clip = Edit Clip Text
+            self._edit_clip_text(clip.id)
         else:
             self._copy_again(clip.id)
         return "break"
+
+    def _keyboard_duplicate_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._duplicate_as_editable_clip(clip.id)
+        return "break"
+
+    def _on_clip_double_click(self, clip: Clip) -> None:
+        if not self._guard_unlocked():
+            return
+        if clip.content_type == models.CONTENT_IMAGE:
+            self._open_photo_viewer(clip.id)
+        elif clip.classification == models.CLASS_LINK:
+            self._open_clip_link(clip.id)
+        else:
+            self._edit_clip_text(clip.id)
+
+    def _add_to_link_batch(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        if not hasattr(self, "_link_batch_ids"):
+            self._link_batch_ids = []
+        if clip_id not in self._link_batch_ids:
+            self._link_batch_ids.append(clip_id)
+        self._show_toast(f"Link added to batch. ({len(self._link_batch_ids)} link(s) in batch)")
 
     def _keyboard_copy_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -1515,13 +1549,26 @@ class CacheVaultApp(ctk.CTk):
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)
+                q_today = search.SearchQuery(date_added_preset="today")
+                q_links = search.SearchQuery(type_filter=models.CLASS_LINK)
                 image_ready = self.vault.storage.asset_storage_ready()
                 self._home._image_ready = image_ready  # noqa: SLF001
+
+                all_recent = self.vault.list_clips(q_recent)
+                today_clips = self.vault.list_clips(q_today)
+                link_clips = self.vault.list_clips(q_links)[:6]
+                receipts = [c for c in all_recent if c.content_hash][:6]
+                sensitive_items = [c for c in all_recent if c.is_sensitive][:6]
+
                 self._home.render(
                     summary,
-                    self.vault.list_clips(q_recent)[:8],
+                    all_recent[:8],
                     self.vault.list_clips(q_fav)[:6],
                     self.vault.list_clips(q_img)[:6],
+                    today_clips=today_clips,
+                    link_clips=link_clips,
+                    receipts=receipts,
+                    sensitive_items=sensitive_items,
                 )
                 if self._preview._clip is None:  # noqa: SLF001
                     self._preview.show_vault_control(
@@ -1948,7 +1995,7 @@ class CacheVaultApp(ctk.CTk):
         self._resize_job = None
         if not self._alive() or self._locked():
             return
-        
+
         # Responsive check
         w = self.winfo_width()
         is_compact = w < 1024
@@ -1960,7 +2007,7 @@ class CacheVaultApp(ctk.CTk):
             else:
                 self._preview.grid(row=1, column=2, sticky="nsew")
                 self.grid_columnconfigure(2, weight=0, minsize=320)
-        
+
         # During a resize, we don't want to rebuild the entire clip list if possible.
         # But we might need to tell elements to wrap or adjust.
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
@@ -2025,7 +2072,7 @@ class CacheVaultApp(ctk.CTk):
             return
         if not self._nav_history:
             return
-        
+
         current = self._filters.active
         prev = self._nav_history.pop()
         self._nav_forward_stack.append(current)
@@ -2034,7 +2081,7 @@ class CacheVaultApp(ctk.CTk):
     def _navigate_forward(self, event=None) -> None:
         if self._keyboard_focus_is_text_input(event) or self._locked() or not self._nav_forward_stack:
             return
-        
+
         current = self._filters.active
         nxt = self._nav_forward_stack.pop()
         self._nav_history.append(current)
@@ -2042,7 +2089,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _on_escape_pressed(self, event=None) -> None:
         tooltip.hide_tooltip()
-        
+
         # 1. Close context menus (if we can find them)
         # 2. Close transient overlays
         if self._quick_paste and self._quick_paste.winfo_exists():
@@ -3488,7 +3535,7 @@ class CacheVaultApp(ctk.CTk):
             self._photo_viewer_window = None
 
         from .photo_viewer import PhotoViewer
-        
+
         # Get visible clip ids from active view
         all_clip_ids = getattr(self, "_visible_clip_ids", [clip_id])
         if not all_clip_ids:

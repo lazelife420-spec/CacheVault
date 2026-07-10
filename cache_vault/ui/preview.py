@@ -266,33 +266,37 @@ class PreviewPanel(ctk.CTkFrame):
             self._buttons,
         ):
             widget.pack_forget()
-        if self._active_tab == "Actions":
-            self._buttons.pack(fill="x", padx=8, pady=8)
-        elif self._active_tab == "Seal":
-            self._seal_frame.pack(fill="x", padx=10, pady=(4, 6))
-        elif self._active_tab == "History":
-            self._usage_title.pack(fill="x", padx=10, pady=(8, 2))
-            self._usage.pack(fill="x", padx=10, pady=2)
+
+        # Premium workspace: stack sections vertically
+        if self._clip.content_type == models.CONTENT_IMAGE:
+            self._image_frame.pack(fill="x", padx=10, pady=6)
         else:
-            if self._clip.content_type == models.CONTENT_IMAGE:
-                self._image_frame.pack(fill="x", padx=10, pady=6)
-            else:
-                self._body.pack(fill="x", padx=10, pady=6)
-            self._meta_title.pack(fill="x", padx=10, pady=(4, 2))
-            self._meta.pack(fill="x", padx=10, pady=2)
+            self._body.pack(fill="x", padx=10, pady=6)
+
+        self._buttons.pack(fill="x", padx=8, pady=8)
+
+        self._meta_title.pack(fill="x", padx=10, pady=(12, 2))
+        self._meta.pack(fill="x", padx=10, pady=2)
+
+        self._seal_frame.pack(fill="x", padx=10, pady=(12, 6))
+
+        self._usage_title.pack(fill="x", padx=10, pady=(12, 2))
+        self._usage.pack(fill="x", padx=10, pady=2)
 
     def _show_clip_sections(self, *, image: bool = False) -> None:
         self._vault_frame.pack_forget()
-        self._show_tabs()
+        self._hide_tabs()  # Keep tabs hidden for the premium stacked layout
         if image:
             self._body.pack_forget()
             self._image_frame.pack(fill="x", padx=10, pady=6)
         else:
             self._image_frame.pack_forget()
             self._body.pack(fill="x", padx=10, pady=6)
-        self._meta_title.pack(fill="x", padx=10, pady=(4, 2))
+        self._buttons.pack(fill="x", padx=8, pady=8)
+        self._meta_title.pack(fill="x", padx=10, pady=(12, 2))
         self._meta.pack(fill="x", padx=10, pady=2)
-        self._usage_title.pack(fill="x", padx=10, pady=(8, 2))
+        self._seal_frame.pack(fill="x", padx=10, pady=(12, 6))
+        self._usage_title.pack(fill="x", padx=10, pady=(12, 2))
         self._usage.pack(fill="x", padx=10, pady=2)
 
     def show(self, clip: Clip | None) -> None:

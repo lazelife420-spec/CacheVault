@@ -62,20 +62,105 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         "remove": lambda: window._remove_from_history(clip.id),
         "restore": lambda: window._restore(clip.id),
         "permanently_remove": lambda: window._permanently_remove(clip.id),
+        "combine": window._open_clip_composer,
+        "add_to_link_batch": lambda: window._add_to_link_batch(clip.id),
+        "save_asset_as": lambda: window._save_asset_as(clip.id),
     }
 
-    items = clip_menu_items(clip)
-    for item in items:
-        if item.separator_before:
+    if clip.deleted_at is not None:
+        original_items = clip_menu_items(clip)
+        for item in original_items:
+            if item.separator_before:
+                menu.add_separator()
+            _add_single_item(window, menu, item, dispatch, [clip])
+    else:
+        # Detect type
+        is_image = False
+        cls = getattr(clip, "classification", None)
+        ct = getattr(clip, "content_type", None)
+        if (isinstance(ct, str) and ct.startswith("image")) or (isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower())) or cls == models.CLASS_IMAGE:
+            is_image = True
+        is_link = (cls == models.CLASS_LINK)
+
+        if is_image:
+            primary_keys = ["view_larger", "copy_again", "save_asset_as", "open_asset_folder", "move_safe", "view_receipts"]
+        elif is_link:
+            primary_keys = ["open_link", "copy_clean:copy_link_only", "copy_clean:copy_title_link", "edit_clip_text", "duplicate_editable_clip", "add_to_link_batch", "move_safe", "view_receipts"]
+        else:
+            primary_keys = ["edit_clip_text", "duplicate_editable_clip", "copy_again", "copy_clean:copy_plain_text", "copy_clean:copy_markdown", "combine", "move_safe", "view_receipts"]
+
+        # Gather all leaf items from the original menu items
+        all_leaves = []
+        def collect_leaves(menu_item):
+            if menu_item.children:
+                # If it's a legacy group, recurse
+                if menu_item.key in ("primary", "copy_clean", "organize", "proof", "advanced", "danger"):
+                    for child in menu_item.children:
+                        collect_leaves(child)
+                else:
+                    # Treat custom submenu as a leaf in this context
+                    all_leaves.append(menu_item)
+            else:
+                all_leaves.append(menu_item)
+
+        original_items = clip_menu_items(clip)
+        for item in original_items:
+            collect_leaves(item)
+
+        leaves_by_key = {item.key: item for item in all_leaves}
+
+        # Populate primary menu items
+        primary_menu_items = []
+        for key in primary_keys:
+            if key in leaves_by_key:
+                primary_menu_items.append(leaves_by_key[key])
+            elif ":" in key:
+                # Search by suffix if fully qualified key didn't match (e.g. copy_title_link instead of copy_clean:copy_title_link)
+                suffix = key.split(":")[-1]
+                for leaf in all_leaves:
+                    if leaf.key.endswith(suffix):
+                        primary_menu_items.append(leaf)
+                        break
+
+        danger_item = leaves_by_key.get("remove")
+
+        # Everything else goes into More
+        used_keys = set(primary_keys) | {"remove"}
+        # also add suffixes of used keys
+        used_suffixes = {k.split(":")[-1] for k in used_keys if ":" in k}
+        more_menu_items = []
+        for item in all_leaves:
+            if item.key not in used_keys:
+                suffix = item.key.split(":")[-1] if ":" in item.key else item.key
+                if suffix not in used_suffixes and item.key != "remove":
+                    more_menu_items.append(item)
+
+        # Build final menu:
+        # 1. Primary items
+        for item in primary_menu_items:
+            if item.separator_before:
+                menu.add_separator()
+            _add_single_item(window, menu, item, dispatch, [clip])
+
+        # 2. More...
+        if more_menu_items:
             menu.add_separator()
-        if item.children:
+            sub = tk.Menu(
+                menu,
+                tearoff=0,
+                bg=menu.cget("bg"),
+                fg=menu.cget("fg"),
+                activebackground=menu.cget("activebackground"),
+                activeforeground=menu.cget("activeforeground"),
+                font=menu.cget("font"),
+            )
+            add_menu_items(window, sub, more_menu_items, dispatch, clip.id)
+            menu.add_cascade(label="More…", menu=sub)
+
+        # 3. Danger at bottom
+        if danger_item:
             menu.add_separator()
-            for child in item.children:
-                if child.separator_before:
-                    menu.add_separator()
-                _add_single_item(window, menu, child, dispatch, [clip])
-            continue
-        _add_single_item(window, menu, item, dispatch, [clip])
+            _add_single_item(window, menu, danger_item, dispatch, [clip])
 
     window.vault.events.record(
         copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,

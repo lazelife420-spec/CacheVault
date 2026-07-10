@@ -31,6 +31,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         on_sort: Callable[[str], None] | None = None,
         on_context: Callable[[Clip, int, int], None] | None = None,
         on_selection_change: Callable[[list[str]], None] | None = None,
+        on_double_click: Callable[[Clip], None] | None = None,
         **kw,
     ):
         super().__init__(master, **kw)
@@ -38,6 +39,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._on_sort = on_sort
         self._on_context = on_context
         self._on_selection_change = on_selection_change
+        self._on_double_click = on_double_click
         self._selected_id: str | None = None
         # Multi-selection: full set plus rendered order and the range anchor.
         self._selected_ids: set[str] = set()
@@ -205,9 +207,15 @@ class ClipGrid(ctk.CTkScrollableFrame):
         widget.bind("<Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Control-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Shift-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
+        widget.bind("<Double-Button-1>", lambda e, c=clip: self._double_click(e, c), add="+")
         widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c), add="+")
         for child in widget.winfo_children():
             self._bind_clip_events(child, clip)
+
+    def _double_click(self, event, clip: Clip) -> str:
+        if self._on_double_click:
+            self._on_double_click(clip)
+        return "break"
 
     def _row_values(self, clip: Clip) -> dict[str, str]:
         name = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
