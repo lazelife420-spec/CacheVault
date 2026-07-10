@@ -580,6 +580,7 @@ class CacheVaultApp(ctk.CTk):
             on_export=self._export_view,
             on_select_clip=self._on_clip_select,
             on_copy=self._copy_again,
+            on_double_click=self._on_clip_double_click,
             on_clip_context=self._open_home_clip_menu,
             on_card_context=self._open_home_card_menu,
             on_app_context=self._open_home_app_menu,

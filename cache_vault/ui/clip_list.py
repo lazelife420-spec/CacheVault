@@ -361,6 +361,10 @@ class ClipList(ctk.CTkScrollableFrame):
     _SHIFT_MASK = 0x0001
 
     def _click(self, event, clip: Clip) -> str:
+        try:
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
         state = getattr(event, "state", 0) or 0
         if state & self._CTRL_MASK:
             self._toggle_select(clip)

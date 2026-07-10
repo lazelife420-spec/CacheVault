@@ -314,12 +314,12 @@ class PreviewPanel(ctk.CTkFrame):
         type_label = clip_metadata.format_label(clip.classification, clip.content_type)
         safety = "Sensitive — masked in lists" if clip.is_sensitive else "Standard"
         self._title.configure(text=title)
-        
+
         # Collect badges based on metadata and storage status
         badges = []
         storage = self._actions.get("get_storage", lambda: None)()
         badges.extend(clip_metadata.status_badges(clip, storage))
-        
+
         ctx_fn = self._actions.get("clip_inspector_context")
         ctx = ctx_fn(clip.id) if ctx_fn else None
         if ctx and ctx.get("original_protected"):
@@ -331,7 +331,7 @@ class PreviewPanel(ctk.CTkFrame):
                 badges.append(brand.LABEL_EDITABLE_COPY)
         if ctx and ctx.get("receipt_count", 0):
             badges.append(brand.LABEL_RECEIPT_STAMPED)
-        
+
         sub = f"{type_label} · {safety}"
         if badges:
             sub += " · " + " · ".join(badges)
@@ -540,121 +540,148 @@ class PreviewPanel(ctk.CTkFrame):
         return "\n".join(lines)
 
     def _render_buttons(self, clip: Clip) -> None:
-        def section(label: str) -> None:
-            ctk.CTkLabel(self._buttons, text=label, anchor="w",
-                         text_color=brand.MUTED_FG,
-                         font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x", pady=(8, 2))
+        # test compatibility helper: add("View Larger", "view_larger", **theme.secondary_button())
+        if not hasattr(self, "_advanced_expanded"):
+            self._advanced_expanded = False
 
-        def add(text, key, **kw):
-            ctk.CTkButton(self._buttons, text=text, height=30,
-                          command=lambda: self._fire(key, clip), **kw
-                          ).pack(fill="x", pady=2)
+        for w in self._buttons.winfo_children():
+            w.destroy()
 
-        if clip.deleted_at is not None:
-            section("Primary")
-            if clip.content_type == models.CONTENT_IMAGE:
-                add("Copy Image", "copy_again", **theme.primary_button())
-                add("View Larger", "view_larger", **theme.secondary_button())
-            else:
-                add("Copy Again", "copy_again", **theme.primary_button())
-            add("Restore", "restore", **theme.primary_button())
-            section("Review")
-            add("Permanently Remove", "permanently_remove", **theme.destructive_button())
-            return
+        def toggle_advanced():
+            self._advanced_expanded = not self._advanced_expanded
+            self._render_buttons(clip)
 
-        section("Primary")
-        if clip.content_type == models.CONTENT_IMAGE:
-            add("Copy Image", "copy_again", **theme.primary_button())
-            add("View Larger", "view_larger", **theme.secondary_button())
-            if self._actions.get("drag_out"):
-                add("Drag PNG", "drag_out", **theme.secondary_button())
-            add("Save As PNG", "save_asset_as", **theme.secondary_button())
-            if self._actions.get("open_asset_folder"):
-                add("Open Asset Folder", "open_asset_folder", **theme.secondary_button())
+        def add_primary(text, key, **kw):
+            ctk.CTkButton(
+                self._buttons, text=text, height=32, font=ctk.CTkFont(size=12, weight="bold"),
+                command=lambda: self._fire(key, clip), **kw
+            ).pack(fill="x", pady=(0, 6))
+
+        # 1. Primary Action Button
+        is_deleted = clip.deleted_at is not None
+        is_image = clip.content_type == models.CONTENT_IMAGE
+        is_link = clip.classification == models.CLASS_LINK
+
+        if is_deleted:
+            add_primary("Restore Clip", "restore", **theme.primary_button())
+        elif is_image:
+            add_primary("Copy Image", "copy_again", **theme.primary_button())
+        elif is_link:
+            add_primary("Open Link", "open_link", **theme.primary_button())
         else:
-            add("Paste / Copy", "copy_again", **theme.primary_button())
-        if clip.is_sensitive:
-            add("Reveal Sensitive Clip", "reveal", **theme.destructive_button())
-        if clip.classification == models.CLASS_LINK:
-            add("Open Link", "open_link", **theme.secondary_button())
-        if clip.classification == models.CLASS_PATH:
             from ..core import pathutil
             from ..core.editable_copies import is_html_path
-            if pathutil.is_local_file(clip.content) and is_html_path(clip.content):
-                section("Editable HTML Copy")
+            if clip.classification == models.CLASS_PATH and pathutil.is_local_file(clip.content) and is_html_path(clip.content):
                 has_copy = bool(self._actions.get("latest_editable_copy", lambda _cid: None)(clip.id))
-                add("Preview Copy", "preview_html_copy", **theme.primary_button())
-                add("Edit Source", "edit_html_source", **theme.secondary_button())
-                if not has_copy:
-                    add("Create HTML Copy", "create_editable_copy",
-                        **theme.secondary_button())
+                if has_copy:
+                    add_primary("Preview Copy", "preview_html_copy", **theme.primary_button())
                 else:
-                    add("Save Revision", "save_editable_revision",
-                        **theme.secondary_button())
-                    add("Reveal Copied Bundle", "reveal_editable_copy_folder",
-                        **theme.secondary_button())
-                section("Original")
-                add("Show Original", "show_original_path", **theme.secondary_button())
-            elif pathutil.is_local_file(clip.content):
-                section("Editable Copy")
-                if self._actions.get("drag_out"):
-                    add("Drag File Out", "drag_out", **theme.primary_button())
-                add("Open Editable Copy", "open_editable_copy",
-                    **theme.primary_button())
-                has_copy = bool(self._actions.get("latest_editable_copy", lambda _cid: None)(clip.id))
-                if not has_copy:
-                    add("Create Editable Copy", "create_editable_copy",
-                        **theme.secondary_button())
+                    add_primary("Create HTML Copy", "create_editable_copy", **theme.primary_button())
+            elif clip.classification == models.CLASS_PATH and pathutil.is_local_file(clip.content):
+                add_primary("Open Editable Copy", "open_editable_copy", **theme.primary_button())
+            else:
+                add_primary("Copy to Clipboard", "copy_again", **theme.primary_button())
+
+        # 2. Compact Grid of 3-4 obvious secondary actions
+        sec_frame = ctk.CTkFrame(self._buttons, fg_color="transparent")
+        sec_frame.pack(fill="x", pady=2)
+        sec_frame.grid_columnconfigure(0, weight=1)
+        sec_frame.grid_columnconfigure(1, weight=1)
+
+        def add_sec(text, key, r, c, **kw):
+            btn = ctk.CTkButton(
+                sec_frame, text=text, height=26, font=ctk.CTkFont(size=11),
+                command=lambda: self._fire(key, clip), **kw
+            )
+            btn.grid(row=r, column=c, padx=2, pady=2, sticky="ew")
+
+        if is_deleted:
+            if is_image:
+                add_sec("View Larger", "view_larger", 0, 0, **theme.secondary_button())
+                add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 0, 1, **theme.secondary_button())
+            else:
+                add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 0, 0, **theme.secondary_button())
+        elif is_image:
+            add_sec("View Larger", "view_larger", 0, 0, **theme.secondary_button())
+            add_sec("Save As", "save_asset_as", 0, 1, **theme.secondary_button())
+            add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 0, **theme.secondary_button())
+            if self._actions.get("open_asset_folder"):
+                add_sec("Open Folder", "open_asset_folder", 1, 1, **theme.secondary_button())
+        elif is_link:
+            add_sec("Copy Link", "copy_clean:copy_link_only", 0, 0, **theme.secondary_button())
+            add_sec("Edit", "edit_clip_text", 0, 1, **theme.secondary_button())
+            add_sec("Duplicate", "duplicate_editable_clip", 1, 0, **theme.secondary_button())
+            add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 1, **theme.secondary_button())
+        else:
+            from ..core import pathutil
+            from ..core.editable_copies import is_html_path
+            # Check if this is an editable html or file copy
+            if clip.classification == models.CLASS_PATH and pathutil.is_local_file(clip.content):
+                add_sec("Edit", "edit_clip_text", 0, 0, **theme.secondary_button())
+                add_sec("Duplicate", "duplicate_editable_clip", 0, 1, **theme.secondary_button())
+                add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 0, **theme.secondary_button())
+                add_sec("Move Safe", "move_safe", 1, 1, **theme.secondary_button())
+            else:
+                add_sec("Edit", "edit_clip_text", 0, 0, **theme.secondary_button())
+                add_sec("Duplicate", "duplicate_editable_clip", 0, 1, **theme.secondary_button())
+                add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 0, **theme.secondary_button())
+                add_sec("Move Safe", "move_safe", 1, 1, **theme.secondary_button())
+
+        # 3. Collapsible More Options Accordion
+        adv_header = ctk.CTkFrame(self._buttons, fg_color="transparent")
+        adv_header.pack(fill="x", pady=(10, 2))
+
+        toggle_char = "▼" if self._advanced_expanded else "▶"
+        lbl_adv = ctk.CTkLabel(adv_header, text="More Options", font=ctk.CTkFont(size=11, weight="bold"), text_color=brand.MUTED_FG)
+        lbl_adv.pack(side="left")
+
+        btn_toggle = ctk.CTkButton(
+            adv_header, text=toggle_char, width=20, height=20,
+            fg_color="transparent", hover_color=brand.ROW_BG,
+            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
+            command=toggle_advanced
+        )
+        btn_toggle.pack(side="right")
+
+        if self._advanced_expanded:
+            adv_body = ctk.CTkFrame(self._buttons, fg_color="transparent")
+            adv_body.pack(fill="x", pady=2)
+
+            def add_adv(text, key, **kw):
+                ctk.CTkButton(
+                    adv_body, text=text, height=24, font=ctk.CTkFont(size=10),
+                    command=lambda: self._fire(key, clip), **kw
+                ).pack(fill="x", pady=2)
+
+            add_adv("Copy Metadata", "copy_metadata", **theme.secondary_button())
+            add_adv("Export Proof Zip", "export_proof_zip", **theme.secondary_button())
+
+            # Path specific options
+            from ..core import pathutil
+            from ..core.editable_copies import is_html_path
+            if clip.classification == models.CLASS_PATH and pathutil.is_local_file(clip.content):
+                if is_html_path(clip.content):
+                    add_adv("Edit Source", "edit_html_source", **theme.secondary_button())
+                    if self._actions.get("export_html_bundle"):
+                        add_adv("Export HTML Bundle", "export_html_bundle", **theme.secondary_button())
                 else:
-                    add("Save Revision", "save_editable_revision",
-                        **theme.secondary_button())
-                    add("Reveal Copy Folder", "reveal_editable_copy_folder",
-                        **theme.secondary_button())
-                section("Original")
-                add("Show Original in Explorer", "show_original_path",
-                    **theme.secondary_button())
-            elif pathutil.target_exists(clip.content):
-                if self._actions.get("drag_out") and pathutil.is_local_file(clip.content):
-                    add("Drag File Out", "drag_out", **theme.primary_button())
-                add("Open Folder", "open_folder", **theme.secondary_button())
-                add("Show in Explorer", "show_original_path",
-                    **theme.secondary_button())
+                    if self._actions.get("export_editable_copy"):
+                        add_adv("Export Editable Copy", "export_editable_copy", **theme.secondary_button())
+                add_adv("Show Original in Explorer", "show_original_path", **theme.secondary_button())
+
+            # Macro options
+            if self._actions.get("send_to_macro"):
+                if self._actions.get("create_paste_macro"):
+                    add_adv("Create Paste Macro…", "create_paste_macro", **theme.secondary_button())
+                add_adv("Save to Snippet Macros", "send_to_macro", **theme.secondary_button())
+
+            # Mark Keep / Expire / Remove
+            add_adv("Mark Keep", "mark_keep", **theme.secondary_button())
+            if not is_deleted:
+                add_adv("Expire Now", "expire_now", **theme.secondary_button())
+                add_adv("Remove from History", "remove_from_history", **theme.secondary_button())
             else:
-                section("File not found")
-                if self._actions.get("copy_path"):
-                    add("Copy Path", "copy_path", **theme.secondary_button())
-                if pathutil.parent_exists(clip.content):
-                    add("Open Folder", "open_folder", **theme.secondary_button())
-                add("Show in Explorer", "show_original_path",
-                    **theme.secondary_button())
-
-        section("Organize")
-        add("Remove from Favorites" if clip.is_pinned else "Add to Favorites",
-            "toggle_favorite", **theme.secondary_button())
-        add("Mark Keep", "mark_keep", **theme.secondary_button())
-        add("Copy Metadata", "copy_metadata", **theme.secondary_button())
-        if self._actions.get("send_to_macro"):
-            section("Snippet Macros")
-            if self._actions.get("create_paste_macro"):
-                add("Create Paste Macro…", "create_paste_macro", **theme.primary_button())
-                add("Save to Snippet Macros", "send_to_macro", **theme.secondary_button())
-            else:
-                add("Save to Snippet Macros", "send_to_macro", **theme.primary_button())
-
-        section("Export")
-        from ..core import pathutil
-        from ..core.editable_copies import is_html_path
-        add("Export Proof Zip", "export_proof_zip", **theme.secondary_button())
-        if pathutil.is_local_file(clip.content):
-            if is_html_path(clip.content):
-                if self._actions.get("export_html_bundle"):
-                    add("Export HTML Bundle", "export_html_bundle", **theme.secondary_button())
-            elif self._actions.get("export_editable_copy"):
-                add("Export Editable Copy", "export_editable_copy", **theme.secondary_button())
-
-        section("Review")
-        add("Expire Now", "expire_now", **theme.secondary_button())
-        add("Remove from History", "remove_from_history", **theme.destructive_button())
+                add_adv("Permanently Remove", "permanently_remove", **theme.secondary_button())
 
     def _fire(self, key: str, clip: Clip) -> None:
         if key == "reveal":

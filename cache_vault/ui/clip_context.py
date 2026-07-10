@@ -83,22 +83,20 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         is_link = (cls == models.CLASS_LINK)
 
         if is_image:
-            primary_keys = ["view_larger", "copy_again", "save_asset_as", "open_asset_folder", "move_safe", "view_receipts"]
+            primary_keys = ["view_larger", "copy_again", "save_asset_as"]
         elif is_link:
-            primary_keys = ["open_link", "copy_clean:copy_link_only", "copy_clean:copy_title_link", "edit_clip_text", "duplicate_editable_clip", "add_to_link_batch", "move_safe", "view_receipts"]
+            primary_keys = ["open_link", "copy_clean:copy_link_only", "edit_clip_text", "duplicate_editable_clip"]
         else:
-            primary_keys = ["edit_clip_text", "duplicate_editable_clip", "copy_again", "copy_clean:copy_plain_text", "copy_clean:copy_markdown", "combine", "move_safe", "view_receipts"]
+            primary_keys = ["edit_clip_text", "duplicate_editable_clip", "copy_again", "combine", "move_safe"]
 
         # Gather all leaf items from the original menu items
         all_leaves = []
         def collect_leaves(menu_item):
             if menu_item.children:
-                # If it's a legacy group, recurse
                 if menu_item.key in ("primary", "copy_clean", "organize", "proof", "advanced", "danger"):
                     for child in menu_item.children:
                         collect_leaves(child)
                 else:
-                    # Treat custom submenu as a leaf in this context
                     all_leaves.append(menu_item)
             else:
                 all_leaves.append(menu_item)
@@ -115,24 +113,20 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
             if key in leaves_by_key:
                 primary_menu_items.append(leaves_by_key[key])
             elif ":" in key:
-                # Search by suffix if fully qualified key didn't match (e.g. copy_title_link instead of copy_clean:copy_title_link)
                 suffix = key.split(":")[-1]
                 for leaf in all_leaves:
                     if leaf.key.endswith(suffix):
                         primary_menu_items.append(leaf)
                         break
 
-        danger_item = leaves_by_key.get("remove")
-
-        # Everything else goes into More
-        used_keys = set(primary_keys) | {"remove"}
-        # also add suffixes of used keys
+        # Everything else goes into More (including remove/receipts)
+        used_keys = set(primary_keys)
         used_suffixes = {k.split(":")[-1] for k in used_keys if ":" in k}
         more_menu_items = []
         for item in all_leaves:
             if item.key not in used_keys:
                 suffix = item.key.split(":")[-1] if ":" in item.key else item.key
-                if suffix not in used_suffixes and item.key != "remove":
+                if suffix not in used_suffixes:
                     more_menu_items.append(item)
 
         # Build final menu:
@@ -156,11 +150,6 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
             )
             add_menu_items(window, sub, more_menu_items, dispatch, clip.id)
             menu.add_cascade(label="More…", menu=sub)
-
-        # 3. Danger at bottom
-        if danger_item:
-            menu.add_separator()
-            _add_single_item(window, menu, danger_item, dispatch, [clip])
 
     window.vault.events.record(
         copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
@@ -249,8 +238,28 @@ def _add_single_item(window, menu, item, dispatch: dict, clips: list[Clip]) -> N
     else:
         command = dispatch.get(item.key)
 
+    label = item.label
+    if item.key == "edit_clip_text":
+        label = "Edit"
+    elif item.key == "duplicate_editable_clip":
+        label = "Duplicate"
+    elif item.key == "copy_again":
+        label = "Copy"
+    elif item.key == "combine":
+        label = "Combine with Selected"
+    elif item.key == "move_safe":
+        label = "Move to Safe"
+    elif item.key == "view_larger":
+        label = "View Larger"
+    elif item.key == "save_asset_as":
+        label = "Save As PNG"
+    elif item.key == "open_link":
+        label = "Open Link"
+    elif item.key.endswith("copy_link_only"):
+        label = "Copy Link"
+
     menu.add_command(
-        label=item.label,
+        label=label,
         state=("normal" if item.enabled else "disabled"),
         command=command,
     )
@@ -367,14 +376,14 @@ def _find_receipt_file(row) -> Path | None:
     dir_path = receipts_root / date_part
     if not dir_path.is_dir():
         return None
-    
+
     action_raw = getattr(row, "action_raw", "")
     clip_id = getattr(row, "clip_id", None)
     receipt_id = getattr(row, "receipt_id", "")
-    
+
     if not action_raw:
         return None
-        
+
     pattern = f"{action_raw}-*.json"
     try:
         for f in dir_path.glob(pattern):
@@ -419,7 +428,7 @@ def open_receipt_menu(window, row, x_root: int, y_root: int) -> None:
         finally:
             tooltip.after_menu_close()
         return
-    
+
     import subprocess
     receipt_file = _find_receipt_file(row)
     clip_id = getattr(row, "clip_id", None)
