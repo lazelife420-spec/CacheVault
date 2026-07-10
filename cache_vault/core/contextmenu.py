@@ -136,6 +136,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
         primary_children.insert(0, MenuItem("open_link", "Open Link"))
     if clip.content_type == models.CONTENT_IMAGE:
         primary_children.append(MenuItem("view_larger", "View Larger"))
+        primary_children.append(MenuItem("save_asset_as", "Save PNG"))
         primary_children.append(MenuItem("drag_out", "Drag PNG"))
         primary_children.append(MenuItem("open_asset_folder", "Open Asset Folder"))
 

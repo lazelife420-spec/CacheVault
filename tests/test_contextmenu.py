@@ -268,12 +268,15 @@ def test_shortcuts_quick_paste_macros_configure_hotkey_deep_links():
 
 
 def test_selected_action_strip_labels():
-    """Verify that the multi selection bulk action strip uses Copy MD and Copy Plain labels."""
+    """Verify that the multi-selection strip uses workflow-first labels."""
     import inspect
     from cache_vault.ui import shell
     src = inspect.getsource(shell.CacheVaultApp._update_bulk_action_strip)
-    assert '("Copy MD", lambda: self._bulk_copy_format("markdown"))' in src
-    assert '("Copy Plain", lambda: self._bulk_copy_format("plain"))' in src
+    assert '"Copy Combined Text"' in src
+    assert '"Create Proof Receipt"' in src
+    assert '"Export Selection"' in src
+    assert '"More…"' in src
+    assert '"Remove"' not in src
 
 
 def test_cleanup_2_disabled_stubs_and_home_status():

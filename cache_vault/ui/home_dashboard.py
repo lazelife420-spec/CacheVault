@@ -151,7 +151,8 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             w.destroy()
         self._batch_frame = None
 
-        # --- Redesigned Premium Title & Status Header ---
+        # Workflow-first header. Counts live in a quiet strip below rather than
+        # competing with the command center content.
         header_frame = ctk.CTkFrame(self._body, fg_color="transparent")
         header_frame.pack(fill="x", pady=(0, 10))
 
@@ -161,37 +162,6 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             text_color=brand.PROOF_TEAL,
         )
         title_lbl.pack(side="left")
-
-        # --- Sleek Horizontal Stats Row ---
-        stats_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
-        stats_frame.pack(side="left", padx=20)
-
-        cards_data = [
-            ("All Clips", summary.get("all", 0), S.FILTER_ALL, brand.PROOF_TEAL),
-            ("Favorites", summary.get("favorites", 0), S.FILTER_FAVORITES, brand.STAMP_GOLD),
-            ("Screenshots", summary.get("screenshots", 0), S.FILTER_SCREENSHOTS, brand.PROOF_TEAL),
-            ("Duplicates", summary.get("duplicates", 0), S.FILTER_DUPLICATES, brand.STAMP_GOLD),
-            ("Recently Removed", summary.get("recently_removed", 0), S.FILTER_RECENTLY_REMOVED, brand.MUTED_FG),
-            ("Receipts", summary.get("receipts", 0), None, brand.STAMP_GOLD),
-        ]
-
-        for label, count, filt, color in cards_data:
-            pill = ctk.CTkFrame(stats_frame, fg_color=brand.ROW_BG, corner_radius=6, border_width=1, border_color=brand.VAULT_CARD_BORDER)
-            pill.pack(side="left", padx=4)
-
-            lbl = ctk.CTkLabel(pill, text=label, font=ctk.CTkFont(size=10, weight="bold"), text_color=brand.MUTED_FG)
-            lbl.pack(side="left", padx=(8, 4), pady=4)
-
-            cnt = ctk.CTkLabel(pill, text=str(count), font=ctk.CTkFont(size=10, weight="bold"), text_color=color)
-            cnt.pack(side="left", padx=(0, 8), pady=4)
-
-            handler = (lambda _e, f=filt: self._on_filter(f)) if filt else (lambda _e: self._on_open_receipts())
-            lbl.bind("<Button-1>", handler)
-            cnt.bind("<Button-1>", handler)
-            pill.bind("<Button-1>", handler)
-            lbl.configure(cursor="hand2")
-            cnt.configure(cursor="hand2")
-            pill.configure(cursor="hand2")
 
         status_bar = ctk.CTkFrame(header_frame, fg_color="transparent")
         status_bar.pack(side="right", pady=5)
@@ -238,6 +208,35 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         )
         lbl_local.pack(side="left", padx=8)
 
+        stats_frame = ctk.CTkFrame(self._body, fg_color="transparent")
+        stats_frame.pack(fill="x", pady=(0, 12))
+        cards_data = [
+            ("All Clips", summary.get("all", 0), S.FILTER_ALL),
+            ("Favorites", summary.get("favorites", 0), S.FILTER_FAVORITES),
+            ("Screenshots", summary.get("screenshots", 0), S.FILTER_SCREENSHOTS),
+            ("Duplicates", summary.get("duplicates", 0), S.FILTER_DUPLICATES),
+            ("Receipts", summary.get("receipts", 0), None),
+        ]
+        for label, count, filt in cards_data:
+            pill = ctk.CTkFrame(
+                stats_frame, fg_color=brand.SURFACE_BG, corner_radius=999,
+            )
+            pill.pack(side="left", padx=(0, 6))
+            label_widget = ctk.CTkLabel(
+                pill, text=label, cursor="hand2", text_color=brand.MUTED_FG,
+                font=ctk.CTkFont(size=9),
+            )
+            label_widget.pack(side="left", padx=(9, 3), pady=3)
+            count_widget = ctk.CTkLabel(
+                pill, text=str(count), cursor="hand2", text_color=brand.MUTED_FG,
+                font=ctk.CTkFont(size=9, weight="bold"),
+            )
+            count_widget.pack(side="left", padx=(0, 9), pady=3)
+            handler = (lambda _e, f=filt: self._on_filter(f)) if filt else (lambda _e: self._on_open_receipts())
+            for widget in (pill, label_widget, count_widget):
+                widget.bind("<Button-1>", handler)
+                widget.configure(cursor="hand2")
+
         # Create persistent toolbar host under the actions
         self._batch_toolbar_host = ctk.CTkFrame(self._body, fg_color="transparent")
         self._batch_toolbar_host.pack(fill="x", pady=0)
@@ -271,9 +270,9 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             for clip in sensitive_items[:3]:
                 self._compact_clip_card(left_pane, clip)
 
-        # 4. Stamped Proof Receipts
+        # 4. Receipts ready for review
         if receipts:
-            self._pane_section_title(left_pane, "Stamped Proof Receipts")
+            self._pane_section_title(left_pane, "Receipts Ready")
             for clip in receipts[:3]:
                 self._compact_clip_card(left_pane, clip)
 
@@ -282,9 +281,9 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._pane_section_title(right_pane, "Quick Actions")
         self._render_quick_actions(right_pane, summary)
 
-        # 2. Clips Captured Today
+        # 2. Captured today
         if today_clips:
-            self._pane_section_title(right_pane, "Clips Captured Today")
+            self._pane_section_title(right_pane, "Captured Today")
             for clip in today_clips[:4]:
                 self._compact_clip_card(right_pane, clip)
 
@@ -294,9 +293,9 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             for clip in link_clips[:3]:
                 self._compact_clip_card(right_pane, clip)
 
-        # 4. Images & Screenshots
+        # 4. Images captured
         if images:
-            self._pane_section_title(right_pane, "Images & Screenshots")
+            self._pane_section_title(right_pane, "Images Captured")
             for clip in images[:3]:
                 self._compact_clip_card(right_pane, clip)
 
@@ -307,7 +306,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         for child in self._batch_toolbar_host.winfo_children():
             child.destroy()
 
-        if not self._selected_ids:
+        if len(self._selected_ids) < 2:
             self._batch_toolbar_host.pack_configure(pady=0)
             self._batch_frame = None
             return
@@ -329,7 +328,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         count = len(self._selected_ids)
         ctk.CTkLabel(
             inner,
-            text=f"⚡ {count} selected",
+            text=f"{count} clips selected",
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color=brand.PROOF_TEAL,
         ).pack(side="left", padx=(0, 10))
@@ -337,26 +336,16 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         selected_clips = [self._rendered_clips[cid] for cid in self._selected_ids if cid in self._rendered_clips]
         summary = analyze_selection(selected_clips)
 
-        # Build dynamic command center actions
         actions = []
-        if summary.selection_class in ("link_only", "text_only"):
-            actions = [
-                ("Copy Plain", "copy"),
-                ("Copy MD", "copy_md"),
-                ("Move Safe", "move_safe"),
-            ]
-        elif summary.selection_class == "image_only":
-            actions = [
-                ("Save PNGs", "save_images"),
-                ("Export ZIP", "export_zip"),
-                ("Copy Paths", "copy_paths"),
-            ]
-        else:  # mixed
-            actions = [
-                ("Copy Text+Links", "copy_text_links"),
-                ("Save PNGs", "save_images"),
-                ("Move Safe", "move_safe"),
-            ]
+        if summary.text_count or summary.link_count:
+            action = "copy_text_links" if summary.selection_class == "mixed" else "combine"
+            actions.append(("Copy Combined Text", action))
+        actions.extend([
+            ("Create Proof Receipt", "receipt"),
+            ("Export Selection", "export_selection"),
+        ])
+        if summary.image_count:
+            actions.append(("Save Images", "save_images"))
 
         ordered_selected = [cid for cid in self._render_order if cid in self._selected_ids]
 
@@ -372,16 +361,13 @@ class HomeDashboard(ctk.CTkScrollableFrame):
                     **theme.secondary_button(),
                 ).pack(side="left", padx=2)
 
-        # Delete Action
-        if self._on_batch_action:
-            ctk.CTkButton(
-                inner,
-                text="Delete",
-                width=60,
-                height=24,
-                command=lambda: self._on_batch_action("delete", ordered_selected),
-                **theme.destructive_button(),
-            ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            inner, text="More…", width=60, height=24,
+            command=lambda: self.winfo_toplevel()._open_bulk_clip_menu(
+                ordered_selected, inner.winfo_rootx(), inner.winfo_rooty() + inner.winfo_height()
+            ),
+            **theme.secondary_button(),
+        ).pack(side="left", padx=2)
 
         # Clear Selection
         ctk.CTkButton(
@@ -649,7 +635,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         # Actions frame
         actions = ctk.CTkFrame(card, fg_color="transparent")
         actions.pack(fill="x", padx=10, pady=(0, 8))
-        self._fill_action_bar(actions, clip)
+        self._fill_action_bar(actions, clip, compact=True)
 
         self._bind_clip_card(card, clip)
 
@@ -696,11 +682,11 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         # Action buttons
         actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(fill="x", pady=(4, 0))
-        self._fill_action_bar(actions, clip)
+        self._fill_action_bar(actions, clip, compact=False)
 
         self._bind_clip_card(card, clip)
 
-    def _fill_action_bar(self, parent, clip: Clip) -> None:
+    def _fill_action_bar(self, parent, clip: Clip, *, compact: bool) -> None:
         for child in parent.winfo_children():
             child.destroy()
 
@@ -715,14 +701,15 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         is_link = (cls == models.CLASS_LINK)
 
         # Primary Copy
-        copy_label = "Copy Image" if is_image else "Copy"
+        copy_label = "Copy" if not is_image else "Copy Image"
         ctk.CTkButton(
             parent, text=copy_label, width=70, height=22,
             command=lambda: window._copy_again(clip.id),
             **theme.primary_button()
         ).pack(side="left", padx=2)
 
-        # Primary Open
+        # Narrow cards intentionally expose only Copy, one contextual action,
+        # and More. Wide cards may expose the common editing actions.
         if is_link:
             ctk.CTkButton(
                 parent, text="Open Link", width=70, height=22,
@@ -744,7 +731,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
                 ).pack(side="left", padx=2)
 
         # Edit (not for image)
-        if not is_image:
+        if not is_image and (not compact or not is_link):
             ctk.CTkButton(
                 parent, text="Edit", width=50, height=22,
                 command=lambda: window._edit_clip_text(clip.id),
@@ -752,7 +739,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             ).pack(side="left", padx=2)
 
         # Duplicate (not for image)
-        if not is_image:
+        if not compact and not is_image:
             ctk.CTkButton(
                 parent, text="Duplicate", width=70, height=22,
                 command=lambda: window._duplicate_as_editable_clip(clip.id),
@@ -760,7 +747,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             ).pack(side="left", padx=2)
 
         # Combine (only if text/not image)
-        if not is_image:
+        if not compact and not is_image and not is_link:
             ctk.CTkButton(
                 parent, text="Combine", width=65, height=22,
                 command=lambda: window._open_clip_composer(),

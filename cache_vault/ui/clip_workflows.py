@@ -45,6 +45,7 @@ class ClipComposerDialog(ctk.CTkToplevel):
         self._on_copy = on_copy
         self._on_save_clip = on_save_clip
         self._on_save_macro = on_save_macro
+        self._save_started = False
 
         ctk.CTkLabel(
             self,
@@ -108,19 +109,25 @@ class ClipComposerDialog(ctk.CTkToplevel):
 
     def _save_clip(self) -> None:
         text = self._text()
-        if text:
+        if text and not self._save_started:
+            self._save_started = True
             self._save_clip_btn.configure(state="disabled", text="Saving...")
             self.update_idletasks()
-            self._on_save_clip(text)
-            self.destroy()
+            try:
+                self._on_save_clip(text)
+            finally:
+                self.destroy()
 
     def _save_macro(self) -> None:
         text = self._text()
-        if text:
+        if text and not self._save_started:
+            self._save_started = True
             self._save_macro_btn.configure(state="disabled", text="Saving...")
             self.update_idletasks()
-            self._on_save_macro(text)
-            self.destroy()
+            try:
+                self._on_save_macro(text)
+            finally:
+                self.destroy()
 
 
 class EditClipTextDialog(ctk.CTkToplevel):
@@ -130,6 +137,7 @@ class EditClipTextDialog(ctk.CTkToplevel):
         self.geometry("720x520")
         self.minsize(640, 460)
         self._on_save = on_save
+        self._save_started = False
 
         ctk.CTkLabel(
             self,
@@ -163,11 +171,14 @@ class EditClipTextDialog(ctk.CTkToplevel):
 
     def _save(self) -> None:
         text = self._body.get("1.0", "end").strip()
-        if text:
+        if text and not self._save_started:
+            self._save_started = True
             self._save_btn.configure(state="disabled", text="Saving...")
             self.update_idletasks()
-            self._on_save(text)
-            self.destroy()
+            try:
+                self._on_save(text)
+            finally:
+                self.destroy()
 
 
 class MultiLinkPasteDialog(ctk.CTkToplevel):

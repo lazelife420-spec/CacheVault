@@ -748,7 +748,6 @@ class CacheVaultApp(ctk.CTk):
         self._cards_btn.pack(side="right", padx=2)
         # Removed Review Duplicates button from global toolbar
         self._selected_action_frame = ctk.CTkFrame(self._toolbar_row3, fg_color="transparent")
-        self._selected_action_frame.pack(side="left", padx=(8, 4))
         self._selected_action_label = ctk.CTkLabel(
             self._selected_action_frame,
             text="No item selected",
@@ -801,6 +800,7 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
+        self._selected_action_frame.pack_forget()
         self._set_selection_hint(brand.SELECTION_HINT)
         self._selected_action_label.configure(text="")
 
@@ -2100,6 +2100,14 @@ class CacheVaultApp(ctk.CTk):
             self._bulk_copy_paths()
         elif action == "copy_text_links":
             self._bulk_copy_text_links()
+        elif action == "combine":
+            self._open_clip_composer()
+        elif action == "receipt":
+            from ..core.selection import analyze_selection
+            clips = [self.vault.storage.get_clip(cid) for cid in ids]
+            self._bulk_create_receipt(analyze_selection([clip for clip in clips if clip]))
+        elif action == "export_selection":
+            self._bulk_export_bundle()
         elif action == "delete":
             self._bulk_remove()
         self._home.clear_selection()
@@ -2117,10 +2125,12 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
-        if self._locked() or not ids:
+        if self._locked() or len(ids) < 2:
+            self._selected_action_frame.pack_forget()
             self._set_selection_hint(brand.SELECTION_HINT)
-            self._selected_action_label.configure(text="No item selected")
+            self._selected_action_label.configure(text="")
             return
+        self._selected_action_frame.pack(side="left", padx=(8, 4))
         # Count is carried by the label; drop the hint to keep the strip compact.
         self._set_selection_hint("")
 
@@ -2133,36 +2143,30 @@ class CacheVaultApp(ctk.CTk):
         from ..core.selection import analyze_selection
         summary = analyze_selection(clips)
         # Keep static check happy: text=f"{len(ids)} selected"
-        self._selected_action_label.configure(text=summary.summary_label)
+        self._selected_action_label.configure(text=f"{len(ids)} clips selected")
 
         actions = []
-        if summary.selection_class in ("link_only", "text_only"):
-            actions = [
-                ("Copy Plain", lambda: self._bulk_copy_format("plain")),
-                ("Copy MD", lambda: self._bulk_copy_format("markdown")),
-                ("Combine", self._open_clip_composer),
-                ("Copy Num", lambda: self._bulk_copy_format("numbered")),
-                ("Move Safe", self._bulk_move_to_safe),
-                ("Receipt", lambda: self._bulk_create_receipt(summary)),
-                ("Remove", self._bulk_remove),
-            ]
-        elif summary.selection_class == "image_only":
-            actions = [
-                ("Copy PNGs", self._bulk_copy_images),
-                ("Save PNGs", self._bulk_save_images),
-                ("Export ZIP", self._bulk_export_zip),
-                ("Copy Paths", self._bulk_copy_paths),
-                ("View Proof", self._bulk_view_proof),
-                ("Remove", self._bulk_remove),
-            ]
-        else:  # mixed
-            actions = [
-                ("Export Bundle", self._bulk_export_bundle),
-                ("Copy Text+Links", self._bulk_copy_text_links),
-                ("Save PNGs", self._bulk_save_images),
-                ("Receipt", lambda: self._bulk_create_receipt(summary)),
-                ("Remove", self._bulk_remove),
-            ]
+        if summary.text_count or summary.link_count:
+            copy_command = (
+                self._open_clip_composer
+                if summary.selection_class in ("link_only", "text_only")
+                else self._bulk_copy_text_links
+            )
+            actions.append(("Copy Combined Text", copy_command))
+        actions.extend([
+            ("Create Proof Receipt", lambda: self._bulk_create_receipt(summary)),
+            ("Export Selection", self._bulk_export_bundle),
+        ])
+        if summary.image_count:
+            actions.append(("Save Images", self._bulk_save_images))
+        actions.append((
+            "More…",
+            lambda: self._open_bulk_clip_menu(
+                ids,
+                self._selected_action_frame.winfo_rootx(),
+                self._selected_action_frame.winfo_rooty() + self._selected_action_frame.winfo_height(),
+            ),
+        ))
         for text, command in actions:
             btn = ctk.CTkButton(
                 self._selected_action_frame,

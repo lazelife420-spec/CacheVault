@@ -331,8 +331,8 @@ class PreviewPanel(ctk.CTkFrame):
         lines = [
             f"Source:   {clip_metadata.display(clip.source_app)}",
             f"Captured: {clip_metadata.format_captured_at(clip.created_at)}",
-            f"Type:     {clip_metadata.format_label(clip.classification, clip.content_type)}",
             f"Safe:     {clip_metadata.display(clip.safe_name)}",
+            f"Type:     {clip_metadata.format_label(clip.classification, clip.content_type)}",
         ]
         if ctx and ctx.get("receipt_count", 0):
             lines.append(f"Receipts: {ctx.get('receipt_count')} stamped")
@@ -417,12 +417,18 @@ class PreviewPanel(ctk.CTkFrame):
     def _render_buttons(self, clip: Clip) -> None:
         if not hasattr(self, "_advanced_expanded"):
             self._advanced_expanded = False
+        if not hasattr(self, "_danger_expanded"):
+            self._danger_expanded = False
 
         for w in self._buttons.winfo_children():
             w.destroy()
 
         def toggle_advanced():
             self._advanced_expanded = not self._advanced_expanded
+            self._render_buttons(clip)
+
+        def toggle_danger():
+            self._danger_expanded = not self._danger_expanded
             self._render_buttons(clip)
 
         def add_primary(text, key, **kw):
@@ -477,13 +483,13 @@ class PreviewPanel(ctk.CTkFrame):
                 add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 0, 0, **theme.secondary_button())
         elif is_image:
             add_sec("View Larger", "view_larger", 0, 0, **theme.secondary_button())
-            add_sec("Save As", "save_asset_as", 0, 1, **theme.secondary_button())
-            add_sec("Unfavorite" if clip.is_pinned else "Favorite", "toggle_favorite", 1, 0, **theme.secondary_button())
-            add_sec("Move Safe", "move_safe", 1, 1, **theme.secondary_button())
+            add_sec("Save PNG", "save_asset_as", 0, 1, **theme.secondary_button())
+            add_sec("Move Safe", "move_safe", 1, 0, **theme.secondary_button())
+            add_sec("Receipt", "create_receipt", 1, 1, **theme.secondary_button())
         elif is_link:
-            add_sec("Copy Link", "copy_clean:copy_link_only", 0, 0, **theme.secondary_button())
-            add_sec("Edit", "edit_clip_text", 0, 1, **theme.secondary_button())
-            add_sec("Duplicate", "duplicate_editable_clip", 1, 0, **theme.secondary_button())
+            add_sec("Edit", "edit_clip_text", 0, 0, **theme.secondary_button())
+            add_sec("Duplicate", "duplicate_editable_clip", 0, 1, **theme.secondary_button())
+            add_sec("Move Safe", "move_safe", 1, 0, **theme.secondary_button())
             add_sec("Receipt", "create_receipt", 1, 1, **theme.secondary_button())
         else:
             add_sec("Edit", "edit_clip_text", 0, 0, **theme.secondary_button())
@@ -539,13 +545,44 @@ class PreviewPanel(ctk.CTkFrame):
                     add_adv("Create Paste Macro…", "create_paste_macro", **theme.secondary_button())
                 add_adv("Save to Snippet Macros", "send_to_macro", **theme.secondary_button())
 
-            # Mark Keep / Expire / Remove
+            # Non-destructive retention option remains available here.
             add_adv("Mark Keep", "mark_keep", **theme.secondary_button())
+
+        # 4. Destructive actions never compete with the primary workflow.
+        danger_header = ctk.CTkFrame(self._buttons, fg_color="transparent")
+        danger_header.pack(fill="x", pady=(8, 2))
+        danger_char = "▼" if self._danger_expanded else "▶"
+        ctk.CTkLabel(
+            danger_header, text="Danger Zone", font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=brand.WARNING_RED,
+        ).pack(side="left")
+        ctk.CTkButton(
+            danger_header, text=danger_char, width=20, height=20,
+            fg_color="transparent", hover_color=brand.ROW_BG,
+            text_color=brand.WARNING_RED, font=ctk.CTkFont(size=10),
+            command=toggle_danger,
+        ).pack(side="right")
+
+        if self._danger_expanded:
+            danger_body = ctk.CTkFrame(self._buttons, fg_color="transparent")
+            danger_body.pack(fill="x", pady=2)
             if not is_deleted:
-                add_adv("Expire Now", "expire_now", **theme.secondary_button())
-                add_adv("Remove from History", "remove_from_history", **theme.secondary_button())
+                ctk.CTkButton(
+                    danger_body, text="Expire Now", height=24,
+                    command=lambda: self._fire("expire_now", clip),
+                    **theme.destructive_button(),
+                ).pack(fill="x", pady=2)
+                ctk.CTkButton(
+                    danger_body, text="Remove from History", height=24,
+                    command=lambda: self._fire("remove_from_history", clip),
+                    **theme.destructive_button(),
+                ).pack(fill="x", pady=2)
             else:
-                add_adv("Permanently Remove", "permanently_remove", **theme.secondary_button())
+                ctk.CTkButton(
+                    danger_body, text="Permanently Remove", height=24,
+                    command=lambda: self._fire("permanently_remove", clip),
+                    **theme.destructive_button(),
+                ).pack(fill="x", pady=2)
 
     def _fire(self, key: str, clip: Clip) -> None:
         if key == "reveal":

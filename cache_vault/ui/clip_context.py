@@ -180,15 +180,7 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
 
     summary = analyze_selection(clips)
 
-    header_text = f"{len(clips)} selected items"
-    if summary.selection_class == "link_only":
-        header_text = f"{summary.link_count} links selected"
-    elif summary.selection_class == "image_only":
-        header_text = f"{summary.image_count} screenshots selected"
-    elif summary.selection_class == "text_only":
-        header_text = f"{summary.text_count} text clips selected"
-    else:
-        header_text = f"{len(clips)} clips selected"
+    header_text = f"{len(clips)} clips selected"
 
     menu.add_command(label=header_text, state="disabled", font=("Segoe UI", 10, "bold"))
     menu.add_separator()
@@ -214,9 +206,18 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
         "remove": window._bulk_remove,
     }
 
-    primary_keys = ["combine", "receipt", "export"]
+    primary_keys = []
+    if summary.text_count or summary.link_count:
+        primary_keys.append(
+            "combine" if summary.selection_class in ("text_only", "link_only") else "copy_text_links"
+        )
+    export_key = {
+        "image_only": "export_zip",
+        "mixed": "export_bundle",
+    }.get(summary.selection_class, "export")
+    primary_keys.extend(["receipt", export_key])
     if summary.image_count > 0:
-        primary_keys.append("save_pngs")
+        primary_keys.append("save_pngs" if summary.selection_class == "image_only" else "save_screenshots")
 
     all_leaves = []
     def collect_leaves(menu_item):
@@ -284,6 +285,8 @@ def _add_single_item(window, menu, item, dispatch: dict, clips: list[Clip]) -> N
         label = "Copy Image" if any(getattr(c, "classification", None) == "image" for c in clips) else "Copy"
     elif item.key == "combine":
         label = "Copy Combined Text"
+    elif item.key == "copy_text_links":
+        label = "Copy Combined Text"
     elif item.key == "move_safe":
         label = "Move to Safe"
     elif item.key == "view_larger":
@@ -298,7 +301,11 @@ def _add_single_item(window, menu, item, dispatch: dict, clips: list[Clip]) -> N
         label = "Create Proof Receipt"
     elif item.key == "export":
         label = "Export Selection"
+    elif item.key in ("export_zip", "export_bundle"):
+        label = "Export Selection"
     elif item.key == "save_pngs":
+        label = "Save Images"
+    elif item.key == "save_screenshots":
         label = "Save Images"
     elif item.key == "remove":
         label = "Delete Selected"

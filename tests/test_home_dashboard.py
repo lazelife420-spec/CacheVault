@@ -466,7 +466,7 @@ class TestHomeVaultUI:
         assert dashboard._selected_ids == {"clip-1"}
         assert len(selection_changes) == 1
         assert selection_changes[-1] == ["clip-1"]
-        assert dashboard._batch_frame is not None
+        assert dashboard._batch_frame is None
 
         # 3. Ctrl-click toggle selection
         dashboard._toggle_select(c2)
@@ -477,13 +477,13 @@ class TestHomeVaultUI:
         found_btn = None
         for child in dashboard._batch_frame.winfo_children():
             for c in child.winfo_children():
-                if isinstance(c, ctk.CTkButton) and c.cget("text") == "Copy Plain":
+                if isinstance(c, ctk.CTkButton) and c.cget("text") == "Copy Combined Text":
                     found_btn = c
                     break
         assert found_btn is not None
         found_btn.cget("command")()
         assert len(batch_actions_run) == 1
-        assert batch_actions_run[-1] == ("copy", ["clip-1", "clip-2"])
+        assert batch_actions_run[-1] == ("combine", ["clip-1", "clip-2"])
 
         # 5. Clear selection
         dashboard.clear_selection()
@@ -496,4 +496,3 @@ class TestHomeVaultUI:
         assert dashboard._batch_frame is not None
 
         dashboard.destroy()
-

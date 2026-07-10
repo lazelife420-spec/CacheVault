@@ -143,16 +143,16 @@ def test_ux_dashboard_command_center(tk_root):
                 weight = font.cget("weight") if hasattr(font, "cget") else ""
                 if weight == "bold":
                     text = child.cget("text")
-                    if text in ("Recent Active Clip", "Clips Captured Today", "Images & Screenshots", "Recent Links", "Stamped Proof Receipts", "Sensitive / Expiring Items"):
+                    if text in ("Recent Active Clip", "Captured Today", "Images Captured", "Recent Links", "Receipts Ready", "Sensitive / Expiring Items"):
                         section_titles.append(text)
             _scan_labels(child)
     _scan_labels(dashboard._body)
 
     assert "Recent Active Clip" in section_titles
-    assert "Clips Captured Today" in section_titles
-    assert "Images & Screenshots" in section_titles
+    assert "Captured Today" in section_titles
+    assert "Images Captured" in section_titles
     assert "Recent Links" in section_titles
-    assert "Stamped Proof Receipts" in section_titles
+    assert "Receipts Ready" in section_titles
     assert "Sensitive / Expiring Items" in section_titles
 
     dashboard.destroy()
