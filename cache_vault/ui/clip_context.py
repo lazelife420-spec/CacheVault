@@ -62,20 +62,94 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         "remove": lambda: window._remove_from_history(clip.id),
         "restore": lambda: window._restore(clip.id),
         "permanently_remove": lambda: window._permanently_remove(clip.id),
+        "combine": window._open_clip_composer,
+        "add_to_link_batch": lambda: window._add_to_link_batch(clip.id),
+        "save_asset_as": lambda: window._save_asset_as(clip.id),
     }
 
-    items = clip_menu_items(clip)
-    for item in items:
-        if item.separator_before:
+    if clip.deleted_at is not None:
+        original_items = clip_menu_items(clip)
+        for item in original_items:
+            if item.separator_before:
+                menu.add_separator()
+            _add_single_item(window, menu, item, dispatch, [clip])
+    else:
+        # Detect type
+        is_image = False
+        cls = getattr(clip, "classification", None)
+        ct = getattr(clip, "content_type", None)
+        if (isinstance(ct, str) and ct.startswith("image")) or (isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower())) or cls == models.CLASS_IMAGE:
+            is_image = True
+        is_link = (cls == models.CLASS_LINK)
+
+        if is_image:
+            primary_keys = ["view_larger", "copy_again", "save_asset_as", "move_safe"]
+        elif is_link:
+            primary_keys = ["open_link", "copy_clean:copy_link_only", "edit_clip_text", "duplicate_editable_clip", "move_safe"]
+        else:
+            primary_keys = ["edit_clip_text", "duplicate_editable_clip", "copy_again", "combine", "move_safe"]
+
+        # Gather all leaf items from the original menu items
+        all_leaves = []
+        def collect_leaves(menu_item):
+            if menu_item.children:
+                if menu_item.key in ("primary", "copy_clean", "organize", "proof", "advanced", "danger"):
+                    for child in menu_item.children:
+                        collect_leaves(child)
+                else:
+                    all_leaves.append(menu_item)
+            else:
+                all_leaves.append(menu_item)
+
+        original_items = clip_menu_items(clip)
+        for item in original_items:
+            collect_leaves(item)
+
+        leaves_by_key = {item.key: item for item in all_leaves}
+
+        # Populate primary menu items
+        primary_menu_items = []
+        for key in primary_keys:
+            if key in leaves_by_key:
+                primary_menu_items.append(leaves_by_key[key])
+            elif ":" in key:
+                suffix = key.split(":")[-1]
+                for leaf in all_leaves:
+                    if leaf.key.endswith(suffix):
+                        primary_menu_items.append(leaf)
+                        break
+
+        # Everything else goes into More (including remove/receipts)
+        used_keys = set(primary_keys)
+        used_suffixes = {k.split(":")[-1] for k in used_keys if ":" in k}
+        more_menu_items = []
+        for item in all_leaves:
+            if item.key not in used_keys:
+                suffix = item.key.split(":")[-1] if ":" in item.key else item.key
+                if suffix not in used_suffixes:
+                    more_menu_items.append(item)
+
+        # Build final menu:
+        # 1. Primary items
+        for item in primary_menu_items:
+            if item.separator_before:
+                menu.add_separator()
+            _add_single_item(window, menu, item, dispatch, [clip])
+
+        # 2. More...
+        if more_menu_items:
             menu.add_separator()
-        if item.children:
-            menu.add_separator()
-            for child in item.children:
-                if child.separator_before:
-                    menu.add_separator()
-                _add_single_item(window, menu, child, dispatch, [clip])
-            continue
-        _add_single_item(window, menu, item, dispatch, [clip])
+            sub = tk.Menu(
+                menu,
+                tearoff=0,
+                bg=menu.cget("bg"),
+                fg=menu.cget("fg"),
+                activebackground=menu.cget("activebackground"),
+                activeforeground=menu.cget("activeforeground"),
+                font=menu.cget("font"),
+            )
+            add_menu_items(window, sub, more_menu_items, dispatch, clip.id)
+            menu.add_cascade(label="More…", menu=sub)
 
     window.vault.events.record(
         copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
@@ -106,20 +180,9 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
 
     summary = analyze_selection(clips)
 
-    header_text = f"{len(clips)} selected items"
-    if summary.selection_class == "link_only":
-        header_text = f"{summary.link_count} links selected"
-    elif summary.selection_class == "image_only":
-        header_text = f"{summary.image_count} screenshots selected"
-    elif summary.selection_class == "text_only":
-        header_text = f"{summary.text_count} text clips selected"
+    header_text = f"{len(clips)} clips selected"
 
     menu.add_command(label=header_text, state="disabled", font=("Segoe UI", 10, "bold"))
-
-    if summary.selection_class == "mixed":
-        sub_text = f"{summary.link_count} links · {summary.image_count} screenshots · {summary.text_count} text clips"
-        menu.add_command(label=sub_text, state="disabled", font=("Segoe UI", 9, "italic"))
-
     menu.add_separator()
 
     items = clip_menu_items(clips)
@@ -143,10 +206,59 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
         "remove": window._bulk_remove,
     }
 
+    primary_keys = []
+    if summary.text_count or summary.link_count:
+        primary_keys.append(
+            "combine" if summary.selection_class in ("text_only", "link_only") else "copy_text_links"
+        )
+    export_key = {
+        "image_only": "export_zip",
+        "mixed": "export_bundle",
+    }.get(summary.selection_class, "export")
+    primary_keys.extend(["receipt", export_key])
+    if summary.image_count > 0:
+        primary_keys.append("save_pngs" if summary.selection_class == "image_only" else "save_screenshots")
+
+    all_leaves = []
+    def collect_leaves(menu_item):
+        if menu_item.children:
+            for child in menu_item.children:
+                collect_leaves(child)
+        else:
+            all_leaves.append(menu_item)
+
     for item in items:
-        if item.separator_before:
-            menu.add_separator()
+        collect_leaves(item)
+
+    leaves_by_key = {item.key: item for item in all_leaves}
+
+    primary_menu_items = []
+    for key in primary_keys:
+        if key in leaves_by_key:
+            primary_menu_items.append(leaves_by_key[key])
+
+    used_keys = set(primary_keys)
+    more_menu_items = []
+    for item in all_leaves:
+        if item.key not in used_keys:
+            more_menu_items.append(item)
+
+    # 1. Primary items
+    for item in primary_menu_items:
         _add_single_item(window, menu, item, dispatch, clips)
+
+    # 2. More...
+    if more_menu_items:
+        menu.add_separator()
+        sub = tk.Menu(
+            menu, tearoff=0, bg=menu.cget("bg"), fg=menu.cget("fg"),
+            activebackground=menu.cget("activebackground"),
+            activeforeground=menu.cget("activeforeground"),
+            font=menu.cget("font"),
+        )
+        for item in more_menu_items:
+            _add_single_item(window, sub, item, dispatch, clips)
+        menu.add_cascade(label="More…", menu=sub)
 
     window.vault.events.record(
         copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
@@ -164,8 +276,42 @@ def _add_single_item(window, menu, item, dispatch: dict, clips: list[Clip]) -> N
     else:
         command = dispatch.get(item.key)
 
+    label = item.label
+    if item.key == "edit_clip_text":
+        label = "Edit"
+    elif item.key == "duplicate_editable_clip":
+        label = "Duplicate"
+    elif item.key == "copy_again":
+        label = "Copy Image" if any(getattr(c, "classification", None) == "image" for c in clips) else "Copy"
+    elif item.key == "combine":
+        label = "Copy Combined Text"
+    elif item.key == "copy_text_links":
+        label = "Copy Combined Text"
+    elif item.key == "move_safe":
+        label = "Move to Safe"
+    elif item.key == "view_larger":
+        label = "View Larger"
+    elif item.key == "save_asset_as":
+        label = "Save PNG"
+    elif item.key == "open_link":
+        label = "Open Link"
+    elif item.key.endswith("copy_link_only"):
+        label = "Copy Link"
+    elif item.key == "receipt":
+        label = "Create Proof Receipt"
+    elif item.key == "export":
+        label = "Export Selection"
+    elif item.key in ("export_zip", "export_bundle"):
+        label = "Export Selection"
+    elif item.key == "save_pngs":
+        label = "Save Images"
+    elif item.key == "save_screenshots":
+        label = "Save Images"
+    elif item.key == "remove":
+        label = "Delete Selected"
+
     menu.add_command(
-        label=item.label,
+        label=label,
         state=("normal" if item.enabled else "disabled"),
         command=command,
     )
@@ -282,14 +428,14 @@ def _find_receipt_file(row) -> Path | None:
     dir_path = receipts_root / date_part
     if not dir_path.is_dir():
         return None
-    
+
     action_raw = getattr(row, "action_raw", "")
     clip_id = getattr(row, "clip_id", None)
     receipt_id = getattr(row, "receipt_id", "")
-    
+
     if not action_raw:
         return None
-        
+
     pattern = f"{action_raw}-*.json"
     try:
         for f in dir_path.glob(pattern):
@@ -334,7 +480,7 @@ def open_receipt_menu(window, row, x_root: int, y_root: int) -> None:
         finally:
             tooltip.after_menu_close()
         return
-    
+
     import subprocess
     receipt_file = _find_receipt_file(row)
     clip_id = getattr(row, "clip_id", None)

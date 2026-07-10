@@ -420,6 +420,8 @@ class CacheVaultApp(ctk.CTk):
             "<Home>": lambda e: self._keyboard_select_edge(first=True, event=e),
             "<End>": lambda e: self._keyboard_select_edge(first=False, event=e),
             "<Return>": lambda e: self._keyboard_primary_action(e),
+            "<Control-d>": lambda e: self._keyboard_duplicate_selected(e),
+            "<Control-D>": lambda e: self._keyboard_duplicate_selected(e),
             "<Control-c>": lambda e: self._keyboard_copy_selected(e),
             "<Control-C>": lambda e: self._keyboard_copy_selected(e),
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
@@ -578,6 +580,7 @@ class CacheVaultApp(ctk.CTk):
             on_export=self._export_view,
             on_select_clip=self._on_clip_select,
             on_copy=self._copy_again,
+            on_double_click=self._on_clip_double_click,
             on_clip_context=self._open_home_clip_menu,
             on_card_context=self._open_home_card_menu,
             on_app_context=self._open_home_app_menu,
@@ -595,6 +598,7 @@ class CacheVaultApp(ctk.CTk):
             self._center, on_select=self._on_clip_select,
             on_context=self._open_clip_menu,
             on_selection_change=self._on_clip_selection_change,
+            on_double_click=self._on_clip_double_click,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._grid = ClipGrid(
@@ -602,6 +606,7 @@ class CacheVaultApp(ctk.CTk):
             on_sort=self._set_sort,
             on_context=self._open_clip_menu,
             on_selection_change=self._on_clip_selection_change,
+            on_double_click=self._on_clip_double_click,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._home.grid(row=1, column=0, sticky="nsew")
@@ -717,22 +722,7 @@ class CacheVaultApp(ctk.CTk):
             ],
             command=self._on_sort_menu,
         ).pack(side="left", padx=2)
-        ctk.CTkLabel(self._toolbar_row2, text="First Saved:", text_color=brand.MUTED_FG,
-                     font=theme.body_font(11)).pack(side="left", padx=(8, 2))
-        ctk.CTkOptionMenu(
-            self._toolbar_row2, variable=self._added_var, width=110,
-            values=["Any", "Today", "Yesterday", "This Week", "Last 7 Days",
-                    "This Month", "Last 30 Days", "Older"],
-            command=self._on_added_filter,
-        ).pack(side="left", padx=2)
-        ctk.CTkLabel(self._toolbar_row2, text="Last Used:", text_color=brand.MUTED_FG,
-                     font=theme.body_font(11)).pack(side="left", padx=(8, 2))
-        ctk.CTkOptionMenu(
-            self._toolbar_row2, variable=self._used_var, width=110,
-            values=["Any", "Today", "Yesterday", "This Week", "Last 7 Days",
-                    "This Month", "Last 30 Days", "Older"],
-            command=self._on_used_filter,
-        ).pack(side="left", padx=2)
+        # Removed First Saved and Last Used filters to simplify toolbar
         ctk.CTkLabel(self._toolbar_row2, text="Type:", text_color=brand.MUTED_FG,
                      font=theme.body_font(11)).pack(side="left", padx=(8, 2))
         ctk.CTkOptionMenu(
@@ -756,13 +746,8 @@ class CacheVaultApp(ctk.CTk):
             command=lambda: self._set_view_mode("cards"), **theme.segmented_active(),
         )
         self._cards_btn.pack(side="right", padx=2)
-        self._dup_btn = ctk.CTkButton(
-            self._toolbar_row3, text="Review Duplicates", width=140, height=28,
-            command=self._open_duplicate_review, **theme.secondary_button(),
-        )
-        self._dup_btn.pack(side="left", padx=8)
+        # Removed Review Duplicates button from global toolbar
         self._selected_action_frame = ctk.CTkFrame(self._toolbar_row3, fg_color="transparent")
-        self._selected_action_frame.pack(side="left", padx=(8, 4))
         self._selected_action_label = ctk.CTkLabel(
             self._selected_action_frame,
             text="No item selected",
@@ -815,56 +800,9 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
+        self._selected_action_frame.pack_forget()
         self._set_selection_hint(brand.SELECTION_HINT)
-        if self._locked() or clip is None:
-            self._selected_action_label.configure(text="No item selected")
-            return
-        label = (clip.title or clip.preview or "Selected item").splitlines()[0][:28]
-        self._selected_action_label.configure(text=f"Selected: {label}")
-        to_macros = ("To Macros", lambda c=clip: self._send_to_macro_safe(c.id))
-        if clip.classification == models.CLASS_LINK:
-            actions = [
-                ("Open", lambda c=clip: self._open_clip_link(c.id)),
-                ("Copy Link", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_LINK_ONLY)),
-                ("Copy MD", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        elif clip.content_type == models.CONTENT_IMAGE:
-            actions = [
-                ("Copy Image", lambda c=clip: self._copy_again(c.id)),
-                ("Open", lambda c=clip: self._open_asset_folder(c.id)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        elif clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
-            actions = [
-                ("Copy", lambda c=clip: self._copy_again(c.id)),
-                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        else:
-            actions = [
-                ("Copy", lambda c=clip: self._copy_again(c.id)),
-                ("Copy Plain", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT)),
-                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        actions = actions[:4]
-        actions.append(("More", self._keyboard_open_context_menu))
-        for text, command in actions:
-            btn = ctk.CTkButton(
-                self._selected_action_frame,
-                text=text,
-                width=82,
-                height=24,
-                command=command,
-                **theme.secondary_button(),
-            )
-            btn.pack(side="left", padx=2)
-            self._selected_action_buttons.append(btn)
+        self._selected_action_label.configure(text="")
 
     def _clear_selection(self) -> None:
         # Use clear_selection (not set_selected(None)) so a multi-row selection
@@ -1003,9 +941,39 @@ class CacheVaultApp(ctk.CTk):
             return "break"
         if clip.classification == models.CLASS_LINK:
             self._open_clip_link(clip.id)
+        elif clip.content_type != models.CONTENT_IMAGE:
+            # Enter on selected text clip = Edit Clip Text
+            self._edit_clip_text(clip.id)
         else:
             self._copy_again(clip.id)
         return "break"
+
+    def _keyboard_duplicate_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._duplicate_as_editable_clip(clip.id)
+        return "break"
+
+    def _on_clip_double_click(self, clip: Clip) -> None:
+        if not self._guard_unlocked():
+            return
+        if clip.content_type == models.CONTENT_IMAGE:
+            self._open_photo_viewer(clip.id)
+        elif clip.classification == models.CLASS_LINK:
+            self._open_clip_link(clip.id)
+        else:
+            self._edit_clip_text(clip.id)
+
+    def _add_to_link_batch(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        if not hasattr(self, "_link_batch_ids"):
+            self._link_batch_ids = []
+        if clip_id not in self._link_batch_ids:
+            self._link_batch_ids.append(clip_id)
+        self._show_toast(f"Link added to batch. ({len(self._link_batch_ids)} link(s) in batch)")
 
     def _keyboard_copy_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -1515,13 +1483,26 @@ class CacheVaultApp(ctk.CTk):
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)
+                q_today = search.SearchQuery(date_added_preset="today")
+                q_links = search.SearchQuery(type_filter=models.CLASS_LINK)
                 image_ready = self.vault.storage.asset_storage_ready()
                 self._home._image_ready = image_ready  # noqa: SLF001
+
+                all_recent = self.vault.list_clips(q_recent)
+                today_clips = self.vault.list_clips(q_today)
+                link_clips = self.vault.list_clips(q_links)[:6]
+                receipts = [c for c in all_recent if c.content_hash][:6]
+                sensitive_items = [c for c in all_recent if c.is_sensitive][:6]
+
                 self._home.render(
                     summary,
-                    self.vault.list_clips(q_recent)[:8],
+                    all_recent[:8],
                     self.vault.list_clips(q_fav)[:6],
                     self.vault.list_clips(q_img)[:6],
+                    today_clips=today_clips,
+                    link_clips=link_clips,
+                    receipts=receipts,
+                    sensitive_items=sensitive_items,
                 )
                 if self._preview._clip is None:  # noqa: SLF001
                     self._preview.show_vault_control(
@@ -1948,7 +1929,7 @@ class CacheVaultApp(ctk.CTk):
         self._resize_job = None
         if not self._alive() or self._locked():
             return
-        
+
         # Responsive check
         w = self.winfo_width()
         is_compact = w < 1024
@@ -1960,7 +1941,7 @@ class CacheVaultApp(ctk.CTk):
             else:
                 self._preview.grid(row=1, column=2, sticky="nsew")
                 self.grid_columnconfigure(2, weight=0, minsize=320)
-        
+
         # During a resize, we don't want to rebuild the entire clip list if possible.
         # But we might need to tell elements to wrap or adjust.
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
@@ -2025,7 +2006,7 @@ class CacheVaultApp(ctk.CTk):
             return
         if not self._nav_history:
             return
-        
+
         current = self._filters.active
         prev = self._nav_history.pop()
         self._nav_forward_stack.append(current)
@@ -2034,7 +2015,7 @@ class CacheVaultApp(ctk.CTk):
     def _navigate_forward(self, event=None) -> None:
         if self._keyboard_focus_is_text_input(event) or self._locked() or not self._nav_forward_stack:
             return
-        
+
         current = self._filters.active
         nxt = self._nav_forward_stack.pop()
         self._nav_history.append(current)
@@ -2042,7 +2023,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _on_escape_pressed(self, event=None) -> None:
         tooltip.hide_tooltip()
-        
+
         # 1. Close context menus (if we can find them)
         # 2. Close transient overlays
         if self._quick_paste and self._quick_paste.winfo_exists():
@@ -2119,6 +2100,14 @@ class CacheVaultApp(ctk.CTk):
             self._bulk_copy_paths()
         elif action == "copy_text_links":
             self._bulk_copy_text_links()
+        elif action == "combine":
+            self._open_clip_composer()
+        elif action == "receipt":
+            from ..core.selection import analyze_selection
+            clips = [self.vault.storage.get_clip(cid) for cid in ids]
+            self._bulk_create_receipt(analyze_selection([clip for clip in clips if clip]))
+        elif action == "export_selection":
+            self._bulk_export_bundle()
         elif action == "delete":
             self._bulk_remove()
         self._home.clear_selection()
@@ -2136,10 +2125,12 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
-        if self._locked() or not ids:
+        if self._locked() or len(ids) < 2:
+            self._selected_action_frame.pack_forget()
             self._set_selection_hint(brand.SELECTION_HINT)
-            self._selected_action_label.configure(text="No item selected")
+            self._selected_action_label.configure(text="")
             return
+        self._selected_action_frame.pack(side="left", padx=(8, 4))
         # Count is carried by the label; drop the hint to keep the strip compact.
         self._set_selection_hint("")
 
@@ -2152,36 +2143,30 @@ class CacheVaultApp(ctk.CTk):
         from ..core.selection import analyze_selection
         summary = analyze_selection(clips)
         # Keep static check happy: text=f"{len(ids)} selected"
-        self._selected_action_label.configure(text=summary.summary_label)
+        self._selected_action_label.configure(text=f"{len(ids)} clips selected")
 
         actions = []
-        if summary.selection_class in ("link_only", "text_only"):
-            actions = [
-                ("Copy Plain", lambda: self._bulk_copy_format("plain")),
-                ("Copy MD", lambda: self._bulk_copy_format("markdown")),
-                ("Combine", self._open_clip_composer),
-                ("Copy Num", lambda: self._bulk_copy_format("numbered")),
-                ("Move Safe", self._bulk_move_to_safe),
-                ("Receipt", lambda: self._bulk_create_receipt(summary)),
-                ("Remove", self._bulk_remove),
-            ]
-        elif summary.selection_class == "image_only":
-            actions = [
-                ("Copy PNGs", self._bulk_copy_images),
-                ("Save PNGs", self._bulk_save_images),
-                ("Export ZIP", self._bulk_export_zip),
-                ("Copy Paths", self._bulk_copy_paths),
-                ("View Proof", self._bulk_view_proof),
-                ("Remove", self._bulk_remove),
-            ]
-        else:  # mixed
-            actions = [
-                ("Export Bundle", self._bulk_export_bundle),
-                ("Copy Text+Links", self._bulk_copy_text_links),
-                ("Save PNGs", self._bulk_save_images),
-                ("Receipt", lambda: self._bulk_create_receipt(summary)),
-                ("Remove", self._bulk_remove),
-            ]
+        if summary.text_count or summary.link_count:
+            copy_command = (
+                self._open_clip_composer
+                if summary.selection_class in ("link_only", "text_only")
+                else self._bulk_copy_text_links
+            )
+            actions.append(("Copy Combined Text", copy_command))
+        actions.extend([
+            ("Create Proof Receipt", lambda: self._bulk_create_receipt(summary)),
+            ("Export Selection", self._bulk_export_bundle),
+        ])
+        if summary.image_count:
+            actions.append(("Save Images", self._bulk_save_images))
+        actions.append((
+            "More…",
+            lambda: self._open_bulk_clip_menu(
+                ids,
+                self._selected_action_frame.winfo_rootx(),
+                self._selected_action_frame.winfo_rooty() + self._selected_action_frame.winfo_height(),
+            ),
+        ))
         for text, command in actions:
             btn = ctk.CTkButton(
                 self._selected_action_frame,
@@ -3488,7 +3473,7 @@ class CacheVaultApp(ctk.CTk):
             self._photo_viewer_window = None
 
         from .photo_viewer import PhotoViewer
-        
+
         # Get visible clip ids from active view
         all_clip_ids = getattr(self, "_visible_clip_ids", [clip_id])
         if not all_clip_ids:

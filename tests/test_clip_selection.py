@@ -463,12 +463,9 @@ def test_command_center_context_copy_avoids_forbidden_claims():
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
-def test_selected_action_strip_always_shows_more(vault):
-    """The single-select toolbar strip must always surface 'More', even when
-    a clip type (link/default) already has 5 type-specific actions defined.
-
-    Regression guard for the actions[:5] truncation bug: appending "More"
-    to an already-5-item list silently dropped it before this fix.
+def test_selected_action_strip_is_hidden(vault):
+    """The single-select toolbar strip must be hidden, 
+    so it should generate no buttons.
     """
     app = _make_app(vault)
     try:
@@ -480,33 +477,19 @@ def test_selected_action_strip_always_shows_more(vault):
         )
         app._update_selected_action_strip(link_clip)
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "More" in labels
-        assert len(labels) <= 5
+        assert len(labels) == 0
 
         text_clip = Clip(content="plain text note", preview="plain text note")
         app._update_selected_action_strip(text_clip)
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "More" in labels
-        assert len(labels) <= 5
-
-        image_clip = Clip(
-            content="asset", preview="asset",
-            classification=models.CLASS_IMAGE, content_type=models.CONTENT_IMAGE,
-        )
-        app._update_selected_action_strip(image_clip)
-        labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "More" in labels
+        assert len(labels) == 0
     finally:
         app.destroy()
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
-def test_bulk_action_strip_includes_remove_for_all_classes(vault, tmp_path, monkeypatch):
-    """Remove must be reachable from the multi-select toolbar for every
-    selection class, matching what the right-click context menu already
-    offers (link_only/text_only/image_only were previously missing it;
-    mixed already had it).
-    """
+def test_bulk_action_strip_keeps_danger_under_more(vault, tmp_path, monkeypatch):
+    """The bulk strip exposes workflow actions; destructive actions stay in More."""
     # capture_image() persists real asset files under %LOCALAPPDATA%; redirect
     # to a tmp dir so this test never touches the real user profile.
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
@@ -519,13 +502,13 @@ def test_bulk_action_strip_includes_remove_for_all_classes(vault, tmp_path, monk
         text2 = vault.capture("second note")
         app._update_bulk_action_strip([text1.id, text2.id])
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "Remove" in labels
+        assert labels == ["Copy Combined Text", "Create Proof Receipt", "Export Selection", "More…"]
 
         link1 = vault.capture("https://example.com/1")
         link2 = vault.capture("https://example.com/2")
         app._update_bulk_action_strip([link1.id, link2.id])
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "Remove" in labels
+        assert labels == ["Copy Combined Text", "Create Proof Receipt", "Export Selection", "More…"]
 
         # Distinct colors: capture_image() silently returns None for
         # byte-identical duplicate captures.
@@ -534,12 +517,14 @@ def test_bulk_action_strip_includes_remove_for_all_classes(vault, tmp_path, monk
         assert img1 is not None and img2 is not None
         app._update_bulk_action_strip([img1.id, img2.id])
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "Remove" in labels
+        assert labels == ["Create Proof Receipt", "Export Selection", "Save Images", "More…"]
 
-        # Mixed selection already had Remove before this fix; confirm unchanged.
+        # Mixed selections expose both text and image workflows without danger.
         app._update_bulk_action_strip([text1.id, img1.id])
         labels = [b.cget("text") for b in app._selected_action_buttons]
-        assert "Remove" in labels
-        assert labels == ["Export Bundle", "Copy Text+Links", "Save PNGs", "Receipt", "Remove"]
+        assert labels == [
+            "Copy Combined Text", "Create Proof Receipt", "Export Selection",
+            "Save Images", "More…",
+        ]
     finally:
         app.destroy()

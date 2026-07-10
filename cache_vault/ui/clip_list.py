@@ -7,7 +7,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import clip_accents, clip_metadata
+from ..core import clip_accents, clip_metadata, models
 from ..core.models import Clip
 from . import theme
 
@@ -15,11 +15,13 @@ from . import theme
 class ClipList(ctk.CTkScrollableFrame):
     def __init__(self, master, on_select: Callable[[Clip], None],
                  on_context: Callable[[Clip, int, int], None] | None = None,
-                 on_selection_change: Callable[[list[str]], None] | None = None, **kw):
+                 on_selection_change: Callable[[list[str]], None] | None = None,
+                 on_double_click: Callable[[Clip], None] | None = None, **kw):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._on_context = on_context
         self._on_selection_change = on_selection_change
+        self._on_double_click = on_double_click
         self._rows: list[ctk.CTkFrame] = []
         self._row_by_id: dict[str, ctk.CTkFrame] = {}
         self._selected_id: str | None = None
@@ -29,6 +31,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._anchor_id: str | None = None
         self._rail_by_id: dict[str, ctk.CTkFrame] = {}
         self._selected_badge_by_id: dict[str, ctk.CTkLabel] = {}
+        self._action_bar_by_id: dict[str, ctk.CTkFrame] = {}
         self._collapsed_groups: set[tuple[str, str]] = set()
         self._last_clips: list[Clip] = []
         self._last_empty_message: str | None = None
@@ -69,6 +72,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._row_by_id.clear()
         self._rail_by_id.clear()
         self._selected_badge_by_id.clear()
+        self._action_bar_by_id.clear()
         self._render_order.clear()
         self._empty.pack_forget()
 
@@ -107,6 +111,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._row_by_id.clear()
         self._rail_by_id.clear()
         self._selected_badge_by_id.clear()
+        self._action_bar_by_id.clear()
         self._render_order.clear()
         self._empty.pack_forget()
 
@@ -197,7 +202,7 @@ class ClipList(ctk.CTkScrollableFrame):
         row = ctk.CTkFrame(
             self, corner_radius=8,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
-            border_width=2 if selected else 1,
+            border_width=3 if selected else 1,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
         row.pack(fill="x", padx=4, pady=2)
@@ -289,23 +294,25 @@ class ClipList(ctk.CTkScrollableFrame):
         except Exception:
             pass
 
+        # Single clean metadata row
+        window = self.winfo_toplevel()
+        storage = getattr(getattr(window, "vault", None), "storage", None)
+        meta_str = clip_metadata.source_summary_line(clip, storage)
+
         ctk.CTkLabel(
             body,
-            text=clip_metadata.source_summary_line(clip),
+            text=meta_str,
             anchor="w",
-            text_color=brand.RECEIPT_WHITE,
-            font=ctk.CTkFont(size=11, weight="bold"),
-        ).pack(fill="x", padx=2, pady=(0, 2))
-        ctk.CTkLabel(
-            body,
-            text=(
-                f"Type {clip_metadata.format_label(clip.classification, clip.content_type)}"
-                f" · Safe {clip_metadata.display(clip.safe_name)}"
-            ),
-            anchor="w",
-            text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=10),
+            text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
+            font=ctk.CTkFont(size=11, weight="bold" if selected else "normal"),
         ).pack(fill="x", padx=2, pady=(0, 8))
+
+        # Inline Action Bar
+        action_bar = ctk.CTkFrame(body, fg_color="transparent")
+        self._action_bar_by_id[clip.id] = action_bar
+        if selected:
+            action_bar.pack(fill="x", padx=2, pady=(4, 4))
+            self._fill_action_bar(action_bar, clip)
 
         self._bind_clip_events(row, clip)
         return row
@@ -339,15 +346,25 @@ class ClipList(ctk.CTkScrollableFrame):
         widget.bind("<Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Control-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Shift-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
+        widget.bind("<Double-Button-1>", lambda e, c=clip: self._double_click(e, c), add="+")
         widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c), add="+")
         for child in widget.winfo_children():
             self._bind_clip_events(child, clip)
+
+    def _double_click(self, event, clip: Clip) -> str:
+        if self._on_double_click:
+            self._on_double_click(clip)
+        return "break"
 
     # Tk event.state modifier bit masks.
     _CTRL_MASK = 0x0004
     _SHIFT_MASK = 0x0001
 
     def _click(self, event, clip: Clip) -> str:
+        try:
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
         state = getattr(event, "state", 0) or 0
         if state & self._CTRL_MASK:
             self._toggle_select(clip)
@@ -440,7 +457,7 @@ class ClipList(ctk.CTkScrollableFrame):
             return
         row.configure(
             fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-            border_width=2 if is_selected else 1,
+            border_width=3 if is_selected else 1,
             border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
         )
         rail = self._rail_by_id.get(clip_id)
@@ -457,6 +474,26 @@ class ClipList(ctk.CTkScrollableFrame):
             else:
                 if badge_lbl.winfo_ismapped():
                     badge_lbl.pack_forget()
+
+        # Dynamic action bar management
+        if not hasattr(self, "_action_bar_by_id"):
+            self._action_bar_by_id = {}
+        action_bar = self._action_bar_by_id.get(clip_id)
+        if action_bar is not None:
+            if is_selected:
+                if not action_bar.winfo_ismapped():
+                    action_bar.pack(fill="x", padx=2, pady=(4, 4))
+                    # Find clip
+                    clip = None
+                    for c in getattr(self, "_last_clips", []):
+                        if c.id == clip_id:
+                            clip = c
+                            break
+                    if clip:
+                        self._fill_action_bar(action_bar, clip)
+            else:
+                if action_bar.winfo_ismapped():
+                    action_bar.pack_forget()
 
     def _repaint_selection(self) -> None:
         for clip_id in self._row_by_id:
@@ -495,6 +532,79 @@ class ClipList(ctk.CTkScrollableFrame):
             if is_selected:
                 # Ensure the row is visible in the scrollable frame.
                 self._safe_see(row)
+
+    def _fill_action_bar(self, parent, clip: Clip) -> None:
+        for child in parent.winfo_children():
+            child.destroy()
+
+        window = self.winfo_toplevel()
+        # Detect type
+        is_image = False
+        cls = getattr(clip, "classification", None)
+        ct = getattr(clip, "content_type", None)
+        if (isinstance(ct, str) and ct.startswith("image")) or (isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower())) or cls == models.CLASS_IMAGE:
+            is_image = True
+        is_link = (cls == models.CLASS_LINK)
+
+        # Primary Copy
+        copy_label = "Copy Image" if is_image else "Copy"
+        ctk.CTkButton(
+            parent, text=copy_label, width=70, height=22,
+            command=lambda: window._copy_again(clip.id),
+            **theme.primary_button()
+        ).pack(side="left", padx=2)
+
+        # Primary Open
+        if is_link:
+            ctk.CTkButton(
+                parent, text="Open Link", width=70, height=22,
+                command=lambda: window._open_clip_link(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+        elif is_image:
+            ctk.CTkButton(
+                parent, text="View Larger", width=80, height=22,
+                command=lambda: window._open_photo_viewer(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+        else:
+            if cls == models.CLASS_PATH:
+                ctk.CTkButton(
+                    parent, text="Open Path", width=70, height=22,
+                    command=lambda: window._open_clip_path(clip.id),
+                    **theme.secondary_button()
+                ).pack(side="left", padx=2)
+
+        # Edit (not for image)
+        if not is_image:
+            ctk.CTkButton(
+                parent, text="Edit", width=50, height=22,
+                command=lambda: window._edit_clip_text(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+
+        # Duplicate (not for image)
+        if not is_image:
+            ctk.CTkButton(
+                parent, text="Duplicate", width=70, height=22,
+                command=lambda: window._duplicate_as_editable_clip(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+
+        # Combine (only if text/not image)
+        if not is_image:
+            ctk.CTkButton(
+                parent, text="Combine", width=65, height=22,
+                command=lambda: window._open_clip_composer(),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+
+        # More...
+        ctk.CTkButton(
+            parent, text="More…", width=50, height=22,
+            command=lambda: self.open_context_for_selected(clip),
+            **theme.secondary_button()
+        ).pack(side="left", padx=2)
 
     def _safe_see(self, widget) -> None:
         try:

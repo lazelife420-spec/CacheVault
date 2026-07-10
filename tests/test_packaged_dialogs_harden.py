@@ -72,6 +72,39 @@ def test_edit_clip_text_dialog(tk_root):
         on_save=on_save
     )
     dialog._save()
-    assert on_save.called
+    tk_root.update_idletasks()
+    assert on_save.call_count == 1
     assert on_save.call_args[0][0] == "Hello World"
+    assert not dialog.winfo_exists()
+
+
+def test_edit_clip_text_dialog_cancel_creates_nothing(tk_root):
+    on_save = Mock()
+    dialog = EditClipTextDialog(
+        tk_root,
+        title="Test Edit",
+        initial_text="Unsaved change",
+        on_save=on_save,
+    )
     dialog.destroy()
+    tk_root.update_idletasks()
+    on_save.assert_not_called()
+
+
+def test_edit_clip_text_dialog_save_is_single_shot(tk_root):
+    on_save = Mock()
+    dialog = EditClipTextDialog(
+        tk_root,
+        title="Duplicate as Editable Clip",
+        initial_text="One copy only",
+        on_save=on_save,
+    )
+    destroy = Mock()
+    dialog.destroy = destroy
+
+    dialog._save()
+    dialog._save()
+
+    on_save.assert_called_once_with("One copy only")
+    destroy.assert_called_once()
+    ctk.CTkToplevel.destroy(dialog)

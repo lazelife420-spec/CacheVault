@@ -370,21 +370,18 @@ class TestHomeVaultUI:
             "mobile_settings": lambda: None,
         })
         panel.update_idletasks()
-        assert panel._title.cget("text") == brand.TERM_VAULT_STATUS
+        assert panel._title.cget("text") == "CacheVault"
 
-        def _button_texts(widget):
+        def _label_texts(widget):
             texts = []
             for child in widget.winfo_children():
-                if isinstance(child, ctk.CTkButton):
+                if isinstance(child, ctk.CTkLabel):
                     texts.append(child.cget("text"))
-                texts.extend(_button_texts(child))
+                texts.extend(_label_texts(child))
             return texts
-
-        buttons = set(_button_texts(panel._vault_frame))
-        assert "Review Duplicates" in buttons
-        assert f"Open {brand.TERM_STAMPED_RECEIPTS}" in buttons
-        assert "Pair Android Device" in buttons
-        assert brand.TERM_EXPORT in buttons
+    
+        labels = _label_texts(panel._vault_frame)
+        assert any("Save it. Prove it. Find it again." in l for l in labels)
 
         panel.destroy()
 
@@ -469,7 +466,7 @@ class TestHomeVaultUI:
         assert dashboard._selected_ids == {"clip-1"}
         assert len(selection_changes) == 1
         assert selection_changes[-1] == ["clip-1"]
-        assert dashboard._batch_frame is not None
+        assert dashboard._batch_frame is None
 
         # 3. Ctrl-click toggle selection
         dashboard._toggle_select(c2)
@@ -480,13 +477,13 @@ class TestHomeVaultUI:
         found_btn = None
         for child in dashboard._batch_frame.winfo_children():
             for c in child.winfo_children():
-                if isinstance(c, ctk.CTkButton) and c.cget("text") == "Copy Plain":
+                if isinstance(c, ctk.CTkButton) and c.cget("text") == "Copy Combined Text":
                     found_btn = c
                     break
         assert found_btn is not None
         found_btn.cget("command")()
         assert len(batch_actions_run) == 1
-        assert batch_actions_run[-1] == ("copy", ["clip-1", "clip-2"])
+        assert batch_actions_run[-1] == ("combine", ["clip-1", "clip-2"])
 
         # 5. Clear selection
         dashboard.clear_selection()
@@ -499,4 +496,3 @@ class TestHomeVaultUI:
         assert dashboard._batch_frame is not None
 
         dashboard.destroy()
-

@@ -205,11 +205,33 @@ def relative_age(iso: str | None) -> str:
     return f"{weeks} week ago" if weeks == 1 else f"{weeks} weeks ago"
 
 
-def source_summary_line(clip) -> str:
+def source_summary_line(clip, storage=None) -> str:
     source = display(getattr(clip, "source_app", None))
     captured = format_captured_at(getattr(clip, "created_at", None))
     age = relative_age(getattr(clip, "created_at", None))
-    return f"{source} · {captured} · {age}"
+    safe = display(getattr(clip, "safe_name", None))
+    if safe == "—":
+        safe = "Default Safe"
+
+    # Check if this is an image/screenshot
+    is_image = False
+    cls = getattr(clip, "classification", None)
+    ct = getattr(clip, "content_type", None)
+    if (isinstance(ct, str) and ct.startswith("image")) or (isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower())) or cls == models.CLASS_IMAGE:
+        is_image = True
+
+    if is_image:
+        dims = ""
+        if storage:
+            try:
+                rec = storage.get_asset_record(clip.id)
+                if rec and rec.width and rec.height:
+                    dims = f" · {rec.width}×{rec.height}"
+            except Exception:
+                pass
+        return f"Screenshot · {source} · {captured}{dims}"
+
+    return f"{source} · {captured} · {age} · {safe}"
 
 
 def _time_bucket(iso: str) -> str:
