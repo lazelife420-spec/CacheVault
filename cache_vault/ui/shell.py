@@ -259,6 +259,7 @@ class CacheVaultApp(ctk.CTk):
         self._is_compact_width = False
         self._settings_window = None
         self._photo_viewer_window = None
+        self._init_jobs = []
 
         self._mobile_bridge = MobileBridge(self.vault)
 
@@ -343,8 +344,8 @@ class CacheVaultApp(ctk.CTk):
         self._command_hotkey_ids: dict[int, str] = {}
         # Defer binding so CTk init is fully complete before hotkey registration
         # accesses widget internals.
-        self.after(100, self._bind_command_hotkeys)
-        self.after(150, self._command_hotkeys.start)
+        self._init_jobs.append(self.after(100, self._bind_command_hotkeys))
+        self._init_jobs.append(self.after(150, self._command_hotkeys.start))
         self._text_shortcut_listener = TextShortcutListener(
             on_match=self._on_text_shortcut_match,
             should_skip=lambda hwnd: hwnd_belongs_to_widget(hwnd, self),
@@ -362,7 +363,7 @@ class CacheVaultApp(ctk.CTk):
         self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
         self._bind_tooltip_hide_events()
         # Start mobile bridge after the window is live (zeroconf must not block UI).
-        self.after(0, lambda: self._mobile_bridge.sync(self.vault.settings))
+        self._init_jobs.append(self.after(0, lambda: self._mobile_bridge.sync(self.vault.settings)))
 
         # Tray last — callbacks marshal through _call_on_main (pystray runs off-thread).
         self._tray = TrayController(
@@ -380,11 +381,11 @@ class CacheVaultApp(ctk.CTk):
 
         self._center_on_screen()
         self._show_window()
-        self.after(50, self._pump_main_thread)
-        self.after(150, self._maybe_show_first_use_guide)
+        self._init_jobs.append(self.after(50, self._pump_main_thread))
+        self._init_jobs.append(self.after(150, self._maybe_show_first_use_guide))
         self._bind_selection_keys()
         self.bind("<Configure>", self._on_window_configure)
-        self.after(200, self._install_native_mouse_handler)
+        self._init_jobs.append(self.after(200, self._install_native_mouse_handler))
 
     def _install_native_mouse_handler(self) -> None:
         self._mouse_handler = install_mouse_handler(
@@ -443,38 +444,60 @@ class CacheVaultApp(ctk.CTk):
 
     def destroy(self) -> None:
         """Fully clean up all background threads and listeners."""
+        self._shutting_down = True
         # 1. Stop UI timers
         if hasattr(self, "_idle_lock_job") and self._idle_lock_job:
             self.after_cancel(self._idle_lock_job)
+            self._idle_lock_job = None
         if hasattr(self, "_expiry_job") and self._expiry_job:
             self.after_cancel(self._expiry_job)
+            self._expiry_job = None
+        if hasattr(self, "_search_job") and self._search_job:
+            self.after_cancel(self._search_job)
+            self._search_job = None
+        if hasattr(self, "_capture_refresh_job") and self._capture_refresh_job:
+            self.after_cancel(self._capture_refresh_job)
+            self._capture_refresh_job = None
+        if hasattr(self, "_refresh_job") and self._refresh_job:
+            self.after_cancel(self._refresh_job)
+            self._refresh_job = None
 
         # 2. Stop system listeners
-        if hasattr(self, "_monitor"):
-            self._monitor.stop()
-        if hasattr(self, "_hotkey"):
-            self._hotkey.stop()
-        if hasattr(self, "_capture_hotkeys"):
-            self._capture_hotkeys.stop()
-        if hasattr(self, "_macro_hotkeys"):
-            self._macro_hotkeys.stop()
-        if hasattr(self, "_command_hotkeys"):
-            self._command_hotkeys.stop()
-        if hasattr(self, "_text_shortcut_listener"):
-            self._text_shortcut_listener.stop()
-        if hasattr(self, "_tray"):
-            self._tray.stop()
-        if hasattr(self, "_mobile_bridge"):
-            self._mobile_bridge.stop()
-        if self._resize_job:
+        for attr in ("_monitor", "_hotkey", "_capture_hotkeys", "_macro_hotkeys", "_command_hotkeys", "_text_shortcut_listener", "_tray", "_mobile_bridge"):
+            if hasattr(self, attr):
+                obj = getattr(self, attr)
+                if obj and hasattr(obj, "stop"):
+                    try:
+                        obj.stop()
+                    except Exception:
+                        pass
+
+        if hasattr(self, "_resize_job") and self._resize_job:
             self.after_cancel(self._resize_job)
             self._resize_job = None
-        if self._mouse_handler:
+        if hasattr(self, "_mouse_handler") and self._mouse_handler:
             self._mouse_handler.stop()
             self._mouse_handler = None
 
+        if hasattr(self, "_init_jobs"):
+            for job in self._init_jobs:
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
+            self._init_jobs.clear()
+
+        # Release any grabs
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+
         # 3. Final destroy
-        super().destroy()
+        try:
+            super().destroy()
+        except Exception:
+            pass
 
     def _safe_after(self, ms: int, fn):
         if not self._alive():
@@ -686,7 +709,7 @@ class CacheVaultApp(ctk.CTk):
         self._lock_screen.grid(row=0, column=0, columnspan=3, rowspan=3, sticky="nsew")
         if self._vault_locked:
             self._lock_screen.lift()
-            self.after(100, self._lock_screen.focus_unlock)
+            self._init_jobs.append(self.after(100, self._lock_screen.focus_unlock))
         else:
             self._lock_screen.grid_remove()
 
@@ -817,6 +840,9 @@ class CacheVaultApp(ctk.CTk):
         self._selected_clip_id = None
         self._home.set_selected(None)
         self._update_selected_action_strip(None)
+        # Clear the inspector so navigation cannot leave a stale clip from the
+        # previous page visible in the preview panel.
+        self._preview.show(None)
 
     def _keyboard_select_all(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -1456,6 +1482,20 @@ class CacheVaultApp(ctk.CTk):
         self._grid.cancel_render()
 
     def refresh(self) -> None:
+        """Debounced refresh — collapses rapid-fire calls into one actual render."""
+        if not self._alive():
+            return
+        if hasattr(self, "_refresh_job") and self._refresh_job:
+            self.after_cancel(self._refresh_job)
+        # Bump the generation so any in-flight batched renders from a prior
+        # refresh know they are stale and should not touch the UI.
+        if not hasattr(self, "_refresh_generation"):
+            self._refresh_generation = 0
+        self._refresh_generation += 1
+        self._refresh_job = self.after(50, self._do_refresh_sync)
+
+    def _do_refresh_sync(self) -> None:
+        self._refresh_job = None
         if not self._alive():
             return
         tooltip.hide_tooltip()
@@ -1469,6 +1509,7 @@ class CacheVaultApp(ctk.CTk):
                 return
 
             active = self._filters.active
+
             counts = self.vault.counts()
             summary = self.vault.dashboard_summary()
             counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)

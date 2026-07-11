@@ -124,6 +124,10 @@ class ClipGrid(ctk.CTkScrollableFrame):
         for clip in clips:
             self._build_row(clip)
 
+    def destroy(self) -> None:
+        self.cancel_render()
+        super().destroy()
+
     def cancel_render(self) -> None:
         if self._render_job:
             try:
