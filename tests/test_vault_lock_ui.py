@@ -331,6 +331,5 @@ def test_delete_and_export_safe_remain_disabled():
     from cache_vault.ui import clip_context
 
     src = inspect.getsource(clip_context)
-    assert 'menu.add_command(label="Export Safe Proof Zip (planned)", state="disabled")' in src
-    # Delete Safe stays disabled and unwired (no command=).
-    assert 'label="Delete Safe (planned)",\n        state="disabled",\n    )' in src
+    assert 'Export Safe Proof Zip (planned)' not in src
+    assert 'Delete Safe (planned)' not in src
