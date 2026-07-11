@@ -10,6 +10,7 @@ from .. import brand
 from ..core import clip_accents, clip_metadata, models
 from ..core.models import Clip
 from . import theme
+from .page_scaffold import EmptyState
 
 
 class ClipList(ctk.CTkScrollableFrame):
@@ -39,10 +40,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._render_job: str | None = None
         self._more_count: int = 0
         self._more_label: ctk.CTkLabel | None = None
-        self._empty = ctk.CTkLabel(
-            self, text="No clips yet.\nCopy something and it will appear here.",
-            text_color=brand.MUTED_FG, justify="center",
-        )
+        self._empty_container = ctk.CTkFrame(self, fg_color="transparent")
 
     def _show_more_footer(self) -> None:
         if self._more_count <= 0:
@@ -66,7 +64,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._last_empty_message = empty_message
         self._last_group_by = group_by
         for widget in list(self.winfo_children()):
-            if widget is not self._empty:
+            if widget is not self._empty_container:
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
@@ -74,15 +72,59 @@ class ClipList(ctk.CTkScrollableFrame):
         self._selected_badge_by_id.clear()
         self._action_bar_by_id.clear()
         self._render_order.clear()
-        self._empty.pack_forget()
+        self._empty_container.pack_forget()
 
         if not clips:
-            self._empty.configure(
-                text=empty_message or (
-                    "No saved clips yet.\nCopy something and Cache Vault will save it here."
-                )
+            for w in self._empty_container.winfo_children():
+                w.destroy()
+
+            actions = None
+            title = "No clips yet"
+            icon = "📭"
+            desc = empty_message or "Copy something and it will appear here."
+
+            shell = self.winfo_toplevel()
+            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+
+            from ..core import storage as S
+            if active_filter == S.FILTER_DUPLICATES:
+                title = "No Duplicates"
+                icon = "≡"
+                desc = "Everything looks clean."
+            elif active_filter == S.FILTER_FAVORITES:
+                title = "No Favorites"
+                icon = "★"
+                desc = "Star clips to save them here."
+            elif active_filter == S.FILTER_SCREENSHOTS:
+                title = "No Screenshots"
+                icon = "▦"
+                desc = "Screenshots will appear here."
+            elif active_filter == S.FILTER_SENSITIVE:
+                title = "No Sensitive Items"
+                icon = "⚠"
+                desc = "Sensitive clips will appear here."
+            elif active_filter == S.FILTER_RECENTLY_REMOVED:
+                title = "No Recently Removed"
+                icon = "↩"
+                desc = "Clean trash bin."
+            else:
+                title = "No clips match filters"
+                icon = "📭"
+                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
+                    actions = [
+                        ("Clear Filters", shell._clear_filters, False),
+                        ("Save Clipboard", shell._manual_save_clipboard, True),
+                    ]
+
+            est = EmptyState(
+                self._empty_container,
+                title=title,
+                description=desc,
+                icon=icon,
+                actions=actions,
             )
-            self._empty.pack(pady=40)
+            est.pack(fill="both", expand=True)
+            self._empty_container.pack(fill="both", expand=True, pady=20)
             return
 
         for clip in clips:
@@ -109,7 +151,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._more_count = more_count
 
         for widget in list(self.winfo_children()):
-            if widget is not self._empty:
+            if widget is not self._empty_container:
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
@@ -117,15 +159,59 @@ class ClipList(ctk.CTkScrollableFrame):
         self._selected_badge_by_id.clear()
         self._action_bar_by_id.clear()
         self._render_order.clear()
-        self._empty.pack_forget()
+        self._empty_container.pack_forget()
 
         if not clips:
-            self._empty.configure(
-                text=empty_message or (
-                    "No saved clips yet.\nCopy something and Cache Vault will save it here."
-                )
+            for w in self._empty_container.winfo_children():
+                w.destroy()
+
+            actions = None
+            title = "No clips yet"
+            icon = "📭"
+            desc = empty_message or "Copy something and it will appear here."
+
+            shell = self.winfo_toplevel()
+            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+
+            from ..core import storage as S
+            if active_filter == S.FILTER_DUPLICATES:
+                title = "No Duplicates"
+                icon = "≡"
+                desc = "Everything looks clean."
+            elif active_filter == S.FILTER_FAVORITES:
+                title = "No Favorites"
+                icon = "★"
+                desc = "Star clips to save them here."
+            elif active_filter == S.FILTER_SCREENSHOTS:
+                title = "No Screenshots"
+                icon = "▦"
+                desc = "Screenshots will appear here."
+            elif active_filter == S.FILTER_SENSITIVE:
+                title = "No Sensitive Items"
+                icon = "⚠"
+                desc = "Sensitive clips will appear here."
+            elif active_filter == S.FILTER_RECENTLY_REMOVED:
+                title = "No Recently Removed"
+                icon = "↩"
+                desc = "Clean trash bin."
+            else:
+                title = "No clips match filters"
+                icon = "📭"
+                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
+                    actions = [
+                        ("Clear Filters", shell._clear_filters, False),
+                        ("Save Clipboard", shell._manual_save_clipboard, True),
+                    ]
+
+            est = EmptyState(
+                self._empty_container,
+                title=title,
+                description=desc,
+                icon=icon,
+                actions=actions,
             )
-            self._empty.pack(pady=40)
+            est.pack(fill="both", expand=True)
+            self._empty_container.pack(fill="both", expand=True, pady=20)
             return
 
         batch_size = 15

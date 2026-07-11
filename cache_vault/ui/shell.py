@@ -43,6 +43,7 @@ from ..core.mobile.bridge import MobileBridge
 from ..core.vault import Vault
 from .clip_grid import ClipGrid
 from .clip_list import ClipList
+from .page_scaffold import LoadingState
 from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SafePickerDialog, SettingsDialog,
@@ -679,6 +680,10 @@ class CacheVaultApp(ctk.CTk):
                 "remove_clip": self._remove_from_history,
                 "open_clip_menu": self._open_clip_menu,
                 "open_receipt_menu": self._open_receipt_menu,
+                "set_header_actions": self._page_header.set_actions,
+                "set_header_subtitle": lambda sub: self._page_header.set_content(self._page_header._title_label.cget("text"), sub),
+                "set_header_chips": self._page_header.set_status_chips,
+                "navigate_filter": self._navigate_filter,
             },
             corner_radius=0,
         )
@@ -843,6 +848,7 @@ class CacheVaultApp(ctk.CTk):
         # Clear the inspector so navigation cannot leave a stale clip from the
         # previous page visible in the preview panel.
         self._preview.show(None)
+        self._update_inspector_visibility()
 
     def _keyboard_select_all(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -1340,8 +1346,10 @@ class CacheVaultApp(ctk.CTk):
         self._grid.grid_remove()
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
-        self._page_header.set_content("Command Center", "Today in CacheVault")
+        self._page_header.set_content("Command Center")
+        self._page_header.set_actions()
         self._home.grid()
+        self._update_inspector_visibility()
 
     def _show_clips(self) -> None:
         self._home.grid_remove()
@@ -1349,12 +1357,15 @@ class CacheVaultApp(ctk.CTk):
         self._vault_screens.grid_remove()
         self._toolbar.grid()
         self._page_header.set_content(self._filters.active_label)
+        self._page_header.set_actions()
+        self._page_header.set_status_chips([])
         if self._view_mode == "grid":
             self._list.grid_remove()
             self._grid.grid()
         else:
             self._grid.grid_remove()
             self._list.grid()
+        self._update_inspector_visibility()
 
     def _show_vault_screen(self, key: str) -> None:
         self._home.grid_remove()
@@ -1362,13 +1373,11 @@ class CacheVaultApp(ctk.CTk):
         self._grid.grid_remove()
         self._toolbar.grid_remove()
         self._page_header.set_content(self._filters.active_label)
+        self._page_header.set_actions()
+        self._page_header.set_status_chips([])
         self._vault_screens.grid()
         self._vault_screens.show(key)
-        if self._preview._clip is None:  # noqa: SLF001
-            self._preview.show_vault_control(
-                self.vault.dashboard_summary(),
-                self._vault_panel_callbacks(),
-            )
+        self._update_inspector_visibility()
 
     def _open_duplicate_review(self) -> None:
         if not self._require_founder("smart_filters_advanced"):
@@ -1492,7 +1501,42 @@ class CacheVaultApp(ctk.CTk):
         if not hasattr(self, "_refresh_generation"):
             self._refresh_generation = 0
         self._refresh_generation += 1
+
+        active = self._filters.active
+        if active not in NAV_SCREEN_KEYS and active != FILTER_HOME and not self._locked():
+            self._show_loading_skeleton()
+
         self._refresh_job = self.after(50, self._do_refresh_sync)
+
+    def _show_loading_skeleton(self) -> None:
+        # Clear tracking variables and children immediately to avoid race conditions/TclErrors during debounced refresh
+        self._list.cancel_render()
+        for w in self._list.winfo_children():
+            if w != getattr(self._list, "_empty_container", None):
+                w.destroy()
+        self._list._rows.clear()
+        self._list._row_by_id.clear()
+        self._list._rail_by_id.clear()
+        self._list._selected_badge_by_id.clear()
+        self._list._action_bar_by_id.clear()
+        self._list._render_order.clear()
+        self._list._empty_container.pack_forget()
+
+        self._grid.cancel_render()
+        for w in self._grid.winfo_children():
+            if w != getattr(self._grid, "_empty_container", None):
+                w.destroy()
+        self._grid._row_by_id.clear()
+        self._grid._name_label_by_id.clear()
+        self._grid._render_order.clear()
+        self._grid._empty_container.pack_forget()
+
+        if self._view_mode == "grid":
+            ls = LoadingState(self._grid, mode="grid")
+            ls.pack(fill="both", expand=True, pady=20)
+        else:
+            ls = LoadingState(self._list, mode="list")
+            ls.pack(fill="both", expand=True, pady=20)
 
     def _do_refresh_sync(self) -> None:
         self._refresh_job = None
@@ -1529,6 +1573,17 @@ class CacheVaultApp(ctk.CTk):
                 clip_count = summary.get("all", 0)
             elif active == FILTER_HOME:
                 self._show_home()
+                capture_active = not summary.get("capture_paused")
+                status_text = "● Capture Active" if capture_active else "● Capture Paused"
+                mobile_on = bool(summary.get("mobile_enabled"))
+                mobile_text = f"● Mobile Access ({summary.get('paired_count', 0)} paired)" if mobile_on else "● Mobile Access Off"
+                self._page_header.set_status_chips([
+                    status_text,
+                    "● Receipts Active",
+                    f"● {brand.VAULT_STATUS_ACTIVE}",
+                    mobile_text,
+                    f"● {brand.LABEL_LOCAL_ONLY}"
+                ])
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)
@@ -2204,6 +2259,36 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(None)
         if getattr(self, "_current_layout_mode", None) == "compact":
             self._preview.place_forget()
+        self._update_inspector_visibility()
+        self.refresh()
+
+    def _update_inspector_visibility(self) -> None:
+        active = self._filters.active
+        # Non-clip pages never show the right details panel
+        if active in NAV_SCREEN_KEYS:
+            self._preview.grid_remove()
+            self.grid_columnconfigure(2, minsize=0)
+            return
+
+        # Home/Command Center always displays either the Vault Control empty state or the selected item
+        if active == FILTER_HOME:
+            self._preview.grid(row=1, column=2, sticky="nsew")
+            self.grid_columnconfigure(2, minsize=320)
+        else:
+            # All Clips & query filters only display the inspector when a row is selected
+            if self._selected_clip_id is not None:
+                self._preview.grid(row=1, column=2, sticky="nsew")
+                self.grid_columnconfigure(2, minsize=320)
+            else:
+                self._preview.grid_remove()
+                self.grid_columnconfigure(2, minsize=0)
+
+    def _clear_filters(self) -> None:
+        self._search_var.set("")
+        self._type_var.set("All Types")
+        self._sort_var.set("Newest Added")
+        self._date_added_preset = None
+        self._date_used_preset = None
         self.refresh()
 
     def _set_selection_hint(self, text: str) -> None:

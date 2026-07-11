@@ -37,11 +37,43 @@ def _section(parent, title: str) -> None:
     )
 
 
-def _empty(parent, text: str) -> None:
-    ctk.CTkLabel(
-        parent, text=text, anchor="w", justify="left", wraplength=640,
-        text_color=brand.MUTED_FG, font=theme.body_font(12),
-    ).pack(fill="x", pady=8)
+def _empty(parent, text: str, title: str = "Empty", icon: str = "📭", actions: list | None = None) -> None:
+    from .page_scaffold import EmptyState
+    from ..core import storage as S
+    for w in parent.winfo_children():
+        w.destroy()
+
+    if "editable copies" in text.lower():
+        title = "No Editable Copies"
+        icon = "⎘"
+        host = parent
+        while host and not hasattr(host, "_callbacks"):
+            host = host.master
+        if host and hasattr(host, "_callbacks") and "navigate_filter" in host._callbacks:
+            actions = [
+                ("Open All Clips", lambda: host._callbacks["navigate_filter"](S.FILTER_ALL), True)
+            ]
+    elif "receipts" in text.lower():
+        title = "No Receipts"
+        icon = "⬢"
+    elif "mobile inbox" in text.lower():
+        title = "Inbox Empty"
+        icon = "📥"
+    elif "hotkey" in text.lower():
+        title = "No Hotkeys Configured"
+        icon = "⚡"
+    elif "macro" in text.lower():
+        title = "No Macros"
+        icon = "⚙"
+    elif "exports" in text.lower():
+        title = "No Exports"
+        icon = "↗"
+    elif "duplicates" in text.lower():
+        title = "No Duplicates"
+        icon = "≡"
+
+    est = EmptyState(parent, title=title, description=text, icon=icon, actions=actions)
+    est.pack(fill="both", expand=True, pady=40)
 
 
 class VaultScreenHost(ctk.CTkFrame):
@@ -88,18 +120,7 @@ class VaultScreenHost(ctk.CTkFrame):
         self._active = None
 
     def _build_receipts(self, parent: ctk.CTkScrollableFrame) -> None:
-        title_row = ctk.CTkFrame(parent, fg_color="transparent")
-        title_row.pack(fill="x", pady=(4, 2))
-        title_lbl = ctk.CTkLabel(
-            title_row, text=brand.TERM_STAMPED_RECEIPTS,
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        )
-        title_lbl.pack(side="left")
-        bind_tooltip(title_lbl, TOOLTIP_STAMPED_RECEIPTS)
-        ctk.CTkLabel(
-            parent, text="Local proof ledger — actions, hashes, and outcomes.",
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-        ).pack(fill="x", pady=(0, 8))
+        tools = ctk.CTkFrame(parent, fg_color="transparent")
 
         tools = ctk.CTkFrame(parent, fg_color="transparent")
         tools.pack(fill="x", pady=(0, 8))
@@ -116,6 +137,7 @@ class VaultScreenHost(ctk.CTkFrame):
         detail.configure(state="disabled")
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"]("Local proof ledger — actions, hashes, and outcomes.")
             hint = getattr(self, "_receipts_filter_hint", None)
             if hint:
                 from .receipt_ledger import FILTERS
@@ -176,20 +198,6 @@ class VaultScreenHost(ctk.CTkFrame):
         ).pack(anchor="w", pady=(8, 0))
 
     def _build_exports(self, parent: ctk.CTkScrollableFrame) -> None:
-        title_row = ctk.CTkFrame(parent, fg_color="transparent")
-        title_row.pack(fill="x", pady=(4, 2))
-        exp_title = ctk.CTkLabel(
-            title_row, text=brand.TERM_EXPORTS,
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        )
-        exp_title.pack(side="left")
-        bind_tooltip(exp_title, TOOLTIP_EXPORT_PROOF)
-        ctk.CTkLabel(
-            parent,
-            text="Export saved clips with honest capability labels.",
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-        ).pack(fill="x", pady=(0, 12))
-
         cap = ctk.CTkFrame(parent, fg_color=brand.SURFACE_BG, corner_radius=8)
         cap.pack(fill="x", pady=(0, 12))
         for label, value in (
@@ -212,19 +220,16 @@ class VaultScreenHost(ctk.CTkFrame):
                 font=theme.body_font(10),
             ).pack(side="right")
 
-        export_btn = ctk.CTkButton(
-            parent, text=brand.TERM_EXPORT,
-            command=self._callbacks["export_view"],
-            **theme.primary_button(),
-        )
-        export_btn.pack(anchor="w", pady=(0, 12))
-        bind_tooltip(export_btn, TOOLTIP_EXPORT_PROOF)
-
         _section(parent, "Recent exports")
         self._exports_list = ctk.CTkFrame(parent, fg_color="transparent")
         self._exports_list.pack(fill="x")
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"]("Export saved clips with honest capability labels.")
+            self._callbacks["set_header_actions"](
+                primary_text=brand.TERM_EXPORT,
+                primary_cmd=self._callbacks["export_view"]
+            )
             for w in self._exports_list.winfo_children():
                 w.destroy()
             vault = self._callbacks["vault"]()
@@ -257,24 +262,11 @@ class VaultScreenHost(ctk.CTkFrame):
         parent._refresh = reload  # type: ignore[attr-defined]
 
     def _build_mobile_inbox(self, parent: ctk.CTkScrollableFrame) -> None:
-        inbox_title_row = ctk.CTkFrame(parent, fg_color="transparent")
-        inbox_title_row.pack(fill="x", pady=(4, 2))
-        inbox_title = ctk.CTkLabel(
-            inbox_title_row, text=brand.TERM_MOBILE_INBOX,
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        )
-        inbox_title.pack(side="left")
-        bind_tooltip(inbox_title, TOOLTIP_MOBILE_INBOX)
-        ctk.CTkLabel(
-            parent,
-            text=f"{brand.TERM_INCOMING_FROM_PHONE} · paired Send-to-PC · {brand.LABEL_LOCAL_ONLY}",
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-            wraplength=640, justify="left",
-        ).pack(fill="x", pady=(0, 12))
         self._inbox_list = ctk.CTkFrame(parent, fg_color="transparent")
         self._inbox_list.pack(fill="x")
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"](f"{brand.TERM_INCOMING_FROM_PHONE} · paired Send-to-PC · {brand.LABEL_LOCAL_ONLY}")
             for w in self._inbox_list.winfo_children():
                 w.destroy()
             vault = self._callbacks["vault"]()
@@ -363,20 +355,6 @@ class VaultScreenHost(ctk.CTkFrame):
             SMART_TYPE_LABELS,
         )
 
-        macro_title_row = ctk.CTkFrame(parent, fg_color="transparent")
-        macro_title_row.pack(fill="x", pady=(4, 2))
-        macro_title = ctk.CTkLabel(
-            macro_title_row, text=brand.TERM_SNIPPET_MACROS,
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        )
-        macro_title.pack(side="left")
-        bind_tooltip(macro_title, TOOLTIP_VAULT_MACROS)
-        ctk.CTkLabel(
-            parent,
-            text="Saved macros with Macro Safes and smart filters — not encrypted.",
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-        ).pack(fill="x", pady=(0, 8))
-
         tools = ctk.CTkFrame(parent, fg_color="transparent")
         tools.pack(fill="x", pady=(0, 8))
         search = ctk.CTkEntry(tools, placeholder_text="Search macros…", width=220)
@@ -388,16 +366,6 @@ class VaultScreenHost(ctk.CTkFrame):
         )
         filt.set("All Macros")
         filt.pack(side="left", padx=(0, 8))
-        ctk.CTkButton(
-            tools, text="New from template", width=130,
-            command=self._callbacks.get("macro_new_template", lambda: None),
-            **theme.secondary_button(),
-        ).pack(side="right", padx=2)
-        ctk.CTkButton(
-            tools, text="Setup wizard", width=110,
-            command=self._callbacks.get("macro_setup", lambda: None),
-            **theme.secondary_button(),
-        ).pack(side="right", padx=2)
 
         self._macro_list = ctk.CTkFrame(parent, fg_color="transparent")
         self._macro_list.pack(fill="both", expand=True)
@@ -410,6 +378,13 @@ class VaultScreenHost(ctk.CTkFrame):
         )}
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"]("Saved macros with Macro Safes and smart filters — not encrypted.")
+            self._callbacks["set_header_actions"](
+                primary_text="New from template",
+                primary_cmd=self._callbacks.get("macro_new_template"),
+                secondary_text="Setup wizard",
+                secondary_cmd=self._callbacks.get("macro_setup")
+            )
             for w in self._macro_list.winfo_children():
                 w.destroy()
             macros_cb = self._callbacks.get("macro_list")
@@ -489,27 +464,6 @@ class VaultScreenHost(ctk.CTkFrame):
             action_label,
         )
 
-        title_row = ctk.CTkFrame(parent, fg_color="transparent")
-        title_row.pack(fill="x", pady=(4, 2))
-        ctk.CTkLabel(
-            title_row, text="Hotkey Actions",
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(side="left")
-        ctk.CTkLabel(
-            parent,
-            text="Clipboard-powered automation with proof. "
-                 "Trigger → Action → Target → Options → Receipt.",
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-        ).pack(fill="x", pady=(0, 8))
-
-        tools = ctk.CTkFrame(parent, fg_color="transparent")
-        tools.pack(fill="x", pady=(0, 8))
-        ctk.CTkButton(
-            tools, text="＋ New Hotkey", width=130,
-            command=self._callbacks.get("hotkey_action_new", lambda: None),
-            **theme.primary_button(),
-        ).pack(side="left", padx=2)
-
         self._hotkey_unavailable = ctk.CTkLabel(
             parent, text="", anchor="w", justify="left",
             text_color=brand.STAMP_GOLD, font=theme.body_font(11), wraplength=640,
@@ -525,6 +479,11 @@ class VaultScreenHost(ctk.CTkFrame):
         }
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"]("Clipboard-powered automation with proof. Trigger → Action → Target → Options → Receipt.")
+            self._callbacks["set_header_actions"](
+                primary_text="＋ New Hotkey",
+                primary_cmd=self._callbacks.get("hotkey_action_new")
+            )
             for w in self._hotkey_list.winfo_children():
                 w.destroy()
             rows_cb = self._callbacks.get("hotkey_action_list")
@@ -627,19 +586,11 @@ class VaultScreenHost(ctk.CTkFrame):
         parent._refresh = reload  # type: ignore[attr-defined]
 
     def _build_editable_copies(self, parent: ctk.CTkScrollableFrame) -> None:
-        ctk.CTkLabel(
-            parent, text=brand.TERM_EDITABLE_COPIES,
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(fill="x", pady=(4, 2))
-        ctk.CTkLabel(
-            parent,
-            text=f"{brand.LABEL_ORIGINAL_PROTECTED} · {brand.LABEL_EDITABLE_COPY} · {brand.LABEL_LOCAL_ONLY}",
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-        ).pack(fill="x", pady=(0, 12))
         self._copies_list = ctk.CTkFrame(parent, fg_color="transparent")
         self._copies_list.pack(fill="x")
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"](f"{brand.LABEL_ORIGINAL_PROTECTED} · {brand.LABEL_EDITABLE_COPY} · {brand.LABEL_LOCAL_ONLY}")
             for w in self._copies_list.winfo_children():
                 w.destroy()
             vault = self._callbacks["vault"]()
@@ -701,19 +652,11 @@ class VaultScreenHost(ctk.CTkFrame):
         parent._refresh = reload  # type: ignore[attr-defined]
 
     def _build_html_bundles(self, parent: ctk.CTkScrollableFrame) -> None:
-        ctk.CTkLabel(
-            parent, text=brand.TERM_HTML_BUNDLES,
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(fill="x", pady=(4, 2))
-        ctk.CTkLabel(
-            parent,
-            text=f"{brand.LABEL_HTML_BUNDLE_COPY} · copied assets stay local · remote assets skipped",
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-        ).pack(fill="x", pady=(0, 12))
         self._html_list = ctk.CTkFrame(parent, fg_color="transparent")
         self._html_list.pack(fill="x")
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"](f"{brand.LABEL_HTML_BUNDLE_COPY} · copied assets stay local · remote assets skipped")
             for w in self._html_list.winfo_children():
                 w.destroy()
             vault = self._callbacks["vault"]()
@@ -786,49 +729,50 @@ class VaultScreenHost(ctk.CTkFrame):
         parent._refresh = reload  # type: ignore[attr-defined]
 
     def _build_mobile_access(self, parent: ctk.CTkScrollableFrame) -> None:
-        ctk.CTkLabel(
-            parent, text=brand.TERM_MOBILE_ACCESS,
-            font=ctk.CTkFont(size=22, weight="bold"), anchor="w",
-        ).pack(fill="x", pady=(4, 2))
-        ctk.CTkLabel(
-            parent, text=brand.MOBILE_ACCESS_HONEST,
-            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
-            wraplength=640, justify="left",
-        ).pack(fill="x", pady=(0, 12))
         self._mobile_body = ctk.CTkFrame(parent, fg_color="transparent")
         self._mobile_body.pack(fill="x")
 
         def reload() -> None:
+            self._callbacks["set_header_subtitle"](brand.MOBILE_ACCESS_HONEST)
             for w in self._mobile_body.winfo_children():
                 w.destroy()
             report = self._callbacks["mobile_report"]()
             summary = report.get("summary", {})
             routes = report.get("routes", {})
-            lines = [
-                ("Bridge enabled", "Yes" if summary.get("mobile_enabled") else "No"),
-                ("Local IP", report.get("local_ip", "—")),
-                ("Port", str(summary.get("mobile_port", 8742))),
-                ("LAN discovery", "Active" if report.get("mdns_advertising") else "Not advertising"),
-                ("Pairing status", report.get("pairing_status", "—")),
-                ("Paired devices", str(summary.get("paired_count", 0))),
-                ("Android companion", brand.MOBILE_PRODUCT_NAME),
-                ("Last phone connection", report.get("last_connection", "—")),
+
+            status_lines = [
+                ("Android Companion", brand.MOBILE_PRODUCT_NAME),
+                ("Pairing Status", report.get("pairing_status", "—")),
+                ("Paired Devices", str(summary.get("paired_count", 0))),
+                ("Last Connection", report.get("last_connection", "—")),
+                ("Bridge Enabled", "Yes" if summary.get("mobile_enabled") else "No"),
             ]
-            card = ctk.CTkFrame(
-                self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8,
-            )
-            card.pack(fill="x", pady=(0, 12))
-            for label, val in lines:
-                row = ctk.CTkFrame(card, fg_color="transparent")
+            config_lines = [
+                ("Local IP Address", report.get("local_ip", "—")),
+                ("Port Number", str(summary.get("mobile_port", 8742))),
+                ("mDNS LAN Discovery", "Active" if report.get("mdns_advertising") else "Not advertising"),
+            ]
+
+            _section(self._mobile_body, "Device connection status")
+            card_status = ctk.CTkFrame(self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8)
+            card_status.pack(fill="x", pady=(0, 12))
+            for label, val in status_lines:
+                row = ctk.CTkFrame(card_status, fg_color="transparent")
                 row.pack(fill="x", padx=12, pady=4)
-                ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(11)).pack(
-                    side="left",
-                )
+                ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(11)).pack(side="left")
                 color = brand.PROOF_TEAL if val not in ("No", "—") else brand.MUTED_FG
-                ctk.CTkLabel(
-                    row, text=val, anchor="e", text_color=color,
-                    font=ctk.CTkFont(size=11, weight="bold"),
-                ).pack(side="right")
+                ctk.CTkLabel(row, text=val, anchor="e", text_color=color, font=ctk.CTkFont(size=11, weight="bold")).pack(side="right")
+
+            _section(self._mobile_body, "Network infrastructure configuration")
+            card_config = ctk.CTkFrame(self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8)
+            card_config.pack(fill="x", pady=(0, 12))
+            for label, val in config_lines:
+                row = ctk.CTkFrame(card_config, fg_color="transparent")
+                row.pack(fill="x", padx=12, pady=4)
+                ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(11)).pack(side="left")
+                color = brand.PROOF_TEAL if val not in ("No", "—") else brand.MUTED_FG
+                ctk.CTkLabel(row, text=val, anchor="e", text_color=color, font=ctk.CTkFont(size=11, weight="bold")).pack(side="right")
+
             _section(self._mobile_body, "Route health")
             for route, ok in routes.items():
                 row = ctk.CTkFrame(self._mobile_body, fg_color="transparent")
