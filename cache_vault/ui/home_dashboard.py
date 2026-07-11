@@ -151,17 +151,71 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             w.destroy()
         self._batch_frame = None
 
-        # Workflow-first header. Counts live in a quiet strip below rather than
-        # competing with the command center content.
+        header_frame = ctk.CTkFrame(self._body, fg_color="transparent")
+
+    def set_layout_mode(self, mode: str) -> None:
+        """Adjust responsiveness based on dashboard width."""
+        if mode == "compact":
+            self._split_pane.grid_columnconfigure(0, weight=1)
+            self._split_pane.grid_columnconfigure(1, weight=0)
+            self._left_pane.grid(row=0, column=0, sticky="nsew")
+            self._right_pane.grid(row=1, column=0, sticky="nsew")
+        else:
+            self._split_pane.grid_columnconfigure(0, weight=6)
+            self._split_pane.grid_columnconfigure(1, weight=4)
+            self._left_pane.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+            self._right_pane.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+
+    def set_selected(self, clip_id: str | None) -> None:
+        if getattr(self, "_guard_selection", False):
+            return
+        self._selected_clip_id = clip_id
+        self._guard_selection = True
+        try:
+            if clip_id is None:
+                self._selected_ids.clear()
+                self._anchor_id = None
+            else:
+                self._selected_ids = {clip_id}
+                self._anchor_id = clip_id
+            self._repaint_selection()
+            self._update_batch_toolbar()
+        finally:
+            self._guard_selection = False
+
+    def render(
+        self,
+        summary: dict,
+        recent: list[Clip],
+        favorites: list[Clip],
+        images: list[Clip],
+        today_clips: list[Clip] = None,
+        link_clips: list[Clip] = None,
+        receipts: list[Clip] = None,
+        sensitive_items: list[Clip] = None,
+    ) -> None:
+        del favorites
+        self._cards = {}
+        self._rendered_clips = {}
+        self._render_order = []
+
+        all_rendered_lists = [recent, today_clips, images, link_clips, receipts, sensitive_items]
+        for lst in all_rendered_lists:
+            if lst:
+                for c in lst:
+                    self._rendered_clips[c.id] = c
+                    if c.id not in self._render_order:
+                        self._render_order.append(c.id)
+
+        # Cleanup selection list for removed clips
+        self._selected_ids = {cid for cid in self._selected_ids if cid in self._render_order}
+
+        for w in self._body.winfo_children():
+            w.destroy()
+        self._batch_frame = None
+
         header_frame = ctk.CTkFrame(self._body, fg_color="transparent")
         header_frame.pack(fill="x", pady=(0, 10))
-
-        title_lbl = ctk.CTkLabel(
-            header_frame, text="Today in CacheVault", anchor="w",
-            font=ctk.CTkFont(size=26, weight="bold"),
-            text_color=brand.PROOF_TEAL,
-        )
-        title_lbl.pack(side="left")
 
         status_bar = ctk.CTkFrame(header_frame, fg_color="transparent")
         status_bar.pack(side="right", pady=5)
@@ -243,18 +297,22 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._update_batch_toolbar()
 
         # --- Split Grid Layout for Command Center ---
-        split_pane = ctk.CTkFrame(self._body, fg_color="transparent")
-        split_pane.pack(fill="both", expand=True, pady=(5, 0))
+        self._split_pane = ctk.CTkFrame(self._body, fg_color="transparent")
+        self._split_pane.pack(fill="both", expand=True, pady=(5, 0))
 
         # Left Column (Active Clip & Queue, width ~ 55%)
-        left_pane = ctk.CTkFrame(split_pane, fg_color="transparent")
-        left_pane.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        self._left_pane = ctk.CTkFrame(self._split_pane, fg_color="transparent")
 
         # Right Column (Quick Actions & Today's Clips, width ~ 45%)
-        right_pane = ctk.CTkFrame(split_pane, fg_color="transparent")
-        right_pane.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        self._right_pane = ctk.CTkFrame(self._split_pane, fg_color="transparent")
+        
+        mode = getattr(self.master, "_current_layout_mode", "standard")
+        self.set_layout_mode(mode)
 
         # --- Left Pane Contents ---
+        left_pane = self._left_pane
+        right_pane = self._right_pane
+        
         # 1. Recent Active Clip (Center of attention)
         if recent:
             self._pane_section_title(left_pane, "Recent Active Clip")

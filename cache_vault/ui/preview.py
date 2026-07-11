@@ -26,9 +26,19 @@ class PreviewPanel(ctk.CTkFrame):
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
-        self._title = ctk.CTkLabel(self._scroll, text=brand.TERM_VAULT_ITEM, anchor="w",
+        self._title_frame = ctk.CTkFrame(self._scroll, fg_color="transparent")
+        self._title_frame.pack(fill="x", padx=10, pady=(8, 2))
+
+        self._title = ctk.CTkLabel(self._title_frame, text=brand.TERM_VAULT_ITEM, anchor="w",
                                    font=ctk.CTkFont(size=16, weight="bold"))
-        self._title.pack(fill="x", padx=10, pady=(8, 2))
+        self._title.pack(side="left", fill="x", expand=True)
+        
+        self._close_btn = ctk.CTkButton(
+            self._title_frame, text="✕", width=24, height=24, fg_color="transparent",
+            hover_color=brand.MUTED_FG,
+            command=self._on_close_clicked
+        )
+        self._close_btn.pack(side="right")
 
         self._seal_frame = ctk.CTkFrame(self._scroll, **theme.vault_card())
         self._seal_labels: list[ctk.CTkLabel] = []
@@ -100,6 +110,7 @@ class PreviewPanel(ctk.CTkFrame):
             "Use Home for recently saved clips, or switch to Grid to sort by "
             "First Saved, Last Used, Source, and Type."
         )
+        self._close_btn.pack_forget()
 
     def show_locked_message(self) -> None:
         self._clip = None
@@ -130,11 +141,12 @@ class PreviewPanel(ctk.CTkFrame):
         self._seal_frame.pack_forget()
         self._set_body("")
         self._body.pack_forget()
+        self._close_btn.pack_forget()
 
         self._vault_frame.pack(fill="both", expand=True, padx=10, pady=6)
         for w in self._vault_frame.winfo_children():
             w.destroy()
-
+        
         # Premium Identity Empty State
         center_frame = ctk.CTkFrame(self._vault_frame, fg_color="transparent")
         center_frame.pack(expand=True, fill="both", pady=40)
@@ -155,10 +167,14 @@ class PreviewPanel(ctk.CTkFrame):
             justify="center",
         ).pack()
 
+    def _on_close_clicked(self) -> None:
+        if "close_inspector" in self._actions:
+            self._actions["close_inspector"]()
+
     def _hide_clip_sections(self) -> None:
         self._hide_tabs()
         self._seal_frame.pack_forget()
-        self._body.pack(fill="x", padx=10, pady=6)
+        self._body.pack_forget()
         self._image_frame.pack_forget()
         self._meta_title.pack_forget()
         self._meta.pack_forget()
@@ -229,6 +245,7 @@ class PreviewPanel(ctk.CTkFrame):
         type_label = clip_metadata.format_label(clip.classification, clip.content_type)
         safety = "Sensitive — masked in lists" if clip.is_sensitive else "Standard"
         self._title.configure(text=title)
+        self._close_btn.pack(side="right")
 
         # Collect badges based on metadata and storage status
         badges = []

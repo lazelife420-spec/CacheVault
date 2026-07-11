@@ -95,6 +95,7 @@ from . import theme
 from .crashlog import write_crash
 from .scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
 from .win_scroll import refresh_windows_scroll_cache
+from .page_header import PageHeader
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
 
@@ -557,11 +558,14 @@ class CacheVaultApp(ctk.CTk):
 
         self._center = ctk.CTkFrame(self, corner_radius=0, fg_color=brand.PANEL_BG)
         self._center.grid(row=1, column=1, sticky="nsew", padx=1)
-        self._center.grid_rowconfigure(1, weight=1)
+        self._center.grid_rowconfigure(2, weight=1)
         self._center.grid_columnconfigure(0, weight=1)
 
+        self._page_header = PageHeader(self._center)
+        self._page_header.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+
         self._toolbar = ctk.CTkFrame(self._center, fg_color=brand.SURFACE_BG)
-        self._toolbar.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+        self._toolbar.grid(row=1, column=0, sticky="ew", padx=4, pady=(4, 0))
         self._toolbar_row1 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
         self._toolbar_row1.pack(fill="x", padx=2, pady=(4, 2))
         self._toolbar_row2 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
@@ -609,9 +613,9 @@ class CacheVaultApp(ctk.CTk):
             on_double_click=self._on_clip_double_click,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
-        self._home.grid(row=1, column=0, sticky="nsew")
-        self._list.grid(row=1, column=0, sticky="nsew")
-        self._grid.grid(row=1, column=0, sticky="nsew")
+        self._home.grid(row=2, column=0, sticky="nsew")
+        self._list.grid(row=2, column=0, sticky="nsew")
+        self._grid.grid(row=2, column=0, sticky="nsew")
         self._grid.grid_remove()
         self._list.grid_remove()
 
@@ -655,7 +659,7 @@ class CacheVaultApp(ctk.CTk):
             },
             corner_radius=0,
         )
-        self._vault_screens.grid(row=1, column=0, sticky="nsew")
+        self._vault_screens.grid(row=2, column=0, sticky="nsew")
         self._vault_screens.grid_remove()
 
         self._preview = PreviewPanel(self, actions=self._build_actions(),
@@ -1310,6 +1314,7 @@ class CacheVaultApp(ctk.CTk):
         self._grid.grid_remove()
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
+        self._page_header.set_content("Command Center", "Today in CacheVault")
         self._home.grid()
 
     def _show_clips(self) -> None:
@@ -1317,6 +1322,7 @@ class CacheVaultApp(ctk.CTk):
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
         self._toolbar.grid()
+        self._page_header.set_content(self._filters.active_label)
         if self._view_mode == "grid":
             self._list.grid_remove()
             self._grid.grid()
@@ -1329,6 +1335,7 @@ class CacheVaultApp(ctk.CTk):
         self._list.grid_remove()
         self._grid.grid_remove()
         self._toolbar.grid_remove()
+        self._page_header.set_content(self._filters.active_label)
         self._vault_screens.grid()
         self._vault_screens.show(key)
         if self._preview._clip is None:  # noqa: SLF001
@@ -1425,6 +1432,7 @@ class CacheVaultApp(ctk.CTk):
             "send_to_macro": self._send_to_macro_safe,
             "create_paste_macro": self._create_macro_from_clip,
             "get_storage": lambda: self.vault.storage,
+            "close_inspector": self._close_inspector,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -1515,6 +1523,7 @@ class CacheVaultApp(ctk.CTk):
                 query = self._build_query()
                 all_clips = self.vault.list_clips(query)
                 total_clips = len(all_clips)
+                self._page_header.set_content(self._filters.active_label, f"{total_clips} clips")
                 clips = all_clips[:MAX_VISIBLE_CLIPS]
                 more_count = total_clips - len(clips)
                 self._visible_clip_ids = [c.id for c in clips]
@@ -1539,10 +1548,9 @@ class CacheVaultApp(ctk.CTk):
                         more_count=more_count,
                     )
                     self._list.set_selected(self._selected_clip_id)
-                self._update_selected_action_strip(
-                    self.vault.storage.get_clip(self._selected_clip_id)
-                    if self._selected_clip_id else None,
-                )
+                clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
+                self._update_selected_action_strip(clip)
+                self._preview.show(clip)
                 clip_count = total_clips
 
             summary["shown"] = clip_count
@@ -1932,15 +1940,35 @@ class CacheVaultApp(ctk.CTk):
 
         # Responsive check
         w = self.winfo_width()
-        is_compact = w < 1024
-        if is_compact != self._is_compact_width:
-            self._is_compact_width = is_compact
-            if is_compact:
-                self._preview.grid_forget()
-                self.grid_columnconfigure(2, minsize=0)
-            else:
-                self._preview.grid(row=1, column=2, sticky="nsew")
-                self.grid_columnconfigure(2, weight=0, minsize=320)
+        
+        if w >= 1500:
+            layout_mode = "wide"
+        elif w >= 1150:
+            layout_mode = "standard"
+        else:
+            layout_mode = "compact"
+            
+        current_mode = getattr(self, "_current_layout_mode", None)
+        if current_mode != layout_mode:
+            self._current_layout_mode = layout_mode
+            self._apply_layout_mode(layout_mode)
+            
+    def _apply_layout_mode(self, mode: str) -> None:
+        if mode == "compact":
+            self._preview.place_forget()
+            self._preview.grid_forget()
+            self.grid_columnconfigure(2, minsize=0, weight=0)
+        elif mode == "standard":
+            self._preview.place_forget()
+            self._preview.grid(row=1, column=2, sticky="nsew")
+            self.grid_columnconfigure(2, weight=0, minsize=320)
+        elif mode == "wide":
+            self._preview.place_forget()
+            self._preview.grid(row=1, column=2, sticky="nsew")
+            self.grid_columnconfigure(2, weight=0, minsize=400)
+            
+        if hasattr(self._home, "set_layout_mode"):
+            self._home.set_layout_mode(mode)
 
         # During a resize, we don't want to rebuild the entire clip list if possible.
         # But we might need to tell elements to wrap or adjust.
@@ -1997,6 +2025,11 @@ class CacheVaultApp(ctk.CTk):
                 self.vault.dashboard_summary(),
                 self._vault_panel_callbacks(),
             )
+            
+        self._clear_selection()
+        if getattr(self, "_current_layout_mode", None) == "compact":
+            self._close_inspector()
+            
         self.refresh()
 
     def _navigate_back(self, event=None) -> None:
@@ -2055,6 +2088,11 @@ class CacheVaultApp(ctk.CTk):
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
+        
+        if clip is not None and getattr(self, "_current_layout_mode", None) == "compact":
+            self._preview.configure(width=360)
+            self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
+            self._preview.lift()
 
     def _on_clip_selection_change(self, ids: list[str]) -> None:
         """Multi-selection (Ctrl/Shift click) reported from the list/grid.
@@ -2111,6 +2149,20 @@ class CacheVaultApp(ctk.CTk):
         elif action == "delete":
             self._bulk_remove()
         self._home.clear_selection()
+        self.refresh()
+
+    def _close_inspector(self) -> None:
+        self._selected_clip_id = None
+        self._selected_clip_ids = []
+        if self._view_mode == "grid":
+            self._grid.set_selected(None)
+        else:
+            self._list.set_selected(None)
+        self._home.set_selected(None)
+        self._update_selected_action_strip(None)
+        self._preview.show(None)
+        if getattr(self, "_current_layout_mode", None) == "compact":
+            self._preview.place_forget()
         self.refresh()
 
     def _set_selection_hint(self, text: str) -> None:

@@ -252,6 +252,10 @@ class FilterNav(ctk.CTkScrollableFrame):
         else:
             self.collapse_section(heading)
 
+    @property
+    def active_label(self) -> str:
+        return self._labels_text.get(self._active, self._active)
+
     def expand_section(self, heading: str) -> None:
         if heading not in self._collapsed:
             return
