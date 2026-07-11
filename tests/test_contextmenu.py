@@ -167,7 +167,7 @@ def test_shell_has_safe_context_menu():
     assert "open_safe_menu" in src
     assert "Set as Default Safe" in src
     assert "Copy Safe Summary" in src
-    assert "Export Safe Proof Zip (planned)" in src
+    assert "Export Safe Proof Zip (planned)" not in src
 
 
 # -- BUG-4 regression: "Mark Keep" must use a distinct key and dispatch --
@@ -287,7 +287,7 @@ def test_cleanup_2_disabled_stubs_and_home_status():
 
     # 1. open_home_status_menu does NOT have Set as Default Safe anymore, has (planned)
     assert "Set as Default Safe" not in inspect.getsource(clip_context.open_home_status_menu)
-    assert "Export Safe Proof Zip (planned)" in inspect.getsource(clip_context.open_home_status_menu)
+    assert "Export Safe Proof Zip (planned)" not in inspect.getsource(clip_context.open_home_status_menu)
 
     # 2. open_receipt_menu uses _find_receipt_file and has (no local file) labels
     assert "receipt_file = _find_receipt_file(row)" in inspect.getsource(clip_context.open_receipt_menu)

@@ -464,7 +464,6 @@ def open_home_status_menu(window, surface: str, x_root: int, y_root: int) -> Non
     if surface == "vault_status":
         menu.add_command(label="Open Safe", command=lambda: window._navigate_filter(f"{S.SAFE_PREFIX}{summary.get('default_safe', 'default')}"))
         menu.add_command(label="Copy Safe Summary", command=window._copy_default_safe_summary)
-        menu.add_command(label="Export Safe Proof Zip (planned)", state="disabled")
         menu.add_separator()
     menu.add_command(label="Open Receipts", command=lambda: window._navigate_screen(NAV_STAMPED_RECEIPTS))
     menu.add_command(label="Open Mobile Inbox", command=lambda: window._navigate_screen(NAV_MOBILE_INBOX))
@@ -638,11 +637,5 @@ def open_safe_menu(window, safe: dict, x_root: int, y_root: int) -> None:
         label="Change Color",
         state=("disabled" if builtin else "normal"),
         command=lambda: window._customize_safe_text(safe, "accent", "Safe accent color"),
-    )
-    menu.add_separator()
-    menu.add_command(label="Export Safe Proof Zip (planned)", state="disabled")
-    menu.add_command(
-        label="Delete Safe (planned)",
-        state="disabled",
     )
     popup_menu(window, menu, x_root, y_root)

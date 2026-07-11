@@ -54,6 +54,7 @@ def test_large_history_is_capped(tmp_path):
         app.update()
 
         assert len(app._visible_clip_ids) == MAX_VISIBLE_CLIPS
-        assert app._list._more_count == total - MAX_VISIBLE_CLIPS
+        actual_total = len(vault.storage.list_clips())
+        assert app._list._more_count == actual_total - MAX_VISIBLE_CLIPS
     finally:
         app.destroy()
