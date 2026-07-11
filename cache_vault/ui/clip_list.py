@@ -89,6 +89,10 @@ class ClipList(ctk.CTkScrollableFrame):
             self._rows.append(self._build_row(clip))
         self._show_more_footer()
 
+    def destroy(self) -> None:
+        self.cancel_render()
+        super().destroy()
+
     def cancel_render(self) -> None:
         if self._render_job:
             try:

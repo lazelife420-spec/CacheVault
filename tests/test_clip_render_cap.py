@@ -47,7 +47,11 @@ def test_large_history_is_capped(tmp_path):
     try:
         app.withdraw()
         app._navigate_screen(S.FILTER_ALL)
-        app.refresh()
+        # refresh() is debounced — call _do_refresh_sync() directly for
+        # synchronous test behaviour so _visible_clip_ids is populated
+        # before the assertions.
+        app._do_refresh_sync()
+        app.update()
 
         assert len(app._visible_clip_ids) == MAX_VISIBLE_CLIPS
         assert app._list._more_count == total - MAX_VISIBLE_CLIPS

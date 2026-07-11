@@ -155,6 +155,8 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
     def set_layout_mode(self, mode: str) -> None:
         """Adjust responsiveness based on dashboard width."""
+        if not hasattr(self, "_split_pane"):
+            return
         if mode == "compact":
             self._split_pane.grid_columnconfigure(0, weight=1)
             self._split_pane.grid_columnconfigure(1, weight=0)
