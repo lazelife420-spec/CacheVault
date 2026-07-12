@@ -3443,6 +3443,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _apply_settings(self, settings) -> None:
         settings.save()
+        self.vault.settings = settings
         vault_lock.record_lock_event(
             self.vault.events,
             vault_lock.EVENT_VAULT_LOCK_SETTINGS_CHANGED,
