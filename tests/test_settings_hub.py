@@ -166,7 +166,7 @@ class TestSettingsHub(unittest.TestCase):
         # We look for labels in the settings scroll area
         labels = [w.cget("text") for w in hub._settings_scroll.winfo_children() if isinstance(w, ctk.CTkLabel)]
         self.assertTrue(any("Search Results" in l for l in labels))
-        self.assertTrue(any("Mobile Bridge" in l for l in labels))
+        self.assertTrue(any("Mobile Access" in l for l in labels))
         
         hub.destroy()
 

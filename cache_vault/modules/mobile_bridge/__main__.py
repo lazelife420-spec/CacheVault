@@ -19,7 +19,7 @@ def _selftest() -> int:
         # Test manifest properties
         module = MobileBridgeModule()
         assert module.id == "mobile_bridge"
-        assert "Mobile Bridge" in module.name
+        assert "Mobile Access" in module.name
 
         # Test doctor report generation (mocked inputs)
         report = connection_doctor_report(
@@ -65,7 +65,7 @@ def main() -> int:
             mdns_advertising=False,
         )
 
-        print("--- Cache Vault Mobile Bridge Doctor ---")
+        print("--- Cache Vault Mobile Access Doctor ---")
         print(connection_doctor_text(report))
         print("---------------------------------------")
         print("Note: Bridge status is 'Not listening' because this is the standalone doctor.")

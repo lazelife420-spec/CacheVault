@@ -40,6 +40,7 @@ from ..core.paste_delivery import (
 )
 from ..core.storage import FILTER_HOME, FILTER_SEARCH_ALL
 from ..core.mobile.bridge import MobileBridge
+from ..core.mobile.mobile_access_controller import MobileAccessController
 from ..core.vault import Vault
 from .clip_grid import ClipGrid
 from .clip_list import ClipList
@@ -263,6 +264,8 @@ class CacheVaultApp(ctk.CTk):
         self._init_jobs = []
 
         self._mobile_bridge = MobileBridge(self.vault)
+        self._mobile_controller = MobileAccessController(self.vault, self._mobile_bridge)
+        self._mobile_controller.subscribe(lambda _state: self.after(0, self.refresh))
 
         from ..core.vault_macros import MacroSafeRegistry, MacroStore
         self._macro_store = MacroStore()
@@ -364,7 +367,7 @@ class CacheVaultApp(ctk.CTk):
         self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
         self._bind_tooltip_hide_events()
         # Start mobile bridge after the window is live (zeroconf must not block UI).
-        self._init_jobs.append(self.after(0, lambda: self._mobile_bridge.sync(self.vault.settings)))
+        self._init_jobs.append(self.after(0, lambda: self._mobile_controller.sync(self.vault.settings)))
 
         # Tray last — callbacks marshal through _call_on_main (pystray runs off-thread).
         self._tray = TrayController(
@@ -836,9 +839,37 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
-        self._selected_action_frame.pack_forget()
-        self._set_selection_hint(brand.SELECTION_HINT)
-        self._selected_action_label.configure(text="")
+
+        if self._locked() or clip is None:
+            self._selected_action_frame.pack_forget()
+            self._set_selection_hint(brand.SELECTION_HINT)
+            self._selected_action_label.configure(text="")
+            return
+
+        if getattr(self, "_current_layout_mode", None) == "compact":
+            self._selected_action_frame.pack(side="left", padx=(8, 4))
+            self._set_selection_hint("")
+            self._selected_action_label.configure(text="1 clip selected")
+
+            def show_details():
+                self._preview.configure(width=360)
+                self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
+                self._preview.lift()
+
+            btn = ctk.CTkButton(
+                self._selected_action_frame,
+                text="Details",
+                width=92,
+                height=24,
+                command=show_details,
+                **theme.secondary_button(),
+            )
+            btn.pack(side="left", padx=2)
+            self._selected_action_buttons.append(btn)
+        else:
+            self._selected_action_frame.pack_forget()
+            self._set_selection_hint(brand.SELECTION_HINT)
+            self._selected_action_label.configure(text="")
 
     def _clear_selection(self) -> None:
         # Use clear_selection (not set_selected(None)) so a multi-row selection
@@ -1284,8 +1315,11 @@ class CacheVaultApp(ctk.CTk):
         import socket
         import urllib.error
         import urllib.request
+        from ..core.mobile.mobile_access_controller import relative_timestamp
 
         summary = self.vault.dashboard_summary()
+        # Use controller for canonical state
+        ctrl = self._mobile_controller
         local_ip = "—"
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1295,7 +1329,9 @@ class CacheVaultApp(ctk.CTk):
         except OSError:
             pass
         receipts = self._mobile_bridge.receipts.recent(5)
-        last_connection = receipts[0].get("timestamp") if receipts else "—"
+        raw_ts = receipts[0].get("timestamp") if receipts else None
+        last_connection = relative_timestamp(raw_ts) if raw_ts else "—"
+        last_connection_raw = raw_ts or "—"
         pairing = (
             f"{summary.get('paired_count', 0)} device(s) paired"
             if summary.get("paired_count")
@@ -1303,7 +1339,7 @@ class CacheVaultApp(ctk.CTk):
         )
         routes: dict[str, bool] = {}
         port = int(summary.get("mobile_port") or 8742)
-        if self._mobile_bridge.is_running:
+        if ctrl.listening:
             for path in (
                 "/mobile/v1/status",
                 "/mobile/v1/clips",
@@ -1325,13 +1361,32 @@ class CacheVaultApp(ctk.CTk):
                 "/mobile/v1/recently-removed",
             ):
                 routes[path] = False
+        # Build device list for the page
+        devices = []
+        for d in self._mobile_bridge.all_devices():
+            devices.append({
+                "device_id": d.device_id,
+                "device_name": d.device_name,
+                "app_version": d.app_version or "Unknown",
+                "platform": d.platform or "Android",
+                "last_seen": relative_timestamp(d.last_seen_at),
+                "last_seen_raw": d.last_seen_at or "",
+                "is_active": d.is_active,
+                "revoked": d.revoked_at is not None,
+            })
         return {
             "summary": summary,
             "local_ip": local_ip,
             "pairing_status": pairing,
             "last_connection": last_connection,
+            "last_connection_raw": last_connection_raw,
             "routes": routes,
-            "mdns_advertising": self._mobile_bridge.discovery.is_advertising,
+            "mdns_advertising": ctrl.advertising,
+            "controller_enabled": ctrl.enabled,
+            "controller_listening": ctrl.listening,
+            "controller_status": ctrl.status_text,
+            "controller_error": ctrl.last_error,
+            "devices": devices,
         }
 
     def _navigate_filter(self, key: str) -> None:
@@ -1655,6 +1710,7 @@ class CacheVaultApp(ctk.CTk):
 
             summary["shown"] = clip_count
             summary["default_safe"] = self.vault.settings.default_safe_id
+            summary["mobile_status_text"] = self._mobile_controller.status_text
             self._control_strip.update_state(summary)
             if self._locked():
                 self._lock_screen.lift()
@@ -1679,6 +1735,7 @@ class CacheVaultApp(ctk.CTk):
         self._control_strip.update_state({
             "capture_paused": self.vault.settings.capture_paused,
             "mobile_enabled": False,
+            "mobile_status_text": "Off",
             "paired_count": 0,
             "default_safe": "Vault locked",
         })
@@ -2040,19 +2097,19 @@ class CacheVaultApp(ctk.CTk):
 
         # Responsive check
         w = self.winfo_width()
-        
+
         if w >= 1500:
             layout_mode = "wide"
         elif w >= 1150:
             layout_mode = "standard"
         else:
             layout_mode = "compact"
-            
+
         current_mode = getattr(self, "_current_layout_mode", None)
         if current_mode != layout_mode:
             self._current_layout_mode = layout_mode
             self._apply_layout_mode(layout_mode)
-            
+
     def _apply_layout_mode(self, mode: str) -> None:
         # Column sizing is applied here immediately so the layout doesn't
         # visibly jump; actual preview grid/place/hidden state is decided
@@ -2144,11 +2201,11 @@ class CacheVaultApp(ctk.CTk):
                 self.vault.dashboard_summary(),
                 self._vault_panel_callbacks(),
             )
-            
+
         self._clear_selection()
         if getattr(self, "_current_layout_mode", None) == "compact":
             self._close_inspector()
-            
+
         self.refresh()
 
     def _navigate_back(self, event=None) -> None:
@@ -2234,6 +2291,7 @@ class CacheVaultApp(ctk.CTk):
         if primary is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(primary.id))
         self._preview.show(primary)
+        self._update_inspector_visibility()
 
     def _on_home_batch_action(self, action: str, ids: list[str]) -> None:
         if not ids:
@@ -3242,6 +3300,7 @@ class CacheVaultApp(ctk.CTk):
                 from ..modules.registry import build_default_registry
                 registry = build_default_registry(
                     mobile_bridge=self._mobile_bridge,
+                    mobile_controller=self._mobile_controller,
                     mobile_pair_action=lambda: self._open_pair_android(),
                     mobile_devices_action=self._open_paired_devices,
                     mobile_receipts_action=self._open_mobile_receipts,
@@ -3405,20 +3464,27 @@ class CacheVaultApp(ctk.CTk):
         from ..core import startup
         startup.sync(settings.start_with_windows)
         self.refresh()
-        if not self._mobile_bridge.needs_sync(settings):
+        if not self._mobile_controller.needs_change(settings):
             return
 
-        def _sync_bridge() -> None:
+        def _sync_mobile() -> None:
             try:
-                self._mobile_bridge.sync(settings)
+                if settings.mobile_access_enabled:
+                    result = self._mobile_controller.enable(settings)
+                    if not result.success:
+                        if self._alive():
+                            self.after(0, lambda: self._show_toast(
+                                f"Could not start Mobile Access: {result.error}"))
+                else:
+                    self._mobile_controller.disable(settings)
             except Exception as exc:  # noqa: BLE001
-                write_crash("mobile bridge sync", exc)
+                write_crash("mobile controller sync", exc)
             finally:
                 if self._alive():
                     self.after(0, self.refresh)
 
         threading.Thread(
-            target=_sync_bridge, name="mobile-bridge-sync", daemon=True,
+            target=_sync_mobile, name="mobile-sync", daemon=True,
         ).start()
 
     def _rebind_hotkey(self, spec: str) -> None:

@@ -72,14 +72,15 @@ class TestSettingsHubIntegration(unittest.TestCase):
             hub.winfo_exists.return_value = True
             return hub
 
+        self.vault.settings.mobile_access_enabled = True
         with patch('cache_vault.ui.shell.SettingsHub', side_effect=_capture_hub):
             self.app._open_settings()
 
         mobile_module = captured["registry"].get("mobile_bridge")
         rows = {row.label: row.value_getter() for row in mobile_module.get_status_rows()}
-        # A live-but-unstarted bridge reads "Not listening", distinct from
+        # A live-but-unstarted bridge reads "Not running", distinct from
         # the pre-fix disconnected default's "Not started".
-        self.assertEqual(rows["Bridge"], "Not listening")
+        self.assertEqual(rows["Phone Sync"], "Not running")
 
     def test_open_settings_wires_mobile_actions_into_registry(self):
         """12A: the registry's Mobile Bridge status rows must call the app's
@@ -103,7 +104,7 @@ class TestSettingsHubIntegration(unittest.TestCase):
                 row.label: row
                 for row in captured["registry"].get("mobile_bridge").get_status_rows()
             }
-            rows["Bridge"].action()
+            rows["Phone Sync"].action()
             rows["Paired devices"].action()
             rows["Last phone request"].action()
 

@@ -239,6 +239,7 @@ _CATEGORY_ORDER = [
 def build_default_registry(
     *,
     mobile_bridge: "MobileBridge | None" = None,
+    mobile_controller=None,
     mobile_pair_action: Callable[[], None] | None = None,
     mobile_devices_action: Callable[[], None] | None = None,
     mobile_receipts_action: Callable[[], None] | None = None,
@@ -253,8 +254,12 @@ def build_default_registry(
     instance that always reports "not started". Without it, behavior is
     unchanged from before (bridge_ref=None).
 
+    ``mobile_controller``, when provided, is threaded into ``MobileBridgeModule``
+    so its status rows read from the authoritative controller state instead of
+    independently querying the bridge and settings.
+
     ``mobile_pair_action`` / ``mobile_devices_action`` / ``mobile_receipts_action``,
-    when provided, become the Mobile Bridge status rows' clickable actions
+    when provided, become the Mobile Access status rows' clickable actions
     (Pair Android Device / Paired Devices / Mobile Access Receipts). Without
     them, those rows render with no button, same as before.
 
@@ -290,6 +295,7 @@ def build_default_registry(
     if mobile_bridge is not None:
         reg.register(MobileBridgeModule(
             bridge_ref=mobile_bridge,
+            controller_ref=mobile_controller,
             receipts_getter=mobile_bridge.receipts.recent,
             mdns_status_getter=lambda: mobile_bridge.discovery.is_advertising,
             **mobile_action_kwargs,

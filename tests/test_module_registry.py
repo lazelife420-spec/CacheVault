@@ -60,13 +60,14 @@ def test_build_default_registry_threads_mobile_bridge(vault):
     """
     from cache_vault.core.mobile.bridge import MobileBridge
 
+    vault.settings.mobile_access_enabled = True
     bridge = MobileBridge(vault)
     reg = build_default_registry(mobile_bridge=bridge)
     mod = reg.get("mobile_bridge")
     rows = {row.label: row.value_getter() for row in mod.get_status_rows()}
-    # A live-but-not-yet-started bridge reads "Not listening", distinct from
+    # A live-but-not-yet-running sync reads "Not running", distinct from
     # the disconnected default's "Not started" — proves bridge_ref is real.
-    assert rows["Bridge"] == "Not listening"
+    assert rows["Phone Sync"] == "Not running"
 
 
 def test_build_default_registry_threads_mobile_actions():
@@ -82,14 +83,14 @@ def test_build_default_registry_threads_mobile_actions():
         mobile_receipts_action=lambda: receipts,
     )
     rows = {row.label: row for row in reg.get("mobile_bridge").get_status_rows()}
-    assert rows["Bridge"].action() is pair
-    assert rows["Bridge"].action_label == "Pair Android Device"
+    assert rows["Phone Sync"].action() is pair
+    assert rows["Phone Sync"].action_label == "Pair Android Device"
     assert rows["Paired devices"].action() is devices
     assert rows["Paired devices"].action_label == "Paired Devices"
     assert rows["Last phone request"].action() is receipts
     assert rows["Last phone request"].action_label == "Mobile Access Receipts"
     # Untouched rows still carry no action.
-    assert rows["LAN discovery (mDNS)"].action is None
+    assert rows["LAN Discovery"].action is None
     assert rows["LAN IP"].action is None
 
     # No actions passed -> no module carries a button (matches Q3/Q4 finding).
@@ -439,7 +440,7 @@ def test_mobile_bridge_status_rows_reflect_live_bridge_state(vault):
             mdns_status_getter=lambda: bridge.discovery.is_advertising,
         )
         rows = {row.label: row.value_getter() for row in mod.get_status_rows()}
-        assert rows["Bridge"] == "Listening"
+        assert rows["Phone Sync"] == "Running"
         assert rows["Paired devices"] == "1 paired device"
     finally:
         bridge.stop()

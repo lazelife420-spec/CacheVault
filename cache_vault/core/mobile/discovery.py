@@ -32,6 +32,11 @@ class MobileDiscovery:
     def is_advertising(self) -> bool:
         return self._info is not None
 
+    def verify_advertising(self) -> bool:
+        """Confirm the mDNS service is registered (best-effort check)."""
+        with self._lock:
+            return self._info is not None and self._zc is not None
+
     def start(self, port: int, *, pc_name: str | None = None) -> bool:
         """Register ``_cachevault._tcp``; return False if unavailable."""
         with self._lock:

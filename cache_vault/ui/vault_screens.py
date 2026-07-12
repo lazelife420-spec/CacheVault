@@ -731,60 +731,131 @@ class VaultScreenHost(ctk.CTkFrame):
     def _build_mobile_access(self, parent: ctk.CTkScrollableFrame) -> None:
         self._mobile_body = ctk.CTkFrame(parent, fg_color="transparent")
         self._mobile_body.pack(fill="x")
+        self._tech_details_visible = False
 
         def reload() -> None:
             self._callbacks["set_header_subtitle"](brand.MOBILE_ACCESS_HONEST)
+            self._callbacks["set_header_actions"]()
             for w in self._mobile_body.winfo_children():
                 w.destroy()
             report = self._callbacks["mobile_report"]()
             summary = report.get("summary", {})
             routes = report.get("routes", {})
+            devices = report.get("devices", [])
+            ctrl_enabled = report.get("controller_enabled", False)
+            ctrl_listening = report.get("controller_listening", False)
+            ctrl_status = report.get("controller_status", "Off")
 
-            status_lines = [
-                ("Android Companion", brand.MOBILE_PRODUCT_NAME),
-                ("Pairing Status", report.get("pairing_status", "—")),
-                ("Paired Devices", str(summary.get("paired_count", 0))),
-                ("Last Connection", report.get("last_connection", "—")),
-                ("Bridge Enabled", "Yes" if summary.get("mobile_enabled") else "No"),
-            ]
-            config_lines = [
-                ("Local IP Address", report.get("local_ip", "—")),
-                ("Port Number", str(summary.get("mobile_port", 8742))),
-                ("mDNS LAN Discovery", "Active" if report.get("mdns_advertising") else "Not advertising"),
-            ]
-
-            _section(self._mobile_body, "Device connection status")
-            card_status = ctk.CTkFrame(self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8)
+            # ── Status Card ──────────────────────────────────────────────
+            _section(self._mobile_body, "Status")
+            card_status = ctk.CTkFrame(
+                self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8,
+            )
             card_status.pack(fill="x", pady=(0, 12))
-            for label, val in status_lines:
-                row = ctk.CTkFrame(card_status, fg_color="transparent")
-                row.pack(fill="x", padx=12, pady=4)
-                ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(11)).pack(side="left")
-                color = brand.PROOF_TEAL if val not in ("No", "—") else brand.MUTED_FG
-                ctk.CTkLabel(row, text=val, anchor="e", text_color=color, font=ctk.CTkFont(size=11, weight="bold")).pack(side="right")
 
-            _section(self._mobile_body, "Network infrastructure configuration")
-            card_config = ctk.CTkFrame(self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8)
-            card_config.pack(fill="x", pady=(0, 12))
-            for label, val in config_lines:
-                row = ctk.CTkFrame(card_config, fg_color="transparent")
-                row.pack(fill="x", padx=12, pady=4)
-                ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(11)).pack(side="left")
-                color = brand.PROOF_TEAL if val not in ("No", "—") else brand.MUTED_FG
-                ctk.CTkLabel(row, text=val, anchor="e", text_color=color, font=ctk.CTkFont(size=11, weight="bold")).pack(side="right")
-
-            _section(self._mobile_body, "Route health")
-            for route, ok in routes.items():
-                row = ctk.CTkFrame(self._mobile_body, fg_color="transparent")
-                row.pack(fill="x", pady=2)
-                ctk.CTkLabel(row, text=route, anchor="w", font=theme.body_font(11)).pack(
-                    side="left",
-                )
+            def _status_row(parent_card, label: str, value: str,
+                            *, ok_values=("On", "Running", "Active"),
+                              muted=False, tooltip_text: str | None = None):
+                row = ctk.CTkFrame(parent_card, fg_color="transparent")
+                row.pack(fill="x", padx=16, pady=5)
                 ctk.CTkLabel(
-                    row, text="200 OK" if ok else "unavailable",
-                    text_color=brand.PROOF_TEAL if ok else brand.WARNING_RED,
-                    font=theme.body_font(11),
-                ).pack(side="right")
+                    row, text=label, anchor="w",
+                    font=ctk.CTkFont(size=13),
+                ).pack(side="left", fill="x", expand=True)
+                if muted or value.startswith("Not running"):
+                    color = brand.MUTED_FG
+                elif any(v in value for v in ok_values):
+                    color = brand.PROOF_TEAL
+                elif "Error" in value or "error" in value:
+                    color = "#E6A23C"
+                else:
+                    color = brand.MUTED_FG
+                val_label = ctk.CTkLabel(
+                    row, text=value, anchor="e",
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                    text_color=color,
+                )
+                val_label.pack(side="right")
+                if tooltip_text:
+                    bind_tooltip(val_label, tooltip_text)
+
+            # User-facing status lines
+            _status_row(card_status, "Mobile Access", ctrl_status)
+
+            if ctrl_enabled:
+                sync_label = "Running" if ctrl_listening else "Not running"
+            else:
+                sync_label = "Not running \u2014 Mobile Access is off"
+            _status_row(card_status, "Phone Sync", sync_label)
+
+            mdns_on = report.get("mdns_advertising", False)
+            if ctrl_enabled:
+                disc_label = "Active" if mdns_on else "Not running"
+            else:
+                disc_label = "Not running \u2014 Mobile Access is off"
+            _status_row(card_status, "LAN Discovery", disc_label)
+
+            last_conn = report.get("last_connection", "\u2014")
+            last_conn_raw = report.get("last_connection_raw", "")
+            _status_row(
+                card_status, "Last connection", last_conn,
+                ok_values=(),
+                tooltip_text=last_conn_raw if last_conn_raw and last_conn_raw != "\u2014" else None,
+            )
+
+            paired_count = summary.get("paired_count", 0)
+            _status_row(
+                card_status, "Paired devices",
+                f"{paired_count} device{'s' if paired_count != 1 else ''}"
+                if paired_count else "No devices paired",
+            )
+
+            # Error display
+            ctrl_error = report.get("controller_error")
+            if ctrl_error:
+                err_frame = ctk.CTkFrame(card_status, fg_color="transparent")
+                err_frame.pack(fill="x", padx=16, pady=(4, 8))
+                ctk.CTkLabel(
+                    err_frame, text=f"\u26A0 {ctrl_error}",
+                    text_color="#E6A23C", anchor="w",
+                    font=ctk.CTkFont(size=12), wraplength=550, justify="left",
+                ).pack(fill="x")
+
+            # ── Paired Devices ────────────────────────────────────────────
+            active_devices = [d for d in devices if d.get("is_active")]
+            if active_devices:
+                _section(self._mobile_body, "Paired devices")
+                for dev in active_devices:
+                    dev_card = ctk.CTkFrame(
+                        self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8,
+                    )
+                    dev_card.pack(fill="x", pady=(0, 8))
+                    ctk.CTkLabel(
+                        dev_card,
+                        text=dev.get("device_name", "Unknown device"),
+                        anchor="w",
+                        font=ctk.CTkFont(size=14, weight="bold"),
+                    ).pack(fill="x", padx=16, pady=(10, 2))
+                    app_ver = dev.get("app_version", "Unknown")
+                    ctk.CTkLabel(
+                        dev_card,
+                        text=f"CacheVault Mobile {app_ver}",
+                        anchor="w", text_color=brand.MUTED_FG,
+                        font=ctk.CTkFont(size=12),
+                    ).pack(fill="x", padx=16)
+                    last_seen = dev.get("last_seen", "Never")
+                    last_seen_raw = dev.get("last_seen_raw", "")
+                    seen_label = ctk.CTkLabel(
+                        dev_card,
+                        text=f"Last seen {last_seen}",
+                        anchor="w", text_color=brand.MUTED_FG,
+                        font=ctk.CTkFont(size=11),
+                    )
+                    seen_label.pack(fill="x", padx=16, pady=(0, 10))
+                    if last_seen_raw:
+                        bind_tooltip(seen_label, last_seen_raw)
+
+            # ── Actions ──────────────────────────────────────────────────
             btns = ctk.CTkFrame(self._mobile_body, fg_color="transparent")
             btns.pack(fill="x", pady=(12, 0))
             ctk.CTkButton(
@@ -797,16 +868,106 @@ class VaultScreenHost(ctk.CTkFrame):
                 command=self._callbacks["paired_devices"],
                 **theme.secondary_button(),
             ).pack(side="left", padx=(0, 6))
-            if summary.get("paired_count"):
+            if paired_count:
                 ctk.CTkButton(
                     btns, text="Revoke All Devices",
                     command=self._callbacks["revoke_all_mobile"],
                     **theme.destructive_button(),
                 ).pack(side="left", padx=(0, 6))
+
+            btns2 = ctk.CTkFrame(self._mobile_body, fg_color="transparent")
+            btns2.pack(fill="x", pady=(6, 0))
+            if report.get("local_ip") and report["local_ip"] != "\u2014":
+                port = summary.get("mobile_port", 8742)
+                address = f"{report['local_ip']}:{port}"
+
+                def _copy_addr(addr=address):
+                    try:
+                        self._mobile_body.clipboard_clear()
+                        self._mobile_body.clipboard_append(addr)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                ctk.CTkButton(
+                    btns2, text=f"Copy Address ({address})", width=220, height=30,
+                    command=_copy_addr,
+                    **theme.secondary_button(),
+                ).pack(side="left", padx=(0, 6))
+
             ctk.CTkButton(
-                btns, text="Mobile Settings",
+                btns2, text="Mobile Settings",
                 command=self._callbacks["mobile_settings"],
                 **theme.secondary_button(),
             ).pack(side="left")
+
+            # ── Technical Details (collapsed by default) ─────────────────
+            tech_frame = ctk.CTkFrame(self._mobile_body, fg_color="transparent")
+            tech_frame.pack(fill="x", pady=(16, 0))
+
+            tech_content = ctk.CTkFrame(
+                self._mobile_body, fg_color=brand.SURFACE_BG, corner_radius=8,
+            )
+
+            def _toggle_tech():
+                if tech_content.winfo_manager():
+                    tech_content.pack_forget()
+                    tech_toggle.configure(text="\u25B6 Technical Details")
+                else:
+                    tech_content.pack(fill="x", pady=(4, 0))
+                    tech_toggle.configure(text="\u25BC Technical Details")
+
+            tech_toggle = ctk.CTkButton(
+                tech_frame, text="\u25B6 Technical Details",
+                anchor="w", fg_color="transparent",
+                hover_color=brand.ROW_SELECTED_BG,
+                text_color=brand.MUTED_FG,
+                font=ctk.CTkFont(size=12),
+                command=_toggle_tech,
+            )
+            tech_toggle.pack(anchor="w")
+
+            # Populate tech content (hidden until toggled)
+            for label_text, value_text in (
+                ("LAN IP", report.get("local_ip", "\u2014")),
+                ("Port", str(summary.get("mobile_port", 8742))),
+                ("Bind host", (summary.get("mobile_bind_host") or "0.0.0.0")),
+            ):
+                r = ctk.CTkFrame(tech_content, fg_color="transparent")
+                r.pack(fill="x", padx=16, pady=3)
+                ctk.CTkLabel(r, text=label_text, anchor="w",
+                             font=theme.body_font(11)).pack(side="left")
+                ctk.CTkLabel(r, text=value_text, anchor="e",
+                             text_color=brand.MUTED_FG,
+                             font=theme.body_font(11)).pack(side="right")
+
+            # Route health
+            if routes:
+                ctk.CTkLabel(
+                    tech_content, text="ROUTE HEALTH",
+                    font=ctk.CTkFont(size=10, weight="bold"),
+                    text_color=brand.MUTED_FG,
+                ).pack(anchor="w", padx=16, pady=(10, 4))
+                for route, ok in routes.items():
+                    r = ctk.CTkFrame(tech_content, fg_color="transparent")
+                    r.pack(fill="x", padx=16, pady=2)
+                    ctk.CTkLabel(r, text=route, anchor="w",
+                                 font=theme.body_font(11)).pack(side="left")
+                    if not ctrl_enabled:
+                        status_text = "Not running"
+                        status_color = brand.MUTED_FG
+                    elif ok:
+                        status_text = "200 OK"
+                        status_color = brand.PROOF_TEAL
+                    else:
+                        status_text = "unavailable"
+                        status_color = "#E6A23C"
+                    ctk.CTkLabel(
+                        r, text=status_text, anchor="e",
+                        text_color=status_color,
+                        font=theme.body_font(11),
+                    ).pack(side="right")
+
+            # Pad bottom of tech content
+            ctk.CTkFrame(tech_content, height=8, fg_color="transparent").pack()
 
         parent._refresh = reload  # type: ignore[attr-defined]

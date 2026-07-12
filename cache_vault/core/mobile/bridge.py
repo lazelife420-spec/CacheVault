@@ -103,8 +103,30 @@ class MobileBridge:
         self._thread = None
         if thread is not None and thread.is_alive():
             thread.join(timeout=0.25)
+        # Verify: after stop the bridge must not appear running.
+        if self._server is not None:
+            self._server = None
 
-    def _start(self, host: str, port: int) -> None:
+    def verify_listening(self) -> bool:
+        """Quick loopback health check — can we connect to our own port?"""
+        if self._server is None or self._listen_port is None:
+            return False
+        import socket as _socket
+        try:
+            s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            s.connect(("127.0.0.1", self._listen_port))
+            s.close()
+            return True
+        except OSError:
+            return False
+
+    def _start(self, host: str, port: int) -> bool:
+        """Bind and start the HTTP listener.  Returns ``True`` on success.
+
+        mDNS is **not** started here — the ``MobileAccessController``
+        manages mDNS lifecycle separately so it can be verified independently.
+        """
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -177,7 +199,7 @@ class MobileBridge:
             self._server = ThreadingHTTPServer((host, port), Handler)
         except OSError:
             self._server = None
-            return
+            return False
         self._listen_host = host
         self._listen_port = port
         self._thread = threading.Thread(
@@ -190,6 +212,7 @@ class MobileBridge:
             name="mobile-discovery",
             daemon=True,
         ).start()
+        return True
 
     # --- pairing (desktop-side) ------------------------------------------------
     def pair_device(self, device_id: str, device_name: str,
@@ -284,7 +307,16 @@ class MobileBridge:
         action = api_mod.action_for_route(family or path_only, method)
         header_device_id = headers.get("X-Device-Id") or headers.get("x-device-id")
 
+        # Security invariant: if settings say disabled we MUST NOT be running.
+        # If we somehow are, force-stop immediately before processing.
         if not self.vault.settings.mobile_access_enabled:
+            if self.is_running:
+                import threading
+                threading.Thread(
+                    target=self.stop,
+                    name="mobile-bridge-force-stop",
+                    daemon=True,
+                ).start()
             rec = api_mod.reject_receipt(
                 path_only, action, "denied", "mobile_access_disabled",
                 remote_ip=remote_ip)

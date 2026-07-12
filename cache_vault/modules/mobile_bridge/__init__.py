@@ -1,4 +1,4 @@
-"""Mobile Bridge module manifest.
+"""Mobile Access module manifest.
 
 Thin wrapper around the existing ``cache_vault.core.mobile`` package.
 No files are moved; this manifest only declares identity, settings schema,
@@ -15,12 +15,13 @@ from ..settings_schema import SettingsCategory, SettingsField, StatusRow
 
 
 class MobileBridgeModule(ModuleManifest):
-    """Mobile Bridge — LAN read-only API for paired Android devices."""
+    """Mobile Access — LAN read-only API for paired Android devices."""
 
     def __init__(
         self,
         *,
         bridge_ref: Any | None = None,
+        controller_ref: Any | None = None,
         receipts_getter: Callable[[], list[dict]] | None = None,
         mdns_status_getter: Callable[[], bool] | None = None,
         pair_action: Callable[[], None] | None = None,
@@ -28,6 +29,7 @@ class MobileBridgeModule(ModuleManifest):
         receipts_action: Callable[[], None] | None = None,
     ) -> None:
         self._bridge = bridge_ref
+        self._controller = controller_ref
         self._receipts_getter = receipts_getter
         self._mdns_status_getter = mdns_status_getter
         self._pair_action = pair_action
@@ -44,17 +46,24 @@ class MobileBridgeModule(ModuleManifest):
         vault = getattr(self._bridge, "vault", None)
         return getattr(vault, "settings", None) if vault is not None else None
 
+    def _is_enabled(self) -> bool:
+        """Canonical enabled state — prefers controller, falls back to settings."""
+        if self._controller is not None:
+            return bool(getattr(self._controller, "enabled", False))
+        settings = self._bridge_settings()
+        return bool(getattr(settings, "mobile_access_enabled", False)) if settings else False
+
     @property
     def id(self) -> str:
         return "mobile_bridge"
 
     @property
     def name(self) -> str:
-        return "Mobile Bridge"
+        return "Mobile Access"
 
     @property
     def description(self) -> str:
-        return "LAN read-only bridge for paired Android devices"
+        return "Phone sync via LAN for paired Android devices"
 
     @property
     def category(self) -> str:
@@ -65,7 +74,7 @@ class MobileBridgeModule(ModuleManifest):
     def get_settings_schema(self) -> list[SettingsCategory]:
         return [
             SettingsCategory(
-                id="mobile_bridge", label="Mobile Bridge", icon="\u25C8",
+                id="mobile_bridge", label="Mobile Access", icon="\u25C8",
                 fields=[
                     SettingsField(
                         "mobile_access_enabled", "Enable Mobile Access", "toggle",
@@ -90,26 +99,49 @@ class MobileBridgeModule(ModuleManifest):
 
     def get_status_rows(self) -> list[StatusRow]:
         rows: list[StatusRow] = []
+        enabled = self._is_enabled()
 
-        # Bridge listening status.
+        # Phone Sync (formerly "Bridge") status.
         def _bridge_status() -> str:
+            if not enabled:
+                return "Not running \u2014 Mobile Access is off"
             if self._bridge is None:
                 return "Not started"
-            return "Listening" if getattr(self._bridge, "is_running", False) else "Not listening"
+            if self._controller is not None:
+                return "Running" if getattr(self._controller, "listening", False) else "Not running"
+            return "Running" if getattr(self._bridge, "is_running", False) else "Not running"
+
+        # Level: "info" when disabled (not red), "ok"/"warning" when enabled
+        def _bridge_level() -> str:
+            if not enabled:
+                return "info"
+            is_listening = (
+                getattr(self._controller, "listening", False)
+                if self._controller is not None
+                else getattr(self._bridge, "is_running", False)
+            )
+            return "ok" if is_listening else "warning"
 
         rows.append(StatusRow(
-            "Bridge", _bridge_status, level="info",
+            "Phone Sync", _bridge_status, level=_bridge_level(),
             action_label="Pair Android Device" if self._pair_action else "",
             action=self._pair_action,
         ))
 
-        # mDNS advertising.
+        # LAN Discovery (formerly "mDNS") status.
         def _mdns_status() -> str:
+            if not enabled:
+                return "Not running \u2014 Mobile Access is off"
+            if self._controller is not None:
+                return "Active" if getattr(self._controller, "advertising", False) else "Not running"
             if self._mdns_status_getter is not None:
-                return "Advertising" if self._mdns_status_getter() else "Not advertising"
+                return "Active" if self._mdns_status_getter() else "Not running"
             return "Unknown"
 
-        rows.append(StatusRow("LAN discovery (mDNS)", _mdns_status, level="info"))
+        rows.append(StatusRow(
+            "LAN Discovery", _mdns_status,
+            level="info" if not enabled else "info",
+        ))
 
         # Recommended LAN IP.
         def _lan_ip() -> str:
@@ -125,8 +157,13 @@ class MobileBridgeModule(ModuleManifest):
         def _last_request() -> str:
             try:
                 from cache_vault.core.mobile.connection_doctor import format_last_request
+                from cache_vault.core.mobile.mobile_access_controller import relative_timestamp
                 receipts = self._receipts_getter() if self._receipts_getter else []
                 latest = receipts[-1] if receipts else None
+                if latest and latest.get("timestamp"):
+                    rel = relative_timestamp(latest["timestamp"])
+                    result = latest.get("result", "")
+                    return f"{rel} \u2014 {result}" if result else rel
                 return format_last_request(latest)
             except Exception:
                 return "Unknown"
@@ -163,14 +200,25 @@ class MobileBridgeModule(ModuleManifest):
         try:
             from cache_vault.core.mobile.connection_doctor import connection_doctor_report
             settings = self._bridge_settings()
+
+            # Prefer controller state for accuracy
+            if self._controller is not None:
+                mobile_enabled = self._controller.enabled
+                bridge_listening = self._controller.listening
+                mdns = self._controller.advertising
+            else:
+                mobile_enabled = getattr(settings, "mobile_access_enabled", False) if settings else False
+                bridge_listening = getattr(self._bridge, "is_running", False)
+                mdns = self._mdns_status_getter() if self._mdns_status_getter else False
+
             report = connection_doctor_report(
-                mobile_access_enabled=getattr(settings, "mobile_access_enabled", False) if settings else False,
-                bridge_listening=getattr(self._bridge, "is_running", False),
+                mobile_access_enabled=mobile_enabled,
+                bridge_listening=bridge_listening,
                 port=getattr(settings, "mobile_access_port", 8742) if settings else 8742,
-                mdns_advertising=self._mdns_status_getter() if self._mdns_status_getter else False,
+                mdns_advertising=mdns,
             )
             if report["mobile_access"] == "Off":
-                return {"status": "warning", "details": "mobile access disabled", "report": report}
+                return {"status": "info", "details": "Mobile Access is off", "report": report}
             if report["bridge"] != "Listening":
                 return {"status": "warning", "details": "bridge not listening", "report": report}
             return {"status": "ok", "details": "bridge running", "report": report}

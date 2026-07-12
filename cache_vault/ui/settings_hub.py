@@ -59,6 +59,7 @@ class SettingsHub(ctk.CTkToplevel):
         on_save: Callable[[Settings], None],
         on_close: Callable[[ctk.CTkToplevel], None] | None = None,
         category_id: str | None = None,
+        mobile_controller: Any | None = None,
     ):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings Hub")
@@ -69,6 +70,7 @@ class SettingsHub(ctk.CTkToplevel):
         self._registry = registry
         self._on_save = on_save
         self._on_close = on_close
+        self._mobile_controller = mobile_controller
         self._selected_category_id: str | None = None
         self._present_job = None
         self._closed = False
@@ -108,7 +110,7 @@ class SettingsHub(ctk.CTkToplevel):
         # Header (Search)
         self._header = ctk.CTkFrame(self._main_content, height=80, fg_color="transparent")
         self._header.grid(row=0, column=0, sticky="ew", padx=30, pady=(20, 10))
-        
+
         self._search_var = ctk.StringVar()
         self._search_var.trace_add("write", self._on_search_change)
         self._search_entry = ctk.CTkEntry(
@@ -128,21 +130,23 @@ class SettingsHub(ctk.CTkToplevel):
         self._footer = ctk.CTkFrame(self._main_content, height=70, fg_color="transparent")
         self._footer.grid(row=2, column=0, sticky="ew", padx=30, pady=20)
 
-        ctk.CTkButton(
-            self._footer, 
-            text="Save Changes", 
-            command=self._save, 
+        self._save_btn = ctk.CTkButton(
+            self._footer,
+            text="Save Changes",
+            command=self._save,
             height=35,
             **theme.primary_button()
-        ).pack(side="right", padx=(15, 0))
-        
-        ctk.CTkButton(
-            self._footer, 
-            text="Cancel", 
-            command=self.destroy, 
+        )
+        self._save_btn.pack(side="right", padx=(15, 0))
+
+        self._cancel_btn = ctk.CTkButton(
+            self._footer,
+            text="Cancel",
+            command=self.destroy,
             height=35,
             **theme.secondary_button()
-        ).pack(side="right")
+        )
+        self._cancel_btn.pack(side="right")
 
         self._save_error = ctk.CTkLabel(
             self._footer, text="", anchor="w", justify="left",
@@ -151,7 +155,7 @@ class SettingsHub(ctk.CTkToplevel):
         self._save_error.pack(side="left")
 
         self._refresh_categories()
-        
+
         # Default selection
         cats = self._registry.settings_categories()
         if cats:
@@ -214,7 +218,7 @@ class SettingsHub(ctk.CTkToplevel):
         categories = self._registry.settings_categories()
         for cat in categories:
             is_selected = cat.id == self._selected_category_id
-            
+
             btn = ctk.CTkButton(
                 self._category_list,
                 text=f"{cat.icon}  {cat.label}" if cat.icon else cat.label,
@@ -243,7 +247,7 @@ class SettingsHub(ctk.CTkToplevel):
             if self._selected_category_id:
                 self._render_category_view(self._selected_category_id)
             return
-        
+
         self._render_search_results(query)
 
     def _render_category_view(self, category_id: str):
@@ -310,7 +314,7 @@ class SettingsHub(ctk.CTkToplevel):
                 font=ctk.CTkFont(size=14, weight="bold"),
                 text_color=brand.PROOF_TEAL,
             ).pack(anchor="w", padx=10, pady=(10, 5))
-            
+
             # For search results, we just render the fields directly in a frame
             search_frame = ctk.CTkFrame(self._settings_scroll, fg_color="transparent")
             search_frame.pack(fill="x", padx=10, pady=(0, 20))
@@ -335,10 +339,10 @@ class SettingsHub(ctk.CTkToplevel):
     def _render_status_card(self, rows: list[StatusRow]):
         card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
         card.pack(fill="x", padx=10, pady=(0, 20))
-        
+
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(fill="x", padx=20, pady=15)
-        
+
         ctk.CTkLabel(
             inner,
             text="LIVE STATUS",
@@ -349,9 +353,9 @@ class SettingsHub(ctk.CTkToplevel):
         for row in rows:
             row_frame = ctk.CTkFrame(inner, fg_color="transparent")
             row_frame.pack(fill="x", pady=4)
-            
+
             ctk.CTkLabel(row_frame, text=row.label, font=ctk.CTkFont(size=13)).pack(side="left")
-            
+
             # Value with level-based color
             val_color = brand.MUTED_FG
             if row.level == "ok": val_color = brand.PROOF_TEAL
@@ -366,7 +370,7 @@ class SettingsHub(ctk.CTkToplevel):
                 val_color = "#F56C6C"
 
             ctk.CTkLabel(
-                row_frame, 
+                row_frame,
                 text=val_text,
                 font=ctk.CTkFont(size=13, weight="bold"),
                 text_color=val_color
@@ -386,10 +390,10 @@ class SettingsHub(ctk.CTkToplevel):
     def _render_group_card(self, group_name: str, fields: list[SettingsField]):
         card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
         card.pack(fill="x", padx=10, pady=(0, 20))
-        
+
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(fill="x", padx=20, pady=15)
-        
+
         ctk.CTkLabel(
             inner,
             text=group_name.upper(),
@@ -403,11 +407,11 @@ class SettingsHub(ctk.CTkToplevel):
     def _render_field_row(self, parent: ctk.CTkFrame, field: SettingsField):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", pady=8)
-        
+
         # Left side: Label & Description
         info_col = ctk.CTkFrame(row, fg_color="transparent")
         info_col.pack(side="left", fill="both", expand=True)
-        
+
         ctk.CTkLabel(
             info_col,
             text=field.label,
@@ -439,17 +443,17 @@ class SettingsHub(ctk.CTkToplevel):
                 var = ctk.BooleanVar(value=bool(current_val))
             else:
                 var = ctk.StringVar(value=str(current_val))
-        
+
         if field.field_type == "toggle":
             sw = ctk.CTkSwitch(control_col, text="", variable=var, width=50)
             sw.pack()
             self._field_bindings[field.key] = (var, sw)
-            
+
         elif field.field_type == "number":
             entry = ctk.CTkEntry(control_col, textvariable=var, width=100)
             entry.pack()
             self._field_bindings[field.key] = (var, entry)
-            
+
         elif field.field_type == "text":
             current_val = getattr(self._settings, field.key, field.default)
             if isinstance(current_val, list):
@@ -473,12 +477,12 @@ class SettingsHub(ctk.CTkToplevel):
                 entry = ctk.CTkEntry(control_col, textvariable=var, width=250)
                 entry.pack()
                 self._field_bindings[field.key] = (var, entry)
-            
+
         elif field.field_type == "choice" and field.choices:
             combo = ctk.CTkComboBox(control_col, values=field.choices, variable=var, width=180)
             combo.pack()
             self._field_bindings[field.key] = (var, combo)
-            
+
         elif field.field_type == "hotkey":
             holder = ctk.CTkFrame(control_col, fg_color="transparent")
             holder.pack(anchor="e")
@@ -511,7 +515,7 @@ class SettingsHub(ctk.CTkToplevel):
             self._active_recorders.append(recorder)
             self._hotkey_hints[field.key] = hint
             self._refresh_hotkey_hint(field.key)
-            
+
         elif field.field_type == "readonly":
             current_val = getattr(self._settings, field.key, field.default)
             ctk.CTkLabel(
@@ -613,13 +617,13 @@ class SettingsHub(ctk.CTkToplevel):
         """Collect values from all bindings into a new Settings object."""
         # Start with the original settings
         new_data = dataclasses.asdict(self._settings)
-        
+
         for key, (var, widget) in self._field_bindings.items():
             val = var.get()
-            
+
             # Type conversion based on the original field type in Settings
             orig_val = getattr(self._settings, key, None)
-            
+
             if isinstance(orig_val, bool):
                 new_data[key] = bool(val)
             elif isinstance(orig_val, int):
@@ -641,24 +645,85 @@ class SettingsHub(ctk.CTkToplevel):
                 ]
             else:
                 new_data[key] = val
-        
+
         # Filter out keys that aren't in the Settings dataclass
         field_names = {f.name for f in dataclasses.fields(Settings)}
         filtered_data = {k: v for k, v in new_data.items() if k in field_names}
-        
+
         return Settings(**filtered_data)
 
     def _save(self):
-        """Collect settings and trigger the save callback."""
+        """Collect settings and trigger the save callback with progressive feedback."""
         errors = self._validate_all_hotkeys()
         if errors:
             try:
                 self._save_error.configure(
-                    text=f"Fix hotkey conflicts before saving: {errors[0]}"
+                    text=f"Fix hotkey conflicts before saving: {errors[0]}",
+                    text_color="#F56C6C"
                 )
             except Exception:  # noqa: BLE001
                 pass
             return
+
         new_settings = self._collect_settings()
-        self._on_save(new_settings)
-        self.destroy()
+
+        # Disable buttons during save operation
+        self._save_btn.configure(state="disabled")
+        self._cancel_btn.configure(state="disabled")
+        self._save_error.configure(text="Saving...", text_color="#1A9E8C")
+
+        # Step 1: Save settings
+        try:
+            new_settings.save()
+        except Exception as e:
+            self._handle_save_error(f"Save failed: {e}")
+            return
+
+        # Step 2: Sync Mobile Access if controller is present
+        if self._mobile_controller is not None and self._mobile_controller.needs_change(new_settings):
+            if new_settings.mobile_access_enabled:
+                self._save_error.configure(text="Starting Mobile Access...", text_color="#1A9E8C")
+                # Run enable on the main thread (doesn't block)
+                result = self._mobile_controller.enable(new_settings)
+                if not result.success:
+                    self._handle_save_error(result.error or "Failed to start Mobile Access.")
+                    return
+
+                # Verify after 200ms
+                self._save_error.configure(text="Verifying...", text_color="#1A9E8C")
+                self.after(200, lambda: self._verify_and_complete(new_settings, result.port))
+            else:
+                self._save_error.configure(text="Stopping Mobile Access...", text_color="#1A9E8C")
+                self._mobile_controller.disable(new_settings)
+                self._save_error.configure(text="Saved", text_color=brand.PROOF_TEAL)
+                self._complete_save(new_settings)
+        else:
+            self._save_error.configure(text="Saved", text_color=brand.PROOF_TEAL)
+            self._complete_save(new_settings)
+
+    def _verify_and_complete(self, new_settings, port):
+        if not self._mobile_controller.listening:
+            self._handle_save_error(self._mobile_controller.last_error or "Verifying listening failed.")
+            return
+
+        from cache_vault.core.lan_ip import recommended_lan_ipv4
+        ip = recommended_lan_ipv4() or "127.0.0.1"
+        success_msg = f"Saved \u2014 Listening on {ip}:{port}"
+        self._save_error.configure(text=success_msg, text_color=brand.PROOF_TEAL)
+        self._complete_save(new_settings)
+
+    def _complete_save(self, new_settings):
+        try:
+            self._on_save(new_settings)
+            # Close dialog after a short delay so the user can read the success message
+            self.after(800, self.destroy)
+        except Exception as e:
+            self._handle_save_error(str(e))
+
+    def _handle_save_error(self, err_msg: str):
+        try:
+            self._save_btn.configure(state="normal")
+            self._cancel_btn.configure(state="normal")
+            self._save_error.configure(text=err_msg, text_color="#F56C6C")
+        except Exception:
+            pass
