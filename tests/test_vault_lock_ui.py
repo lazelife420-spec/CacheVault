@@ -281,6 +281,8 @@ def test_sidebar_expanded_rows_are_visible_owned_and_interactive(tk_root):
     target.event_generate("<Return>")
     tk_root.update()
     assert selected == [FILTER_ALL]
+    tk_root.withdraw()
+    tk_root.update_idletasks()
     nav.destroy()
 
 
