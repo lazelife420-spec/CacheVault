@@ -15,17 +15,22 @@ class PageHeader(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
         
-        # Title and Subtitle area
+        # Title and Subtitle area — stacked vertically so the subtitle gets
+        # its own full-width line to wrap within instead of competing with
+        # the title for horizontal space (which just clipped past the
+        # window edge at compact width rather than wrapping).
         self._title_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._title_frame.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 0))
-        
+        self._title_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
+        self._title_frame.grid_columnconfigure(0, weight=1)
+
         self._title_label = ctk.CTkLabel(
-            self._title_frame, 
-            text="", 
-            font=ctk.CTkFont(size=24, weight="bold")
+            self._title_frame,
+            text="",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            anchor="w",
         )
-        self._title_label.pack(side="left", padx=(0, 8))
-        
+        self._title_label.grid(row=0, column=0, sticky="w")
+
         self._subtitle_label = ctk.CTkLabel(
             self._title_frame,
             text="",
@@ -33,9 +38,9 @@ class PageHeader(ctk.CTkFrame):
             font=theme.body_font(13),
             anchor="w",
             justify="left",
-            wraplength=420,
+            wraplength=480,
         )
-        self._subtitle_label.pack(side="left", padx=4)
+        self._subtitle_label.grid(row=1, column=0, sticky="w")
         
         # Actions area (Primary + Secondary)
         self._actions_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -53,9 +58,9 @@ class PageHeader(ctk.CTkFrame):
         self._title_label.configure(text=title)
         self._subtitle_label.configure(text=subtitle)
         if subtitle:
-            self._subtitle_label.pack(side="left", padx=4)
+            self._subtitle_label.grid(row=1, column=0, sticky="w")
         else:
-            self._subtitle_label.pack_forget()
+            self._subtitle_label.grid_remove()
             
     def set_actions(self, primary_text: str = "", primary_cmd=None, secondary_text: str = "", secondary_cmd=None):
         for widget in self._actions_frame.winfo_children():

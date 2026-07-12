@@ -67,6 +67,23 @@ def test_page_header_renders(app):
     app.update_idletasks()
     assert header._title_label.cget("text") == "Test Title"
 
+def test_header_subtitle_wraps_independent_of_title_width(app):
+    """The subtitle must sit on its own row below the title, not share a
+    row with it — otherwise a long title leaves the subtitle too little
+    room and it clips past the window edge instead of wrapping."""
+    header = app._page_header
+    header.set_content(
+        "Editable Copies / Revisions",
+        "Original protected · Editable copy · Local-first",
+    )
+    app.update_idletasks()
+    title_info = header._title_label.grid_info()
+    subtitle_info = header._subtitle_label.grid_info()
+    assert title_info["row"] != subtitle_info["row"], (
+        "Title and subtitle must not share a grid row"
+    )
+    assert int(header._subtitle_label.cget("wraplength")) <= 560
+
 def test_navigation_clears_stale_selection(app):
     clip = Clip(id="test_1", content="hello", content_type=CONTENT_TEXT)
     app.vault.storage.add_clip(clip)
