@@ -200,6 +200,14 @@ class VaultControlStrip(ctk.CTkFrame):
                               fg_color=brand.PROOF_TEAL)
         accent.grid(row=1, column=0, columnspan=7, sticky="ew")
 
+    def set_compact(self, compact: bool) -> None:
+        """Drop the informational Default-Safe label at narrow widths so the
+        strip's action controls don't get pushed past the window edge."""
+        if compact:
+            self._safe.grid_remove()
+        else:
+            self._safe.grid(row=0, column=3, padx=8, pady=6)
+
     def update_state(self, summary: dict) -> None:
         self._summary = summary
         capture = "Capture: Paused" if summary.get("capture_paused") else "Capture: On"

@@ -297,12 +297,18 @@ def test_toolbar_overflow_at_compact_width(app):
     app.update_idletasks()
     assert not app._view_label.winfo_ismapped(), "View: label should collapse at compact width"
     assert not app._selection_hint_label.winfo_ismapped(), "Selection hint should collapse at compact width"
+    assert not app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should collapse at compact width"
+    assert not app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should collapse at compact width"
+    assert not app._control_strip._safe.winfo_ismapped(), "Default Safe label should collapse at compact width"
 
     with patch.object(app, 'winfo_width', return_value=1600):
         app._handle_resize_debounced()
     app.update_idletasks()
     assert app._view_label.winfo_ismapped(), "View: label should return at wide width"
     assert app._selection_hint_label.winfo_ismapped(), "Selection hint should return at wide width"
+    assert app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should return at wide width"
+    assert app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should return at wide width"
+    assert app._control_strip._safe.winfo_ismapped(), "Default Safe label should return at wide width"
 
 
 def test_repeated_navigation_does_not_duplicate_widgets(app):

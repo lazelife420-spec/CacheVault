@@ -558,13 +558,15 @@ class CacheVaultApp(ctk.CTk):
         ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
                       command=self._export_view, **theme.primary_button()
                       ).grid(row=0, column=1, padx=4)
-        ctk.CTkButton(top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
-                      command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
-                      **theme.secondary_button()
-                      ).grid(row=0, column=2, padx=4)
-        ctk.CTkButton(top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
-                      **theme.secondary_button()
-                      ).grid(row=0, column=3, padx=4)
+        self._top_receipts_btn = ctk.CTkButton(
+            top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
+            command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+            **theme.secondary_button())
+        self._top_receipts_btn.grid(row=0, column=2, padx=4)
+        self._top_capture_rules_btn = ctk.CTkButton(
+            top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
+            **theme.secondary_button())
+        self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
                       ).grid(row=0, column=4, padx=(4, 12))
@@ -2080,11 +2082,17 @@ class CacheVaultApp(ctk.CTk):
         if compact:
             self._view_label.pack_forget()
             self._selection_hint_label.pack_forget()
+            self._top_receipts_btn.grid_remove()
+            self._top_capture_rules_btn.grid_remove()
         else:
             if not self._view_label.winfo_ismapped():
                 self._view_label.pack(side="right", padx=(4, 2), before=self._grid_btn)
             if not self._selection_hint_label.winfo_ismapped():
                 self._selection_hint_label.pack(side="left", padx=(6, 0))
+            self._top_receipts_btn.grid(row=0, column=2, padx=4)
+            self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
+
+        self._control_strip.set_compact(compact)
 
     def _empty_message(self, active: str, clips: list, query) -> str | None:
         from ..core import storage as S
