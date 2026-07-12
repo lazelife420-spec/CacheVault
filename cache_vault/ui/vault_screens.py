@@ -645,7 +645,7 @@ class VaultScreenHost(ctk.CTkFrame):
                 ).pack(side="left", padx=2)
                 ctk.CTkButton(
                     btns, text="Show Original", width=110, height=28,
-                    command=lambda c=cid: self._callbacks["select_clip"](c),
+                    command=lambda c=cid: self._callbacks["select_clip_in_place"](c),
                     **theme.secondary_button(),
                 ).pack(side="left", padx=2)
 

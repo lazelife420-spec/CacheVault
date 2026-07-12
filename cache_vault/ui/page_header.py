@@ -27,10 +27,13 @@ class PageHeader(ctk.CTkFrame):
         self._title_label.pack(side="left", padx=(0, 8))
         
         self._subtitle_label = ctk.CTkLabel(
-            self._title_frame, 
-            text="", 
-            text_color=brand.MUTED_FG, 
-            font=theme.body_font(13)
+            self._title_frame,
+            text="",
+            text_color=brand.MUTED_FG,
+            font=theme.body_font(13),
+            anchor="w",
+            justify="left",
+            wraplength=420,
         )
         self._subtitle_label.pack(side="left", padx=4)
         

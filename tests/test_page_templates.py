@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
+
 import customtkinter as ctk
 import pytest
 
@@ -9,6 +12,7 @@ from cache_vault import brand
 from cache_vault.core import storage as S
 from cache_vault.ui.page_scaffold import PageScaffold, LoadingState, EmptyState, ErrorState, UnavailableState
 from cache_vault.ui.page_header import PageHeader
+from cache_vault.ui import home_dashboard
 
 
 @pytest.fixture(scope="module")
@@ -120,3 +124,23 @@ def test_error_state_and_unavailable_state(tk_root):
     unavail.update_idletasks()
     assert unavail._title_lbl.cget("text") == "Feature Offline"
     assert unavail._desc_lbl.cget("text") == "LAN bridge not paired."
+
+
+def test_home_dashboard_no_duplicate_method_definitions():
+    """Regression guard: a prior bad merge left a second, broken `render`/
+    `set_selected` pair ahead of the live ones in HomeDashboard — Python
+    silently keeps only the last definition, which built an orphaned,
+    unpacked frame and left the page's content effectively blank. A
+    duplicate method name in this class means the same defect crept back."""
+    source = inspect.getsource(home_dashboard)
+    tree = ast.parse(source)
+    class_node = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "HomeDashboard"
+    )
+    method_names = [
+        node.name for node in class_node.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    duplicates = {name for name in method_names if method_names.count(name) > 1}
+    assert not duplicates, f"Duplicate method definitions in HomeDashboard: {duplicates}"

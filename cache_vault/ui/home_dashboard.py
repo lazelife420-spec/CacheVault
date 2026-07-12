@@ -103,56 +103,6 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._bind_context(self, lambda e: self._open_app_context(e))
         self._bind_context(self._body, lambda e: self._open_app_context(e))
 
-    def set_selected(self, clip_id: str | None) -> None:
-        if getattr(self, "_guard_selection", False):
-            return
-        self._selected_clip_id = clip_id
-        self._guard_selection = True
-        try:
-            if clip_id is None:
-                self._selected_ids.clear()
-                self._anchor_id = None
-            else:
-                self._selected_ids = {clip_id}
-                self._anchor_id = clip_id
-            self._repaint_selection()
-            self._update_batch_toolbar()
-        finally:
-            self._guard_selection = False
-
-    def render(
-        self,
-        summary: dict,
-        recent: list[Clip],
-        favorites: list[Clip],
-        images: list[Clip],
-        today_clips: list[Clip] = None,
-        link_clips: list[Clip] = None,
-        receipts: list[Clip] = None,
-        sensitive_items: list[Clip] = None,
-    ) -> None:
-        del favorites
-        self._cards = {}
-        self._rendered_clips = {}
-        self._render_order = []
-
-        all_rendered_lists = [recent, today_clips, images, link_clips, receipts, sensitive_items]
-        for lst in all_rendered_lists:
-            if lst:
-                for c in lst:
-                    self._rendered_clips[c.id] = c
-                    if c.id not in self._render_order:
-                        self._render_order.append(c.id)
-
-        # Cleanup selection list for removed clips
-        self._selected_ids = {cid for cid in self._selected_ids if cid in self._render_order}
-
-        for w in self._body.winfo_children():
-            w.destroy()
-        self._batch_frame = None
-
-        header_frame = ctk.CTkFrame(self._body, fg_color="transparent")
-
     def set_layout_mode(self, mode: str) -> None:
         """Adjust responsiveness based on dashboard width."""
         if not hasattr(self, "_split_pane"):
@@ -160,11 +110,14 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         if mode == "compact":
             self._split_pane.grid_columnconfigure(0, weight=1)
             self._split_pane.grid_columnconfigure(1, weight=0)
+            self._split_pane.grid_rowconfigure(0, weight=0)
+            self._split_pane.grid_rowconfigure(1, weight=0)
             self._left_pane.grid(row=0, column=0, sticky="nsew")
             self._right_pane.grid(row=1, column=0, sticky="nsew")
         else:
             self._split_pane.grid_columnconfigure(0, weight=6)
             self._split_pane.grid_columnconfigure(1, weight=4)
+            self._split_pane.grid_rowconfigure(0, weight=1)
             self._left_pane.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
             self._right_pane.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 

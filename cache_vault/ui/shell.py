@@ -540,7 +540,7 @@ class CacheVaultApp(ctk.CTk):
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
         self.grid_columnconfigure(0, weight=0, minsize=200)
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(1, weight=1, minsize=560)
         self.grid_columnconfigure(2, weight=0, minsize=320)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=0)
@@ -654,6 +654,7 @@ class CacheVaultApp(ctk.CTk):
                 "save_revision": self._save_editable_revision,
                 "reveal_copy": self._reveal_editable_copy_folder,
                 "select_clip": self._select_clip_by_id,
+                "select_clip_in_place": self._select_visible_clip_by_id,
                 "preview_html": self._preview_html_copy,
                 "edit_html": self._edit_html_source,
                 "export_html": self._export_html_bundle,
@@ -766,8 +767,9 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
 
-        ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
-                     font=theme.body_font(11)).pack(side="right", padx=(4, 2))
+        self._view_label = ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11))
+        self._view_label.pack(side="right", padx=(4, 2))
         self._grid_btn = ctk.CTkButton(
             self._toolbar_row3, text="Grid", width=58, height=28,
             command=lambda: self._set_view_mode("grid"), **theme.segmented_inactive(),
@@ -2050,19 +2052,18 @@ class CacheVaultApp(ctk.CTk):
             self._apply_layout_mode(layout_mode)
             
     def _apply_layout_mode(self, mode: str) -> None:
+        # Column sizing is applied here immediately so the layout doesn't
+        # visibly jump; actual preview grid/place/hidden state is decided
+        # solely by _update_inspector_visibility (called synchronously below)
+        # so there is exactly one authority for whether the panel is showing.
         if mode == "compact":
-            self._preview.place_forget()
-            self._preview.grid_forget()
             self.grid_columnconfigure(2, minsize=0, weight=0)
-        elif mode == "standard":
-            self._preview.place_forget()
-            self._preview.grid(row=1, column=2, sticky="nsew")
-            self.grid_columnconfigure(2, weight=0, minsize=320)
-        elif mode == "wide":
-            self._preview.place_forget()
-            self._preview.grid(row=1, column=2, sticky="nsew")
-            self.grid_columnconfigure(2, weight=0, minsize=400)
-            
+        else:
+            self.grid_columnconfigure(2, weight=0, minsize=400 if mode == "wide" else 320)
+
+        self._set_toolbar_compact(mode == "compact")
+        self._update_inspector_visibility()
+
         if hasattr(self._home, "set_layout_mode"):
             self._home.set_layout_mode(mode)
 
@@ -2070,6 +2071,20 @@ class CacheVaultApp(ctk.CTk):
         # But we might need to tell elements to wrap or adjust.
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
         self.refresh()
+
+    def _set_toolbar_compact(self, compact: bool) -> None:
+        """Drop the least-essential toolbar chrome at narrow widths instead of
+        letting the global toolbar clip or extend past the window edge."""
+        if not hasattr(self, "_view_label"):
+            return
+        if compact:
+            self._view_label.pack_forget()
+            self._selection_hint_label.pack_forget()
+        else:
+            if not self._view_label.winfo_ismapped():
+                self._view_label.pack(side="right", padx=(4, 2), before=self._grid_btn)
+            if not self._selection_hint_label.winfo_ismapped():
+                self._selection_hint_label.pack(side="left", padx=(6, 0))
 
     def _empty_message(self, active: str, clips: list, query) -> str | None:
         from ..core import storage as S
@@ -2184,11 +2199,7 @@ class CacheVaultApp(ctk.CTk):
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
-        
-        if clip is not None and getattr(self, "_current_layout_mode", None) == "compact":
-            self._preview.configure(width=360)
-            self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
-            self._preview.lift()
+        self._update_inspector_visibility()
 
     def _on_clip_selection_change(self, ids: list[str]) -> None:
         """Multi-selection (Ctrl/Shift click) reported from the list/grid.
@@ -2263,25 +2274,39 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
 
     def _update_inspector_visibility(self) -> None:
+        """Single source of truth for inspector visibility (docked/slide-over/hidden).
+
+        Rules: non-clip vault screens (Hotkey Actions, Mobile Access, etc.) never
+        show the inspector. Editable Copies is the one exception — it shows the
+        inspector once a revision's original clip has been explicitly selected
+        in place. Every other page (Command Center, All Clips, Today/Week/Older)
+        shows the inspector only when a clip is selected, docked at
+        standard/wide width or as a compact slide-over.
+        """
         active = self._filters.active
-        # Non-clip pages never show the right details panel
-        if active in NAV_SCREEN_KEYS:
+        always_hidden_screens = NAV_SCREEN_KEYS - {NAV_EDITABLE_COPIES}
+        if active in always_hidden_screens:
+            has_selection = False
+        else:
+            has_selection = self._selected_clip_id is not None
+
+        self._preview.place_forget()
+        if not has_selection:
             self._preview.grid_remove()
             self.grid_columnconfigure(2, minsize=0)
             return
 
-        # Home/Command Center always displays either the Vault Control empty state or the selected item
-        if active == FILTER_HOME:
-            self._preview.grid(row=1, column=2, sticky="nsew")
-            self.grid_columnconfigure(2, minsize=320)
+        compact = getattr(self, "_current_layout_mode", None) == "compact"
+        if compact:
+            self._preview.grid_remove()
+            self.grid_columnconfigure(2, minsize=0)
+            self._preview.configure(width=360)
+            self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
+            self._preview.lift()
         else:
-            # All Clips & query filters only display the inspector when a row is selected
-            if self._selected_clip_id is not None:
-                self._preview.grid(row=1, column=2, sticky="nsew")
-                self.grid_columnconfigure(2, minsize=320)
-            else:
-                self._preview.grid_remove()
-                self.grid_columnconfigure(2, minsize=0)
+            wide = getattr(self, "_current_layout_mode", None) == "wide"
+            self._preview.grid(row=1, column=2, sticky="nsew")
+            self.grid_columnconfigure(2, minsize=400 if wide else 320)
 
     def _clear_filters(self) -> None:
         self._search_var.set("")
