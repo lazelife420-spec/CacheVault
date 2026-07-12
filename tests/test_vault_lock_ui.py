@@ -223,6 +223,67 @@ def test_sidebar_sections_expand_in_place_not_at_end(tk_root):
     nav.destroy()
 
 
+def test_sidebar_expanded_rows_are_visible_owned_and_interactive(tk_root):
+    selected: list[str] = []
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=selected.append, settings=settings)
+    nav.pack(fill="both", expand=True)
+    tk_root.update_idletasks()
+
+    heading = "VAULT"
+    frame = nav._section_frames[heading]
+    header = nav._section_headers[heading]
+    row_keys = next(items for group, items in FILTER_GROUPS if group == heading)
+    rows = tuple(nav._rows[key] for key, _label in row_keys)
+
+    # Every row belongs to, and is managed by, its own section container.
+    assert all(row.master is frame for row in rows)
+    assert frame.winfo_manager() == ""
+    assert all(row.winfo_manager() == "pack" for row in rows)
+
+    nav.expand_section(heading)
+    tk_root.update_idletasks()
+
+    assert frame.winfo_manager() == "pack"
+    assert all(row.winfo_ismapped() for row in rows)
+    assert tuple(frame.pack_slaves()) == rows
+    sidebar_slaves = nav.pack_slaves()
+    assert sidebar_slaves.index(frame) == sidebar_slaves.index(header) + 1
+    assert not any(row in sidebar_slaves for row in rows)
+
+    # Collapse hides the managed rows; re-expansion restores the same widgets
+    # in the same section rather than recreating or moving them.
+    original_ids = tuple(str(row) for row in rows)
+    nav.collapse_section(heading)
+    tk_root.update_idletasks()
+    assert frame.winfo_manager() == ""
+    assert not any(row.winfo_ismapped() for row in rows)
+
+    nav.expand_section(heading)
+    tk_root.update_idletasks()
+    assert tuple(str(row) for row in rows) == original_ids
+    assert tuple(frame.pack_slaves()) == rows
+    assert all(row.winfo_ismapped() for row in rows)
+
+    # Mouse activation and the keyboard Enter binding both remain live after
+    # the forget/re-pack cycle.
+    target = nav._rows[FILTER_ALL]
+    target._label._label.event_generate("<Button-1>", x=1, y=1)
+    tk_root.update()
+    assert selected[-1] == FILTER_ALL
+
+    selected.clear()
+    tk_root.deiconify()
+    tk_root.update()
+    target.focus_force()
+    tk_root.update()
+    assert tk_root.focus_get() is target
+    target.event_generate("<Return>")
+    tk_root.update()
+    assert selected == [FILTER_ALL]
+    nav.destroy()
+
+
 def test_founder_badge_reflects_license_state(tk_root):
     settings = Settings()
     nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
