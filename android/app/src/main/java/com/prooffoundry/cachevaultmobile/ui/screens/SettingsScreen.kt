@@ -104,12 +104,16 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+            if (!error.isNullOrBlank()) {
+                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
             if (connection == ConnectionState.UPDATE_REQUIRED) {
-                Text(
-                    UserMessages.updateRequired(status?.minimumMobileVersion),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                // The message itself (including the real minimum version) is
+                // already shown by the generic `error` text above — it comes
+                // straight from the live BridgeError, unlike `status` here,
+                // which is only ever set on a successful connection and so
+                // is stale/null on exactly the failure path this state
+                // represents. Only the action lives in this block.
                 OutlinedButton(
                     onClick = {
                         context.startActivity(
@@ -120,9 +124,6 @@ fun SettingsScreen(
                 ) {
                     Text("Check for update")
                 }
-            }
-            if (!error.isNullOrBlank()) {
-                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             if (connection == ConnectionState.REPAIR_NEEDED ||
                 connection == ConnectionState.REVOKED ||
