@@ -39,6 +39,32 @@ def _label_texts(widget) -> list[str]:
     return texts
 
 
+# Matches the header title's own font size (page_header.py sets 24pt bold).
+# Body content routinely reuses a page's name as a small-font status-table
+# field label (e.g. Mobile Access's device-status row "Mobile Access: On") —
+# that's legitimate data, not a duplicated heading, so only a heading-sized
+# label re-stating the title counts as a violation.
+_HEADING_FONT_SIZE_THRESHOLD = 18
+
+
+def _heading_sized_label_texts(widget) -> list[str]:
+    """Recursively collect text from CTkLabel descendants whose font size is
+    heading-sized, so small-font status/table labels that happen to reuse a
+    page's name aren't mistaken for a duplicated page title."""
+    texts = []
+    if isinstance(widget, ctk.CTkLabel):
+        try:
+            font = widget.cget("font")
+            size = abs(font.cget("size")) if hasattr(font, "cget") else 0
+            if size >= _HEADING_FONT_SIZE_THRESHOLD:
+                texts.append(widget.cget("text"))
+        except Exception:  # noqa: BLE001
+            pass
+    for child in widget.winfo_children():
+        texts.extend(_heading_sized_label_texts(child))
+    return texts
+
+
 @pytest.fixture
 def app(tk_root, vault):
     app = CacheVaultApp(vault=vault)
@@ -192,8 +218,10 @@ def test_only_content_row_has_expansion_weight(app):
 
 
 def test_no_repeated_in_body_page_title(app):
-    """The page content area must not re-render the same title text already
-    shown in the shared PageHeader."""
+    """The page content area must not re-render the same title as a second
+    heading-sized label — small-font status/table fields that happen to
+    reuse a page's name (e.g. Mobile Access's "Mobile Access: On" status
+    row) are legitimate data, not a duplicated heading."""
     for key in (FILTER_HOME, NAV_HOTKEY_ACTIONS, NAV_EDITABLE_COPIES, NAV_MOBILE_ACCESS):
         app._navigate_screen(key)
         app._do_refresh_sync()  # header title / page routing is debounced via refresh()
@@ -202,9 +230,9 @@ def test_no_repeated_in_body_page_title(app):
             content_widget = app._home
         else:
             content_widget = app._vault_screens._screens[key]
-        body_texts = _label_texts(content_widget)
-        assert title not in body_texts, (
-            f"Page {key!r} repeats header title {title!r} in its own body"
+        heading_texts = _heading_sized_label_texts(content_widget)
+        assert title not in heading_texts, (
+            f"Page {key!r} repeats header title {title!r} as a heading-sized label in its own body"
         )
 
 
