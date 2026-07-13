@@ -49,7 +49,7 @@ Unpaired
   → Rejected until re-paired
 ```
 
-Desktop paired-device record: `device_id`, `device_name`, `created_at`, `last_seen_at`, `revoked_at`, `token_hash` (optional `app_version`, `platform`).
+Desktop paired-device record: `device_id`, `device_name`, `created_at`, `last_seen_at`, `revoked_at`, `token_hash` (optional `app_version`, `platform`, `protocol`, `device_model`, `build`).
 
 **Never** store plaintext tokens in desktop settings.
 

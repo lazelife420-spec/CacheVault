@@ -15,6 +15,54 @@ See also: [MOBILE_THREAT_MODEL.md](MOBILE_THREAT_MODEL.md), [MOBILE_ANDROID_DIRE
 
 Android clients must reject unsupported `mobile_api_version` values.
 
+## Version compatibility handshake
+
+Every client identifies itself with `app_version`, `build`, and `protocol`
+(an integer) at pairing time, and may resend `X-App-Version` /
+`X-App-Build` / `X-Protocol-Version` headers on later requests so an
+already-paired phone's compatibility state updates on reconnect (e.g. after
+the app is updated) without a full re-pair.
+
+`protocol` is the hard compatibility gate — a device outside
+`[server_protocol_min, server_protocol_max]` is rejected outright, on
+**every** request, independent of token validity. A valid token does not
+bypass this check, and this check does not bypass token authentication:
+an invalid token still fails `401` even for an incompatible client. Missing
+or unparsable `protocol` is treated conservatively as unsupported.
+
+`app_version` is a softer signal layered on top once `protocol` is
+acceptable: below `minimum_mobile_version` is also a hard rejection;
+unparsable is accepted but flagged unknown.
+
+Incompatible requests return **`426 Upgrade Required`** with a structured
+body — never a generic `401`/`403`/`500`:
+
+```json
+{
+  "error": "mobile_update_required",
+  "compatible": false,
+  "client_protocol": 0,
+  "server_protocol_min": 1,
+  "server_protocol_max": 1,
+  "minimum_mobile_version": "0.1.5",
+  "update_required": true,
+  "message": "Update the CacheVault mobile companion to continue."
+}
+```
+
+Compatible responses (pairing and `/status`) carry the same range fields so
+the client can self-report its standing:
+
+```json
+{
+  "compatible": true,
+  "server_protocol_min": 1,
+  "server_protocol_max": 1,
+  "minimum_mobile_version": "0.1.5",
+  "update_required": false
+}
+```
+
 ## Auth headers
 
 | Header | Required | Notes |
@@ -60,7 +108,37 @@ Response (200):
 }
 ```
 
-Errors: `503 mobile_access_disabled`, `401 unauthorized`
+Errors: `503 mobile_access_disabled`, `401 unauthorized`, `426 mobile_update_required` (see [Version compatibility handshake](#version-compatibility-handshake))
+
+---
+
+### `POST /mobile/v1/pair-device`
+
+| | |
+|---|---|
+| Auth required | No (this is how a device first obtains a token) |
+| Mutation | Registers a paired device record |
+| MVP allowed | **yes** |
+| Receipt action | `pair_device` |
+
+Request body:
+
+```json
+{
+  "client": "cachevault-android",
+  "device_id": "optional-existing-id",
+  "device_name": "Galaxy S23",
+  "app_version": "0.1.5",
+  "build": 15,
+  "protocol": 1,
+  "platform": "android",
+  "device": {"name": "Galaxy S23", "model": "SM-S911W"}
+}
+```
+
+Response (200) on success carries `device_id`, `device_name`, `token` (shown
+once) plus the compatibility fields above. An incompatible handshake returns
+`426` (see above) and **does not** issue a token or store a device record.
 
 ---
 
