@@ -61,6 +61,9 @@ class PairedDevice:
     revoked_at: str | None = None
     app_version: str | None = None
     platform: str | None = None
+    protocol: int | None = None
+    device_model: str | None = None
+    build: int | None = None
 
     @property
     def is_active(self) -> bool:
@@ -80,6 +83,9 @@ class PairedDevice:
             revoked_at=data.get("revoked_at"),
             app_version=data.get("app_version"),
             platform=data.get("platform"),
+            protocol=data.get("protocol"),
+            device_model=data.get("device_model"),
+            build=data.get("build"),
         )
 
 

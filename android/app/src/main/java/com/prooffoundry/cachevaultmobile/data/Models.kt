@@ -57,12 +57,22 @@ data class BridgeStatus(
     val cacheVaultVersion: String,
     val deviceId: String,
     val readOnly: Boolean,
+    val compatible: Boolean? = null,
+    val serverProtocolMin: Int? = null,
+    val serverProtocolMax: Int? = null,
+    val minimumMobileVersion: String? = null,
+    val updateRequired: Boolean = false,
 )
 
 data class PairDeviceGrant(
     val deviceId: String,
     val deviceName: String,
     val token: String,
+    val compatible: Boolean? = null,
+    val serverProtocolMin: Int? = null,
+    val serverProtocolMax: Int? = null,
+    val minimumMobileVersion: String? = null,
+    val updateRequired: Boolean = false,
 )
 
 data class ClipSummary(
@@ -126,6 +136,15 @@ sealed class BridgeError(message: String) : Exception(message) {
     class Unknown(code: Int, body: String) : BridgeError("HTTP $code: $body")
     class UnsupportedApi(version: String) :
         BridgeError("Unsupported mobile API version: $version")
+
+    /** HTTP 426 — the versioned compatibility handshake rejected this client. */
+    class UpdateRequired(
+        val clientProtocol: Int?,
+        val serverProtocolMin: Int?,
+        val serverProtocolMax: Int?,
+        val minimumMobileVersion: String?,
+        serverMessage: String?,
+    ) : BridgeError(serverMessage ?: "This app version is no longer compatible with your PC.")
 }
 
 data class ImageAssetResult(

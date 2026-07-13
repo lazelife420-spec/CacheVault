@@ -1,6 +1,7 @@
 package com.prooffoundry.cachevaultmobile.ui
 
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
+import com.prooffoundry.cachevaultmobile.data.UserMessages
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -52,6 +53,48 @@ class ConnectionStateTest {
 
     @Test
     fun connectedAfterSuccessfulLoad() {
+        assertEquals(
+            ConnectionState.CONNECTED,
+            resolveConnectionState(status = status(), error = null, loading = false, hasLoadedVault = true),
+        )
+    }
+
+    @Test
+    fun updateRequiredErrorResolvesToUpdateRequiredState() {
+        assertEquals(
+            ConnectionState.UPDATE_REQUIRED,
+            resolveConnectionState(
+                status = null,
+                error = UserMessages.updateRequired("0.1.5"),
+                loading = false,
+                hasLoadedVault = true,
+            ),
+        )
+    }
+
+    @Test
+    fun updateRequiredIsNotConfusedWithRepairNeeded() {
+        val state = resolveConnectionState(
+            status = null,
+            error = UserMessages.updateRequired("0.1.5"),
+            loading = false,
+            hasLoadedVault = true,
+        )
+        assertEquals(ConnectionState.UPDATE_REQUIRED, state)
+        assert(state != ConnectionState.REPAIR_NEEDED)
+    }
+
+    @Test
+    fun pairingResumesAfterCompatibleReconnect() {
+        assertEquals(
+            ConnectionState.UPDATE_REQUIRED,
+            resolveConnectionState(
+                status = null,
+                error = UserMessages.updateRequired("0.1.5"),
+                loading = false,
+                hasLoadedVault = true,
+            ),
+        )
         assertEquals(
             ConnectionState.CONNECTED,
             resolveConnectionState(status = status(), error = null, loading = false, hasLoadedVault = true),

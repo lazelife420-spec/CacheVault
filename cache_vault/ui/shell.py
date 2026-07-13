@@ -1362,9 +1362,11 @@ class CacheVaultApp(ctk.CTk):
             ):
                 routes[path] = False
         # Build device list for the page
+        from ..core.mobile.compatibility import evaluate_compatibility
+
         devices = []
         for d in self._mobile_bridge.all_devices():
-            devices.append({
+            entry = {
                 "device_id": d.device_id,
                 "device_name": d.device_name,
                 "app_version": d.app_version or "Unknown",
@@ -1373,7 +1375,17 @@ class CacheVaultApp(ctk.CTk):
                 "last_seen_raw": d.last_seen_at or "",
                 "is_active": d.is_active,
                 "revoked": d.revoked_at is not None,
-            })
+            }
+            # Compatibility only applies to devices that declared a mobile
+            # platform at pairing time — the desktop CLI pairs itself as a
+            # device too but never participates in this handshake.
+            if d.platform:
+                compat = evaluate_compatibility(d.protocol, d.app_version)
+                entry["protocol"] = d.protocol
+                entry["compatibility_state"] = compat.state
+                entry["compatible"] = compat.compatible
+                entry["update_required"] = compat.update_required
+            devices.append(entry)
         return {
             "summary": summary,
             "local_ip": local_ip,

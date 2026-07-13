@@ -2,6 +2,7 @@
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock
@@ -109,20 +110,29 @@ def test_public_pair_device_returns_token_without_logging_plaintext(vault, mobil
         {},
         remote_ip="192.168.0.44",
         body={
+            "client": "cachevault-android",
             "device_id": "phone-auto-1",
             "device_name": "Galaxy S",
-            "app_version": "0.1.0",
+            "app_version": "0.1.5",
+            "build": 15,
+            "protocol": 1,
             "platform": "android",
+            "device": {"name": "Galaxy S23", "model": "SM-S911W"},
         },
     )
     assert code == 200
     assert body["device_id"] == "phone-auto-1"
     assert body["device_name"] == "Galaxy S"
     assert body["token"]
+    assert body["compatible"] is True
+    assert body["update_required"] is False
     stored = vault.settings.paired_devices[0]
     assert stored["device_id"] == "phone-auto-1"
     assert stored["token_hash"] != body["token"]
     assert stored["platform"] == "android"
+    assert stored["protocol"] == 1
+    assert stored["build"] == 15
+    assert stored["device_model"] == "SM-S911W"
     rec = mobile_bridge.receipts.recent()[-1]
     assert rec["action"] == "pair_device"
     assert rec["result"] == "ok"
@@ -785,3 +795,234 @@ def test_network_invariants_actually_bind_and_close(vault, mobile_bridge):
     with pytest.raises(OSError):
         s3.connect(("127.0.0.1", port))
     s3.close()
+
+
+# ---------------------------------------------------------------------------
+# Version Compatibility Handshake (PR M2)
+# ---------------------------------------------------------------------------
+
+def _pair_body(**overrides):
+    body = {
+        "client": "cachevault-android",
+        "device_id": "phone-compat-1",
+        "device_name": "Galaxy S23",
+        "app_version": "0.1.5",
+        "build": 15,
+        "protocol": 1,
+        "platform": "android",
+        "device": {"name": "Galaxy S23", "model": "SM-S911W"},
+    }
+    body.update(overrides)
+    return body
+
+
+def test_compatible_protocol_accepted(vault, mobile_bridge):
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {}, body=_pair_body())
+    assert code == 200
+    assert body["compatible"] is True
+    assert body["update_required"] is False
+    assert body["token"]
+
+
+def test_minimum_supported_app_version_accepted(vault, mobile_bridge):
+    """The lower bound is inclusive: a phone on exactly the minimum
+    supported version must still be accepted, not rejected."""
+    from cache_vault.core.mobile.compatibility import MINIMUM_MOBILE_VERSION
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {},
+        body=_pair_body(app_version=MINIMUM_MOBILE_VERSION))
+    assert code == 200
+    assert body["compatible"] is True
+
+
+def test_old_protocol_returns_426(vault, mobile_bridge):
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {},
+        body=_pair_body(protocol=0))
+    assert code == 426
+    assert body["error"] == "mobile_update_required"
+    assert body["compatible"] is False
+    assert body["update_required"] is True
+    assert vault.settings.paired_devices == [], "an incompatible client must not be paired"
+
+
+def test_missing_protocol_returns_structured_incompatibility(vault, mobile_bridge):
+    """Unknown/missing protocol is treated conservatively (rejected), and the
+    rejection is the same structured 426 body — never a generic 401/403/500."""
+    _enable(vault)
+    payload = _pair_body()
+    del payload["protocol"]
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {}, body=payload)
+    assert code == 426
+    assert body["error"] == "mobile_update_required"
+    assert body["client_protocol"] is None
+    assert vault.settings.paired_devices == []
+
+
+def test_future_unsupported_protocol_rejected(vault, mobile_bridge):
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {},
+        body=_pair_body(protocol=99))
+    assert code == 426
+    assert body["compatible"] is False
+
+
+def test_valid_token_plus_incompatible_protocol_still_rejected(vault, mobile_bridge):
+    """A device that paired while compatible must still be blocked once its
+    stored protocol falls outside the server's supported range — a valid
+    token alone does not grant access; protocol compatibility is checked
+    independently on every request."""
+    _enable(vault)
+    _, token = mobile_bridge.pair_device(
+        "phone-drift", "Drift Phone", app_version="0.1.5", platform="android",
+        protocol=0)
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth("phone-drift", token))
+    assert code == 426
+    assert body["error"] == "mobile_update_required"
+
+
+def test_invalid_token_rejected_before_protected_action(vault, mobile_bridge):
+    """An invalid token must fail with 401 even for a device whose protocol
+    would also be incompatible — auth is checked first, so version checks
+    never mask an authentication failure."""
+    _enable(vault)
+    mobile_bridge.pair_device(
+        "phone-both-bad", "Bad Phone", app_version="0.1.5", platform="android",
+        protocol=0)
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status",
+        _auth("phone-both-bad", "totally-wrong-token"))
+    assert code == 401
+    assert body["error"] == "unauthorized"
+
+
+def test_device_metadata_stored_and_displayed(vault, mobile_bridge):
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {}, body=_pair_body())
+    assert code == 200
+    stored = vault.settings.paired_devices[0]
+    assert stored["app_version"] == "0.1.5"
+    assert stored["build"] == 15
+    assert stored["protocol"] == 1
+    assert stored["device_model"] == "SM-S911W"
+
+
+def test_compatibility_state_updates_on_reconnect(vault, mobile_bridge):
+    """A phone paired under an old protocol becomes compatible again after
+    the app updates and resends its handshake as headers on reconnect,
+    without needing to fully re-pair."""
+    _enable(vault)
+    device, token = mobile_bridge.pair_device(
+        "phone-upgrading", "Upgrading Phone", app_version="0.1.0",
+        platform="android", protocol=0)
+    code, _ = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 426
+
+    headers = _auth(device.device_id, token)
+    headers["X-App-Version"] = "0.1.5"
+    headers["X-Protocol-Version"] = "1"
+    code, body = mobile_bridge.handle("GET", "/mobile/v1/status", headers)
+    assert code == 200
+    assert body["compatible"] is True
+    assert vault.settings.paired_devices[0]["protocol"] == 1
+    assert vault.settings.paired_devices[0]["app_version"] == "0.1.5"
+
+
+def test_last_seen_updates_for_compatible_mobile_client(vault, mobile_bridge):
+    _enable(vault)
+    device, token = mobile_bridge.pair_device(
+        "phone-touch", "Touch Phone", app_version="0.1.5",
+        platform="android", protocol=1)
+    assert vault.settings.paired_devices[0]["last_seen_at"] is None
+    code, _ = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 200
+    assert vault.settings.paired_devices[0]["last_seen_at"] is not None
+
+
+def test_update_required_client_cannot_send_clips(vault, mobile_bridge):
+    _enable(vault)
+    device, token = mobile_bridge.pair_device(
+        "phone-blocked-send", "Blocked Phone", app_version="0.1.0",
+        platform="android", protocol=0)
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/inbox/send", _auth(device.device_id, token),
+        body={"item_type": "text", "user_action": "send_to_pc", "text": "hi"})
+    assert code == 426
+    assert body["error"] == "mobile_update_required"
+
+
+def test_disabled_mobile_access_still_rejects_incompatible_client(vault, mobile_bridge):
+    """Mobile Access being off must mask everything, including compatibility
+    state — the disabled check stays the very first gate, before any
+    protocol/token evaluation."""
+    device, token = mobile_bridge.pair_device(
+        "phone-disabled-gate", "Disabled Gate Phone", app_version="0.1.0",
+        platform="android", protocol=0)
+    vault.settings.mobile_access_enabled = False
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 503
+    assert body["error"] == "mobile_access_disabled"
+
+
+def test_regression_existing_compatible_companion_still_pairs(vault, mobile_bridge):
+    """A same-protocol Android companion must keep pairing and operating
+    normally after the M2 compatibility handshake lands."""
+    _enable(vault)
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {}, body=_pair_body())
+    assert code == 200
+    token = body["token"]
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/clips", _auth("phone-compat-1", token))
+    assert code == 200
+
+
+def test_regression_minimum_version_never_exceeds_real_shipped_android_version():
+    """MINIMUM_MOBILE_VERSION is a floor, not an aspirational target — it must
+    never accidentally exceed the Android app's actual current versionName,
+    or the real production app would be locked out by its own desktop.
+    Guards against exactly this: an earlier draft of this constant ("0.1.5")
+    was above the real shipped versionName ("0.1.3-rc6")."""
+    import re
+    from cache_vault.core.mobile.compatibility import (
+        MINIMUM_MOBILE_VERSION, evaluate_compatibility, parse_version,
+    )
+    gradle_path = (
+        Path(__file__).resolve().parent.parent
+        / "android" / "app" / "build.gradle.kts"
+    )
+    text = gradle_path.read_text(encoding="utf-8")
+    m = re.search(r'versionName\s*=\s*"([^"]+)"', text)
+    assert m, "could not find versionName in android/app/build.gradle.kts"
+    shipped_version = m.group(1)
+    result = evaluate_compatibility(1, shipped_version)
+    assert result.compatible is True, (
+        f"real shipped Android version {shipped_version!r} is rejected by "
+        f"MINIMUM_MOBILE_VERSION={MINIMUM_MOBILE_VERSION!r} — the floor must "
+        f"be at or below every already-released build"
+    )
+    assert parse_version(shipped_version) >= parse_version(MINIMUM_MOBILE_VERSION)
+
+
+def test_regression_cli_device_unaffected_by_compat_gate(vault, mobile_bridge):
+    """The desktop CLI pairs itself as a PairedDevice with no ``platform``
+    set (see cache_vault/cli.py) and never sends protocol info — it must not
+    be swept into the Android version-compatibility gate."""
+    _enable(vault)
+    device, token = mobile_bridge.pair_device("cli-local", "Cache Vault CLI")
+    assert device.platform is None
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/status", _auth(device.device_id, token))
+    assert code == 200
+    assert "compatible" not in body

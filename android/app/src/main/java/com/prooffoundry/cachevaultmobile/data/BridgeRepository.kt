@@ -81,9 +81,11 @@ class BridgeRepository(
         )
         val existingDeviceId = ConnectionPlanner.deviceIdForPairing(pairingStore.load()?.deviceId)
         val grant = if (existingDeviceId != null) {
-            client.pairDevice(deviceName = Build.MODEL, deviceId = existingDeviceId)
+            client.pairDevice(
+                deviceName = Build.MODEL, deviceId = existingDeviceId, deviceModel = Build.MODEL,
+            )
         } else {
-            client.pairDevice(deviceName = Build.MODEL)
+            client.pairDevice(deviceName = Build.MODEL, deviceModel = Build.MODEL)
         }
         val config = PairingConfig.sanitize(
             host = host,

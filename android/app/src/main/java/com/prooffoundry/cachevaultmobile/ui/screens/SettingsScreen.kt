@@ -3,6 +3,8 @@ package com.prooffoundry.cachevaultmobile.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,7 +31,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
+import com.prooffoundry.cachevaultmobile.data.AppIdentity
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
+import com.prooffoundry.cachevaultmobile.data.UserMessages
 import com.prooffoundry.cachevaultmobile.ui.ConnectionState
 import com.prooffoundry.cachevaultmobile.ui.resolveConnectionState
 import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
@@ -102,6 +106,24 @@ fun SettingsScreen(
             }
             if (!error.isNullOrBlank()) {
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (connection == ConnectionState.UPDATE_REQUIRED) {
+                // The message itself (including the real minimum version) is
+                // already shown by the generic `error` text above — it comes
+                // straight from the live BridgeError, unlike `status` here,
+                // which is only ever set on a successful connection and so
+                // is stale/null on exactly the failure path this state
+                // represents. Only the action lives in this block.
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(UserMessages.TRUSTED_UPDATE_URL)),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Check for update")
+                }
             }
             if (connection == ConnectionState.REPAIR_NEEDED ||
                 connection == ConnectionState.REVOKED ||
@@ -187,6 +209,21 @@ fun SettingsScreen(
                 Text("Bridge: ${it.product}", style = MaterialTheme.typography.labelSmall)
                 Text("Vault version: ${it.cacheVaultVersion}", style = MaterialTheme.typography.labelSmall)
             }
+
+            SectionTitle("About")
+            Text(
+                "App version: ${AppIdentity.APP_VERSION} (build ${AppIdentity.APP_BUILD})",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text("Protocol: ${AppIdentity.PROTOCOL_VERSION}", style = MaterialTheme.typography.labelSmall)
+            Text(
+                "Compatibility: " + when (status?.compatible) {
+                    true -> "Compatible"
+                    false -> "Update required"
+                    null -> "Unknown — not yet connected"
+                },
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }
@@ -206,6 +243,7 @@ private fun StatusLine(connection: ConnectionState) {
             ConnectionState.REVOKED,
             ConnectionState.OFFLINE,
             ConnectionState.MOBILE_ACCESS_OFF,
+            ConnectionState.UPDATE_REQUIRED,
             -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.secondary
         },

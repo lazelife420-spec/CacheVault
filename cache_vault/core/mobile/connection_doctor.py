@@ -16,6 +16,8 @@ def suggested_fix_for_reason(reason: str | None) -> str | None:
         return "Pair again from your PC — this device was revoked."
     if "mobile_access_disabled" in low or "mobile access is disabled" in low:
         return "Enable Mobile Access in Cache Vault Settings and Save."
+    if "mobile_update_required" in low:
+        return "Update the CacheVault mobile companion to continue."
     if "unpaired" in low:
         return "Generate a fresh pairing code on your PC."
     if "pairing required" in low:

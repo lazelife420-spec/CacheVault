@@ -111,14 +111,24 @@ class BridgeClient(
     fun pairDevice(
         deviceName: String? = null,
         deviceId: String = generateDeviceId(),
-        appVersion: String? = null,
-        platform: String = "android",
+        appVersion: String? = AppIdentity.APP_VERSION,
+        platform: String = AppIdentity.PLATFORM,
+        build: Int? = AppIdentity.APP_BUILD,
+        protocol: Int = AppIdentity.PROTOCOL_VERSION,
+        deviceModel: String? = null,
     ): PairDeviceGrant {
         val payload = PairDeviceRequest(
             deviceId = deviceId,
             deviceName = deviceName,
             appVersion = appVersion,
             platform = platform,
+            build = build,
+            protocol = protocol,
+            device = if (deviceName != null || deviceModel != null) {
+                DeviceInfoJson(name = deviceName, model = deviceModel)
+            } else {
+                null
+            },
         )
         val json = moshi.adapter(PairDeviceRequest::class.java).toJson(payload)
         val body = json.toRequestBody("application/json".toMediaType())
@@ -183,6 +193,12 @@ class BridgeClient(
             .url("$base$path")
             .header("X-Device-Id", pairing.deviceId)
             .header("Authorization", "Bearer ${pairing.token}")
+            // Lets an already-paired device's compatibility state update on
+            // reconnect (e.g. after this app is updated) without a full
+            // re-pair — see docs/MOBILE_API_CONTRACT.md.
+            .header("X-App-Version", AppIdentity.APP_VERSION)
+            .header("X-App-Build", AppIdentity.APP_BUILD.toString())
+            .header("X-Protocol-Version", AppIdentity.PROTOCOL_VERSION.toString())
     }
 
     private fun <T> execute(request: Request, type: Class<T>): T {
@@ -192,6 +208,7 @@ class BridgeClient(
                 when (response.code) {
                     200 -> return parseJson(body, type)
                     401 -> throw BridgeError.Unauthorized(parseMessage(body))
+                    426 -> throw parseUpdateRequired(body)
                     503 -> throw BridgeError.Disabled()
                     404 -> throw BridgeError.NotFound()
                     else -> throw BridgeError.Unknown(response.code, body)
@@ -202,6 +219,19 @@ class BridgeClient(
         } catch (e: Exception) {
             throw BridgeError.Network(e)
         }
+    }
+
+    private fun parseUpdateRequired(body: String): BridgeError.UpdateRequired {
+        val parsed = runCatching {
+            moshi.adapter(IncompatibleJson::class.java).fromJson(body)
+        }.getOrNull()
+        return BridgeError.UpdateRequired(
+            clientProtocol = parsed?.clientProtocol,
+            serverProtocolMin = parsed?.serverProtocolMin,
+            serverProtocolMax = parsed?.serverProtocolMax,
+            minimumMobileVersion = parsed?.minimumMobileVersion,
+            serverMessage = parsed?.message,
+        )
     }
 
     private fun <T> parseJson(body: String, type: Class<T>): T {
@@ -237,10 +267,17 @@ class BridgeClient(
         @Json(name = "cache_vault_version") val cacheVaultVersion: String,
         @Json(name = "device_id") val deviceId: String,
         @Json(name = "read_only") val readOnly: Boolean,
+        val compatible: Boolean? = null,
+        @Json(name = "server_protocol_min") val serverProtocolMin: Int? = null,
+        @Json(name = "server_protocol_max") val serverProtocolMax: Int? = null,
+        @Json(name = "minimum_mobile_version") val minimumMobileVersion: String? = null,
+        @Json(name = "update_required") val updateRequired: Boolean = false,
     ) {
         fun toModel() = BridgeStatus(
             product, byline, mobileApiVersion, mobileAccessEnabled,
             cacheVaultVersion, deviceId, readOnly,
+            compatible, serverProtocolMin, serverProtocolMax,
+            minimumMobileVersion, updateRequired,
         )
     }
 
@@ -291,20 +328,49 @@ class BridgeClient(
     )
     private data class OkJson(val ok: Boolean? = null)
 
+    private data class DeviceInfoJson(
+        val name: String? = null,
+        val model: String? = null,
+    )
+
     private data class PairDeviceRequest(
+        val client: String = "cachevault-android",
         @Json(name = "device_id") val deviceId: String,
         @Json(name = "device_name") val deviceName: String? = null,
         @Json(name = "app_version") val appVersion: String? = null,
         val platform: String = "android",
+        val build: Int? = null,
+        val protocol: Int? = null,
+        val device: DeviceInfoJson? = null,
     )
 
     private data class PairDeviceResponseJson(
         @Json(name = "device_id") val deviceId: String,
         @Json(name = "device_name") val deviceName: String,
         val token: String,
+        val compatible: Boolean? = null,
+        @Json(name = "server_protocol_min") val serverProtocolMin: Int? = null,
+        @Json(name = "server_protocol_max") val serverProtocolMax: Int? = null,
+        @Json(name = "minimum_mobile_version") val minimumMobileVersion: String? = null,
+        @Json(name = "update_required") val updateRequired: Boolean = false,
     ) {
-        fun toModel() = PairDeviceGrant(deviceId, deviceName, token)
+        fun toModel() = PairDeviceGrant(
+            deviceId, deviceName, token,
+            compatible, serverProtocolMin, serverProtocolMax,
+            minimumMobileVersion, updateRequired,
+        )
     }
+
+    private data class IncompatibleJson(
+        val error: String? = null,
+        val compatible: Boolean? = null,
+        @Json(name = "client_protocol") val clientProtocol: Int? = null,
+        @Json(name = "server_protocol_min") val serverProtocolMin: Int? = null,
+        @Json(name = "server_protocol_max") val serverProtocolMax: Int? = null,
+        @Json(name = "minimum_mobile_version") val minimumMobileVersion: String? = null,
+        @Json(name = "update_required") val updateRequired: Boolean? = null,
+        val message: String? = null,
+    )
 
     private data class InboxSendRequest(
         @Json(name = "item_type") val itemType: String,

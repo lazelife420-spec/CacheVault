@@ -15,6 +15,7 @@ from ..settings import Settings
 from ..storage import FILTER_ALL, FILTER_FAVORITES, FILTER_RECENTLY_REMOVED, FILTER_SEARCH_ALL
 from . import api as api_mod
 from .api import BinaryResponse
+from .compatibility import ERROR_UPDATE_REQUIRED, evaluate_compatibility
 from .models import (
     DEFAULT_BIND_HOST,
     DEFAULT_MOBILE_PORT,
@@ -32,6 +33,21 @@ if TYPE_CHECKING:
     from ..vault import Vault
 
 _CLIP_ID_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)$")
+
+
+def _coerce_int(value) -> int | None:
+    """Best-effort int coercion for client-supplied handshake fields.
+
+    Malformed input (wrong type, non-numeric string) must be treated as
+    missing, not raise — the compatibility gate then handles it conservatively.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
 
 # Reject POST bodies larger than this before reading them. Image sends are
 # capped at 10 MB decoded; base64 + JSON overhead fits comfortably under 20 MB.
@@ -219,7 +235,10 @@ class MobileBridge:
                     settings: Settings | None = None,
                     *,
                     app_version: str | None = None,
-                    platform: str | None = None) -> tuple[PairedDevice, str]:
+                    platform: str | None = None,
+                    protocol: int | None = None,
+                    device_model: str | None = None,
+                    build: int | None = None) -> tuple[PairedDevice, str]:
         """Register a device and return ``(record, plaintext_token)`` once."""
         settings = settings or self.vault.settings
         token = new_device_token()
@@ -230,6 +249,9 @@ class MobileBridge:
             token_hash=hash_token(token),
             app_version=app_version.strip() if app_version else None,
             platform=platform.strip() if platform else None,
+            protocol=protocol,
+            device_model=device_model.strip() if device_model else None,
+            build=build,
         )
         settings.paired_devices = [
             d for d in settings.paired_devices
@@ -371,6 +393,28 @@ class MobileBridge:
             self.receipts.record(rec)
             return 401, {"error": "unauthorized", "message": auth_reason}
 
+        # A valid token authenticates the device but does not, on its own,
+        # authorize protected actions — an incompatible protocol/app version
+        # blocks every route below, even ones that were previously reachable.
+        # Scoped to devices that declared a mobile platform at pairing time:
+        # the desktop CLI pairs itself as a PairedDevice too (cli.py) but
+        # never participates in the Android version handshake, so it must
+        # not be swept into this gate.
+        device = self._refresh_device_handshake(device, headers)
+        compat = (
+            evaluate_compatibility(device.protocol, device.app_version)
+            if device.platform
+            else None
+        )
+        if compat is not None and not compat.compatible:
+            self._touch_device(device)
+            rec = api_mod.reject_receipt(
+                path_only, action, "denied", ERROR_UPDATE_REQUIRED,
+                device_id=device.device_id, device_name=device.device_name,
+                remote_ip=remote_ip)
+            self.receipts.record(rec)
+            return 426, compat.to_error_response()
+
         if family is None:
             rec = self._ok_receipt(path_only, action, device)
             self.receipts.record(rec)
@@ -445,6 +489,42 @@ class MobileBridge:
             return d, None
         return None, "Unpaired device."
 
+    def _refresh_device_handshake(self, device: PairedDevice,
+                                  headers: dict) -> PairedDevice:
+        """Refresh a paired device's protocol/app-version/build from headers.
+
+        Lets an already-paired phone's compatibility state update on
+        reconnect (e.g. after the app itself is updated) without requiring a
+        full re-pair. Absent headers leave the stored values untouched.
+        """
+        app_version = headers.get("X-App-Version") or headers.get("x-app-version")
+        build = headers.get("X-App-Build") or headers.get("x-app-build")
+        protocol = headers.get("X-Protocol-Version") or headers.get("x-protocol-version")
+        if app_version is None and build is None and protocol is None:
+            return device
+        if app_version is not None:
+            device.app_version = str(app_version).strip() or device.app_version
+        if build is not None:
+            coerced = _coerce_int(build)
+            if coerced is not None:
+                device.build = coerced
+        if protocol is not None:
+            coerced = _coerce_int(protocol)
+            if coerced is not None:
+                device.protocol = coerced
+        settings = self.vault.settings
+        updated = []
+        for raw in settings.paired_devices:
+            d = PairedDevice.from_dict(raw)
+            if d.device_id == device.device_id:
+                d.app_version = device.app_version
+                d.build = device.build
+                d.protocol = device.protocol
+            updated.append(d.to_dict())
+        settings.paired_devices = updated
+        settings.save()
+        return device
+
     def _touch_device(self, device: PairedDevice) -> None:
         now = models.now_iso()
         settings = self.vault.settings
@@ -464,7 +544,7 @@ class MobileBridge:
         storage = self.vault.storage
 
         if family == "/mobile/v1/status":
-            return 200, {
+            body = {
                 "product": "Cache Vault",
                 "byline": brand.MOBILE_BYLINE,
                 "mobile_api_version": MOBILE_API_VERSION,
@@ -473,6 +553,10 @@ class MobileBridge:
                 "device_id": device.device_id,
                 "read_only": True,
             }
+            if device.platform:
+                compat = evaluate_compatibility(device.protocol, device.app_version)
+                body.update(compat.to_response())
+            return 200, body
 
         if family == "/mobile/v1/clips":
             clips = self.vault.list_clips(FILTER_ALL)
@@ -575,20 +659,35 @@ class MobileBridge:
         if family != "/mobile/v1/pair-device":
             return 404, {"error": "not_found"}
         device_id = str(payload.get("device_id") or "").strip() or models.new_id()
-        device_name = sanitize_device_name(payload.get("device_name"))
+        device_obj = payload.get("device") if isinstance(payload.get("device"), dict) else {}
+        device_name = sanitize_device_name(
+            payload.get("device_name") or device_obj.get("name"))
         app_version = str(payload.get("app_version") or "").strip() or None
         platform = str(payload.get("platform") or "").strip() or None
+        device_model = str(device_obj.get("model") or "").strip() or None
+        protocol = _coerce_int(payload.get("protocol"))
+        build = _coerce_int(payload.get("build"))
+
+        result = evaluate_compatibility(protocol, app_version)
+        if not result.compatible:
+            return 426, result.to_error_response()
+
         device, token = self.pair_device(
             device_id,
             device_name,
             app_version=app_version,
             platform=platform,
+            protocol=protocol,
+            device_model=device_model,
+            build=build,
         )
-        return 200, {
+        response = {
             "device_id": device.device_id,
             "device_name": device.device_name,
             "token": token,
         }
+        response.update(result.to_response())
+        return 200, response
 
     def _dispatch_receipt_post(self, family: str, path: str,
                                device: PairedDevice) -> tuple[int, dict]:
