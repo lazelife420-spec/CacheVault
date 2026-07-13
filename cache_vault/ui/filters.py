@@ -274,14 +274,15 @@ class SidebarRow(ctk.CTkFrame):
         # Keyboard focus bindings
         import tkinter as tk
         tk.Frame.configure(self, takefocus=True)
-        self.bind("<FocusIn>", lambda _e: self._focus_changed(True))
-        self.bind("<FocusOut>", lambda _e: self._focus_changed(False))
-        self.bind("<Return>", lambda _e: self._select_clicked())
-        self.bind("<space>", lambda _e: self._select_clicked())
+        tk.Frame.bind(self, "<FocusIn>", lambda _e: self._focus_changed(True), add="+")
+        tk.Frame.bind(self, "<FocusOut>", lambda _e: self._focus_changed(False), add="+")
+        tk.Frame.bind(self, "<Return>", lambda _e: self._select_clicked(), add="+")
+        tk.Frame.bind(self, "<space>", lambda _e: self._select_clicked(), add="+")
 
         # Keyboard arrows navigation
-        self.bind("<Up>", lambda _e: self._move_focus(-1))
-        self.bind("<Down>", lambda _e: self._move_focus(1))
+        tk.Frame.bind(self, "<Up>", lambda _e: self._move_focus(-1), add="+")
+        tk.Frame.bind(self, "<Down>", lambda _e: self._move_focus(1), add="+")
+        tk.Frame.bind(self, "<Shift-F10>", self._on_right_click, add="+")
 
         # Right click bindings
         self._bind_context()
@@ -730,6 +731,7 @@ class FilterNav(ctk.CTkFrame):
             on_context=on_context,
             tip=tip
         )
+        row.pack(fill="x", padx=10, pady=1)
         self._labels[key] = row._label
         self._counts[key] = row._count
         return row
@@ -827,6 +829,7 @@ class FilterNav(ctk.CTkFrame):
                     on_select=self._select,
                     on_context=on_context
                 )
+                row.pack(fill="x", padx=10, pady=1)
                 self._collection_rows[key] = row
                 self._labels[key] = row._label
                 self._counts[key] = row._count
@@ -866,6 +869,7 @@ class FilterNav(ctk.CTkFrame):
                     on_select=self._select,
                     on_context=on_context
                 )
+                row.pack(fill="x", padx=10, pady=1)
                 self._safe_rows[key] = row
                 self._safe_meta[key] = dict(safe)
                 self._labels[key] = row._label

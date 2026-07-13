@@ -43,9 +43,9 @@ def _find_button(widget, text_substr):
                     return child
             except Exception:  # noqa: BLE001
                 pass
-        found = _find_button(child, text_substr)
-        if found is not None:
-            return found
+        res = _find_button(child, text_substr)
+        if res is not None:
+            return res
     return None
 
 
@@ -213,8 +213,11 @@ class TestCommandCenterApp:
         try:
             app.withdraw()
             app._navigate_screen(NAV_HOTKEY_ACTIONS)
-            screen = app._vault_screens._screens[NAV_HOTKEY_ACTIONS]
-            btn = _find_button(screen, "New Hotkey")
+            import time
+            app.update()
+            time.sleep(0.1)
+            app.update()
+            btn = _find_button(app, "New Hotkey")
             assert btn is not None, "New Hotkey button not found on screen"
             cmd = btn.cget("command")
             assert callable(cmd), "New Hotkey button has no command"

@@ -43,6 +43,7 @@ from ..core.mobile.bridge import MobileBridge
 from ..core.vault import Vault
 from .clip_grid import ClipGrid
 from .clip_list import ClipList
+from .page_scaffold import LoadingState
 from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SafePickerDialog, SettingsDialog,
@@ -539,7 +540,7 @@ class CacheVaultApp(ctk.CTk):
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
         self.grid_columnconfigure(0, weight=0, minsize=200)
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(1, weight=1, minsize=560)
         self.grid_columnconfigure(2, weight=0, minsize=320)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=0)
@@ -557,13 +558,15 @@ class CacheVaultApp(ctk.CTk):
         ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
                       command=self._export_view, **theme.primary_button()
                       ).grid(row=0, column=1, padx=4)
-        ctk.CTkButton(top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
-                      command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
-                      **theme.secondary_button()
-                      ).grid(row=0, column=2, padx=4)
-        ctk.CTkButton(top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
-                      **theme.secondary_button()
-                      ).grid(row=0, column=3, padx=4)
+        self._top_receipts_btn = ctk.CTkButton(
+            top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
+            command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+            **theme.secondary_button())
+        self._top_receipts_btn.grid(row=0, column=2, padx=4)
+        self._top_capture_rules_btn = ctk.CTkButton(
+            top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
+            **theme.secondary_button())
+        self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
                       ).grid(row=0, column=4, padx=(4, 12))
@@ -653,6 +656,7 @@ class CacheVaultApp(ctk.CTk):
                 "save_revision": self._save_editable_revision,
                 "reveal_copy": self._reveal_editable_copy_folder,
                 "select_clip": self._select_clip_by_id,
+                "select_clip_in_place": self._select_visible_clip_by_id,
                 "preview_html": self._preview_html_copy,
                 "edit_html": self._edit_html_source,
                 "export_html": self._export_html_bundle,
@@ -679,6 +683,10 @@ class CacheVaultApp(ctk.CTk):
                 "remove_clip": self._remove_from_history,
                 "open_clip_menu": self._open_clip_menu,
                 "open_receipt_menu": self._open_receipt_menu,
+                "set_header_actions": self._page_header.set_actions,
+                "set_header_subtitle": lambda sub: self._page_header.set_content(self._page_header._title_label.cget("text"), sub),
+                "set_header_chips": self._page_header.set_status_chips,
+                "navigate_filter": self._navigate_filter,
             },
             corner_radius=0,
         )
@@ -761,8 +769,9 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
 
-        ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
-                     font=theme.body_font(11)).pack(side="right", padx=(4, 2))
+        self._view_label = ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11))
+        self._view_label.pack(side="right", padx=(4, 2))
         self._grid_btn = ctk.CTkButton(
             self._toolbar_row3, text="Grid", width=58, height=28,
             command=lambda: self._set_view_mode("grid"), **theme.segmented_inactive(),
@@ -843,6 +852,7 @@ class CacheVaultApp(ctk.CTk):
         # Clear the inspector so navigation cannot leave a stale clip from the
         # previous page visible in the preview panel.
         self._preview.show(None)
+        self._update_inspector_visibility()
 
     def _keyboard_select_all(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -1340,8 +1350,10 @@ class CacheVaultApp(ctk.CTk):
         self._grid.grid_remove()
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
-        self._page_header.set_content("Command Center", "Today in CacheVault")
+        self._page_header.set_content("Command Center")
+        self._page_header.set_actions()
         self._home.grid()
+        self._update_inspector_visibility()
 
     def _show_clips(self) -> None:
         self._home.grid_remove()
@@ -1349,12 +1361,15 @@ class CacheVaultApp(ctk.CTk):
         self._vault_screens.grid_remove()
         self._toolbar.grid()
         self._page_header.set_content(self._filters.active_label)
+        self._page_header.set_actions()
+        self._page_header.set_status_chips([])
         if self._view_mode == "grid":
             self._list.grid_remove()
             self._grid.grid()
         else:
             self._grid.grid_remove()
             self._list.grid()
+        self._update_inspector_visibility()
 
     def _show_vault_screen(self, key: str) -> None:
         self._home.grid_remove()
@@ -1362,13 +1377,11 @@ class CacheVaultApp(ctk.CTk):
         self._grid.grid_remove()
         self._toolbar.grid_remove()
         self._page_header.set_content(self._filters.active_label)
+        self._page_header.set_actions()
+        self._page_header.set_status_chips([])
         self._vault_screens.grid()
         self._vault_screens.show(key)
-        if self._preview._clip is None:  # noqa: SLF001
-            self._preview.show_vault_control(
-                self.vault.dashboard_summary(),
-                self._vault_panel_callbacks(),
-            )
+        self._update_inspector_visibility()
 
     def _open_duplicate_review(self) -> None:
         if not self._require_founder("smart_filters_advanced"):
@@ -1492,7 +1505,42 @@ class CacheVaultApp(ctk.CTk):
         if not hasattr(self, "_refresh_generation"):
             self._refresh_generation = 0
         self._refresh_generation += 1
+
+        active = self._filters.active
+        if active not in NAV_SCREEN_KEYS and active != FILTER_HOME and not self._locked():
+            self._show_loading_skeleton()
+
         self._refresh_job = self.after(50, self._do_refresh_sync)
+
+    def _show_loading_skeleton(self) -> None:
+        # Clear tracking variables and children immediately to avoid race conditions/TclErrors during debounced refresh
+        self._list.cancel_render()
+        for w in self._list.winfo_children():
+            if w != getattr(self._list, "_empty_container", None):
+                w.destroy()
+        self._list._rows.clear()
+        self._list._row_by_id.clear()
+        self._list._rail_by_id.clear()
+        self._list._selected_badge_by_id.clear()
+        self._list._action_bar_by_id.clear()
+        self._list._render_order.clear()
+        self._list._empty_container.pack_forget()
+
+        self._grid.cancel_render()
+        for w in self._grid.winfo_children():
+            if w != getattr(self._grid, "_empty_container", None):
+                w.destroy()
+        self._grid._row_by_id.clear()
+        self._grid._name_label_by_id.clear()
+        self._grid._render_order.clear()
+        self._grid._empty_container.pack_forget()
+
+        if self._view_mode == "grid":
+            ls = LoadingState(self._grid, mode="grid")
+            ls.pack(fill="both", expand=True, pady=20)
+        else:
+            ls = LoadingState(self._list, mode="list")
+            ls.pack(fill="both", expand=True, pady=20)
 
     def _do_refresh_sync(self) -> None:
         self._refresh_job = None
@@ -1529,6 +1577,17 @@ class CacheVaultApp(ctk.CTk):
                 clip_count = summary.get("all", 0)
             elif active == FILTER_HOME:
                 self._show_home()
+                capture_active = not summary.get("capture_paused")
+                status_text = "● Capture Active" if capture_active else "● Capture Paused"
+                mobile_on = bool(summary.get("mobile_enabled"))
+                mobile_text = f"● Mobile Access ({summary.get('paired_count', 0)} paired)" if mobile_on else "● Mobile Access Off"
+                self._page_header.set_status_chips([
+                    status_text,
+                    "● Receipts Active",
+                    f"● {brand.VAULT_STATUS_ACTIVE}",
+                    mobile_text,
+                    f"● {brand.LABEL_LOCAL_ONLY}"
+                ])
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)
@@ -1995,19 +2054,18 @@ class CacheVaultApp(ctk.CTk):
             self._apply_layout_mode(layout_mode)
             
     def _apply_layout_mode(self, mode: str) -> None:
+        # Column sizing is applied here immediately so the layout doesn't
+        # visibly jump; actual preview grid/place/hidden state is decided
+        # solely by _update_inspector_visibility (called synchronously below)
+        # so there is exactly one authority for whether the panel is showing.
         if mode == "compact":
-            self._preview.place_forget()
-            self._preview.grid_forget()
             self.grid_columnconfigure(2, minsize=0, weight=0)
-        elif mode == "standard":
-            self._preview.place_forget()
-            self._preview.grid(row=1, column=2, sticky="nsew")
-            self.grid_columnconfigure(2, weight=0, minsize=320)
-        elif mode == "wide":
-            self._preview.place_forget()
-            self._preview.grid(row=1, column=2, sticky="nsew")
-            self.grid_columnconfigure(2, weight=0, minsize=400)
-            
+        else:
+            self.grid_columnconfigure(2, weight=0, minsize=400 if mode == "wide" else 320)
+
+        self._set_toolbar_compact(mode == "compact")
+        self._update_inspector_visibility()
+
         if hasattr(self._home, "set_layout_mode"):
             self._home.set_layout_mode(mode)
 
@@ -2015,6 +2073,26 @@ class CacheVaultApp(ctk.CTk):
         # But we might need to tell elements to wrap or adjust.
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
         self.refresh()
+
+    def _set_toolbar_compact(self, compact: bool) -> None:
+        """Drop the least-essential toolbar chrome at narrow widths instead of
+        letting the global toolbar clip or extend past the window edge."""
+        if not hasattr(self, "_view_label"):
+            return
+        if compact:
+            self._view_label.pack_forget()
+            self._selection_hint_label.pack_forget()
+            self._top_receipts_btn.grid_remove()
+            self._top_capture_rules_btn.grid_remove()
+        else:
+            if not self._view_label.winfo_ismapped():
+                self._view_label.pack(side="right", padx=(4, 2), before=self._grid_btn)
+            if not self._selection_hint_label.winfo_ismapped():
+                self._selection_hint_label.pack(side="left", padx=(6, 0))
+            self._top_receipts_btn.grid(row=0, column=2, padx=4)
+            self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
+
+        self._control_strip.set_compact(compact)
 
     def _empty_message(self, active: str, clips: list, query) -> str | None:
         from ..core import storage as S
@@ -2129,11 +2207,7 @@ class CacheVaultApp(ctk.CTk):
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
-        
-        if clip is not None and getattr(self, "_current_layout_mode", None) == "compact":
-            self._preview.configure(width=360)
-            self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
-            self._preview.lift()
+        self._update_inspector_visibility()
 
     def _on_clip_selection_change(self, ids: list[str]) -> None:
         """Multi-selection (Ctrl/Shift click) reported from the list/grid.
@@ -2204,6 +2278,50 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(None)
         if getattr(self, "_current_layout_mode", None) == "compact":
             self._preview.place_forget()
+        self._update_inspector_visibility()
+        self.refresh()
+
+    def _update_inspector_visibility(self) -> None:
+        """Single source of truth for inspector visibility (docked/slide-over/hidden).
+
+        Rules: non-clip vault screens (Hotkey Actions, Mobile Access, etc.) never
+        show the inspector. Editable Copies is the one exception — it shows the
+        inspector once a revision's original clip has been explicitly selected
+        in place. Every other page (Command Center, All Clips, Today/Week/Older)
+        shows the inspector only when a clip is selected, docked at
+        standard/wide width or as a compact slide-over.
+        """
+        active = self._filters.active
+        always_hidden_screens = NAV_SCREEN_KEYS - {NAV_EDITABLE_COPIES}
+        if active in always_hidden_screens:
+            has_selection = False
+        else:
+            has_selection = self._selected_clip_id is not None
+
+        self._preview.place_forget()
+        if not has_selection:
+            self._preview.grid_remove()
+            self.grid_columnconfigure(2, minsize=0)
+            return
+
+        compact = getattr(self, "_current_layout_mode", None) == "compact"
+        if compact:
+            self._preview.grid_remove()
+            self.grid_columnconfigure(2, minsize=0)
+            self._preview.configure(width=360)
+            self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
+            self._preview.lift()
+        else:
+            wide = getattr(self, "_current_layout_mode", None) == "wide"
+            self._preview.grid(row=1, column=2, sticky="nsew")
+            self.grid_columnconfigure(2, minsize=400 if wide else 320)
+
+    def _clear_filters(self) -> None:
+        self._search_var.set("")
+        self._type_var.set("All Types")
+        self._sort_var.set("Newest Added")
+        self._date_added_preset = None
+        self._date_used_preset = None
         self.refresh()
 
     def _set_selection_hint(self, text: str) -> None:
