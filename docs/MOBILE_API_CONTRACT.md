@@ -44,7 +44,7 @@ body — never a generic `401`/`403`/`500`:
   "client_protocol": 0,
   "server_protocol_min": 1,
   "server_protocol_max": 1,
-  "minimum_mobile_version": "0.1.5",
+  "minimum_mobile_version": "0.1.0",
   "update_required": true,
   "message": "Update the CacheVault mobile companion to continue."
 }
@@ -58,7 +58,7 @@ the client can self-report its standing:
   "compatible": true,
   "server_protocol_min": 1,
   "server_protocol_max": 1,
-  "minimum_mobile_version": "0.1.5",
+  "minimum_mobile_version": "0.1.0",
   "update_required": false
 }
 ```

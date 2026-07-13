@@ -15,8 +15,11 @@ from dataclasses import dataclass
 MOBILE_PROTOCOL_MIN = 1
 MOBILE_PROTOCOL_MAX = 1
 
-# Oldest Android app version allowed to connect at all.
-MINIMUM_MOBILE_VERSION = "0.1.5"
+# Oldest Android app version allowed to connect at all. Must stay at or
+# below the real shipped android/app/build.gradle.kts versionName (0.1.3-rc6
+# as of this writing) — this is the compatibility floor, not an aspirational
+# target, so it must never lock out an already-released build.
+MINIMUM_MOBILE_VERSION = "0.1.0"
 
 STATE_COMPATIBLE = "compatible"
 STATE_UPDATE_RECOMMENDED = "update_recommended"

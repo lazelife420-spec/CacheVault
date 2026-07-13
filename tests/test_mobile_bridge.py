@@ -2,6 +2,7 @@
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock
@@ -828,10 +829,11 @@ def test_compatible_protocol_accepted(vault, mobile_bridge):
 def test_minimum_supported_app_version_accepted(vault, mobile_bridge):
     """The lower bound is inclusive: a phone on exactly the minimum
     supported version must still be accepted, not rejected."""
+    from cache_vault.core.mobile.compatibility import MINIMUM_MOBILE_VERSION
     _enable(vault)
     code, body = mobile_bridge.handle(
         "POST", "/mobile/v1/pair-device", {},
-        body=_pair_body(app_version="0.1.5"))
+        body=_pair_body(app_version=MINIMUM_MOBILE_VERSION))
     assert code == 200
     assert body["compatible"] is True
 
@@ -984,6 +986,33 @@ def test_regression_existing_compatible_companion_still_pairs(vault, mobile_brid
     code, body = mobile_bridge.handle(
         "GET", "/mobile/v1/clips", _auth("phone-compat-1", token))
     assert code == 200
+
+
+def test_regression_minimum_version_never_exceeds_real_shipped_android_version():
+    """MINIMUM_MOBILE_VERSION is a floor, not an aspirational target — it must
+    never accidentally exceed the Android app's actual current versionName,
+    or the real production app would be locked out by its own desktop.
+    Guards against exactly this: an earlier draft of this constant ("0.1.5")
+    was above the real shipped versionName ("0.1.3-rc6")."""
+    import re
+    from cache_vault.core.mobile.compatibility import (
+        MINIMUM_MOBILE_VERSION, evaluate_compatibility, parse_version,
+    )
+    gradle_path = (
+        Path(__file__).resolve().parent.parent
+        / "android" / "app" / "build.gradle.kts"
+    )
+    text = gradle_path.read_text(encoding="utf-8")
+    m = re.search(r'versionName\s*=\s*"([^"]+)"', text)
+    assert m, "could not find versionName in android/app/build.gradle.kts"
+    shipped_version = m.group(1)
+    result = evaluate_compatibility(1, shipped_version)
+    assert result.compatible is True, (
+        f"real shipped Android version {shipped_version!r} is rejected by "
+        f"MINIMUM_MOBILE_VERSION={MINIMUM_MOBILE_VERSION!r} — the floor must "
+        f"be at or below every already-released build"
+    )
+    assert parse_version(shipped_version) >= parse_version(MINIMUM_MOBILE_VERSION)
 
 
 def test_regression_cli_device_unaffected_by_compat_gate(vault, mobile_bridge):
