@@ -40,6 +40,11 @@ data class ConnectionDoctorInfo(
     val connectionState: ConnectionState,
     val statusOk: Boolean,
     val suggestedFix: String,
+    val appVersion: String = com.prooffoundry.cachevaultmobile.data.AppIdentity.APP_VERSION,
+    val appBuild: Int = com.prooffoundry.cachevaultmobile.data.AppIdentity.APP_BUILD,
+    val protocolVersion: Int = com.prooffoundry.cachevaultmobile.data.AppIdentity.PROTOCOL_VERSION,
+    val pcVersion: String? = null,
+    val minimumMobileVersion: String? = null,
 )
 
 data class AppUiState(
@@ -477,6 +482,9 @@ class AppViewModel(
                 "Turn on Mobile Access in Cache Vault on your PC."
             ConnectionState.OFFLINE ->
                 "Use the same Wi-Fi as your PC, open Cache Vault on the PC, turn on Mobile Access, then tap Retry."
+            ConnectionState.UPDATE_REQUIRED ->
+                "Update Cache Vault Mobile from the Play Store, or update Cache Vault Desktop " +
+                    "if this phone is newer than your PC supports. Re-pairing alone will not fix this."
             ConnectionState.CONNECTED -> "Connection looks good. If a clip fails, refresh the vault list."
             ConnectionState.CHECKING -> "Wait for the status check to finish, then try Refresh."
         }
@@ -488,6 +496,8 @@ class AppViewModel(
             connectionState = state,
             statusOk = uiState.status != null && uiState.error.isNullOrBlank(),
             suggestedFix = fix,
+            pcVersion = uiState.status?.cacheVaultVersion,
+            minimumMobileVersion = uiState.status?.minimumMobileVersion,
         )
     }
 

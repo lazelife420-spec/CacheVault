@@ -97,6 +97,7 @@ fun VaultStatusCard(
                         ConnectionState.OFFLINE,
                         ConnectionState.REVOKED,
                         ConnectionState.MOBILE_ACCESS_OFF,
+                        ConnectionState.UPDATE_REQUIRED,
                         -> MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
                         else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                     },
@@ -122,6 +123,7 @@ fun VaultStatusCard(
                     ConnectionState.REVOKED -> StatusPill("Device revoked", MaterialTheme.colorScheme.error)
                     ConnectionState.MOBILE_ACCESS_OFF -> StatusPill("Mobile Access off", MaterialTheme.colorScheme.error)
                     ConnectionState.OFFLINE -> StatusPill("Not connected", MaterialTheme.colorScheme.error)
+                    ConnectionState.UPDATE_REQUIRED -> StatusPill("Update required", MaterialTheme.colorScheme.error)
                 }
             }
             when {
@@ -146,6 +148,14 @@ fun VaultStatusCard(
                         stringResource(R.string.offline_recovery_steps),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                connection == ConnectionState.UPDATE_REQUIRED -> {
+                    Text(
+                        "This app version is no longer compatible with your PC. " +
+                            "Update Cache Vault Mobile in Settings.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }

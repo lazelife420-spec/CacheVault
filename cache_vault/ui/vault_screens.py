@@ -31,6 +31,15 @@ from .receipt_ledger import (
 )
 
 
+_COMPATIBILITY_LABELS = {
+    "compatible": "Compatible",
+    "update_recommended": "Update recommended",
+    "update_required": "Update required",
+    "unknown_client_version": "Unknown client version",
+    "unsupported_protocol": "Unsupported protocol",
+}
+
+
 def _section(parent, title: str) -> None:
     ctk.CTkLabel(parent, text=title, anchor="w", **theme.section_heading()).pack(
         fill="x", pady=(12, 6),
@@ -843,6 +852,25 @@ class VaultScreenHost(ctk.CTkFrame):
                         anchor="w", text_color=brand.MUTED_FG,
                         font=ctk.CTkFont(size=12),
                     ).pack(fill="x", padx=16)
+                    if "compatibility_state" in dev:
+                        protocol = dev.get("protocol")
+                        protocol_text = str(protocol) if protocol is not None else "Unknown"
+                        state_label = _COMPATIBILITY_LABELS.get(
+                            dev["compatibility_state"], "Unknown")
+                        if dev.get("update_required"):
+                            compat_color = brand.WARNING_RED
+                        elif not dev.get("compatible"):
+                            compat_color = brand.WARNING_RED
+                        elif dev["compatibility_state"] == "compatible":
+                            compat_color = brand.PROOF_TEAL
+                        else:
+                            compat_color = "#E6A23C"
+                        ctk.CTkLabel(
+                            dev_card,
+                            text=f"Protocol {protocol_text} — {state_label}",
+                            anchor="w", text_color=compat_color,
+                            font=ctk.CTkFont(size=11, weight="bold"),
+                        ).pack(fill="x", padx=16, pady=(2, 0))
                     last_seen = dev.get("last_seen", "Never")
                     last_seen_raw = dev.get("last_seen_raw", "")
                     seen_label = ctk.CTkLabel(
