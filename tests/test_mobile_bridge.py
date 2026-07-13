@@ -481,3 +481,307 @@ def test_reconnect_succeeds_after_desktop_restart(tmp_path, monkeypatch):
     assert code == 200
     assert body["device_id"] == device.device_id
     assert after_vault.settings.paired_devices[0]["last_seen_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# MobileAccessController Unit Tests (PR M1)
+# ---------------------------------------------------------------------------
+
+def test_controller_enable_persists(vault, mobile_bridge, tmp_path):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    # Enable
+    res = controller.enable(vault.settings)
+    assert res.success is True
+    assert vault.settings.mobile_access_enabled is True
+
+    # Reload from disk and verify
+    disk = Settings.load(vault.settings._persist_path)
+    assert disk.mobile_access_enabled is True
+
+    # Teardown
+    controller.disable(vault.settings)
+
+
+def test_controller_enable_starts_bridge_and_mdns(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    mobile_bridge.discovery.is_advertising = True
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    res = controller.enable(vault.settings)
+    assert res.success is True
+    assert controller.listening is True
+    assert controller.advertising is True
+
+    # Teardown
+    controller.disable(vault.settings)
+
+
+def test_controller_disable_stops_all_and_enforces_invariant(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+
+    # Mock transitions
+    def mock_stop():
+        mobile_bridge.discovery.is_advertising = False
+    mobile_bridge.discovery.stop = mock_stop
+
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    controller.enable(vault.settings)
+    assert controller.listening is True
+
+    controller.disable(vault.settings)
+    assert controller.enabled is False
+    assert controller.listening is False
+    assert controller.advertising is False
+    assert vault.settings.mobile_access_enabled is False
+
+
+def test_controller_enable_failure_rolls_back(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+
+    # Bind another server to a random free port to force conflict
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("0.0.0.0", 0))
+    port = s.getsockname()[1]
+    s.listen(1)
+
+    vault.settings.mobile_access_port = port
+
+    try:
+        controller = MobileAccessController(vault, mobile_bridge)
+        res = controller.enable(vault.settings)
+        assert res.success is False
+        assert "already in use" in res.error
+
+        # Verify desired_enabled remains True (intent preserved), but runtime listener is stopped
+        assert controller.enabled is True
+        assert controller.listening is False
+        assert vault.settings.mobile_access_enabled is True
+    finally:
+        s.close()
+
+
+def test_controller_subscribe_notifies(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    snapshots = []
+    def subscriber(state):
+        snapshots.append(state)
+
+    controller.subscribe(subscriber)
+
+    controller.enable(vault.settings)
+    assert len(snapshots) >= 1
+    assert snapshots[-1].enabled is True
+    assert snapshots[-1].listening is True
+
+    controller.disable(vault.settings)
+    assert snapshots[-1].enabled is False
+    assert snapshots[-1].listening is False
+
+    # Cleanup
+    controller.unsubscribe(subscriber)
+
+
+def test_controller_sync_startup(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    # Settings enabled, runtime off
+    vault.settings.mobile_access_enabled = True
+    assert controller.listening is False
+
+    controller.sync(vault.settings)
+    assert controller.listening is True
+
+    # Teardown
+    controller.disable(vault.settings)
+
+
+def test_controller_sync_startup_disabled(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    vault.settings.mobile_access_enabled = False
+    controller.sync(vault.settings)
+    assert controller.listening is False
+
+
+def test_bridge_handle_stops_if_disabled(vault, mobile_bridge):
+    mobile_bridge.discovery = MagicMock()
+    # Simulate a running bridge when settings are disabled
+    vault.settings.mobile_access_enabled = True
+    mobile_bridge._start("127.0.0.1", vault.settings.mobile_access_port)
+    assert mobile_bridge.is_running is True
+
+    # Change settings to disabled
+    vault.settings.mobile_access_enabled = False
+
+    # Request should trigger force-stop invariant
+    mobile_bridge.handle("GET", "/mobile/v1/status", {})
+    assert mobile_bridge.is_running is False
+
+
+def test_relative_timestamp_formats():
+    from cache_vault.core.mobile.mobile_access_controller import relative_timestamp
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+
+    assert relative_timestamp("") == "Never"
+    assert relative_timestamp(None) == "Never"
+
+    just_now = now.isoformat()
+    assert relative_timestamp(just_now) == "Just now"
+
+    two_mins_ago = (now - timedelta(minutes=2)).isoformat()
+    assert relative_timestamp(two_mins_ago) == "2 minutes ago"
+
+    one_hour_ago = (now - timedelta(hours=1)).isoformat()
+    assert relative_timestamp(one_hour_ago) == "1 hour ago"
+
+    three_hours_ago = (now - timedelta(hours=3)).isoformat()
+    assert relative_timestamp(three_hours_ago) == "3 hours ago"
+
+    five_days_ago = (now - timedelta(days=5)).isoformat()
+    assert relative_timestamp(five_days_ago) == "5 days ago"
+
+    # Invalid format fallback
+    assert relative_timestamp("2026-07-12T06:36:44.09281") == "2026-07-12 06:36:44"
+
+
+def test_mobile_access_naming(vault, mobile_bridge):
+    from cache_vault.modules.mobile_bridge import MobileBridgeModule
+    module = MobileBridgeModule(bridge_ref=mobile_bridge)
+
+    assert module.name == "Mobile Access"
+    assert module.description == "Phone sync via LAN for paired Android devices"
+    assert module.get_settings_schema()[0].label == "Mobile Access"
+
+
+def test_disabled_routes_not_red(vault, mobile_bridge):
+    from cache_vault.modules.mobile_bridge import MobileBridgeModule
+    module = MobileBridgeModule(bridge_ref=mobile_bridge)
+
+    # Force disabled state
+    vault.settings.mobile_access_enabled = False
+
+    rows = module.get_status_rows()
+    sync_row = next(r for r in rows if r.label == "Phone Sync")
+    disc_row = next(r for r in rows if r.label == "LAN Discovery")
+
+    assert sync_row.value_getter().startswith("Not running")
+    assert sync_row.level == "info"  # Not warning or error
+    assert disc_row.value_getter().startswith("Not running")
+    assert disc_row.level == "info"
+
+
+# ---------------------------------------------------------------------------
+# Strengthened Lifecycle Unit Tests (PR M1)
+# ---------------------------------------------------------------------------
+
+def test_controller_save_is_idempotent(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    # Initial enable
+    res = controller.enable(vault.settings)
+    assert res.success is True
+    initial_server = mobile_bridge._server
+    initial_thread = mobile_bridge._thread
+
+    # Repeated save / enable with same config
+    res2 = controller.enable(vault.settings)
+    assert res2.success is True
+    assert mobile_bridge._server is initial_server, "Must not recreate server if unchanged"
+    assert mobile_bridge._thread is initial_thread, "Must not spawn new thread if unchanged"
+
+    controller.disable(vault.settings)
+
+
+def test_controller_port_change_performs_restart(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    # Enable on default port
+    controller.enable(vault.settings)
+    assert controller.listening is True
+    port1 = mobile_bridge._listen_port
+
+    # Change port and trigger restart
+    vault.settings.mobile_access_port = port1 + 1
+    res = controller.restart(vault.settings)
+    assert res.success is True
+    assert controller.listening is True
+    assert mobile_bridge._listen_port == port1 + 1
+
+    controller.disable(vault.settings)
+
+
+def test_controller_rapid_toggle_leaves_no_orphans(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    for _ in range(5):
+        controller.enable(vault.settings)
+        controller.disable(vault.settings)
+
+    assert controller.listening is False
+    assert mobile_bridge._server is None
+    assert mobile_bridge._thread is None
+
+
+def test_network_invariants_actually_bind_and_close(vault, mobile_bridge):
+    from cache_vault.core.mobile.mobile_access_controller import MobileAccessController
+    mobile_bridge.discovery = MagicMock()
+    controller = MobileAccessController(vault, mobile_bridge)
+
+    # Get a random free port first to ensure we don't conflict with another running instance
+    import socket
+    dummy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    dummy.bind(("127.0.0.1", 0))
+    free_port = dummy.getsockname()[1]
+    dummy.close()
+
+    vault.settings.mobile_access_port = free_port
+    port = free_port
+
+    # Off => LAN port connection fails
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.2)
+    with pytest.raises(OSError):
+        s.connect(("127.0.0.1", port))
+    s.close()
+
+    # On => Connection succeeds / health responds
+    res = controller.enable(vault.settings)
+    assert res.success is True
+    assert mobile_bridge.verify_listening() is True
+
+    # Verify we can connect to the port
+    s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s2.settimeout(0.5)
+    s2.connect(("127.0.0.1", port))
+    s2.close()
+
+    # Off again => connection fails
+    controller.disable(vault.settings)
+    s3 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s3.settimeout(0.2)
+    with pytest.raises(OSError):
+        s3.connect(("127.0.0.1", port))
+    s3.close()

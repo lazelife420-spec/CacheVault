@@ -212,10 +212,19 @@ class VaultControlStrip(ctk.CTkFrame):
         self._summary = summary
         capture = "Capture: Paused" if summary.get("capture_paused") else "Capture: On"
         paired = summary.get("paired_count", 0)
-        if summary.get("mobile_enabled"):
-            mobile = f"Mobile: Paired ({paired})" if paired else "Mobile: On"
+        status_text = summary.get("mobile_status_text")
+        if status_text:
+            if status_text.startswith("Error"):
+                mobile = f"Mobile: {status_text}"
+            elif status_text == "On" or status_text.startswith("On"):
+                mobile = f"Mobile: Paired ({paired})" if paired else "Mobile: On"
+            else:
+                mobile = "Mobile: Off"
         else:
-            mobile = "Mobile: Off"
+            if summary.get("mobile_enabled"):
+                mobile = f"Mobile: Paired ({paired})" if paired else "Mobile: On"
+            else:
+                mobile = "Mobile: Off"
         self._capture.set(capture)
         self._mobile.set(mobile)
         self._receipts.set("Receipts: Stamping")

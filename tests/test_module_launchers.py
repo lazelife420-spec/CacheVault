@@ -40,7 +40,7 @@ def test_mobile_bridge_launcher_output():
         check=False,
     )
     assert result.returncode == 0
-    assert "Mobile Bridge Doctor" in result.stdout
+    assert "Mobile Access" in result.stdout
     assert "Connection Doctor" in result.stdout
 
 
