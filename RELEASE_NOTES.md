@@ -1,3 +1,59 @@
+# Cache Vault v0.2.0
+
+**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault
+with a local-network Android companion. Same-Wi-Fi access only. No cloud
+account. No subscription.
+
+> `/proof` is unchanged unless separately approved. Nothing in this document
+> is a "stable" claim beyond what is explicitly stated below. This is a
+> release-candidate draft: no public artifacts have been built yet, and no
+> tag has been created.
+
+## What is new in v0.2.0
+
+This is a product-generation release, not an incremental patch.
+
+### Unified Desktop Shell
+- **Unified shell and page-template architecture** — Command Center and all
+  migrated pages share one page layout, with compact-width toolbar and
+  header corrections applied consistently.
+
+### Mobile Access, Made Authoritative
+- **Persistent, synchronized lifecycle** — enabling or disabling Mobile
+  Access now persists across a full desktop restart, and the toolbar,
+  Settings Hub, LAN listener, and mDNS discovery state all stay in sync.
+  No listener or discovery advertisement remains while disabled.
+- **Version/protocol compatibility handshake** — every Android pairing and
+  reconnect declares `app_version`, `build`, and `protocol`; the desktop
+  rejects an incompatible client outright with a structured HTTP `426`,
+  independent of token authentication, and never issues a token to a
+  rejected device.
+- **Mobile device identity display** — the desktop Mobile Access page shows
+  each paired device's model, app version, protocol, and compatibility
+  state (Compatible / Update required).
+- **Android Update-required UI** — an incompatible companion build now
+  shows an explicit "Update required" screen naming the live minimum
+  supported version, instead of a generic connection error.
+
+### Fixed
+- **Disabled-bridge status no longer hangs** — a phone that loses connection
+  because Mobile Access was turned off on the desktop now resolves to an
+  honest "Not connected" state, and any send attempt fails clearly, instead
+  of showing "Checking…"/"Loading…" indefinitely.
+
+### Compatibility
+- Mobile protocol range for this release: **protocol 1** only.
+- Minimum compatible mobile companion version: **0.1.0**.
+
+### Device Verification
+- Real Galaxy S23 pairing, phone-to-desktop clip transfer, desktop device
+  identity display, the Update-required UI, disabled-bridge send-blocking,
+  and re-enable/reconnect were all proven on physical hardware.
+
+See `CHANGELOG.md` "Cache Vault v0.2.0" for the full itemized list.
+
+---
+
 # Cache Vault v0.1.9
 
 **Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.

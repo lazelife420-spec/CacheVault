@@ -4,6 +4,52 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.2.0
+
+`/proof` unchanged this release. Stable not claimed.
+
+This is a product-generation release: a unified desktop shell and page
+architecture, and the first authoritative Mobile Access lifecycle with a
+version/protocol compatibility handshake between desktop and the Android
+companion.
+
+### Added
+- **Unified shell and page layouts** — Command Center and all migrated pages
+  now share one page-template architecture, with compact-width toolbar and
+  header corrections.
+- **Authoritative Mobile Access lifecycle** — enable/disable state persists
+  across restarts and stays synchronized across the toolbar, Settings, the
+  LAN listener, and mDNS discovery; no listener or discovery advertisement
+  remains running while disabled.
+- **Companion version/protocol compatibility handshake** — every Android
+  pairing and reconnect declares `app_version`, `build`, and `protocol`;
+  an incompatible client is rejected outright with a structured HTTP `426`
+  (never a generic failure), independent of token authentication.
+- **Mobile device version/compatibility display** — the desktop Mobile
+  Access page lists each paired device's model, app version, protocol, and
+  compatibility state (Compatible / Update required).
+- **Android Update-required UI** — an incompatible companion build shows an
+  explicit "Update required" state with the live minimum supported version,
+  instead of a generic connection error.
+
+### Fixed
+- **Disabled-bridge status resolves to Not Connected** — a phone that loses
+  its connection because Mobile Access was turned off on the desktop now
+  resolves to an honest "Not connected" state (and a clear "could not send"
+  failure on any send attempt) instead of showing "Checking…"/"Loading…"
+  indefinitely.
+
+### Verified
+- Real Galaxy S23 pairing, phone-to-desktop clip transfer, disabled-bridge
+  send-blocking, the Update-required UI, and re-enable/reconnect were all
+  proven on physical hardware, not simulated.
+
+### Scope notes
+- Cache Vault remains a **local-network companion**: phone and desktop must
+  be on the **same Wi-Fi**. No cloud account. No subscription.
+- Mobile protocol range for this release: **protocol 1** only.
+  Minimum compatible mobile app version: **0.1.0**.
+
 ## Cache Vault v0.1.9
 
 `/proof` unchanged this release. Stable not claimed.

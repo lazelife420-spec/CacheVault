@@ -96,13 +96,15 @@ Desktop stores **token hash only**. Receipts never log plaintext tokens.
 
 Response (200):
 
+Example (illustrative — desktop version reflects whatever build is running):
+
 ```json
 {
   "product": "Cache Vault",
   "byline": "A Proof Foundry companion app",
   "mobile_api_version": "1",
   "mobile_access_enabled": true,
-  "cache_vault_version": "0.1.x",
+  "cache_vault_version": "0.2.0",
   "device_id": "<paired-device-id>",
   "read_only": true
 }
@@ -121,15 +123,17 @@ Errors: `503 mobile_access_disabled`, `401 unauthorized`, `426 mobile_update_req
 | MVP allowed | **yes** |
 | Receipt action | `pair_device` |
 
-Request body:
+Request body (illustrative — `app_version`/`build` reflect whatever companion
+build is actually pairing; any client at or above `minimum_mobile_version`
+is accepted, not only the latest):
 
 ```json
 {
   "client": "cachevault-android",
   "device_id": "optional-existing-id",
   "device_name": "Galaxy S23",
-  "app_version": "0.1.5",
-  "build": 15,
+  "app_version": "0.2.0",
+  "build": 7,
   "protocol": 1,
   "platform": "android",
   "device": {"name": "Galaxy S23", "model": "SM-S911W"}
