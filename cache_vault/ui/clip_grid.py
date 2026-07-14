@@ -10,6 +10,7 @@ from .. import brand
 from ..core import clip_metadata, models
 from ..core.models import Clip
 from . import theme
+from .page_scaffold import EmptyState
 
 # (key, header label, min width weight)
 COLUMNS = [
@@ -31,6 +32,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         on_sort: Callable[[str], None] | None = None,
         on_context: Callable[[Clip, int, int], None] | None = None,
         on_selection_change: Callable[[list[str]], None] | None = None,
+        on_double_click: Callable[[Clip], None] | None = None,
         **kw,
     ):
         super().__init__(master, **kw)
@@ -38,6 +40,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._on_sort = on_sort
         self._on_context = on_context
         self._on_selection_change = on_selection_change
+        self._on_double_click = on_double_click
         self._selected_id: str | None = None
         # Multi-selection: full set plus rendered order and the range anchor.
         self._selected_ids: set[str] = set()
@@ -51,12 +54,26 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._rows_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._rows_frame.pack(fill="both", expand=True, padx=4)
         self._render_job: str | None = None
-        self._empty = ctk.CTkLabel(
-            self._rows_frame,
-            text="No clips match this filter.\nTry All Clips or clear filters.",
-            text_color=brand.MUTED_FG, justify="center", font=theme.body_font(12),
-        )
+        self._more_count: int = 0
+        self._more_label: ctk.CTkLabel | None = None
+        self._empty_container = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
         self._build_header()
+
+    def _show_more_footer(self) -> None:
+        if self._more_count <= 0:
+            return
+        text = (
+            f"+ {self._more_count} more not shown — search, filter, or sort "
+            "to bring older clips into view."
+        )
+        if self._more_label is None or not self._more_label.winfo_exists():
+            self._more_label = ctk.CTkLabel(
+                self._rows_frame, text=text, text_color=brand.MUTED_FG,
+                justify="center", font=theme.body_font(10), wraplength=420,
+            )
+        else:
+            self._more_label.configure(text=text)
+        self._more_label.pack(pady=(8, 14))
 
     def _build_header(self) -> None:
         for w in self._header.winfo_children():
@@ -88,21 +105,69 @@ class ClipGrid(ctk.CTkScrollableFrame):
     def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
         self.cancel_render()
         for w in self._rows_frame.winfo_children():
-            w.destroy()
+            if w is not self._empty_container:
+                w.destroy()
         self._row_by_id.clear()
         self._name_label_by_id.clear()
         self._render_order.clear()
         if not clips:
-            self._empty.configure(
-                text=empty_message or (
-                    "No clips match this filter.\nTry All Clips or clear filters."
-                )
+            for w in self._empty_container.winfo_children():
+                w.destroy()
+
+            actions = None
+            title = "No clips yet"
+            icon = "📭"
+            desc = empty_message or "Copy something and it will appear here."
+
+            shell = self.winfo_toplevel()
+            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+
+            from ..core import storage as S
+            if active_filter == S.FILTER_DUPLICATES:
+                title = "No Duplicates"
+                icon = "≡"
+                desc = "Everything looks clean."
+            elif active_filter == S.FILTER_FAVORITES:
+                title = "No Favorites"
+                icon = "★"
+                desc = "Star clips to save them here."
+            elif active_filter == S.FILTER_SCREENSHOTS:
+                title = "No Screenshots"
+                icon = "▦"
+                desc = "Screenshots will appear here."
+            elif active_filter == S.FILTER_SENSITIVE:
+                title = "No Sensitive Items"
+                icon = "⚠"
+                desc = "Sensitive clips will appear here."
+            elif active_filter == S.FILTER_RECENTLY_REMOVED:
+                title = "No Recently Removed"
+                icon = "↩"
+                desc = "Clean trash bin."
+            else:
+                title = "No clips match filters"
+                icon = "📭"
+                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
+                    actions = [
+                        ("Clear Filters", shell._clear_filters, False),
+                        ("Save Clipboard", shell._manual_save_clipboard, True),
+                    ]
+
+            est = EmptyState(
+                self._empty_container,
+                title=title,
+                description=desc,
+                icon=icon,
+                actions=actions,
             )
-            self._empty.pack(pady=40)
+            est.pack(fill="both", expand=True)
+            self._empty_container.pack(fill="both", expand=True, pady=20)
             return
-        self._empty.pack_forget()
         for clip in clips:
             self._build_row(clip)
+
+    def destroy(self) -> None:
+        self.cancel_render()
+        super().destroy()
 
     def cancel_render(self) -> None:
         if self._render_job:
@@ -112,24 +177,69 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 pass
             self._render_job = None
 
-    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
+    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, more_count: int = 0) -> None:
         self.cancel_render()
+        self._more_count = more_count
         for w in self._rows_frame.winfo_children():
-            if w is not self._empty:
+            if w is not self._empty_container:
                 w.destroy()
         self._row_by_id.clear()
         self._name_label_by_id.clear()
         self._render_order.clear()
+        self._current_group = None
         if not clips:
-            self._empty.configure(
-                text=empty_message or (
-                    "No clips match this filter.\nTry All Clips or clear filters."
-                )
+            for w in self._empty_container.winfo_children():
+                w.destroy()
+
+            actions = None
+            title = "No clips yet"
+            icon = "📭"
+            desc = empty_message or "Copy something and it will appear here."
+
+            shell = self.winfo_toplevel()
+            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+
+            from ..core import storage as S
+            if active_filter == S.FILTER_DUPLICATES:
+                title = "No Duplicates"
+                icon = "≡"
+                desc = "Everything looks clean."
+            elif active_filter == S.FILTER_FAVORITES:
+                title = "No Favorites"
+                icon = "★"
+                desc = "Star clips to save them here."
+            elif active_filter == S.FILTER_SCREENSHOTS:
+                title = "No Screenshots"
+                icon = "▦"
+                desc = "Screenshots will appear here."
+            elif active_filter == S.FILTER_SENSITIVE:
+                title = "No Sensitive Items"
+                icon = "⚠"
+                desc = "Sensitive clips will appear here."
+            elif active_filter == S.FILTER_RECENTLY_REMOVED:
+                title = "No Recently Removed"
+                icon = "↩"
+                desc = "Clean trash bin."
+            else:
+                title = "No clips match filters"
+                icon = "📭"
+                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
+                    actions = [
+                        ("Clear Filters", shell._clear_filters, False),
+                        ("Save Clipboard", shell._manual_save_clipboard, True),
+                    ]
+
+            est = EmptyState(
+                self._empty_container,
+                title=title,
+                description=desc,
+                icon=icon,
+                actions=actions,
             )
-            self._empty.pack(pady=40)
+            est.pack(fill="both", expand=True)
+            self._empty_container.pack(fill="both", expand=True, pady=20)
             return
-        self._empty.pack_forget()
-        
+
         batch_size = 20
         self._render_next_batch(clips, 0, batch_size)
 
@@ -137,21 +247,33 @@ class ClipGrid(ctk.CTkScrollableFrame):
         end_idx = min(start_idx + batch_size, len(clips))
         for i in range(start_idx, end_idx):
             self._build_row(clips[i])
-        
+
         if end_idx < len(clips):
             self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
         else:
             self._render_job = None
+            self._show_more_footer()
 
     def _build_row(self, clip: Clip) -> None:
+        # Date grouping
+        group = clip_metadata.date_group_header(clip.created_at)
+        if group != self._current_group:
+            self._current_group = group
+            header = ctk.CTkLabel(
+                self._rows_frame, text=group,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=brand.STAMP_GOLD, anchor="w",
+            )
+            header.pack(fill="x", padx=10, pady=(12, 4))
+
         selected = clip.id in self._selected_ids or clip.id == self._selected_id
         row = ctk.CTkFrame(
-            self._rows_frame, corner_radius=4, height=34,
+            self._rows_frame, corner_radius=6, height=40,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
-            border_width=1 if selected else 0,
+            border_width=2 if selected else 1,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
-        row.pack(fill="x", pady=2)
+        row.pack(fill="x", pady=2, padx=4)
         self._row_by_id[clip.id] = row
         self._render_order.append(clip.id)
         for col, (key, _label, weight) in enumerate(COLUMNS):
@@ -161,10 +283,10 @@ class ClipGrid(ctk.CTkScrollableFrame):
             text = values[key]
             lbl = ctk.CTkLabel(
                 row, text=text, anchor="w",
-                font=ctk.CTkFont(size=11, weight="bold" if key == "name" else "normal"),
+                font=ctk.CTkFont(size=12 if key == "name" else 11, weight="bold" if key == "name" else "normal"),
                 text_color=brand.PROOF_TEAL if key == "name" and selected else brand.MUTED_FG,
             )
-            lbl.grid(row=0, column=col, sticky="ew", padx=6, pady=6)
+            lbl.grid(row=0, column=col, sticky="ew", padx=8, pady=8)
             if key == "name":
                 self._name_label_by_id[clip.id] = lbl
         self._bind_clip_events(row, clip)
@@ -173,9 +295,15 @@ class ClipGrid(ctk.CTkScrollableFrame):
         widget.bind("<Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Control-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Shift-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
+        widget.bind("<Double-Button-1>", lambda e, c=clip: self._double_click(e, c), add="+")
         widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c), add="+")
         for child in widget.winfo_children():
             self._bind_clip_events(child, clip)
+
+    def _double_click(self, event, clip: Clip) -> str:
+        if self._on_double_click:
+            self._on_double_click(clip)
+        return "break"
 
     def _row_values(self, clip: Clip) -> dict[str, str]:
         name = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
@@ -184,11 +312,16 @@ class ClipGrid(ctk.CTkScrollableFrame):
         preview_type = clip_metadata.format_label(clip.classification, clip.content_type).upper()
         if clip.duplicate_of:
             preview_type += " · DUP"
+
+        badges = clip_metadata.status_badges(clip)
+        if badges:
+            preview_type += f" · {' · '.join(badges)}"
+
         return {
-            "name": name[:36] + ("…" if len(name) > 36 else ""),
+            "name": ("SELECTED · " if clip.id == self._selected_id else "") + name[:28] + ("…" if len(name) > 28 else ""),
             "type": preview_type,
-            "added": _short(clip.created_at),
-            "used": _short(clip.date_used or clip.updated_at),
+            "added": clip_metadata.format_captured_at(clip.created_at),
+            "used": clip_metadata.relative_age(clip.date_used or clip.updated_at),
             "source": clip_metadata.display(clip.source_app)[:16],
             "favorite": "★" if clip.is_pinned else "",
             "proof": clip_metadata.shorten_hash(clip.content_hash),
@@ -199,6 +332,10 @@ class ClipGrid(ctk.CTkScrollableFrame):
     _SHIFT_MASK = 0x0001
 
     def _click(self, event, clip: Clip) -> str:
+        try:
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
         state = getattr(event, "state", 0) or 0
         if state & self._CTRL_MASK:
             self._toggle_select(clip)
@@ -277,7 +414,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             is_selected = clip_id in self._selected_ids
             row.configure(
                 fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                border_width=1 if is_selected else 0,
+                border_width=2 if is_selected else 1,
                 border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
             )
             name_label = self._name_label_by_id.get(clip_id)
@@ -296,7 +433,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         elif previous_id:
             row = self._row_by_id.get(previous_id)
             if row is not None:
-                row.configure(fg_color=brand.ROW_BG, border_width=0)
+                row.configure(fg_color=brand.ROW_BG, border_width=1)
             name_label = self._name_label_by_id.get(previous_id)
             if name_label is not None:
                 name_label.configure(text_color=brand.MUTED_FG)
@@ -328,14 +465,14 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 if is_selected:
                     row.configure(
                         fg_color=brand.ROW_SELECTED_BG,
-                        border_width=1,
+                        border_width=2,
                         border_color=brand.PROOF_TEAL,
                     )
                     self._safe_see(row)
                 else:
                     row.configure(
                         fg_color=brand.ROW_BG,
-                        border_width=0,
+                        border_width=1,
                     )
             name_label = self._name_label_by_id.get(clip_id)
             if name_label is not None:

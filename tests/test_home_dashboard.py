@@ -223,6 +223,10 @@ def test_merge_usage_history(storage):
     v.review_duplicates(group, "keep_newest", merge_history=True)
     kept = storage.get_clip(b.id)
     assert kept.use_count >= 5
+    # BUG-11 regression: merge_usage_history must widen the keeper's
+    # created_at to the *earliest* first-saved date across all merged
+    # copies so the "First Saved" field reflects the true origin.
+    assert kept.created_at <= min(a.created_at, b.created_at)
 
 
 def test_duplicate_review_writes_receipt(storage):
@@ -254,6 +258,14 @@ def test_clip_metadata_display():
     assert display(None) == "—"
     assert display("") == "—"
     assert display("Cursor") == "Cursor"
+
+
+def test_clip_metadata_capture_labels():
+    from cache_vault.core.clip_metadata import format_captured_at, relative_age
+
+    iso = "2026-07-08T18:42:00+00:00"
+    assert format_captured_at(iso)
+    assert "ago" in relative_age(iso) or relative_age(iso) == "just now"
 
 
 def test_duplicate_dialog_warning_copy():
@@ -358,21 +370,18 @@ class TestHomeVaultUI:
             "mobile_settings": lambda: None,
         })
         panel.update_idletasks()
-        assert panel._title.cget("text") == brand.TERM_VAULT_STATUS
+        assert panel._title.cget("text") == "CacheVault"
 
-        def _button_texts(widget):
+        def _label_texts(widget):
             texts = []
             for child in widget.winfo_children():
-                if isinstance(child, ctk.CTkButton):
+                if isinstance(child, ctk.CTkLabel):
                     texts.append(child.cget("text"))
-                texts.extend(_button_texts(child))
+                texts.extend(_label_texts(child))
             return texts
-
-        buttons = set(_button_texts(panel._vault_frame))
-        assert "Review Duplicates" in buttons
-        assert f"Open {brand.TERM_STAMPED_RECEIPTS}" in buttons
-        assert "Pair Android Device" in buttons
-        assert brand.TERM_EXPORT in buttons
+    
+        labels = _label_texts(panel._vault_frame)
+        assert any("Save it. Prove it. Find it again." in l for l in labels)
 
         panel.destroy()
 
@@ -415,5 +424,75 @@ class TestHomeVaultUI:
         assert navigated == [FILTER_ALL]
         dashboard._on_open_receipts()
         assert receipts == ["yes"]
+
+        dashboard.destroy()
+
+    def test_home_dashboard_selection_state(self, tk_root):
+        selection_changes = []
+        batch_actions_run = []
+
+        dashboard = HomeDashboard(
+            tk_root,
+            on_filter=lambda k: None,
+            on_open_receipts=lambda: None,
+            on_mobile_settings=lambda: None,
+            on_pair_android=lambda: None,
+            on_export=lambda: None,
+            on_select_clip=lambda _c: None,
+            on_copy=lambda _id: None,
+            on_selection_change=lambda ids: selection_changes.append(ids),
+            on_batch_action=lambda act, ids: batch_actions_run.append((act, ids)),
+        )
+
+        c1 = _clip("content 1", id="clip-1")
+        c2 = _clip("content 2", id="clip-2")
+
+        summary = {
+            "all": 2, "favorites": 0, "screenshots": 0, "duplicates": 0,
+            "recently_removed": 0, "receipts": 0, "sensitive": 0, "expired": 0,
+            "capture_paused": False, "mobile_enabled": False,
+        }
+
+        # Render clips on home dashboard
+        dashboard.render(summary, [c1, c2], [], [])
+        dashboard.update_idletasks()
+
+        # 1. No selection initially
+        assert len(dashboard._selected_ids) == 0
+        assert dashboard._batch_frame is None
+
+        # 2. Select one clip
+        dashboard._select(c1)
+        assert dashboard._selected_ids == {"clip-1"}
+        assert len(selection_changes) == 1
+        assert selection_changes[-1] == ["clip-1"]
+        assert dashboard._batch_frame is None
+
+        # 3. Ctrl-click toggle selection
+        dashboard._toggle_select(c2)
+        assert dashboard._selected_ids == {"clip-1", "clip-2"}
+        assert selection_changes[-1] == ["clip-1", "clip-2"]
+
+        # 4. Batch action callback validation by invoking the toolbar button command
+        found_btn = None
+        for child in dashboard._batch_frame.winfo_children():
+            for c in child.winfo_children():
+                if isinstance(c, ctk.CTkButton) and c.cget("text") == "Copy Combined Text":
+                    found_btn = c
+                    break
+        assert found_btn is not None
+        found_btn.cget("command")()
+        assert len(batch_actions_run) == 1
+        assert batch_actions_run[-1] == ("combine", ["clip-1", "clip-2"])
+
+        # 5. Clear selection
+        dashboard.clear_selection()
+        assert len(dashboard._selected_ids) == 0
+        assert dashboard._batch_frame is None
+
+        # 6. Select all visible
+        dashboard.select_all_visible()
+        assert dashboard._selected_ids == {"clip-1", "clip-2"}
+        assert dashboard._batch_frame is not None
 
         dashboard.destroy()

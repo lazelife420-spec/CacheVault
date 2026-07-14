@@ -67,7 +67,7 @@ fun ProofScreen(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Proof Receipts", style = MaterialTheme.typography.labelLarge)
+                Text("Desktop receipts", style = MaterialTheme.typography.labelLarge)
                 Text(
                     stringResource(R.string.proof_honest_body),
                     style = MaterialTheme.typography.bodySmall,
@@ -84,13 +84,10 @@ fun ProofScreen(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("Connection proof", style = MaterialTheme.typography.labelLarge)
-                ProofLine("Last status", if (statusOk) "ok" else connection.label.lowercase())
-                ProofLine(
-                    "Device",
-                    state.deviceId.ifBlank { "—" },
-                )
-                ProofLine("PC host", state.hostLabel.ifBlank { "—" })
+                Text("Connection check", style = MaterialTheme.typography.labelLarge)
+                ProofLine("Status", if (statusOk) "Trusted PC reachable" else connection.label)
+                ProofLine("Device", "This phone")
+                ProofLine("PC", state.hostLabel.ifBlank { "—" })
                 if (state.lastError != null && !statusOk && connection != ConnectionState.CHECKING) {
                     Text(
                         state.lastError,
@@ -106,7 +103,7 @@ fun ProofScreen(
             color = StampGold.copy(alpha = 0.85f),
         )
         Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-            Text("Refresh proof status")
+            Text("Refresh connection check")
         }
         OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
             Text("Open Settings", color = ProofTeal)

@@ -9,11 +9,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 from urllib.parse import unquote
 
+from ... import brand
 from .. import models, search
 from ..settings import Settings
 from ..storage import FILTER_ALL, FILTER_FAVORITES, FILTER_RECENTLY_REMOVED, FILTER_SEARCH_ALL
 from . import api as api_mod
 from .api import BinaryResponse
+from .compatibility import ERROR_UPDATE_REQUIRED, evaluate_compatibility
 from .models import (
     DEFAULT_BIND_HOST,
     DEFAULT_MOBILE_PORT,
@@ -22,6 +24,7 @@ from .models import (
     PairedDevice,
     hash_token,
     new_device_token,
+    sanitize_device_name,
 )
 from .receipts import MobileReceiptLog
 from .discovery import MobileDiscovery
@@ -30,6 +33,21 @@ if TYPE_CHECKING:
     from ..vault import Vault
 
 _CLIP_ID_RE = re.compile(r"^/mobile/v1/clips/([a-f0-9]+)$")
+
+
+def _coerce_int(value) -> int | None:
+    """Best-effort int coercion for client-supplied handshake fields.
+
+    Malformed input (wrong type, non-numeric string) must be treated as
+    missing, not raise — the compatibility gate then handles it conservatively.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
 
 # Reject POST bodies larger than this before reading them. Image sends are
 # capped at 10 MB decoded; base64 + JSON overhead fits comfortably under 20 MB.
@@ -101,8 +119,30 @@ class MobileBridge:
         self._thread = None
         if thread is not None and thread.is_alive():
             thread.join(timeout=0.25)
+        # Verify: after stop the bridge must not appear running.
+        if self._server is not None:
+            self._server = None
 
-    def _start(self, host: str, port: int) -> None:
+    def verify_listening(self) -> bool:
+        """Quick loopback health check — can we connect to our own port?"""
+        if self._server is None or self._listen_port is None:
+            return False
+        import socket as _socket
+        try:
+            s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            s.connect(("127.0.0.1", self._listen_port))
+            s.close()
+            return True
+        except OSError:
+            return False
+
+    def _start(self, host: str, port: int) -> bool:
+        """Bind and start the HTTP listener.  Returns ``True`` on success.
+
+        mDNS is **not** started here — the ``MobileAccessController``
+        manages mDNS lifecycle separately so it can be verified independently.
+        """
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -175,7 +215,7 @@ class MobileBridge:
             self._server = ThreadingHTTPServer((host, port), Handler)
         except OSError:
             self._server = None
-            return
+            return False
         self._listen_host = host
         self._listen_port = port
         self._thread = threading.Thread(
@@ -188,18 +228,30 @@ class MobileBridge:
             name="mobile-discovery",
             daemon=True,
         ).start()
+        return True
 
     # --- pairing (desktop-side) ------------------------------------------------
     def pair_device(self, device_id: str, device_name: str,
-                    settings: Settings | None = None) -> tuple[PairedDevice, str]:
+                    settings: Settings | None = None,
+                    *,
+                    app_version: str | None = None,
+                    platform: str | None = None,
+                    protocol: int | None = None,
+                    device_model: str | None = None,
+                    build: int | None = None) -> tuple[PairedDevice, str]:
         """Register a device and return ``(record, plaintext_token)`` once."""
         settings = settings or self.vault.settings
         token = new_device_token()
         device = PairedDevice(
             device_id=device_id.strip(),
-            device_name=(device_name or "Android device").strip(),
+            device_name=sanitize_device_name(device_name),
             created_at=models.now_iso(),
             token_hash=hash_token(token),
+            app_version=app_version.strip() if app_version else None,
+            platform=platform.strip() if platform else None,
+            protocol=protocol,
+            device_model=device_model.strip() if device_model else None,
+            build=build,
         )
         settings.paired_devices = [
             d for d in settings.paired_devices
@@ -256,6 +308,17 @@ class MobileBridge:
                 out.append(d)
         return out
 
+    def all_devices(self, settings: Settings | None = None) -> list[PairedDevice]:
+        """Every paired device record, including revoked ones.
+
+        Revoked devices stay on disk (see revoke_device) so their status can
+        still be shown honestly instead of silently disappearing from view.
+        """
+        if settings is None:
+            self._refresh_paired_devices_from_disk()
+        settings = settings or self.vault.settings
+        return [PairedDevice.from_dict(raw) for raw in settings.paired_devices]
+
     # --- request handling ------------------------------------------------------
     def handle(self, method: str, path: str, headers: dict,
                remote_ip: str | None = None,
@@ -266,7 +329,16 @@ class MobileBridge:
         action = api_mod.action_for_route(family or path_only, method)
         header_device_id = headers.get("X-Device-Id") or headers.get("x-device-id")
 
+        # Security invariant: if settings say disabled we MUST NOT be running.
+        # If we somehow are, force-stop immediately before processing.
         if not self.vault.settings.mobile_access_enabled:
+            if self.is_running:
+                import threading
+                threading.Thread(
+                    target=self.stop,
+                    name="mobile-bridge-force-stop",
+                    daemon=True,
+                ).start()
             rec = api_mod.reject_receipt(
                 path_only, action, "denied", "mobile_access_disabled",
                 remote_ip=remote_ip)
@@ -279,6 +351,7 @@ class MobileBridge:
             and (
                 family in api_mod.RECEIPT_POST_ROUTES
                 or family in api_mod.INBOX_POST_ROUTES
+                or family in api_mod.PUBLIC_PAIR_POST_ROUTES
             )
         )
         if method != "GET" and not allowed_post:
@@ -296,6 +369,22 @@ class MobileBridge:
             self.receipts.record(rec)
             return 404, {"error": "not_found"}
 
+        if method == "POST" and family in api_mod.PUBLIC_PAIR_POST_ROUTES:
+            status, resp_body = self._dispatch_public_pair_post(
+                family, path_only, body or {})
+            rec = MobileAccessReceipt.make(
+                action=action, route=path_only,
+                result="ok" if status < 400 else "error",
+                device_id=resp_body.get("device_id") if isinstance(resp_body, dict) else None,
+                device_name=resp_body.get("device_name") if isinstance(resp_body, dict) else None,
+                remote_ip=remote_ip,
+                reason=None if status < 400 else (
+                    resp_body.get("error") if isinstance(resp_body, dict) else "error"
+                ),
+            )
+            self.receipts.record(rec)
+            return status, resp_body
+
         device, auth_reason = self._authenticate(headers)
         if device is None:
             rec = api_mod.reject_receipt(
@@ -303,6 +392,28 @@ class MobileBridge:
                 device_id=header_device_id, remote_ip=remote_ip)
             self.receipts.record(rec)
             return 401, {"error": "unauthorized", "message": auth_reason}
+
+        # A valid token authenticates the device but does not, on its own,
+        # authorize protected actions — an incompatible protocol/app version
+        # blocks every route below, even ones that were previously reachable.
+        # Scoped to devices that declared a mobile platform at pairing time:
+        # the desktop CLI pairs itself as a PairedDevice too (cli.py) but
+        # never participates in the Android version handshake, so it must
+        # not be swept into this gate.
+        device = self._refresh_device_handshake(device, headers)
+        compat = (
+            evaluate_compatibility(device.protocol, device.app_version)
+            if device.platform
+            else None
+        )
+        if compat is not None and not compat.compatible:
+            self._touch_device(device)
+            rec = api_mod.reject_receipt(
+                path_only, action, "denied", ERROR_UPDATE_REQUIRED,
+                device_id=device.device_id, device_name=device.device_name,
+                remote_ip=remote_ip)
+            self.receipts.record(rec)
+            return 426, compat.to_error_response()
 
         if family is None:
             rec = self._ok_receipt(path_only, action, device)
@@ -378,6 +489,42 @@ class MobileBridge:
             return d, None
         return None, "Unpaired device."
 
+    def _refresh_device_handshake(self, device: PairedDevice,
+                                  headers: dict) -> PairedDevice:
+        """Refresh a paired device's protocol/app-version/build from headers.
+
+        Lets an already-paired phone's compatibility state update on
+        reconnect (e.g. after the app itself is updated) without requiring a
+        full re-pair. Absent headers leave the stored values untouched.
+        """
+        app_version = headers.get("X-App-Version") or headers.get("x-app-version")
+        build = headers.get("X-App-Build") or headers.get("x-app-build")
+        protocol = headers.get("X-Protocol-Version") or headers.get("x-protocol-version")
+        if app_version is None and build is None and protocol is None:
+            return device
+        if app_version is not None:
+            device.app_version = str(app_version).strip() or device.app_version
+        if build is not None:
+            coerced = _coerce_int(build)
+            if coerced is not None:
+                device.build = coerced
+        if protocol is not None:
+            coerced = _coerce_int(protocol)
+            if coerced is not None:
+                device.protocol = coerced
+        settings = self.vault.settings
+        updated = []
+        for raw in settings.paired_devices:
+            d = PairedDevice.from_dict(raw)
+            if d.device_id == device.device_id:
+                d.app_version = device.app_version
+                d.build = device.build
+                d.protocol = device.protocol
+            updated.append(d.to_dict())
+        settings.paired_devices = updated
+        settings.save()
+        return device
+
     def _touch_device(self, device: PairedDevice) -> None:
         now = models.now_iso()
         settings = self.vault.settings
@@ -397,15 +544,19 @@ class MobileBridge:
         storage = self.vault.storage
 
         if family == "/mobile/v1/status":
-            return 200, {
+            body = {
                 "product": "Cache Vault",
-                "byline": "A Proof Foundry companion app",
+                "byline": brand.MOBILE_BYLINE,
                 "mobile_api_version": MOBILE_API_VERSION,
                 "mobile_access_enabled": True,
                 "cache_vault_version": __version__,
                 "device_id": device.device_id,
                 "read_only": True,
             }
+            if device.platform:
+                compat = evaluate_compatibility(device.protocol, device.app_version)
+                body.update(compat.to_response())
+            return 200, body
 
         if family == "/mobile/v1/clips":
             clips = self.vault.list_clips(FILTER_ALL)
@@ -503,6 +654,41 @@ class MobileBridge:
             return 400, result.to_response()
         return 200, result.to_response()
 
+    def _dispatch_public_pair_post(self, family: str, path: str,
+                                   payload: dict) -> tuple[int, dict]:
+        if family != "/mobile/v1/pair-device":
+            return 404, {"error": "not_found"}
+        device_id = str(payload.get("device_id") or "").strip() or models.new_id()
+        device_obj = payload.get("device") if isinstance(payload.get("device"), dict) else {}
+        device_name = sanitize_device_name(
+            payload.get("device_name") or device_obj.get("name"))
+        app_version = str(payload.get("app_version") or "").strip() or None
+        platform = str(payload.get("platform") or "").strip() or None
+        device_model = str(device_obj.get("model") or "").strip() or None
+        protocol = _coerce_int(payload.get("protocol"))
+        build = _coerce_int(payload.get("build"))
+
+        result = evaluate_compatibility(protocol, app_version)
+        if not result.compatible:
+            return 426, result.to_error_response()
+
+        device, token = self.pair_device(
+            device_id,
+            device_name,
+            app_version=app_version,
+            platform=platform,
+            protocol=protocol,
+            device_model=device_model,
+            build=build,
+        )
+        response = {
+            "device_id": device.device_id,
+            "device_name": device.device_name,
+            "token": token,
+        }
+        response.update(result.to_response())
+        return 200, response
+
     def _dispatch_receipt_post(self, family: str, path: str,
                                device: PairedDevice) -> tuple[int, dict]:
         """Log copy/share receipts without mutating vault state."""
@@ -521,4 +707,5 @@ class MobileBridge:
             api_mod.READ_ONLY_ROUTES
             | api_mod.RECEIPT_POST_ROUTES
             | api_mod.INBOX_POST_ROUTES
+            | api_mod.PUBLIC_PAIR_POST_ROUTES
         )

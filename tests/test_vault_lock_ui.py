@@ -4,11 +4,12 @@ import inspect
 
 import customtkinter as ctk
 
+from cache_vault import brand, licensing
 from cache_vault.core import models, vault_lock
 from cache_vault.core.models import Clip
 from cache_vault.core.settings import Settings
-from cache_vault.core.storage import FILTER_ALL
-from cache_vault.ui.filters import FilterNav
+from cache_vault.core.storage import FILTER_ALL, FILTER_FAVORITES
+from cache_vault.ui.filters import FILTER_GROUPS, FilterNav, NAV_FOUNDER, NAV_NEW_SAFE
 from cache_vault.ui.preview import PreviewPanel
 from cache_vault.ui.vault_lock import LOCK_COPY, VaultControlStrip, VaultLockScreen
 
@@ -16,6 +17,13 @@ from cache_vault.ui.vault_lock import LOCK_COPY, VaultControlStrip, VaultLockScr
 def test_lock_copy_has_no_forbidden_claims():
     assert "Safes organize your items" in LOCK_COPY
     assert vault_lock.no_forbidden_lock_claims(LOCK_COPY)
+
+
+def test_shell_refreshes_founder_badge():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    src = inspect.getsource(CacheVaultApp)
+    assert "update_founder_status(licensing.load_license())" in src
 
 
 def test_shell_has_lock_guards():
@@ -98,18 +106,293 @@ def test_inspector_tabs_render(tk_root):
     panel.destroy()
 
 
+def test_sidebar_title_uses_brand_constant(tk_root):
+    # Guards against the title reverting to a literal that bypasses
+    # brand.py, which would silently stop following brand changes.
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    title_label = nav.winfo_children()[0]
+    assert brand.PRODUCT_NAME in title_label.cget("text")
+    nav.destroy()
+
+
 def test_sidebar_sections_collapse_and_persist(tk_root, tmp_path):
     path = tmp_path / "settings.json"
     settings = Settings()
     settings.save(path)
     nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
 
-    nav._toggle_section("VAULT")
+    # Fresh profile: VAULT starts collapsed by default.
     assert "VAULT" in settings.sidebar_collapsed_sections
-    assert "VAULT" in Settings.load(path).sidebar_collapsed_sections
 
     nav._toggle_section("VAULT")
     assert "VAULT" not in settings.sidebar_collapsed_sections
+    assert "VAULT" not in Settings.load(path).sidebar_collapsed_sections
+
+    nav._toggle_section("VAULT")
+    assert "VAULT" in settings.sidebar_collapsed_sections
     nav.set_active(FILTER_ALL)
     assert nav.active == FILTER_ALL
     nav.destroy()
+
+
+def test_sidebar_all_sections_collapsed_on_fresh_profile(tk_root):
+    settings = Settings()  # no file on disk, no prior interaction
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    headings = [h for h, _items in FILTER_GROUPS if h] + ["COLLECTIONS", "SAFES"]
+    for heading in headings:
+        assert heading in nav._collapsed, f"{heading} should start collapsed"
+        assert heading in settings.sidebar_collapsed_sections
+    nav.destroy()
+
+
+def test_sidebar_manually_opened_group_persists_open(tk_root, tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings()
+    settings.save(path)
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    assert "ACCESS" in nav._collapsed  # fresh default starts collapsed
+
+    nav._toggle_section("ACCESS")  # user opens it
+    nav.destroy()
+
+    reloaded = Settings.load(path)
+    assert "ACCESS" not in reloaded.sidebar_collapsed_sections
+    nav2 = FilterNav(tk_root, on_select=lambda _key: None, settings=reloaded)
+    assert "ACCESS" not in nav2._collapsed
+    nav2.destroy()
+
+
+def test_sidebar_manually_collapsed_group_persists_collapsed(tk_root, tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings()
+    settings.save(path)
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+
+    nav._toggle_section("REVIEW")  # open it first, away from the collapsed default
+    assert "REVIEW" not in settings.sidebar_collapsed_sections
+    nav._toggle_section("REVIEW")  # user explicitly re-collapses it
+    nav.destroy()
+
+    reloaded = Settings.load(path)
+    assert "REVIEW" in reloaded.sidebar_collapsed_sections
+    nav2 = FilterNav(tk_root, on_select=lambda _key: None, settings=reloaded)
+    assert "REVIEW" in nav2._collapsed
+    nav2.destroy()
+
+
+def test_sidebar_filtering_works_when_group_starts_collapsed(tk_root):
+    selected = []
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=selected.append, settings=settings)
+    assert "VAULT" in nav._collapsed  # the group containing FILTER_FAVORITES
+
+    nav._select(FILTER_FAVORITES)
+    assert nav.active == FILTER_FAVORITES
+    assert selected == [FILTER_FAVORITES]
+    nav.destroy()
+
+
+def test_sidebar_sections_expand_in_place_not_at_end(tk_root):
+    settings = Settings()  # fresh profile: every section starts collapsed
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+
+    # Expand out of the sidebar's fixed visual order (VAULT, TIME, COMMAND
+    # are not adjacent in FILTER_GROUPS). A regression here would show up
+    # as content sinking to the end of the sibling list instead of staying
+    # directly under its own heading.
+    for heading in ("VAULT", "TIME", "COMMAND"):
+        nav._toggle_section(heading)
+
+    slaves = nav.pack_slaves()
+    for heading in ("VAULT", "TIME", "COMMAND"):
+        btn = nav._section_buttons[heading]
+        frame = nav._section_frames[heading]
+        assert slaves.index(frame) == slaves.index(btn) + 1, (
+            f"{heading} content should be immediately after its own heading"
+        )
+
+    # Collapsing and re-expanding an already-opened section must not move
+    # it either (this is the exact forget/re-pack path the fix targets).
+    nav._toggle_section("TIME")
+    nav._toggle_section("TIME")
+    slaves = nav.pack_slaves()
+    time_btn = nav._section_buttons["TIME"]
+    time_frame = nav._section_frames["TIME"]
+    assert slaves.index(time_frame) == slaves.index(time_btn) + 1
+    nav.destroy()
+
+
+def test_sidebar_expanded_rows_are_visible_owned_and_interactive(tk_root):
+    selected: list[str] = []
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=selected.append, settings=settings)
+    nav.pack(fill="both", expand=True)
+    tk_root.update_idletasks()
+
+    heading = "VAULT"
+    frame = nav._section_frames[heading]
+    header = nav._section_headers[heading]
+    row_keys = next(items for group, items in FILTER_GROUPS if group == heading)
+    rows = tuple(nav._rows[key] for key, _label in row_keys)
+
+    # Every row belongs to, and is managed by, its own section container.
+    assert all(row.master is frame for row in rows)
+    assert frame.winfo_manager() == ""
+    assert all(row.winfo_manager() == "pack" for row in rows)
+
+    nav.expand_section(heading)
+    tk_root.update_idletasks()
+
+    assert frame.winfo_manager() == "pack"
+    assert all(row.winfo_ismapped() for row in rows)
+    assert tuple(frame.pack_slaves()) == rows
+    sidebar_slaves = nav.pack_slaves()
+    assert sidebar_slaves.index(frame) == sidebar_slaves.index(header) + 1
+    assert not any(row in sidebar_slaves for row in rows)
+
+    # Collapse hides the managed rows; re-expansion restores the same widgets
+    # in the same section rather than recreating or moving them.
+    original_ids = tuple(str(row) for row in rows)
+    nav.collapse_section(heading)
+    tk_root.update_idletasks()
+    assert frame.winfo_manager() == ""
+    assert not any(row.winfo_ismapped() for row in rows)
+
+    nav.expand_section(heading)
+    tk_root.update_idletasks()
+    assert tuple(str(row) for row in rows) == original_ids
+    assert tuple(frame.pack_slaves()) == rows
+    assert all(row.winfo_ismapped() for row in rows)
+
+    # Mouse activation and the keyboard Enter binding both remain live after
+    # the forget/re-pack cycle.
+    target = nav._rows[FILTER_ALL]
+    target._label._label.event_generate("<Button-1>", x=1, y=1)
+    tk_root.update()
+    assert selected[-1] == FILTER_ALL
+
+    selected.clear()
+    tk_root.deiconify()
+    tk_root.update()
+    target.focus_force()
+    tk_root.update()
+    assert tk_root.focus_get() is target
+    target.event_generate("<Return>")
+    tk_root.update()
+    assert selected == [FILTER_ALL]
+    tk_root.withdraw()
+    tk_root.update_idletasks()
+    nav.destroy()
+
+
+def test_founder_badge_reflects_license_state(tk_root):
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    badge = nav._counts[NAV_FOUNDER]
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.FOUNDER_VALID))
+    assert badge.cget("text") == "FOUNDER"
+    assert badge.cget("text_color") == brand.STAMP_GOLD
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.MISSING_LICENSE))
+    assert badge.cget("text") == "FREE"
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.EXPIRED_LICENSE))
+    assert badge.cget("text") == "EXPIRED"
+    assert badge.cget("text_color") == brand.WARNING_RED
+
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.CORRUPT_LICENSE))
+    assert badge.cget("text") == "ISSUE"
+    assert badge.cget("text_color") == brand.WARNING_RED
+    nav.destroy()
+
+
+def test_founder_badge_survives_other_row_selection(tk_root):
+    # Regression guard: _highlight() runs on every nav click and used to
+    # force every row's count label back to gray, since Founder can never
+    # become the "active" row (it's dialog-only, see NAV_DIALOG_ONLY).
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    badge = nav._counts[NAV_FOUNDER]
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.FOUNDER_VALID))
+
+    nav._select(FILTER_ALL)
+    nav._select(FILTER_FAVORITES)
+
+    assert badge.cget("text") == "FOUNDER"
+    assert badge.cget("text_color") == brand.STAMP_GOLD
+    nav.destroy()
+
+
+def test_founder_badge_not_touched_by_update_counts(tk_root):
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    badge = nav._counts[NAV_FOUNDER]
+    nav.update_founder_status(licensing.LicenseStatus(state=licensing.LicenseState.FOUNDER_VALID))
+
+    nav.update_counts({"all": 42, "favorites": 3})
+
+    assert badge.cget("text") == "FOUNDER"
+    nav.destroy()
+
+
+def test_collapse_all_hides_every_section(tk_root):
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+    for heading in ("VAULT", "TIME", "COMMAND"):
+        nav._toggle_section(heading)  # open a few first
+
+    nav.collapse_all()
+
+    slaves = nav.pack_slaves()
+    for heading, frame in nav._section_frames.items():
+        assert heading in nav._collapsed
+        assert frame not in slaves
+    assert settings.sidebar_collapsed_sections == sorted(nav._section_frames)
+    nav.destroy()
+
+
+def test_expand_all_shows_every_section_in_place(tk_root):
+    settings = Settings()  # fresh profile: every section starts collapsed
+    nav = FilterNav(tk_root, on_select=lambda _key: None, settings=settings)
+
+    nav.expand_all()
+
+    slaves = nav.pack_slaves()
+    for heading, frame in nav._section_frames.items():
+        assert heading not in nav._collapsed
+        btn = nav._section_buttons[heading]
+        assert slaves.index(frame) == slaves.index(btn) + 1
+    assert settings.sidebar_collapsed_sections == []
+    nav.destroy()
+
+
+def test_new_safe_is_dialog_only_and_never_active(tk_root):
+    selected = []
+    settings = Settings()
+    nav = FilterNav(tk_root, on_select=selected.append, settings=settings)
+    before = nav.active
+
+    nav._select(NAV_NEW_SAFE)
+
+    assert selected == [NAV_NEW_SAFE]
+    assert nav.active == before  # dialog-only action must not steal selection
+    nav.destroy()
+
+
+def test_shell_routes_new_safe_to_dialog():
+    from cache_vault.ui.shell import CacheVaultApp
+
+    src = inspect.getsource(CacheVaultApp)
+    assert "if key == NAV_NEW_SAFE:" in src
+    assert "self._open_new_safe()" in src
+    assert "picker_mode=False" in inspect.getsource(CacheVaultApp._open_new_safe)
+
+
+def test_delete_and_export_safe_remain_disabled():
+    from cache_vault.ui import clip_context
+
+    src = inspect.getsource(clip_context)
+    assert 'Export Safe Proof Zip (planned)' not in src
+    assert 'Delete Safe (planned)' not in src

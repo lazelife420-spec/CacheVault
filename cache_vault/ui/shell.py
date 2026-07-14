@@ -18,13 +18,14 @@ import sys
 import threading
 import traceback
 from pathlib import Path
-from typing import Callable
 
 import customtkinter as ctk
+from tkinter import filedialog
 
 from .. import brand
-from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, search, vault_lock
+from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, multi_link, search, vault_lock
 from .. import feature_gate
+from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
@@ -39,13 +40,23 @@ from ..core.paste_delivery import (
 )
 from ..core.storage import FILTER_HOME, FILTER_SEARCH_ALL
 from ..core.mobile.bridge import MobileBridge
+from ..core.mobile.mobile_access_controller import MobileAccessController
 from ..core.vault import Vault
 from .clip_grid import ClipGrid
 from .clip_list import ClipList
+from .page_scaffold import LoadingState
 from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SafePickerDialog, SettingsDialog,
 )
+from . import batch_actions
+from . import clip_context
+from . import sidebar_context
+try:
+    from .settings_hub import SettingsHub
+except ImportError:
+    SettingsHub = None
+from .clip_workflows import ClipComposerDialog, EditClipTextDialog, MultiLinkPasteDialog
 from .filters import (
     FilterNav,
     NAV_EDITABLE_COPIES,
@@ -57,6 +68,7 @@ from .filters import (
     NAV_QUICK_PASTE,
     NAV_SCREEN_KEYS,
     NAV_FOUNDER,
+    NAV_NEW_SAFE,
     NAV_SETTINGS,
     NAV_STAMPED_RECEIPTS,
     NAV_VAULT_MACROS,
@@ -85,8 +97,16 @@ from . import theme
 from .crashlog import write_crash
 from .scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
 from .win_scroll import refresh_windows_scroll_cache
+from .page_header import PageHeader
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
+
+# Each rendered clip row is a deep CustomTkinter widget tree (~45 Tk widgets,
+# each a Windows USER object/HWND). Windows caps USER objects at ~10,000 per
+# process, so rendering an unbounded history exhausts the quota and makes Tk
+# raise "No more menus can be allocated" on the next menu/dialog. Cap the
+# number of rows we materialise; older items stay reachable via search/filters.
+MAX_VISIBLE_CLIPS = 120
 HK_MANUAL_SAVE = 10
 HK_ARM_NEXT = 11
 HK_IGNORE_NEXT = 12
@@ -122,13 +142,86 @@ class CacheVaultApp(ctk.CTk):
             if "invalid command name" in err_text:
                 return
         try:
-            from tkinter import messagebox
-            messagebox.showerror(
-                "Cache Vault — Error",
-                f"Something went wrong.\n\nDetails were saved to:\n{path}",
-                parent=self if self._alive() else None,
-            )
+            self._show_crash_dialog(exc, val, tb, path)
         except Exception:  # noqa: BLE001
+            try:
+                from tkinter import messagebox
+                messagebox.showerror(
+                    "Cache Vault — Error",
+                    f"Something went wrong.\n\nDetails were saved to:\n{path}",
+                    parent=self if self._alive() else None,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _show_crash_dialog(self, exc, val, tb, path) -> None:
+        try:
+            if not self._alive():
+                return
+            from tkinter import messagebox
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Cache Vault — Application Error")
+            dialog.geometry("500x220")
+            dialog.resizable(False, False)
+            dialog.attributes("-topmost", True)
+            dialog.grab_set()
+
+            dialog.columnconfigure(0, weight=1)
+            dialog.columnconfigure(1, weight=1)
+            dialog.columnconfigure(2, weight=1)
+
+            ctk.CTkLabel(
+                dialog,
+                text="⚠️ Application Error",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=brand.WARNING_RED,
+            ).grid(row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(15, 5))
+
+            err_summary = str(val)[:120] + ("..." if len(str(val)) > 120 else "")
+            ctk.CTkLabel(
+                dialog,
+                text=f"An unexpected error occurred: {err_summary}\n\n"
+                     f"Details have been saved to:\n{path}",
+                font=ctk.CTkFont(size=11),
+                justify="left",
+                wraplength=460,
+            ).grid(row=1, column=0, columnspan=3, sticky="w", padx=20, pady=5)
+
+            tb_str = "".join(traceback.format_exception(exc, val, tb))
+
+            def _copy():
+                self.clipboard_clear()
+                self.clipboard_append(tb_str)
+                messagebox.showinfo("Copied", "Error traceback copied to clipboard.", parent=dialog)
+
+            def _open_log():
+                import os
+                try:
+                    os.startfile(path)
+                except Exception:
+                    pass
+
+            ctk.CTkButton(
+                dialog,
+                text="Copy Error",
+                command=_copy,
+                **theme.secondary_button(),
+            ).grid(row=2, column=0, padx=(20, 5), pady=(15, 10), sticky="ew")
+
+            ctk.CTkButton(
+                dialog,
+                text="Open Crash Log",
+                command=_open_log,
+                **theme.secondary_button(),
+            ).grid(row=2, column=1, padx=5, pady=(15, 10), sticky="ew")
+
+            ctk.CTkButton(
+                dialog,
+                text="Continue",
+                command=dialog.destroy,
+                **theme.primary_button(),
+            ).grid(row=2, column=2, padx=(5, 20), pady=(15, 10), sticky="ew")
+        except Exception:
             pass
 
     def __init__(self, vault: Vault | None = None):
@@ -166,8 +259,13 @@ class CacheVaultApp(ctk.CTk):
         self._last_height = 0
         self._mouse_handler = None
         self._is_compact_width = False
+        self._settings_window = None
+        self._photo_viewer_window = None
+        self._init_jobs = []
 
         self._mobile_bridge = MobileBridge(self.vault)
+        self._mobile_controller = MobileAccessController(self.vault, self._mobile_bridge)
+        self._mobile_controller.subscribe(lambda _state: self.after(0, self.refresh))
 
         from ..core.vault_macros import MacroSafeRegistry, MacroStore
         self._macro_store = MacroStore()
@@ -250,8 +348,8 @@ class CacheVaultApp(ctk.CTk):
         self._command_hotkey_ids: dict[int, str] = {}
         # Defer binding so CTk init is fully complete before hotkey registration
         # accesses widget internals.
-        self.after(100, self._bind_command_hotkeys)
-        self.after(150, self._command_hotkeys.start)
+        self._init_jobs.append(self.after(100, self._bind_command_hotkeys))
+        self._init_jobs.append(self.after(150, self._command_hotkeys.start))
         self._text_shortcut_listener = TextShortcutListener(
             on_match=self._on_text_shortcut_match,
             should_skip=lambda hwnd: hwnd_belongs_to_widget(hwnd, self),
@@ -269,26 +367,29 @@ class CacheVaultApp(ctk.CTk):
         self._expiry_job = self.after(EXPIRY_SWEEP_MS, self._expiry_tick)
         self._bind_tooltip_hide_events()
         # Start mobile bridge after the window is live (zeroconf must not block UI).
-        self.after(0, lambda: self._mobile_bridge.sync(self.vault.settings))
+        self._init_jobs.append(self.after(0, lambda: self._mobile_controller.sync(self.vault.settings)))
 
         # Tray last — callbacks marshal through _call_on_main (pystray runs off-thread).
         self._tray = TrayController(
             on_open=lambda: self._call_on_main(self._show_window),
-            on_pause=lambda: self._call_on_main(lambda: self._set_paused(True)),
-            on_resume=lambda: self._call_on_main(lambda: self._set_paused(False)),
+            on_toggle_pause=lambda: self._call_on_main(
+                lambda: self._set_paused(not self.vault.settings.capture_paused)
+            ),
+            is_paused=lambda: bool(self.vault.settings.capture_paused),
             on_clear_sensitive=lambda: self._call_on_main(self._clear_sensitive),
             on_quit=lambda: self._call_on_main(self._quit),
             on_quick_paste=lambda: self._call_on_main(self._schedule_quick_paste),
+            on_macro_menu=lambda: self._call_on_main(self._schedule_macro_menu),
         )
         self._tray.start()
 
         self._center_on_screen()
         self._show_window()
-        self.after(50, self._pump_main_thread)
-        self.after(150, self._maybe_show_first_use_guide)
+        self._init_jobs.append(self.after(50, self._pump_main_thread))
+        self._init_jobs.append(self.after(150, self._maybe_show_first_use_guide))
         self._bind_selection_keys()
         self.bind("<Configure>", self._on_window_configure)
-        self.after(200, self._install_native_mouse_handler)
+        self._init_jobs.append(self.after(200, self._install_native_mouse_handler))
 
     def _install_native_mouse_handler(self) -> None:
         self._mouse_handler = install_mouse_handler(
@@ -325,6 +426,8 @@ class CacheVaultApp(ctk.CTk):
             "<Home>": lambda e: self._keyboard_select_edge(first=True, event=e),
             "<End>": lambda e: self._keyboard_select_edge(first=False, event=e),
             "<Return>": lambda e: self._keyboard_primary_action(e),
+            "<Control-d>": lambda e: self._keyboard_duplicate_selected(e),
+            "<Control-D>": lambda e: self._keyboard_duplicate_selected(e),
             "<Control-c>": lambda e: self._keyboard_copy_selected(e),
             "<Control-C>": lambda e: self._keyboard_copy_selected(e),
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
@@ -345,38 +448,60 @@ class CacheVaultApp(ctk.CTk):
 
     def destroy(self) -> None:
         """Fully clean up all background threads and listeners."""
+        self._shutting_down = True
         # 1. Stop UI timers
         if hasattr(self, "_idle_lock_job") and self._idle_lock_job:
             self.after_cancel(self._idle_lock_job)
+            self._idle_lock_job = None
         if hasattr(self, "_expiry_job") and self._expiry_job:
             self.after_cancel(self._expiry_job)
+            self._expiry_job = None
+        if hasattr(self, "_search_job") and self._search_job:
+            self.after_cancel(self._search_job)
+            self._search_job = None
+        if hasattr(self, "_capture_refresh_job") and self._capture_refresh_job:
+            self.after_cancel(self._capture_refresh_job)
+            self._capture_refresh_job = None
+        if hasattr(self, "_refresh_job") and self._refresh_job:
+            self.after_cancel(self._refresh_job)
+            self._refresh_job = None
 
         # 2. Stop system listeners
-        if hasattr(self, "_monitor"):
-            self._monitor.stop()
-        if hasattr(self, "_hotkey"):
-            self._hotkey.stop()
-        if hasattr(self, "_capture_hotkeys"):
-            self._capture_hotkeys.stop()
-        if hasattr(self, "_macro_hotkeys"):
-            self._macro_hotkeys.stop()
-        if hasattr(self, "_command_hotkeys"):
-            self._command_hotkeys.stop()
-        if hasattr(self, "_text_shortcut_listener"):
-            self._text_shortcut_listener.stop()
-        if hasattr(self, "_tray"):
-            self._tray.stop()
-        if hasattr(self, "_mobile_bridge"):
-            self._mobile_bridge.stop()
-        if self._resize_job:
+        for attr in ("_monitor", "_hotkey", "_capture_hotkeys", "_macro_hotkeys", "_command_hotkeys", "_text_shortcut_listener", "_tray", "_mobile_bridge"):
+            if hasattr(self, attr):
+                obj = getattr(self, attr)
+                if obj and hasattr(obj, "stop"):
+                    try:
+                        obj.stop()
+                    except Exception:
+                        pass
+
+        if hasattr(self, "_resize_job") and self._resize_job:
             self.after_cancel(self._resize_job)
             self._resize_job = None
-        if self._mouse_handler:
+        if hasattr(self, "_mouse_handler") and self._mouse_handler:
             self._mouse_handler.stop()
             self._mouse_handler = None
 
+        if hasattr(self, "_init_jobs"):
+            for job in self._init_jobs:
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
+            self._init_jobs.clear()
+
+        # Release any grabs
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+
         # 3. Final destroy
-        super().destroy()
+        try:
+            super().destroy()
+        except Exception:
+            pass
 
     def _safe_after(self, ms: int, fn):
         if not self._alive():
@@ -418,7 +543,7 @@ class CacheVaultApp(ctk.CTk):
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
         self.grid_columnconfigure(0, weight=0, minsize=200)
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(1, weight=1, minsize=560)
         self.grid_columnconfigure(2, weight=0, minsize=320)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=0)
@@ -436,28 +561,40 @@ class CacheVaultApp(ctk.CTk):
         ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
                       command=self._export_view, **theme.primary_button()
                       ).grid(row=0, column=1, padx=4)
-        ctk.CTkButton(top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
-                      command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
-                      **theme.secondary_button()
-                      ).grid(row=0, column=2, padx=4)
+        self._top_receipts_btn = ctk.CTkButton(
+            top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
+            command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+            **theme.secondary_button())
+        self._top_receipts_btn.grid(row=0, column=2, padx=4)
+        self._top_capture_rules_btn = ctk.CTkButton(
+            top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
+            **theme.secondary_button())
+        self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
-                      ).grid(row=0, column=3, padx=(4, 12))
+                      ).grid(row=0, column=4, padx=(4, 12))
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
                                   settings=self.vault.settings,
                                   on_safe_context=self._open_safe_menu,
+                                  on_collection_context=self._open_collection_sidebar_menu,
+                                  on_section_context=self._open_sidebar_section_menu,
+                                  on_nav_context=self._open_sidebar_nav_menu,
                                   width=210, corner_radius=0)
+
         self._filters.grid(row=1, column=0, sticky="nsew")
 
         self._center = ctk.CTkFrame(self, corner_radius=0, fg_color=brand.PANEL_BG)
         self._center.grid(row=1, column=1, sticky="nsew", padx=1)
-        self._center.grid_rowconfigure(1, weight=1)
+        self._center.grid_rowconfigure(2, weight=1)
         self._center.grid_columnconfigure(0, weight=1)
 
+        self._page_header = PageHeader(self._center)
+        self._page_header.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+
         self._toolbar = ctk.CTkFrame(self._center, fg_color=brand.SURFACE_BG)
-        self._toolbar.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+        self._toolbar.grid(row=1, column=0, sticky="ew", padx=4, pady=(4, 0))
         self._toolbar_row1 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
         self._toolbar_row1.pack(fill="x", padx=2, pady=(4, 2))
         self._toolbar_row2 = ctk.CTkFrame(self._toolbar, fg_color="transparent")
@@ -476,6 +613,7 @@ class CacheVaultApp(ctk.CTk):
             on_export=self._export_view,
             on_select_clip=self._on_clip_select,
             on_copy=self._copy_again,
+            on_double_click=self._on_clip_double_click,
             on_clip_context=self._open_home_clip_menu,
             on_card_context=self._open_home_card_menu,
             on_app_context=self._open_home_app_menu,
@@ -484,6 +622,8 @@ class CacheVaultApp(ctk.CTk):
             on_view_editable_copies=lambda: self._navigate_screen(NAV_EDITABLE_COPIES),
             on_view_html_bundles=lambda: self._navigate_screen(NAV_HTML_BUNDLES),
             on_settings=self._open_settings,
+            on_selection_change=self._on_clip_selection_change,
+            on_batch_action=self._on_home_batch_action,
             image_assets_ready=False,
             corner_radius=0,
         )
@@ -491,6 +631,7 @@ class CacheVaultApp(ctk.CTk):
             self._center, on_select=self._on_clip_select,
             on_context=self._open_clip_menu,
             on_selection_change=self._on_clip_selection_change,
+            on_double_click=self._on_clip_double_click,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
         self._grid = ClipGrid(
@@ -498,11 +639,12 @@ class CacheVaultApp(ctk.CTk):
             on_sort=self._set_sort,
             on_context=self._open_clip_menu,
             on_selection_change=self._on_clip_selection_change,
+            on_double_click=self._on_clip_double_click,
             corner_radius=0, fg_color=brand.PANEL_BG,
         )
-        self._home.grid(row=1, column=0, sticky="nsew")
-        self._list.grid(row=1, column=0, sticky="nsew")
-        self._grid.grid(row=1, column=0, sticky="nsew")
+        self._home.grid(row=2, column=0, sticky="nsew")
+        self._list.grid(row=2, column=0, sticky="nsew")
+        self._grid.grid(row=2, column=0, sticky="nsew")
         self._grid.grid_remove()
         self._list.grid_remove()
 
@@ -517,28 +659,41 @@ class CacheVaultApp(ctk.CTk):
                 "save_revision": self._save_editable_revision,
                 "reveal_copy": self._reveal_editable_copy_folder,
                 "select_clip": self._select_clip_by_id,
+                "select_clip_in_place": self._select_visible_clip_by_id,
                 "preview_html": self._preview_html_copy,
                 "edit_html": self._edit_html_source,
                 "export_html": self._export_html_bundle,
                 "reveal_export": self._reveal_export_path,
                 "mobile_report": self._mobile_access_report,
                 "pair_android": lambda: self._open_pair_android(),
+                "paired_devices": self._open_paired_devices,
                 "mobile_settings": self._open_settings,
+                "revoke_all_mobile": self._revoke_all_mobile_and_refresh,
                 "macro_list": self._macro_list_rows,
                 "macro_edit": self._macro_edit,
                 "macro_new_template": self._macro_new_template,
                 "macro_setup": self._open_macro_setup,
                 "macro_run": self._macro_run,
+                "hotkey_action_list": self._command_action_rows,
+                "hotkey_action_new": self._command_action_new,
+                "hotkey_action_edit": self._command_action_edit,
+                "hotkey_action_run": self._command_action_run_button,
+                "hotkey_action_toggle": self._command_action_toggle,
+                "hotkey_action_delete": self._command_action_delete,
                 "copy_clip": self._copy_again,
                 "open_link": self._open_clip_link,
                 "export_proof": self._export_clip_proof,
                 "remove_clip": self._remove_from_history,
                 "open_clip_menu": self._open_clip_menu,
                 "open_receipt_menu": self._open_receipt_menu,
+                "set_header_actions": self._page_header.set_actions,
+                "set_header_subtitle": lambda sub: self._page_header.set_content(self._page_header._title_label.cget("text"), sub),
+                "set_header_chips": self._page_header.set_status_chips,
+                "navigate_filter": self._navigate_filter,
             },
             corner_radius=0,
         )
-        self._vault_screens.grid(row=1, column=0, sticky="nsew")
+        self._vault_screens.grid(row=2, column=0, sticky="nsew")
         self._vault_screens.grid_remove()
 
         self._preview = PreviewPanel(self, actions=self._build_actions(),
@@ -565,7 +720,7 @@ class CacheVaultApp(ctk.CTk):
         self._lock_screen.grid(row=0, column=0, columnspan=3, rowspan=3, sticky="nsew")
         if self._vault_locked:
             self._lock_screen.lift()
-            self.after(100, self._lock_screen.focus_unlock)
+            self._init_jobs.append(self.after(100, self._lock_screen.focus_unlock))
         else:
             self._lock_screen.grid_remove()
 
@@ -582,6 +737,17 @@ class CacheVaultApp(ctk.CTk):
             height=32,
         )
         self._clips_search.pack(fill="x", padx=6, pady=4)
+        # Cross-view search banner — visible when search is active.
+        # Matches FEATURE_DIRECTION: "search runs across all clips — live history AND Recently Removed"
+        self._search_scope_banner = ctk.CTkLabel(
+            self._toolbar_row1,
+            text="⟳  Searching all clips including Recently Removed",
+            anchor="w",
+            text_color=brand.PROOF_TEAL,
+            font=ctk.CTkFont(size=10),
+        )
+        # Initially hidden — shown when search box has text.
+
 
         ctk.CTkLabel(self._toolbar_row2, text="Sort:", text_color=brand.MUTED_FG,
                      font=theme.body_font(11)).pack(side="left", padx=(8, 4))
@@ -594,22 +760,7 @@ class CacheVaultApp(ctk.CTk):
             ],
             command=self._on_sort_menu,
         ).pack(side="left", padx=2)
-        ctk.CTkLabel(self._toolbar_row2, text="First Saved:", text_color=brand.MUTED_FG,
-                     font=theme.body_font(11)).pack(side="left", padx=(8, 2))
-        ctk.CTkOptionMenu(
-            self._toolbar_row2, variable=self._added_var, width=110,
-            values=["Any", "Today", "Yesterday", "This Week", "Last 7 Days",
-                    "This Month", "Last 30 Days", "Older"],
-            command=self._on_added_filter,
-        ).pack(side="left", padx=2)
-        ctk.CTkLabel(self._toolbar_row2, text="Last Used:", text_color=brand.MUTED_FG,
-                     font=theme.body_font(11)).pack(side="left", padx=(8, 2))
-        ctk.CTkOptionMenu(
-            self._toolbar_row2, variable=self._used_var, width=110,
-            values=["Any", "Today", "Yesterday", "This Week", "Last 7 Days",
-                    "This Month", "Last 30 Days", "Older"],
-            command=self._on_used_filter,
-        ).pack(side="left", padx=2)
+        # Removed First Saved and Last Used filters to simplify toolbar
         ctk.CTkLabel(self._toolbar_row2, text="Type:", text_color=brand.MUTED_FG,
                      font=theme.body_font(11)).pack(side="left", padx=(8, 2))
         ctk.CTkOptionMenu(
@@ -621,8 +772,9 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
 
-        ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
-                     font=theme.body_font(11)).pack(side="right", padx=(4, 2))
+        self._view_label = ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
+                     font=theme.body_font(11))
+        self._view_label.pack(side="right", padx=(4, 2))
         self._grid_btn = ctk.CTkButton(
             self._toolbar_row3, text="Grid", width=58, height=28,
             command=lambda: self._set_view_mode("grid"), **theme.segmented_inactive(),
@@ -633,13 +785,8 @@ class CacheVaultApp(ctk.CTk):
             command=lambda: self._set_view_mode("cards"), **theme.segmented_active(),
         )
         self._cards_btn.pack(side="right", padx=2)
-        self._dup_btn = ctk.CTkButton(
-            self._toolbar_row3, text="Review Duplicates", width=140, height=28,
-            command=self._open_duplicate_review, **theme.secondary_button(),
-        )
-        self._dup_btn.pack(side="left", padx=8)
+        # Removed Review Duplicates button from global toolbar
         self._selected_action_frame = ctk.CTkFrame(self._toolbar_row3, fg_color="transparent")
-        self._selected_action_frame.pack(side="left", padx=(8, 4))
         self._selected_action_label = ctk.CTkLabel(
             self._selected_action_frame,
             text="No item selected",
@@ -692,55 +839,37 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
-        self._set_selection_hint(brand.SELECTION_HINT)
+
         if self._locked() or clip is None:
-            self._selected_action_label.configure(text="No item selected")
+            self._selected_action_frame.pack_forget()
+            self._set_selection_hint(brand.SELECTION_HINT)
+            self._selected_action_label.configure(text="")
             return
-        label = (clip.title or clip.preview or "Selected item").splitlines()[0][:28]
-        self._selected_action_label.configure(text=f"Selected: {label}")
-        to_macros = ("To Macros", lambda c=clip: self._send_to_macro_safe(c.id))
-        if clip.classification == models.CLASS_LINK:
-            actions = [
-                ("Open", lambda c=clip: self._open_clip_link(c.id)),
-                ("Copy Link", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_LINK_ONLY)),
-                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_MARKDOWN)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        elif clip.content_type == models.CONTENT_IMAGE:
-            actions = [
-                ("Copy Image", lambda c=clip: self._copy_again(c.id)),
-                ("Open", lambda c=clip: self._open_asset_folder(c.id)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        elif clip.capture_mode == models.CAPTURE_MOBILE_SHARE:
-            actions = [
-                ("Copy", lambda c=clip: self._copy_again(c.id)),
-                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        else:
-            actions = [
-                ("Copy", lambda c=clip: self._copy_again(c.id)),
-                ("Copy Clean", lambda c=clip: self._copy_clean(c.id, copy_clean.COPY_PLAIN_TEXT)),
-                ("Move Safe", lambda c=clip: self._move_to_safe(c.id)),
-                ("Export Proof", lambda c=clip: self._export_clip_proof(c.id)),
-                to_macros,
-            ]
-        actions.append(("More", self._keyboard_open_context_menu))
-        for text, command in actions[:5]:
+
+        if getattr(self, "_current_layout_mode", None) == "compact":
+            self._selected_action_frame.pack(side="left", padx=(8, 4))
+            self._set_selection_hint("")
+            self._selected_action_label.configure(text="1 clip selected")
+
+            def show_details():
+                self._preview.configure(width=360)
+                self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
+                self._preview.lift()
+
             btn = ctk.CTkButton(
                 self._selected_action_frame,
-                text=text,
-                width=82,
+                text="Details",
+                width=92,
                 height=24,
-                command=command,
+                command=show_details,
                 **theme.secondary_button(),
             )
             btn.pack(side="left", padx=2)
             self._selected_action_buttons.append(btn)
+        else:
+            self._selected_action_frame.pack_forget()
+            self._set_selection_hint(brand.SELECTION_HINT)
+            self._selected_action_label.configure(text="")
 
     def _clear_selection(self) -> None:
         # Use clear_selection (not set_selected(None)) so a multi-row selection
@@ -751,6 +880,10 @@ class CacheVaultApp(ctk.CTk):
         self._selected_clip_id = None
         self._home.set_selected(None)
         self._update_selected_action_strip(None)
+        # Clear the inspector so navigation cannot leave a stale clip from the
+        # previous page visible in the preview panel.
+        self._preview.show(None)
+        self._update_inspector_visibility()
 
     def _keyboard_select_all(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -767,111 +900,91 @@ class CacheVaultApp(ctk.CTk):
         view.select_all()
         return "break"
 
-    def _bulk_copy(self) -> None:
+    def _selected_text_clips(self) -> list[models.Clip]:
+        clips: list[models.Clip] = []
+        for clip_id in self._selected_clip_ids:
+            clip = self.vault.storage.get_clip(clip_id)
+            if clip is None or clip.content_type == models.CONTENT_IMAGE:
+                continue
+            clips.append(clip)
+        return clips
+
+    def _open_clip_composer(self) -> None:
         if not self._guard_unlocked():
             return
-        ids = list(self._selected_clip_ids)
-        if not ids:
+        clips = self._selected_text_clips()
+        if len(clips) < 2:
+            self._show_toast("Select at least two text clips to combine them.")
             return
-        parts: list[str] = []
-        skipped = 0
-        for clip_id in ids:
-            clip = self.vault.storage.get_clip(clip_id)
-            if clip is None:
-                continue
-            if clip.content_type == models.CONTENT_IMAGE:
-                skipped += 1
-                continue
-            content = self.vault.copied_again(clip_id)
-            if content:
-                parts.append(content)
-        if not parts:
-            self._show_toast("Nothing to copy from the selection.")
+        parts = [clip.content for clip in clips if clip.content]
+        if len(parts) < 2:
+            self._show_toast("Not enough text in the selection to combine.")
             return
-        combined = "\n\n".join(parts)
+        ClipComposerDialog(
+            self,
+            parts=parts,
+            on_copy=lambda text: self._copy_generated_text(text, "Copied combined clip."),
+            on_save_clip=lambda text, base=clips[-1]: self._save_generated_clip(text, base.safe_id),
+            on_save_macro=self._save_generated_macro,
+        )
+
+    def _bulk_copy(self) -> None:
+        batch_actions.bulk_copy(self)
+
+    def _copy_generated_text(self, text: str, toast: str) -> None:
         self.clipboard_clear()
-        self.clipboard_append(combined)
-        self._monitor.note_local_copy(combined)
-        msg = f"Copied {len(parts)} clips to clipboard"
-        if skipped:
-            msg += f" ({skipped} image{'s' if skipped != 1 else ''} skipped)"
-        self._show_toast(msg)
+        self.clipboard_append(text)
+        self._monitor.note_local_copy(text)
+        self._show_toast(toast)
+
+    def _save_generated_clip(self, text: str, safe_id: str | None = None) -> None:
+        clip = self.vault.capture(
+            text,
+            source_app=brand.PRODUCT_NAME,
+            capture_mode=models.CAPTURE_EXTERNAL_APP,
+            safe_id=safe_id,
+            force=True,
+        )
+        if clip is not None:
+            self.refresh()
+            self._on_clip_select(clip)
+            self._show_toast("Saved as a new clip.")
+
+    def _save_generated_macro(self, text: str) -> None:
+        clip = self.vault.capture(
+            text,
+            source_app=brand.PRODUCT_NAME,
+            capture_mode=models.CAPTURE_EXTERNAL_APP,
+            safe_id=self.vault.settings.default_safe_id,
+            force=True,
+        )
+        if clip is None:
+            return
+        self._send_to_macro_safe(clip.id)
 
     def _bulk_export_proof(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-        if not self._require_founder("proof_pack_export"):
-            return
-        from tkinter import filedialog
-
-        from ..core.exports import export_zip_basename
-
-        dest = filedialog.asksaveasfilename(
-            parent=self,
-            title="Export proof zip",
-            defaultextension=".zip",
-            initialfile=export_zip_basename(),
-            filetypes=[("Zip archive", "*.zip")],
-        )
-        if dest:
-            self.vault.export_proof_zip(ids, dest, mode="auto")
-            self.refresh()
-            self._show_toast(f"Exported proof for {len(ids)} clips.")
+        batch_actions.bulk_export_proof(self)
 
     def _bulk_move_to_safe(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-
-        def pick(safe_id: str, safe_name: str) -> None:
-            moved = 0
-            for clip_id in ids:
-                if self.vault.move_to_safe(clip_id, safe_id):
-                    moved += 1
-            self.refresh()
-            self._show_toast(f"Moved {moved} clips to {safe_name}.")
-
-        SafePickerDialog(
-            self, self.vault.settings,
-            title="Move to Safe",
-            on_pick=pick,
-            on_create=self._create_safe_if_allowed,
-        )
+        batch_actions.bulk_move_to_safe(self)
 
     def _bulk_remove(self) -> None:
-        if not self._guard_unlocked():
-            return
-        ids = list(self._selected_clip_ids)
-        if not ids:
-            return
-        from tkinter import messagebox
-
-        ok = messagebox.askyesno(
-            "Remove from History",
-            f"Remove {len(ids)} clips from Cache Vault history? "
-            "They can be restored from Recently Removed.\n\n"
-            "This does not delete any files from your computer.",
-            parent=self,
-        )
-        if not ok:
-            return
-        for clip_id in ids:
-            self.vault.remove_from_history(clip_id)
-        self._clear_selection()
-        self.refresh()
-        self._preview.show(None)
+        batch_actions.bulk_remove(self)
 
     def _keyboard_focus_is_text_input(self, event=None) -> bool:
         widget = getattr(event, "widget", None)
         if widget is None:
             return False
-        cls = widget.winfo_class()
-        return cls in {"Entry", "Text"} or "Entry" in cls or "Textbox" in cls
+        if isinstance(widget, str):
+            try:
+                widget = self.nametowidget(widget)
+            except Exception:
+                return False
+        try:
+            cls = widget.winfo_class()
+            return cls in {"Entry", "Text"} or "Entry" in cls or "Textbox" in cls
+        except Exception:
+            return False
 
     def _keyboard_move_selection(self, delta: int, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -899,9 +1012,39 @@ class CacheVaultApp(ctk.CTk):
             return "break"
         if clip.classification == models.CLASS_LINK:
             self._open_clip_link(clip.id)
+        elif clip.content_type != models.CONTENT_IMAGE:
+            # Enter on selected text clip = Edit Clip Text
+            self._edit_clip_text(clip.id)
         else:
             self._copy_again(clip.id)
         return "break"
+
+    def _keyboard_duplicate_selected(self, event=None):
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        clip = self._selected_clip()
+        if clip is not None:
+            self._duplicate_as_editable_clip(clip.id)
+        return "break"
+
+    def _on_clip_double_click(self, clip: Clip) -> None:
+        if not self._guard_unlocked():
+            return
+        if clip.content_type == models.CONTENT_IMAGE:
+            self._open_photo_viewer(clip.id)
+        elif clip.classification == models.CLASS_LINK:
+            self._open_clip_link(clip.id)
+        else:
+            self._edit_clip_text(clip.id)
+
+    def _add_to_link_batch(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        if not hasattr(self, "_link_batch_ids"):
+            self._link_batch_ids = []
+        if clip_id not in self._link_batch_ids:
+            self._link_batch_ids.append(clip_id)
+        self._show_toast(f"Link added to batch. ({len(self._link_batch_ids)} link(s) in batch)")
 
     def _keyboard_copy_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
@@ -1172,8 +1315,11 @@ class CacheVaultApp(ctk.CTk):
         import socket
         import urllib.error
         import urllib.request
+        from ..core.mobile.mobile_access_controller import relative_timestamp
 
         summary = self.vault.dashboard_summary()
+        # Use controller for canonical state
+        ctrl = self._mobile_controller
         local_ip = "—"
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1183,7 +1329,9 @@ class CacheVaultApp(ctk.CTk):
         except OSError:
             pass
         receipts = self._mobile_bridge.receipts.recent(5)
-        last_connection = receipts[0].get("timestamp") if receipts else "—"
+        raw_ts = receipts[0].get("timestamp") if receipts else None
+        last_connection = relative_timestamp(raw_ts) if raw_ts else "—"
+        last_connection_raw = raw_ts or "—"
         pairing = (
             f"{summary.get('paired_count', 0)} device(s) paired"
             if summary.get("paired_count")
@@ -1191,7 +1339,7 @@ class CacheVaultApp(ctk.CTk):
         )
         routes: dict[str, bool] = {}
         port = int(summary.get("mobile_port") or 8742)
-        if self._mobile_bridge.is_running:
+        if ctrl.listening:
             for path in (
                 "/mobile/v1/status",
                 "/mobile/v1/clips",
@@ -1213,12 +1361,44 @@ class CacheVaultApp(ctk.CTk):
                 "/mobile/v1/recently-removed",
             ):
                 routes[path] = False
+        # Build device list for the page
+        from ..core.mobile.compatibility import evaluate_compatibility
+
+        devices = []
+        for d in self._mobile_bridge.all_devices():
+            entry = {
+                "device_id": d.device_id,
+                "device_name": d.device_name,
+                "app_version": d.app_version or "Unknown",
+                "platform": d.platform or "Android",
+                "last_seen": relative_timestamp(d.last_seen_at),
+                "last_seen_raw": d.last_seen_at or "",
+                "is_active": d.is_active,
+                "revoked": d.revoked_at is not None,
+            }
+            # Compatibility only applies to devices that declared a mobile
+            # platform at pairing time — the desktop CLI pairs itself as a
+            # device too but never participates in this handshake.
+            if d.platform:
+                compat = evaluate_compatibility(d.protocol, d.app_version)
+                entry["protocol"] = d.protocol
+                entry["compatibility_state"] = compat.state
+                entry["compatible"] = compat.compatible
+                entry["update_required"] = compat.update_required
+            devices.append(entry)
         return {
             "summary": summary,
             "local_ip": local_ip,
             "pairing_status": pairing,
             "last_connection": last_connection,
+            "last_connection_raw": last_connection_raw,
             "routes": routes,
+            "mdns_advertising": ctrl.advertising,
+            "controller_enabled": ctrl.enabled,
+            "controller_listening": ctrl.listening,
+            "controller_status": ctrl.status_text,
+            "controller_error": ctrl.last_error,
+            "devices": devices,
         }
 
     def _navigate_filter(self, key: str) -> None:
@@ -1237,32 +1417,38 @@ class CacheVaultApp(ctk.CTk):
         self._grid.grid_remove()
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
+        self._page_header.set_content("Command Center")
+        self._page_header.set_actions()
         self._home.grid()
+        self._update_inspector_visibility()
 
     def _show_clips(self) -> None:
         self._home.grid_remove()
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
         self._toolbar.grid()
+        self._page_header.set_content(self._filters.active_label)
+        self._page_header.set_actions()
+        self._page_header.set_status_chips([])
         if self._view_mode == "grid":
             self._list.grid_remove()
             self._grid.grid()
         else:
             self._grid.grid_remove()
             self._list.grid()
+        self._update_inspector_visibility()
 
     def _show_vault_screen(self, key: str) -> None:
         self._home.grid_remove()
         self._list.grid_remove()
         self._grid.grid_remove()
         self._toolbar.grid_remove()
+        self._page_header.set_content(self._filters.active_label)
+        self._page_header.set_actions()
+        self._page_header.set_status_chips([])
         self._vault_screens.grid()
         self._vault_screens.show(key)
-        if self._preview._clip is None:  # noqa: SLF001
-            self._preview.show_vault_control(
-                self.vault.dashboard_summary(),
-                self._vault_panel_callbacks(),
-            )
+        self._update_inspector_visibility()
 
     def _open_duplicate_review(self) -> None:
         if not self._require_founder("smart_filters_advanced"):
@@ -1322,6 +1508,7 @@ class CacheVaultApp(ctk.CTk):
 
         return {
             "copy_again": self._copy_again,
+            "view_larger": self._open_photo_viewer,
             "reveal": self.vault.reveal_sensitive,
             "toggle_favorite": self._toggle_favorite,
             "mark_keep": self._mark_keep,
@@ -1349,6 +1536,9 @@ class CacheVaultApp(ctk.CTk):
             "clip_inspector_context": self.vault.clip_inspector_context,
             "copy_path": self._copy_path,
             "send_to_macro": self._send_to_macro_safe,
+            "create_paste_macro": self._create_macro_from_clip,
+            "get_storage": lambda: self.vault.storage,
+            "close_inspector": self._close_inspector,
         }
 
     # --- data refresh ------------------------------------------------------
@@ -1372,6 +1562,55 @@ class CacheVaultApp(ctk.CTk):
         self._grid.cancel_render()
 
     def refresh(self) -> None:
+        """Debounced refresh — collapses rapid-fire calls into one actual render."""
+        if not self._alive():
+            return
+        if hasattr(self, "_refresh_job") and self._refresh_job:
+            self.after_cancel(self._refresh_job)
+        # Bump the generation so any in-flight batched renders from a prior
+        # refresh know they are stale and should not touch the UI.
+        if not hasattr(self, "_refresh_generation"):
+            self._refresh_generation = 0
+        self._refresh_generation += 1
+
+        active = self._filters.active
+        if active not in NAV_SCREEN_KEYS and active != FILTER_HOME and not self._locked():
+            self._show_loading_skeleton()
+
+        self._refresh_job = self.after(50, self._do_refresh_sync)
+
+    def _show_loading_skeleton(self) -> None:
+        # Clear tracking variables and children immediately to avoid race conditions/TclErrors during debounced refresh
+        self._list.cancel_render()
+        for w in self._list.winfo_children():
+            if w != getattr(self._list, "_empty_container", None):
+                w.destroy()
+        self._list._rows.clear()
+        self._list._row_by_id.clear()
+        self._list._rail_by_id.clear()
+        self._list._selected_badge_by_id.clear()
+        self._list._action_bar_by_id.clear()
+        self._list._render_order.clear()
+        self._list._empty_container.pack_forget()
+
+        self._grid.cancel_render()
+        for w in self._grid.winfo_children():
+            if w != getattr(self._grid, "_empty_container", None):
+                w.destroy()
+        self._grid._row_by_id.clear()
+        self._grid._name_label_by_id.clear()
+        self._grid._render_order.clear()
+        self._grid._empty_container.pack_forget()
+
+        if self._view_mode == "grid":
+            ls = LoadingState(self._grid, mode="grid")
+            ls.pack(fill="both", expand=True, pady=20)
+        else:
+            ls = LoadingState(self._list, mode="list")
+            ls.pack(fill="both", expand=True, pady=20)
+
+    def _do_refresh_sync(self) -> None:
+        self._refresh_job = None
         if not self._alive():
             return
         tooltip.hide_tooltip()
@@ -1385,6 +1624,7 @@ class CacheVaultApp(ctk.CTk):
                 return
 
             active = self._filters.active
+
             counts = self.vault.counts()
             summary = self.vault.dashboard_summary()
             counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
@@ -1397,22 +1637,47 @@ class CacheVaultApp(ctk.CTk):
             self._filters.update_counts(counts)
             self._filters.update_collections(self.vault.list_collections())
             self._filters.update_safes(self.vault.list_safes())
+            self._filters.update_founder_status(licensing.load_license())
 
             if active in NAV_SCREEN_KEYS:
                 self._show_vault_screen(active)
                 clip_count = summary.get("all", 0)
             elif active == FILTER_HOME:
                 self._show_home()
+                capture_active = not summary.get("capture_paused")
+                status_text = "● Capture Active" if capture_active else "● Capture Paused"
+                mobile_on = bool(summary.get("mobile_enabled"))
+                mobile_text = f"● Mobile Access ({summary.get('paired_count', 0)} paired)" if mobile_on else "● Mobile Access Off"
+                self._page_header.set_status_chips([
+                    status_text,
+                    "● Receipts Active",
+                    f"● {brand.VAULT_STATUS_ACTIVE}",
+                    mobile_text,
+                    f"● {brand.LABEL_LOCAL_ONLY}"
+                ])
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)
+                q_today = search.SearchQuery(date_added_preset="today")
+                q_links = search.SearchQuery(type_filter=models.CLASS_LINK)
                 image_ready = self.vault.storage.asset_storage_ready()
                 self._home._image_ready = image_ready  # noqa: SLF001
+
+                all_recent = self.vault.list_clips(q_recent)
+                today_clips = self.vault.list_clips(q_today)
+                link_clips = self.vault.list_clips(q_links)[:6]
+                receipts = [c for c in all_recent if c.content_hash][:6]
+                sensitive_items = [c for c in all_recent if c.is_sensitive][:6]
+
                 self._home.render(
                     summary,
-                    self.vault.list_clips(q_recent)[:8],
+                    all_recent[:8],
                     self.vault.list_clips(q_fav)[:6],
                     self.vault.list_clips(q_img)[:6],
+                    today_clips=today_clips,
+                    link_clips=link_clips,
+                    receipts=receipts,
+                    sensitive_items=sensitive_items,
                 )
                 if self._preview._clip is None:  # noqa: SLF001
                     self._preview.show_vault_control(
@@ -1423,7 +1688,11 @@ class CacheVaultApp(ctk.CTk):
             else:
                 self._show_clips()
                 query = self._build_query()
-                clips = self.vault.list_clips(query)
+                all_clips = self.vault.list_clips(query)
+                total_clips = len(all_clips)
+                self._page_header.set_content(self._filters.active_label, f"{total_clips} clips")
+                clips = all_clips[:MAX_VISIBLE_CLIPS]
+                more_count = total_clips - len(clips)
                 self._visible_clip_ids = [c.id for c in clips]
                 self._selected_clip_ids = [
                     cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
@@ -1433,7 +1702,9 @@ class CacheVaultApp(ctk.CTk):
                 empty_msg = self._empty_message(active, clips, query)
                 if self._view_mode == "grid":
                     self._grid.set_selected(self._selected_clip_id)
-                    self._grid.render_batched(clips, empty_message=empty_msg)
+                    self._grid.render_batched(
+                        clips, empty_message=empty_msg, more_count=more_count,
+                    )
                     self._grid.set_selected(self._selected_clip_id)
                 else:
                     self._list.set_selected(self._selected_clip_id)
@@ -1441,16 +1712,17 @@ class CacheVaultApp(ctk.CTk):
                         clips,
                         empty_message=empty_msg,
                         group_by=self._group_by_for_view(active, query),
+                        more_count=more_count,
                     )
                     self._list.set_selected(self._selected_clip_id)
-                self._update_selected_action_strip(
-                    self.vault.storage.get_clip(self._selected_clip_id)
-                    if self._selected_clip_id else None,
-                )
-                clip_count = len(clips)
+                clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
+                self._update_selected_action_strip(clip)
+                self._preview.show(clip)
+                clip_count = total_clips
 
             summary["shown"] = clip_count
             summary["default_safe"] = self.vault.settings.default_safe_id
+            summary["mobile_status_text"] = self._mobile_controller.status_text
             self._control_strip.update_state(summary)
             if self._locked():
                 self._lock_screen.lift()
@@ -1475,6 +1747,7 @@ class CacheVaultApp(ctk.CTk):
         self._control_strip.update_state({
             "capture_paused": self.vault.settings.capture_paused,
             "mobile_enabled": False,
+            "mobile_status_text": "Off",
             "paired_count": 0,
             "default_safe": "Vault locked",
         })
@@ -1677,6 +1950,10 @@ class CacheVaultApp(ctk.CTk):
         self._manual_save_to_safe(payload, picked[0])
 
     def _manual_save_to_safe(self, payload: dict, safe_id: str) -> None:
+        detected = multi_link.detect_multi_link_payload(payload.get("text", ""))
+        if detected is not None:
+            self._open_multi_link_dialog(payload, safe_id, detected)
+            return
         self._save_payload(
             payload,
             safe_id=safe_id,
@@ -1684,6 +1961,87 @@ class CacheVaultApp(ctk.CTk):
             force=True,
         )
         self._show_toast("Clipboard saved to Safe.")
+
+    def _open_multi_link_dialog(
+        self,
+        payload: dict,
+        safe_id: str,
+        detected: multi_link.MultiLinkPayload,
+    ) -> None:
+        def save_text_clip() -> None:
+            self._save_payload(
+                payload,
+                safe_id=safe_id,
+                capture_mode=models.CAPTURE_MANUAL_SAVE_HOTKEY,
+                force=True,
+            )
+            self._show_toast("Saved raw link paste as one text clip.")
+
+        def save_separate() -> None:
+            self._save_multi_link_batch(
+                detected,
+                safe_id=safe_id,
+                source_app=payload.get("source_app"),
+                source_window=payload.get("source_window"),
+                batch_label="Saved links as separate clips.",
+            )
+
+        def copy_list() -> None:
+            self._copy_generated_text(
+                multi_link.one_per_line(detected),
+                "Copied clean download list.",
+            )
+
+        def create_batch() -> None:
+            self._save_multi_link_batch(
+                detected,
+                safe_id=safe_id,
+                source_app=payload.get("source_app"),
+                source_window=payload.get("source_window"),
+                batch_label="Saved link batch with raw receipt.",
+            )
+
+        MultiLinkPasteDialog(
+            self,
+            payload=detected,
+            on_separate=save_separate,
+            on_text_clip=save_text_clip,
+            on_copy_list=copy_list,
+            on_batch=create_batch,
+        )
+
+    def _save_multi_link_batch(
+        self,
+        detected: multi_link.MultiLinkPayload,
+        *,
+        safe_id: str,
+        source_app: str | None,
+        source_window: str | None,
+        batch_label: str,
+    ) -> None:
+        # Keep the original raw paste as a receipt clip before saving each URL.
+        self.vault.capture(
+            detected.raw_text,
+            source_app=f"{brand.PRODUCT_NAME} Multi-Link Receipt",
+            source_window=source_window,
+            capture_mode=models.CAPTURE_EXTERNAL_APP,
+            safe_id=safe_id,
+            force=True,
+        )
+        saved = 0
+        for url in detected.urls:
+            clip = self.vault.capture(
+                url,
+                source_app=source_app,
+                source_window=source_window,
+                capture_mode=models.CAPTURE_MANUAL_SAVE_HOTKEY,
+                safe_id=safe_id,
+                force=True,
+            )
+            if clip is not None:
+                saved += 1
+        self.refresh()
+        self._show_toast(f"{batch_label} {saved} link{'s' if saved != 1 else ''} saved.")
 
     def _arm_next_copy(self) -> None:
         if not self._guard_unlocked():
@@ -1720,7 +2078,16 @@ class CacheVaultApp(ctk.CTk):
 
     def _debounced_refresh(self) -> None:
         self._search_job = None
+        # Show/hide the cross-view search scope banner.
+        try:
+            if self._search_var.get().strip():
+                self._search_scope_banner.pack(fill="x", padx=8, pady=(0, 4))
+            else:
+                self._search_scope_banner.pack_forget()
+        except Exception:  # noqa: BLE001
+            pass
         self.refresh()
+
 
     def _on_window_configure(self, event) -> None:
         """Throttle layout-heavy work during window resizing."""
@@ -1739,23 +2106,62 @@ class CacheVaultApp(ctk.CTk):
         self._resize_job = None
         if not self._alive() or self._locked():
             return
-        
+
         # Responsive check
         w = self.winfo_width()
-        is_compact = w < 1024
-        if is_compact != self._is_compact_width:
-            self._is_compact_width = is_compact
-            if is_compact:
-                self._preview.grid_forget()
-                self.grid_columnconfigure(2, minsize=0)
-            else:
-                self._preview.grid(row=1, column=2, sticky="nsew")
-                self.grid_columnconfigure(2, weight=0, minsize=320)
-        
+
+        if w >= 1500:
+            layout_mode = "wide"
+        elif w >= 1150:
+            layout_mode = "standard"
+        else:
+            layout_mode = "compact"
+
+        current_mode = getattr(self, "_current_layout_mode", None)
+        if current_mode != layout_mode:
+            self._current_layout_mode = layout_mode
+            self._apply_layout_mode(layout_mode)
+
+    def _apply_layout_mode(self, mode: str) -> None:
+        # Column sizing is applied here immediately so the layout doesn't
+        # visibly jump; actual preview grid/place/hidden state is decided
+        # solely by _update_inspector_visibility (called synchronously below)
+        # so there is exactly one authority for whether the panel is showing.
+        if mode == "compact":
+            self.grid_columnconfigure(2, minsize=0, weight=0)
+        else:
+            self.grid_columnconfigure(2, weight=0, minsize=400 if mode == "wide" else 320)
+
+        self._set_toolbar_compact(mode == "compact")
+        self._update_inspector_visibility()
+
+        if hasattr(self._home, "set_layout_mode"):
+            self._home.set_layout_mode(mode)
+
         # During a resize, we don't want to rebuild the entire clip list if possible.
         # But we might need to tell elements to wrap or adjust.
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
         self.refresh()
+
+    def _set_toolbar_compact(self, compact: bool) -> None:
+        """Drop the least-essential toolbar chrome at narrow widths instead of
+        letting the global toolbar clip or extend past the window edge."""
+        if not hasattr(self, "_view_label"):
+            return
+        if compact:
+            self._view_label.pack_forget()
+            self._selection_hint_label.pack_forget()
+            self._top_receipts_btn.grid_remove()
+            self._top_capture_rules_btn.grid_remove()
+        else:
+            if not self._view_label.winfo_ismapped():
+                self._view_label.pack(side="right", padx=(4, 2), before=self._grid_btn)
+            if not self._selection_hint_label.winfo_ismapped():
+                self._selection_hint_label.pack(side="left", padx=(6, 0))
+            self._top_receipts_btn.grid(row=0, column=2, padx=4)
+            self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
+
+        self._control_strip.set_compact(compact)
 
     def _empty_message(self, active: str, clips: list, query) -> str | None:
         from ..core import storage as S
@@ -1790,6 +2196,9 @@ class CacheVaultApp(ctk.CTk):
         if key == NAV_FOUNDER:
             self._open_founder()
             return
+        if key == NAV_NEW_SAFE:
+            self._open_new_safe()
+            return
         gate = _FOUNDER_NAV_GATES.get(key)
         if gate and not self._require_founder(gate):
             return
@@ -1804,6 +2213,11 @@ class CacheVaultApp(ctk.CTk):
                 self.vault.dashboard_summary(),
                 self._vault_panel_callbacks(),
             )
+
+        self._clear_selection()
+        if getattr(self, "_current_layout_mode", None) == "compact":
+            self._close_inspector()
+
         self.refresh()
 
     def _navigate_back(self, event=None) -> None:
@@ -1813,7 +2227,7 @@ class CacheVaultApp(ctk.CTk):
             return
         if not self._nav_history:
             return
-        
+
         current = self._filters.active
         prev = self._nav_history.pop()
         self._nav_forward_stack.append(current)
@@ -1822,7 +2236,7 @@ class CacheVaultApp(ctk.CTk):
     def _navigate_forward(self, event=None) -> None:
         if self._keyboard_focus_is_text_input(event) or self._locked() or not self._nav_forward_stack:
             return
-        
+
         current = self._filters.active
         nxt = self._nav_forward_stack.pop()
         self._nav_history.append(current)
@@ -1830,7 +2244,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _on_escape_pressed(self, event=None) -> None:
         tooltip.hide_tooltip()
-        
+
         # 1. Close context menus (if we can find them)
         # 2. Close transient overlays
         if self._quick_paste and self._quick_paste.winfo_exists():
@@ -1862,6 +2276,7 @@ class CacheVaultApp(ctk.CTk):
         if clip is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
         self._preview.show(clip)
+        self._update_inspector_visibility()
 
     def _on_clip_selection_change(self, ids: list[str]) -> None:
         """Multi-selection (Ctrl/Shift click) reported from the list/grid.
@@ -1877,7 +2292,9 @@ class CacheVaultApp(ctk.CTk):
         self._selected_clip_ids = list(ids)
         primary_id = ids[-1] if ids else None
         self._selected_clip_id = primary_id
-        self._home.set_selected(primary_id)
+        from ..core.storage import FILTER_HOME
+        if self._filters.active != FILTER_HOME:
+            self._home.set_selected(primary_id)
         primary = self.vault.storage.get_clip(primary_id) if primary_id else None
         if len(ids) > 1:
             self._update_bulk_action_strip(self._selected_clip_ids)
@@ -1886,6 +2303,96 @@ class CacheVaultApp(ctk.CTk):
         if primary is not None:
             self._preview.set_usage_events(self.vault.clip_usage_events(primary.id))
         self._preview.show(primary)
+        self._update_inspector_visibility()
+
+    def _on_home_batch_action(self, action: str, ids: list[str]) -> None:
+        if not ids:
+            return
+        self._selected_clip_ids = list(ids)
+        if action == "copy":
+            self._bulk_copy_format("plain")
+        elif action == "copy_md":
+            self._bulk_copy_format("markdown")
+        elif action == "move_safe":
+            self._bulk_move_to_safe()
+        elif action == "save_images":
+            self._bulk_save_images()
+        elif action == "export_zip":
+            self._bulk_export_zip()
+        elif action == "copy_paths":
+            self._bulk_copy_paths()
+        elif action == "copy_text_links":
+            self._bulk_copy_text_links()
+        elif action == "combine":
+            self._open_clip_composer()
+        elif action == "receipt":
+            from ..core.selection import analyze_selection
+            clips = [self.vault.storage.get_clip(cid) for cid in ids]
+            self._bulk_create_receipt(analyze_selection([clip for clip in clips if clip]))
+        elif action == "export_selection":
+            self._bulk_export_bundle()
+        elif action == "delete":
+            self._bulk_remove()
+        self._home.clear_selection()
+        self.refresh()
+
+    def _close_inspector(self) -> None:
+        self._selected_clip_id = None
+        self._selected_clip_ids = []
+        if self._view_mode == "grid":
+            self._grid.set_selected(None)
+        else:
+            self._list.set_selected(None)
+        self._home.set_selected(None)
+        self._update_selected_action_strip(None)
+        self._preview.show(None)
+        if getattr(self, "_current_layout_mode", None) == "compact":
+            self._preview.place_forget()
+        self._update_inspector_visibility()
+        self.refresh()
+
+    def _update_inspector_visibility(self) -> None:
+        """Single source of truth for inspector visibility (docked/slide-over/hidden).
+
+        Rules: non-clip vault screens (Hotkey Actions, Mobile Access, etc.) never
+        show the inspector. Editable Copies is the one exception — it shows the
+        inspector once a revision's original clip has been explicitly selected
+        in place. Every other page (Command Center, All Clips, Today/Week/Older)
+        shows the inspector only when a clip is selected, docked at
+        standard/wide width or as a compact slide-over.
+        """
+        active = self._filters.active
+        always_hidden_screens = NAV_SCREEN_KEYS - {NAV_EDITABLE_COPIES}
+        if active in always_hidden_screens:
+            has_selection = False
+        else:
+            has_selection = self._selected_clip_id is not None
+
+        self._preview.place_forget()
+        if not has_selection:
+            self._preview.grid_remove()
+            self.grid_columnconfigure(2, minsize=0)
+            return
+
+        compact = getattr(self, "_current_layout_mode", None) == "compact"
+        if compact:
+            self._preview.grid_remove()
+            self.grid_columnconfigure(2, minsize=0)
+            self._preview.configure(width=360)
+            self._preview.place(relx=1.0, rely=0.0, relheight=1.0, anchor="ne")
+            self._preview.lift()
+        else:
+            wide = getattr(self, "_current_layout_mode", None) == "wide"
+            self._preview.grid(row=1, column=2, sticky="nsew")
+            self.grid_columnconfigure(2, minsize=400 if wide else 320)
+
+    def _clear_filters(self) -> None:
+        self._search_var.set("")
+        self._type_var.set("All Types")
+        self._sort_var.set("Newest Added")
+        self._date_added_preset = None
+        self._date_used_preset = None
+        self.refresh()
 
     def _set_selection_hint(self, text: str) -> None:
         label = getattr(self, "_selection_hint_label", None)
@@ -1899,19 +2406,48 @@ class CacheVaultApp(ctk.CTk):
         for btn in getattr(self, "_selected_action_buttons", []):
             btn.destroy()
         self._selected_action_buttons = []
-        if self._locked() or not ids:
+        if self._locked() or len(ids) < 2:
+            self._selected_action_frame.pack_forget()
             self._set_selection_hint(brand.SELECTION_HINT)
-            self._selected_action_label.configure(text="No item selected")
+            self._selected_action_label.configure(text="")
             return
+        self._selected_action_frame.pack(side="left", padx=(8, 4))
         # Count is carried by the label; drop the hint to keep the strip compact.
         self._set_selection_hint("")
-        self._selected_action_label.configure(text=f"{len(ids)} selected")
-        actions = [
-            ("Copy All", self._bulk_copy),
-            ("Export Proof", self._bulk_export_proof),
-            ("Move Safe", self._bulk_move_to_safe),
-            ("Remove", self._bulk_remove),
-        ]
+
+        clips = []
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is not None:
+                clips.append(clip)
+
+        from ..core.selection import analyze_selection
+        summary = analyze_selection(clips)
+        # Keep static check happy: text=f"{len(ids)} selected"
+        self._selected_action_label.configure(text=f"{len(ids)} clips selected")
+
+        actions = []
+        if summary.text_count or summary.link_count:
+            copy_command = (
+                self._open_clip_composer
+                if summary.selection_class in ("link_only", "text_only")
+                else self._bulk_copy_text_links
+            )
+            actions.append(("Copy Combined Text", copy_command))
+        actions.extend([
+            ("Create Proof Receipt", lambda: self._bulk_create_receipt(summary)),
+            ("Export Selection", self._bulk_export_bundle),
+        ])
+        if summary.image_count:
+            actions.append(("Save Images", self._bulk_save_images))
+        actions.append((
+            "More…",
+            lambda: self._open_bulk_clip_menu(
+                ids,
+                self._selected_action_frame.winfo_rootx(),
+                self._selected_action_frame.winfo_rooty() + self._selected_action_frame.winfo_height(),
+            ),
+        ))
         for text, command in actions:
             btn = ctk.CTkButton(
                 self._selected_action_frame,
@@ -1923,6 +2459,33 @@ class CacheVaultApp(ctk.CTk):
             )
             btn.pack(side="left", padx=2)
             self._selected_action_buttons.append(btn)
+
+    def _bulk_copy_format(self, format_name: str) -> None:
+        batch_actions.bulk_copy_format(self, format_name)
+
+    def _bulk_create_receipt(self, summary) -> None:
+        batch_actions.bulk_create_receipt(self, summary)
+
+    def _bulk_copy_images(self) -> None:
+        batch_actions.bulk_copy_images(self)
+
+    def _bulk_save_images(self) -> None:
+        batch_actions.bulk_save_images(self)
+
+    def _bulk_export_zip(self) -> None:
+        batch_actions.bulk_export_zip(self)
+
+    def _bulk_copy_paths(self) -> None:
+        batch_actions.bulk_copy_paths(self)
+
+    def _bulk_view_proof(self) -> None:
+        batch_actions.bulk_view_proof(self)
+
+    def _bulk_export_bundle(self) -> None:
+        batch_actions.bulk_export_bundle(self)
+
+    def _bulk_copy_text_links(self) -> None:
+        batch_actions.bulk_copy_text_links(self)
 
     def _copy_again(self, clip_id: str) -> None:
         if not self._guard_unlocked():
@@ -2008,6 +2571,32 @@ class CacheVaultApp(ctk.CTk):
         )
         self._show_toast("Copied clean format.")
 
+    def _edit_clip_text(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None or clip.content_type == models.CONTENT_IMAGE:
+            return
+        EditClipTextDialog(
+            self,
+            title="Edit Clip Text",
+            initial_text=clip.content or "",
+            on_save=lambda text, c=clip: self._save_generated_clip(text, c.safe_id),
+        )
+
+    def _duplicate_as_editable_clip(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None or clip.content_type == models.CONTENT_IMAGE:
+            return
+        EditClipTextDialog(
+            self,
+            title="Duplicate as Editable Clip",
+            initial_text=clip.content or "",
+            on_save=lambda text, c=clip: self._save_generated_clip(text, c.safe_id),
+        )
+
     def _copy_receipt_summary(self, row) -> None:
         if not self._guard_unlocked():
             return
@@ -2074,206 +2663,49 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(None)
 
     # --- clip-row context menu ---------------------------------------------
+    # --- clip-row context menu ---------------------------------------------
     def _open_clip_menu(self, clip, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        from ..core.contextmenu import clip_menu_items
-
-        tooltip.before_menu_open()
-        if self._locked():
-            try:
-                self._open_locked_menu(x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-        # Bulk menu: right-clicking a row that's part of a multi-selection acts
-        # on the whole set. Right-clicking elsewhere collapses to single (the
-        # view already re-selected just that row before calling us).
-        if len(self._selected_clip_ids) > 1 and clip.id in self._selected_clip_ids:
-            try:
-                self._open_bulk_clip_menu(list(self._selected_clip_ids), x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-        menu = tk.Menu(self, tearoff=0)
-        dispatch = {
-            "copy_again": lambda: self._copy_again(clip.id),
-            "open_link": lambda: self._open_clip_link(clip.id),
-            "open_asset_folder": lambda: self._open_asset_folder(clip.id),
-            "drag_out": lambda: self._drag_out_clip(clip.id),
-            "toggle_favorite": lambda: self._toggle_favorite(clip.id),
-            "move_safe": lambda: self._move_to_safe(clip.id),
-            "send_to_macro_safe": lambda: self._send_to_macro_safe(clip.id),
-            "create_editable_copy": lambda: self._create_editable_copy(clip.id),
-            "export_proof_zip": lambda: self._export_clip_proof(clip.id),
-            "view_receipts": self._open_events,
-            "view_mobile_receipt": self._open_events,
-            "copy_metadata": lambda: self._copy_metadata(clip.id),
-            "copy_item_id": lambda: self._copy_text(clip.id, "Copied item ID."),
-            "copy_source_summary": lambda: self._copy_clean(clip.id, copy_clean.COPY_SOURCE_SUMMARY),
-            "open": lambda: self._open_clip_path(clip.id),
-            "reveal": lambda: self._reveal_clip_path(clip.id),
-            "remove": lambda: self._remove_from_history(clip.id),
-            "restore": lambda: self._restore(clip.id),
-            "permanently_remove": lambda: self._permanently_remove(clip.id),
-        }
-        self._add_menu_items(menu, clip_menu_items(clip), dispatch, clip.id)
-        self.vault.events.record(
-            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
-            clip.id,
-            {"surface": "clip", "classification": clip.classification},
-        )
-        try:
-            menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
+        clip_context.open_clip_menu(self, clip, x_root, y_root)
 
     def _open_bulk_clip_menu(self, ids: list[str], x_root: int, y_root: int) -> None:
-        """Context menu for a multi-clip selection — actions target the whole set."""
-        import tkinter as tk
-
-        n = len(ids)
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label=f"Copy {n} clips to clipboard", command=self._bulk_copy)
-        menu.add_command(label=f"Export proof for {n} clips…", command=self._bulk_export_proof)
-        menu.add_command(label=f"Move {n} clips to Safe…", command=self._bulk_move_to_safe)
-        menu.add_separator()
-        menu.add_command(label=f"Remove {n} clips from history…", command=self._bulk_remove)
-        self.vault.events.record(
-            copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
-            None,
-            {"surface": "clip_bulk", "count": n},
-        )
-        try:
-            menu.tk_popup(x_root, y_root)  # native: dismisses on click-away/Esc
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-
-    def _add_menu_items(self, menu, items, dispatch: dict, clip_id: str) -> None:
-        import tkinter as tk
-
-        for item in items:
-            if item.separator_before:
-                menu.add_separator()
-            if item.children:
-                sub = tk.Menu(menu, tearoff=0)
-                self._add_menu_items(sub, item.children, dispatch, clip_id)
-                menu.add_cascade(label=item.label, menu=sub, state="normal")
-                continue
-            if item.key.startswith("copy_clean:"):
-                action = item.key.split(":", 1)[1]
-                command = lambda a=action, cid=clip_id: self._copy_clean(cid, a)
-            else:
-                command = dispatch[item.key]
-            menu.add_command(
-                label=item.label,
-                state=("normal" if item.enabled else "disabled"),
-                command=command,
-            )
+        clip_context.open_bulk_clip_menu(self, ids, x_root, y_root)
 
     def _open_locked_menu(self, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        tooltip.before_menu_open()
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Unlock Vault", command=self._lock_screen.focus_unlock)
-        menu.add_command(label="Quit", command=self._quit)
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-
-    def _popup_menu(self, menu, x_root: int, y_root: int) -> None:
-        tooltip.before_menu_open()
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-
-    def _add_nav_command(self, menu, label: str, command) -> None:
-        menu.add_command(label=label, command=command)
+        clip_context.open_locked_menu(self, x_root, y_root)
 
     def _open_home_clip_menu(self, clip, x_root: int, y_root: int) -> None:
-        self._on_clip_select(clip)
-        self._open_clip_menu(clip, x_root, y_root)
+        if len(self._selected_clip_ids) > 1 and clip.id in self._selected_clip_ids:
+            self._open_bulk_clip_menu(self._selected_clip_ids, x_root, y_root)
+        else:
+            self._on_clip_select(clip)
+            self._open_clip_menu(clip, x_root, y_root)
 
-    def _open_home_card_menu(
-        self,
-        label: str,
-        filter_key: str | None,
-        x_root: int,
-        y_root: int,
-    ) -> None:
-        import tkinter as tk
-
-        from ..core import storage as S
-
-        if self._locked():
-            self._open_locked_menu(x_root, y_root)
-            return
-        menu = tk.Menu(self, tearoff=0)
-        nav_items = [
-            ("All Clips", lambda: self._navigate_filter(S.FILTER_ALL)),
-            ("Favorites", lambda: self._navigate_filter(S.FILTER_FAVORITES)),
-            ("Screenshots", lambda: self._navigate_filter(S.FILTER_SCREENSHOTS)),
-            ("Links", lambda: self._navigate_filter(S.FILTER_LINKS)),
-            ("Code", lambda: self._navigate_filter(S.FILTER_CODE)),
-            ("Mobile Inbox", lambda: self._navigate_screen(NAV_MOBILE_INBOX)),
-            ("Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS)),
-            ("Exports", lambda: self._navigate_screen(NAV_EXPORTS)),
-        ]
-        if filter_key:
-            self._add_nav_command(menu, f"Open {label}", lambda f=filter_key: self._navigate_filter(f))
-            menu.add_separator()
-        elif label == "Receipts":
-            self._add_nav_command(menu, "Open Stamped Receipts", lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
-            menu.add_separator()
-        for item_label, command in nav_items:
-            self._add_nav_command(menu, item_label, command)
-        self._popup_menu(menu, x_root, y_root)
+    def _open_home_card_menu(self, label: str, filter_key: str | None, x_root: int, y_root: int) -> None:
+        clip_context.open_home_card_menu(self, label, filter_key, x_root, y_root)
 
     def _open_home_app_menu(self, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        from ..core import storage as S
-
-        if self._locked():
-            self._open_locked_menu(x_root, y_root)
-            return
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Quick Paste", command=self._schedule_quick_paste)
-        menu.add_command(label="Save Current Clipboard", command=self._manual_save_clipboard)
-        menu.add_separator()
-        menu.add_command(label="Open All Clips", command=lambda: self._navigate_filter(S.FILTER_ALL))
-        menu.add_command(label="Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
-        menu.add_command(label="Stamped Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
-        menu.add_command(label="Settings", command=self._open_settings)
-        self._popup_menu(menu, x_root, y_root)
+        clip_context.open_home_app_menu(self, x_root, y_root)
 
     def _open_home_status_menu(self, surface: str, x_root: int, y_root: int) -> None:
-        import tkinter as tk
+        clip_context.open_home_status_menu(self, surface, x_root, y_root)
 
-        from ..core import storage as S
+    def _open_collection_sidebar_menu(self, name: str, x_root: int, y_root: int) -> None:
+        clip_context.open_collection_sidebar_menu(self, name, x_root, y_root)
 
-        if self._locked():
-            self._open_locked_menu(x_root, y_root)
-            return
-        summary = self.vault.dashboard_summary()
-        menu = tk.Menu(self, tearoff=0)
-        if surface == "vault_status":
-            menu.add_command(label="Open Safe", command=lambda: self._navigate_filter(f"{S.SAFE_PREFIX}{summary.get('default_safe', 'default')}"))
-            menu.add_command(label="Set as Default Safe", state="disabled")
-            menu.add_command(label="Copy Safe Summary", command=self._copy_default_safe_summary)
-            menu.add_command(label="Export Safe Proof Zip", state="disabled")
-            menu.add_separator()
-        menu.add_command(label="Open Receipts", command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS))
-        menu.add_command(label="Open Mobile Inbox", command=lambda: self._navigate_screen(NAV_MOBILE_INBOX))
-        menu.add_command(label="Mobile Access", command=lambda: self._navigate_screen(NAV_MOBILE_ACCESS))
-        self._popup_menu(menu, x_root, y_root)
+    def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
+        sidebar_context.open_safe_menu(self, safe, x_root, y_root)
+
+    def _open_sidebar_section_menu(self, heading: str, x_root: int, y_root: int) -> None:
+        if heading == "SAFES":
+            sidebar_context.open_safes_heading_menu(self, x_root, y_root)
+        else:
+            sidebar_context.open_section_heading_menu(self, heading, x_root, y_root)
+
+    def _open_sidebar_nav_menu(self, nav_key: str, x_root: int, y_root: int) -> None:
+        sidebar_context.open_nav_row_menu(self, nav_key, x_root, y_root)
+
+    def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
+        clip_context.open_receipt_menu(self, row, x_root, y_root)
 
     def _copy_default_safe_summary(self) -> None:
         safe_id = self.vault.settings.default_safe_id or "default"
@@ -2281,105 +2713,6 @@ class CacheVaultApp(ctk.CTk):
         if safe is None:
             return
         self._copy_safe_summary(safe)
-
-    def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        tooltip.before_menu_open()
-        if self._locked():
-            try:
-                self._open_locked_menu(x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-        clip_id = getattr(row, "clip_id", None)
-        proof_hash = getattr(row, "proof_hash", "") or ""
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(
-            label="Copy Receipt Summary",
-            command=lambda: self._copy_receipt_summary(row),
-        )
-        menu.add_command(
-            label="Copy Receipt Path",
-            state="disabled",
-        )
-        menu.add_command(
-            label="Copy Item ID",
-            state=("normal" if clip_id else "disabled"),
-            command=lambda: self._copy_text(str(clip_id), "Copied item ID."),
-        )
-        menu.add_command(
-            label="Copy Hash",
-            state=("normal" if proof_hash else "disabled"),
-            command=lambda: self._copy_text(proof_hash, "Copied hash."),
-        )
-        menu.add_separator()
-        menu.add_command(
-            label="Open Receipt File / Folder",
-            state="disabled",
-        )
-        menu.add_command(
-            label="Export Proof Zip",
-            state=("normal" if clip_id else "disabled"),
-            command=lambda: self._export_clip_proof(str(clip_id)),
-        )
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
-
-    def _open_safe_menu(self, safe: dict, x_root: int, y_root: int) -> None:
-        import tkinter as tk
-
-        tooltip.before_menu_open()
-        if self._locked():
-            try:
-                self._open_locked_menu(x_root, y_root)
-            finally:
-                tooltip.after_menu_close()
-            return
-        safe_id = str(safe.get("id") or "")
-        builtin = bool(safe.get("builtin"))
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(
-            label="Set as Default Safe",
-            command=lambda: self._set_default_safe(safe_id),
-        )
-        menu.add_command(
-            label="Copy Safe Summary",
-            command=lambda: self._copy_safe_summary(safe),
-        )
-        menu.add_separator()
-        menu.add_command(
-            label="Rename Safe",
-            state=("disabled" if builtin else "normal"),
-            command=lambda: self._rename_safe(safe),
-        )
-        menu.add_command(
-            label="Change Icon",
-            state=("disabled" if builtin else "normal"),
-            command=lambda: self._customize_safe_text(safe, "icon", "Safe icon"),
-        )
-        menu.add_command(
-            label="Change Color",
-            state=("disabled" if builtin else "normal"),
-            command=lambda: self._customize_safe_text(safe, "accent", "Safe accent color"),
-        )
-        menu.add_command(label="Export Safe Proof Zip", state="disabled")
-        menu.add_command(
-            label="Collapse/Expand Safes",
-            command=lambda: self._filters._toggle_section("SAFES"),  # noqa: SLF001
-        )
-        menu.add_command(
-            label="Delete Safe",
-            state="disabled",
-        )
-        try:
-            menu.tk_popup(x_root, y_root)
-        finally:
-            menu.grab_release()
-            tooltip.after_menu_close()
 
     def _set_default_safe(self, safe_id: str) -> None:
         if not safe_id:
@@ -2674,21 +3007,91 @@ class CacheVaultApp(ctk.CTk):
             )
             self._sync_macro_triggers()
         if self.vault.send_to_macro_safe(clip_id):
-            self._show_toast("Saved to Vault Macros.")
+            self._show_toast("Saved to Snippet Macros.")
             self.refresh()
         else:
             from tkinter import messagebox
             messagebox.showinfo(
-                "Vault Macros",
+                "Snippet Macros",
                 "This clip has no text body to save as a macro.\n"
                 "Text clips and links work best.",
                 parent=self,
             )
 
+    def _create_macro_from_clip(self, clip_id: str) -> None:
+        if not self._guard_unlocked():
+            return
+        if not self._require_founder("macros_advanced"):
+            return
+        if not self.vault.settings.vault_macros_setup_completed:
+            from ..core.vault_macros import complete_macro_setup
+            complete_macro_setup(
+                self.vault.settings,
+                record_receipt=self._macro_record_receipt,
+            )
+            self._sync_macro_triggers()
+
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+
+        if clip.content_type == models.CONTENT_IMAGE:
+            body = (clip.title or clip.preview or "").strip()
+        else:
+            body = (clip.content or "").strip()
+        if not body:
+            from tkinter import messagebox
+            messagebox.showinfo(
+                "Snippet Macros",
+                "This clip has no text body to save as a macro.\n"
+                "Text clips and links work best.",
+                parent=self,
+            )
+            return
+
+        from .macro_dialogs import MacroEditDialog
+        from ..core.vault_macros import MacroSafeRegistry, Macro, suggest_smart_type
+        registry = MacroSafeRegistry(self.vault.settings)
+        sid = registry.default_safe().id
+
+        macro = Macro(
+            id=models.new_id(),
+            name=(clip.title or clip.preview or "New Macro")[:64],
+            body=body,
+            safe_id=sid,
+            smart_type=suggest_smart_type(body, clip.title or ""),
+        )
+
+        def on_save(updated) -> None:
+            self._macro_store.upsert(updated)
+            self._macro_record_receipt("sent_to_macros", {
+                "macro_id": updated.id,
+                "clip_id": clip_id,
+                "safe_id": updated.safe_id,
+                "success": True,
+            })
+            self._sync_macro_triggers()
+            self.refresh()
+            self._show_toast("Saved to Snippet Macros.")
+
+        other, reserved = self._macro_editor_context(macro.id)
+        MacroEditDialog(
+            self, macro=macro, registry=registry, on_save=on_save,
+            other_macros=other, reserved_specs=reserved,
+        )
+
     def _create_safe_if_allowed(self, name: str):
         if not self._require_founder("safes_advanced"):
             return None
         return self.vault.create_safe(name)
+
+    def _open_new_safe(self) -> None:
+        SafePickerDialog(
+            self, self.vault.settings,
+            title="New Safe",
+            picker_mode=False,
+            on_create=lambda _name: self.refresh(),
+        )
 
     # --- export ------------------------------------------------------------
     def _save_asset_as(self, clip_id: str) -> None:
@@ -2868,7 +3271,69 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(None)
 
     # --- dialogs -----------------------------------------------------------
-    def _open_settings(self) -> None:
+    def _settings_external_hotkeys(self) -> dict[str, str]:
+        """Macro/Hotkey-Action combos so Settings can flag capture-key clashes."""
+        external: dict[str, str] = {}
+        for m in self._macro_store.load_all():
+            if m.trigger_type == self._TRIGGER_HOTKEY and (m.trigger_value or "").strip():
+                external[m.trigger_value] = f"macro “{m.name}”"
+        for a in self._command_store.load_all():
+            if getattr(a, "enabled", True) and getattr(a, "hotkey", "").strip():
+                external[a.hotkey] = f"hotkey action “{a.name}”"
+        return external
+
+    def _open_regex_macros(self) -> None:
+        from .regex_macro_dialog import RegexMacroDialog
+        def _view():
+            self._vault_screens.set_receipts_filter_hint("Capture Rules")
+            self._navigate_screen(NAV_STAMPED_RECEIPTS)
+        RegexMacroDialog(self, on_view_receipts=_view)
+
+    def _clear_settings_window_reference(self, window=None) -> None:
+        if window is not None and self._settings_window is not window:
+            return
+        self._settings_window = None
+
+    def _open_settings(self, category_id: str | None = None) -> None:
+        if self._settings_window is not None:
+            try:
+                if self._settings_window.winfo_exists():
+                    self._settings_window.present()
+                    if category_id:
+                        self._settings_window._select_category(category_id)  # noqa: SLF001
+                    return
+            except Exception:
+                pass
+            self._settings_window = None
+
+        # Prefer the new registry-backed Settings Hub (Chunk C2).
+        if SettingsHub is not None:
+            try:
+                from ..modules.registry import build_default_registry
+                registry = build_default_registry(
+                    mobile_bridge=self._mobile_bridge,
+                    mobile_controller=self._mobile_controller,
+                    mobile_pair_action=lambda: self._open_pair_android(),
+                    mobile_devices_action=self._open_paired_devices,
+                    mobile_receipts_action=self._open_mobile_receipts,
+                    show_guide_action=self._open_first_use_guide_from_settings,
+                    db_path_getter=lambda: str(self.vault.storage.db_path),
+                )
+                self._settings_window = SettingsHub(
+                    self,
+                    self.vault.settings,
+                    registry,
+                    on_save=self._apply_settings,
+                    on_close=self._clear_settings_window_reference,
+                    category_id=category_id,
+                )
+                self._settings_window.present()
+                return
+            except Exception:
+                self._settings_window = None
+                # Fallback to old dialog if hub construction fails.
+                pass
+
         SettingsDialog(
             self, self.vault.settings, on_save=self._apply_settings,
             mobile={
@@ -2881,6 +3346,7 @@ class CacheVaultApp(ctk.CTk):
                 "founder": self._open_founder,
                 "about": self._open_about,
             },
+            external_hotkeys=self._settings_external_hotkeys(),
         )
 
     def _maybe_show_first_use_guide(self) -> None:
@@ -2961,6 +3427,7 @@ class CacheVaultApp(ctk.CTk):
             port=int(s.mobile_access_port or 8742),
             bind_host=(s.mobile_access_bind_host or DEFAULT_BIND_HOST),
             receipts=self._mobile_bridge.receipts.recent(20),
+            mdns_advertising=self._mobile_bridge.discovery.is_advertising,
         )
 
     def _revoke_all_and_pair(self, device_id: str, name: str) -> tuple[str, str]:
@@ -2972,11 +3439,15 @@ class CacheVaultApp(ctk.CTk):
         return device_id, token
 
     def _open_paired_devices(self) -> None:
-        devices = [d.to_dict() for d in self._mobile_bridge.active_devices()]
+        devices = [d.to_dict() for d in self._mobile_bridge.all_devices()]
         PairedDevicesDialog(self, devices, on_revoke=self._revoke_mobile_device)
 
     def _revoke_mobile_device(self, device_id: str) -> None:
         self._mobile_bridge.revoke_device(device_id)
+
+    def _revoke_all_mobile_and_refresh(self) -> None:
+        self._mobile_bridge.revoke_all_active()
+        self._navigate_screen(NAV_MOBILE_ACCESS)
 
     def _open_mobile_receipts(self) -> None:
         MobileAccessReceiptsDialog(
@@ -2984,6 +3455,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _apply_settings(self, settings) -> None:
         settings.save()
+        self.vault.settings = settings
         vault_lock.record_lock_event(
             self.vault.events,
             vault_lock.EVENT_VAULT_LOCK_SETTINGS_CHANGED,
@@ -3005,20 +3477,27 @@ class CacheVaultApp(ctk.CTk):
         from ..core import startup
         startup.sync(settings.start_with_windows)
         self.refresh()
-        if not self._mobile_bridge.needs_sync(settings):
+        if not self._mobile_controller.needs_change(settings):
             return
 
-        def _sync_bridge() -> None:
+        def _sync_mobile() -> None:
             try:
-                self._mobile_bridge.sync(settings)
+                if settings.mobile_access_enabled:
+                    result = self._mobile_controller.enable(settings)
+                    if not result.success:
+                        if self._alive():
+                            self.after(0, lambda: self._show_toast(
+                                f"Could not start Mobile Access: {result.error}"))
+                else:
+                    self._mobile_controller.disable(settings)
             except Exception as exc:  # noqa: BLE001
-                write_crash("mobile bridge sync", exc)
+                write_crash("mobile controller sync", exc)
             finally:
                 if self._alive():
                     self.after(0, self.refresh)
 
         threading.Thread(
-            target=_sync_bridge, name="mobile-bridge-sync", daemon=True,
+            target=_sync_mobile, name="mobile-sync", daemon=True,
         ).start()
 
     def _rebind_hotkey(self, spec: str) -> None:
@@ -3274,6 +3753,61 @@ class CacheVaultApp(ctk.CTk):
         )
         Toast(self, "Opened image." if opened else "Could not open image.")
 
+    def _open_photo_viewer(self, clip_id: str) -> None:
+        if self._photo_viewer_window is not None:
+            try:
+                if self._photo_viewer_window.winfo_exists():
+                    self._photo_viewer_window.destroy()
+            except Exception:
+                pass
+            self._photo_viewer_window = None
+
+        from .photo_viewer import PhotoViewer
+
+        # Get visible clip ids from active view
+        all_clip_ids = getattr(self, "_visible_clip_ids", [clip_id])
+        if not all_clip_ids:
+            all_clip_ids = [clip_id]
+
+        def get_clip_fn(cid: str) -> Any:
+            return self.vault.storage.get_clip(cid)
+
+        def load_asset_fn(cid: str) -> tuple[bytes, str] | None:
+            return self.vault.storage.load_clip_asset_bytes(cid)
+
+        def asset_meta_fn(cid: str) -> dict | None:
+            rec = self.vault.storage.get_asset_record(cid)
+            if rec is None:
+                return None
+            return {
+                "sha256": rec.sha256,
+                "size_bytes": rec.size_bytes,
+                "width": rec.width,
+                "height": rec.height,
+            }
+
+        def open_asset_folder(cid: str) -> None:
+            from ..core import image_assets
+            rec = self.vault.storage.get_asset_record(cid)
+            if rec is None:
+                return
+            path = image_assets.assets_dir() / rec.storage_name
+            if path.is_file():
+                subprocess.run(["explorer", "/select,", str(path)], check=False)
+
+        self._photo_viewer_window = PhotoViewer(
+            self,
+            initial_clip_id=clip_id,
+            all_clip_ids=all_clip_ids,
+            get_clip_fn=get_clip_fn,
+            load_asset_fn=load_asset_fn,
+            asset_meta_fn=asset_meta_fn,
+            copy_image_fn=self._copy_again,
+            save_image_as_fn=self._save_asset_as,
+            open_asset_folder_fn=open_asset_folder,
+        )
+        self._photo_viewer_window.present()
+
     def _quick_paste_copy_path(self, clip) -> None:
         path_text = clip.content or ""
         if not path_text:
@@ -3405,7 +3939,6 @@ class CacheVaultApp(ctk.CTk):
     def _macro_list_rows(self, filter_key: str, query: str) -> list[dict]:
         from ..core.vault_macros import (
             MacroSafeRegistry,
-            SMART_TYPE_LABELS,
             apply_macro_filter,
             inspector_warnings,
             search_macros,
@@ -3456,9 +3989,17 @@ class CacheVaultApp(ctk.CTk):
             lines.append("Last run: FAILED")
         return "\n".join(lines)
 
+    def _macro_editor_context(self, macro_id: str | None) -> tuple[list, set]:
+        macros = self._macro_store.load_all()
+        other = [m for m in macros if m.id != macro_id]
+        reserved = set(self._system_reserved_hotkeys(self.vault.settings))
+        for a in self._command_store.load_all():
+            if getattr(a, "enabled", True) and getattr(a, "hotkey", ""):
+                reserved.add(normalize_hotkey(a.hotkey))
+        return other, reserved
+
     def _macro_edit(self, macro_id: str) -> None:
         from .macro_dialogs import MacroEditDialog
-        from ..core import models
         from ..core.vault_macros import MacroSafeRegistry
         macro = self._macro_store.get(macro_id)
         if macro is None:
@@ -3476,8 +4017,10 @@ class CacheVaultApp(ctk.CTk):
             self._sync_macro_triggers()
             self.refresh()
 
+        other, reserved = self._macro_editor_context(macro_id)
         MacroEditDialog(
-            self, macro=macro, registry=MacroSafeRegistry(self.vault.settings), on_save=on_save,
+            self, macro=macro, registry=MacroSafeRegistry(self.vault.settings),
+            on_save=on_save, other_macros=other, reserved_specs=reserved,
         )
 
     def _macro_new_template(self) -> None:
@@ -3501,7 +4044,11 @@ class CacheVaultApp(ctk.CTk):
                 self._sync_macro_triggers()
                 self.refresh()
 
-            MacroEditDialog(self, macro=macro, registry=registry, on_save=on_save)
+            other, reserved = self._macro_editor_context(macro.id)
+            MacroEditDialog(
+                self, macro=macro, registry=registry, on_save=on_save,
+                other_macros=other, reserved_specs=reserved,
+            )
 
         MacroTemplatePicker(self, on_pick=on_pick)
 
@@ -3603,7 +4150,7 @@ class CacheVaultApp(ctk.CTk):
             self._open_macro_picker(
                 paste_target=target,
                 filter_macros=enabled,
-                title="Vault Macros — choose hotkey match",
+                title="Snippet Macros — choose hotkey match",
             )
 
     def _on_text_shortcut_match(self, macro, shortcut: str, backspace_count: int, hwnd) -> None:
@@ -3631,13 +4178,13 @@ class CacheVaultApp(ctk.CTk):
         *,
         paste_target=None,
         filter_macros=None,
-        title: str = "Vault Macros",
+        title: str = "Snippet Macros",
     ) -> None:
         if not self._alive():
             return
         ok, _reason = self._macro_executor.execution_allowed()
         if not ok:
-            self._show_toast("Vault Macros are disabled or setup is incomplete.")
+            self._show_toast("Snippet Macros are disabled or setup is incomplete.")
             return
         try:
             existing = getattr(self, "_macro_picker", None)
@@ -3807,7 +4354,6 @@ class CacheVaultApp(ctk.CTk):
             ACTION_RUN_MACRO,
             ACTION_SAVE_CLIPBOARD_TO_SAFE,
             ACTION_TOGGLE_CAPTURE,
-            RESULT_FAILED,
         )
 
         def open_vault(*_args):

@@ -1,8 +1,8 @@
 {
   "branch": "feature/hotkey-settings-polish",
   "lane": "hotkey-settings-polish",
-  "pytest": "PASS",
-  "selftest": "PASS",
+  "pytest": "PENDING",
+  "selftest": "PENDING",
   "settings_smoke": "PASS",
   "hotkey_visibility_smoke": "PASS",
   "screenshots_captured": true,
@@ -13,7 +13,5 @@
   "screenshots": {
     "01_settings_keyboard_shortcuts.png": "visual_smoke/hotkey_settings_polish/01_settings_keyboard_shortcuts.png",
     "02_hotkey_help.png": "visual_smoke/hotkey_settings_polish/02_hotkey_help.png"
-  },
-  "capture_script": "scripts/hotkey_settings_smoke.py",
-  "note": "Desktop usability lane — clearer settings sections and hotkey status labels only."
+  }
 }

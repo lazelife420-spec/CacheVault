@@ -1,0 +1,351 @@
+# Offline Hotfix Receipt — v0.1.4.1 Local Stability
+
+> Branch: `hotfix/v0.1.4.1-local-stability`
+> Base version: `0.1.4` (pyproject.toml)
+> Date: 2026-06-27
+> Scope: Local correctness hardening from `CODEBASE_AUDIT.md`. No network, no publishing.
+
+---
+
+## Summary
+
+This hotfix lane fixed seven audit-confirmed correctness bugs (BUG-1, BUG-3,
+BUG-4, BUG-5, BUG-8, BUG-10, BUG-11), added regression tests, and verified the
+full local CI gate set with a fresh packaged exe.
+
+Two audit items were intentionally **not** shipped:
+- **BUG-2** (`storage.py` unused lock) — deferred to a dedicated concurrency
+  lane with its own regression requirements.
+- **BUG-6** (`win_mouse.py` 64-bit window-long) — **reverted after it caused a
+  UI freeze** (see "Regression found and reverted" below). It is deferred to a
+  proper redesign using `SetWindowSubclass`.
+
+Additionally, the pass removed **11 genuinely dead imports** across 8 files
+(via pyflakes audit) and resolved one dead-local variable that pointed to a
+real logic bug (the BUG-11 `first_saved` write-through gap).
+
+---
+
+## Bugs Fixed
+
+### BUG-1 — `source_domain()` corrupted `www.*` domains
+- **File:** `cache_vault/core/clip_metadata.py`
+- **Fix:** Replaced `host.lower().lstrip("www.")` with `host.lower().removeprefix("www.")`.
+- **Why it mattered:** `lstrip` strips the character set `{w, .}`, so
+  `www.wikipedia.org` became `ikipedia.org` and `www.weather.com` became
+  `eather.com`. `removeprefix` strips only the literal `www.` prefix.
+
+### BUG-3 — Safe `rename()` discarded all customization
+- **File:** `cache_vault/core/safes.py`
+- **Fix:** Rename now round-trips the existing Safe via `to_dict()`/`from_dict()`
+  with only `name` overwritten, preserving icon, accent, description, favorite,
+  receipt label, visual style, and other fields.
+
+### BUG-4 — Duplicate context-menu dispatch key + dispatcher follow-through
+- **Files:** `cache_vault/core/contextmenu.py`, `cache_vault/ui/shell.py`
+- **Fix (part 1):** The "Mark Keep" menu item key was changed from the duplicate
+  `toggle_favorite` to a distinct `mark_keep`.
+- **Fix (part 2 — required follow-through):** `_open_clip_menu`'s dispatch table
+  in `shell.py` did **not** contain `mark_keep`. Because `_add_menu_items` resolves
+  commands with a direct `dispatch[item.key]` lookup, the renamed item would have
+  raised `KeyError` and crashed the entire clip context menu. Added
+  `"mark_keep": lambda: self._mark_keep(clip.id)`.
+- **Note:** The preview-pane surface was already safe — it resolves actions via
+  `self._actions.get(key)` against the general action table, which already mapped
+  `mark_keep` → `_mark_keep`.
+
+### BUG-5 — Macro shortcut listener `stop()` leaked its hook thread
+- **File:** `cache_vault/core/macro_shortcut_listener.py`
+- **Fix:** `_run()` now records the hook thread id via `GetCurrentThreadId()`.
+  `stop()` unhooks, then posts `WM_QUIT` (`PostThreadMessageW`) to break the
+  `GetMessageW` loop, and joins the worker thread. Previously the thread blocked
+  in `GetMessageW` until process exit.
+- **Test safety:** No real low-level keyboard hook is installed in tests. The
+  unit test drives a fake `_user32` to assert the unhook + `WM_QUIT` post + thread
+  join contract, so there is no message-loop hang risk.
+
+### BUG-6 — `win_mouse.py` used 32-bit `SetWindowLong`/`GetWindowLong` (REVERTED — DEFERRED)
+- **File:** `cache_vault/core/win_mouse.py`
+- **Status:** Attempted, then **reverted**. The pointer-safe rewrite is correct
+  in isolation, but it exposed a latent design problem that froze the app.
+- **Deferred to:** a dedicated lane using the documented, reentrancy-safe
+  `SetWindowSubclass` / `RemoveWindowSubclass` (comctl32) mechanism instead of
+  raw `SetWindowLongPtr` subclassing of the live Tk root.
+
+---
+
+## Follow-up Stability Fix — Context-menu handle leak (BUG-9)
+
+**Symptom (user-reported):** After using the app for a while, multi-clip copy
+"doesn't actually copy anything" — the bulk action appears dead.
+
+**Diagnosis:** `%LOCALAPPDATA%\CacheVault\crash.log` showed the real error:
+```
+TclError: No more menus can be allocated.
+  cache_vault\ui\shell.py, in _open_bulk_clip_menu
+  tkinter\__init__.py, in __init__   (tk.Menu)
+```
+Every right-click built a fresh `tk.Menu` (a parent plus ~6 submenus) that was
+**never destroyed**. Over a session this exhausts the per-process Windows USER
+object / menu-handle quota. Once exhausted, *no* new menu can be created — so
+the bulk-copy context menu fails to build and the "Copy N clips" action never
+runs. This is a pre-existing leak (the copy code itself is unchanged), unrelated
+to the BUG-1/3/4/5 edits, surfaced by cumulative use.
+
+**Fix:** Added `CacheVaultApp._destroy_menu()` and call it in the `finally` of
+every popup site (`_open_clip_menu`, `_open_bulk_clip_menu`, `_open_locked_menu`,
+`_popup_menu`, `_open_receipt_menu`, `_open_safe_menu`). Destroying the parent
+menu also frees its submenus, reclaiming all handles per right-click. On Windows
+`tk_popup` is modal, so the selected command has already run by the time the
+`finally` executes — destruction is safe and does not cancel the action.
+
+**Test:** `tests/test_contextmenu.py::test_context_menus_are_destroyed_after_use`
+asserts the helper destroys the menu and that every `grab_release()` popup is
+balanced by a `_destroy_menu(menu)` call (source-level, no Tk needed).
+
+> Note: the same crash log also shows a benign `iconbitmap ... not defined`
+> warning on dialog creation (CustomTkinter icon path inside the PyInstaller
+> `_MEI` temp dir). It is cosmetic, does not affect copy, and is left for a
+> separate cleanup.
+
+---
+
+## Root-Cause Stability Fix — Uncapped clip list exhausts USER objects (BUG-10)
+
+**Symptom (user-reported, persisted after BUG-9):** Multi-clip copy still froze
+and "doesn't actually copy anything," and `crash.log` still showed
+`No more menus can be allocated` at `_open_bulk_clip_menu` — in a build that
+**already contained** the BUG-9 fix (confirmed by the traceback line number),
+within ~105 seconds of a fresh start.
+
+**Why BUG-9 was not the real cause:** Empirical instrumentation of the real app
+(monkeypatching `tkinter.Menu`/`BaseWidget` create+destroy) proved there is **no
+menu or widget leak** in refresh, clip-capture, navigation, or the context-menu
+paths — live menus stay flat at 10, and a standalone probe creating+destroying
+6,000 clip-style menus never exhausts (Tk 8.6.15 reuses menu command IDs). The
+BUG-9 `destroy()` is correct and worth keeping, but it was a red herring for
+this symptom.
+
+**Actual root cause — scale, not a leak:** `ClipList`/`ClipGrid` render **one
+row per clip with no cap and no virtualization**. Measured cost on this machine:
+each row is **~45 Tk widgets / ~18 `CTkCanvas`**, and on Windows *every* Tk
+widget is a USER object (HWND). Per-row slope ≈ 47 widgets:
+
+| Clips rendered | `CTkCanvas` HWNDs | Total Tk widgets |
+|---|---|---|
+| 10 | 769 | 2,062 |
+| 60 | 1,669 | 4,412 |
+| 110 | 2,569 | 6,762 |
+| **570 (real vault)** | **~10,800** | **~28,000** |
+
+Windows caps USER objects at ~10,000 per process. The user's vault holds **570
+clips**, so the list alone needs ~28,000 HWNDs — it exhausts the quota
+**mid-render** (around ~180 rows), which both freezes the render and makes the
+*next* `tk.Menu(...)` raise `No more menus can be allocated`. This is exactly why
+it "worked so good earlier" (smaller history) and degraded as the history grew.
+
+**Fix:** Cap how many rows are materialised at `MAX_VISIBLE_CLIPS = 120`
+(`shell.py`). `refresh()` renders the first 120 of the matching set, sets
+`_visible_clip_ids` to that capped set (so selection/range/select-all stay
+consistent), and passes the remainder as `more_count` to the list/grid. Both
+views render a muted footer: *"+ N more not shown — search, filter, or sort to
+bring older clips into view."* 120 rows ≈ ~7,200 widgets, leaving comfortable
+headroom under the 10k quota for menus, dialogs, and the preview pane. Older
+clips remain fully reachable via search/filters/sort.
+
+**Validation against the real vault:** Pointing the app at a copy of the user's
+`cache_vault.db` (561 matching clips), `refresh()` now caps `_visible_clip_ids`
+to 120, reports `more_count = 441`, and renders all 120 rows without exhaustion.
+
+**Test:** `tests/test_clip_render_cap.py` — asserts the cap constant is in a safe
+range, and (behaviorally, when Tk is available) that a history larger than the
+cap renders exactly `MAX_VISIBLE_CLIPS` rows with the correct `more_count`.
+
+---
+
+## First-Use Guide Close Didn't Destroy the Window (BUG-8)
+
+**Symptom (audit-found):** Clicking the X button on the first-use guide (when
+not opened from Settings) called `_on_action("start")` but never called
+`self.destroy()`. The dialog stayed open, and the only way to proceed was to
+click a button inside it.
+
+**Fix:** Added `self.destroy()` after the action callback in the non-settings
+branch of `_close_only()` in `first_use_guide.py`.
+
+**Test:** `test_first_use_guide.py::test_close_destroys_window` — source-level
+assertion that both branches of `_close_only` contain `self.destroy()`.
+
+---
+
+## Duplicate Merge Didn't Widen the Keeper's First-Saved Date (BUG-11)
+
+**Symptom (audit-found):** `_merge_usage_into` in `duplicates.py` computed
+`first_saved = min(…)` across all merged clips, but the UPDATE statement never
+wrote it — only `use_count`, `copied_count`, `last_used_at`, `updated_at`.
+Merging duplicate-usage history failed to roll back the keeper's `created_at`
+to the earliest copy, leaving the "First Saved" field unchanged despite the
+docstring promising to "widen date range."
+
+**Fix:** Added `created_at = ?` to the UPDATE and passed `first_saved` in the
+parameter tuple.
+
+**Test:** `test_home_dashboard.py::test_merge_usage_history` now asserts the
+keeper's `created_at` is `<=` the minimum of all merged clips.
+
+---
+
+## Regression Found and Reverted (BUG-6)
+
+**Symptom:** After the initial hotfix commit, the app froze when copying
+multiple clips.
+
+**Root cause:** `win_mouse.WinMouseHandler` subclasses the **live Tk root
+window's WndProc** (`shell.py` → `install_mouse_handler(self, ...)` →
+`root.winfo_id()`) and runs a Python callback on the UI thread for *every*
+window message. The pre-hotfix code passed a `ctypes` callback object to
+`win32gui.SetWindowLong`, which requires an `int`, so the call **always raised
+`TypeError` and was swallowed** — the subclass never actually installed and the
+side-button navigation feature was inert.
+
+The BUG-6 "fix" made the subclass install successfully for the first time. That
+newly routed every UI message — including the **synchronous clipboard messages
+that bulk copy triggers** (`clipboard_clear` / `clipboard_append`) — through a
+Python WndProc holding the GIL, which deadlocked/froze the UI.
+
+**Resolution:** `win_mouse.py` was restored to its pre-hotfix (commit
+`dd03b57`) state, returning the app to its known-stable behavior (side-button
+nav remains inert, exactly as before this lane). The accompanying
+`tests/test_win_mouse.py` was removed. A correct fix requires `SetWindowSubclass`
+and live GUI validation, which is out of scope for a stability hotfix.
+
+---
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `cache_vault/core/clip_metadata.py` | BUG-1 fix (`removeprefix`) |
+| `cache_vault/core/safes.py` | BUG-3 fix (preserve customization on rename) |
+| `cache_vault/core/contextmenu.py` | BUG-4 fix (distinct `mark_keep` key) |
+| `cache_vault/ui/shell.py` | BUG-4 follow-through (`mark_keep` dispatch wiring); BUG-9 `_destroy_menu()`; BUG-10 `MAX_VISIBLE_CLIPS` render cap |
+| `cache_vault/core/macro_shortcut_listener.py` | BUG-5 fix (`WM_QUIT` post + thread join) |
+| `cache_vault/ui/clip_list.py` | BUG-10: `more_count` footer on render cap |
+| `cache_vault/ui/clip_grid.py` | BUG-10: `more_count` footer on render cap |
+| `cache_vault/ui/first_use_guide.py` | BUG-8: `_close_only` destroys the window in both branches |
+| `cache_vault/core/duplicates.py` | BUG-11: `_merge_usage_into` writes `first_saved` to `created_at` in the UPDATE |
+| `cache_vault/core/app_receipt.py` | Dead import: remove unused `os` |
+| `cache_vault/core/hotkey.py` | Dead import: remove unused `time` |
+| `cache_vault/core/paste_delivery.py` | Dead imports: remove unused `Callable`, `Optional` |
+| `cache_vault/core/macro_execute.py` | Dead import: remove unused `field` |
+| `cache_vault/core/vault_macros.py` | Dead imports: remove unused `datetime`, `timezone` |
+| `cache_vault/core/mobile/api.py` | Dead imports: remove unused `search`, `FILTER_*` constants |
+| `cache_vault/core/mobile/models.py` | Dead import: remove unused `field` |
+| `cache_vault/ui/preview.py` | Dead import: remove unused `os` |
+
+> `cache_vault/core/win_mouse.py` was modified for BUG-6 and then reverted to
+> its pre-hotfix state; it carries no net change in this lane.
+
+## Tests Added
+
+| File | Coverage |
+|------|----------|
+| `tests/test_clip_labels_grouping.py` | BUG-1: `www.` prefix stripping, `w`-leading domains, none/empty inputs |
+| `tests/test_customization_architecture.py` | BUG-3: rename preserves customization + persistence round-trip |
+| `tests/test_contextmenu.py` | BUG-4: distinct `mark_keep` key, unique menu keys, dispatch wiring, behavioral `mark_keep` sets `is_kept` (not favorite) |
+| `tests/test_macro_shortcut_listener.py` (new) | BUG-5: `stop()` posts `WM_QUIT`, idempotent no-op without hook, thread join — fake `_user32`, no real hook |
+| `tests/test_clip_render_cap.py` (new) | BUG-10: cap constant is safe; large history renders exactly `MAX_VISIBLE_CLIPS` rows with correct `more_count` |
+| `tests/test_first_use_guide.py` | BUG-8: `_close_only` has `self.destroy()` in both branches |
+| `tests/test_home_dashboard.py` | BUG-11: `test_merge_usage_history` asserts `created_at` widened to earliest |
+
+> `tests/test_win_mouse.py` was added for BUG-6 and then removed along with the
+> BUG-6 revert.
+
+---
+
+## Verification Results
+
+### Targeted tests
+```
+pytest -p no:xonsh \
+  tests/test_clip_labels_grouping.py \
+  tests/test_customization_architecture.py \
+  tests/test_contextmenu.py \
+  tests/test_macro_shortcut_listener.py
+```
+Result: **PASS**.
+
+> Note: the audit's suggested command named `tests/test_clip_metadata.py` and
+> `tests/test_safes.py`, which do not exist in this repo. The actual BUG-1 and
+> BUG-3 tests live in `tests/test_clip_labels_grouping.py` and
+> `tests/test_customization_architecture.py` respectively.
+
+### Full pytest
+```
+python -m pytest -p no:xonsh
+```
+Result: **561 passed**, 2 warnings (Pillow `getdata` deprecation, pre-existing).
+(559 with BUG-6 tests → 557 after the BUG-6 revert → 558 after BUG-9
+menu-leak → 560 after BUG-10 render-cap → 561 after BUG-8 close-destroy
+and BUG-11 merge-widening tests.)
+
+### compileall
+```
+python -m compileall cache_vault tests app.py
+```
+Result: **PASS** (no syntax errors).
+
+### selftest
+```
+python app.py --selftest
+```
+Result: **PASS** — `selftest OK — core capture/classify/sensitive/image/mobile pipeline works`.
+
+### Local CI (after closing running app + fresh packaging)
+```
+pwsh scripts/ci_local_full.ps1
+```
+Result: **CACHE VAULT LOCAL CI: PASS**
+- pytest: PASS (full: 561 passed)
+- founder-critical: PASS | command-center: PASS | quick-paste: PASS | receipts-export: PASS
+- compileall: PASS
+- selftest: PASS
+- smokes: PASS (runtime proof 20/20)
+- claims: PASS
+- secrets: PASS
+- packaging: **PASS** (no stale-exe warning)
+
+> The CI script must be run with **PowerShell 7 (`pwsh`)**, not Windows
+> PowerShell 5.1. Under 5.1 the script's non-ASCII characters are ANSI-decoded
+> and cause a spurious parser error before any work runs.
+
+### Packaging note (process lock resolved)
+The first CI run failed packaging with `PermissionError: [WinError 5] Access is
+denied: dist\CacheVault.exe` because two running `CacheVault.exe` instances
+(PIDs 9892, 16052) held the exe locked. A graceful close was attempted first;
+when the tray processes did not exit, only those two confirmed PIDs were
+terminated. After confirming no `CacheVault.exe` processes remained, CI was
+re-run and packaging rebuilt the exe cleanly.
+
+### Fresh exe
+- `dist/CacheVault.exe` — 41.1 MB
+- SHA256: `7A56B8AA6B1C106F9E7363D817F2561F86B72375C0DF5CDF7DFF8E0529389874`
+  (rebuilt after BUG-8/11 fixes + dead-import cleanup)
+- Prior builds in this lane:
+  - `F002FF5B18B49781D3A0324B2D407472731625CBBE32B6BBA373DA37F0B315C8` — after BUG-10 render-cap fix
+  - `E2AEAD2D862D8BEFB259D70EDC140D1E84174FA70F45069D66B7F376A6CE181A` — after BUG-9 menu-destroy fix
+  - `EF17BB58017151A56EC2A2DD93D1C121C65BF683D4A4561A808A488D9E32A03B` — after BUG-6 revert
+  - `4A76AC11F2FF47C70A366870C8389688CB04023FAB6B778E0E23092C086B691D` — froze copy (BUG-6 active); superseded
+
+---
+
+## Compliance Confirmations
+
+- **No GitHub commands were run** (no `git push`, no `gh`, no remote operations).
+- **No tag, release, or public posting** was created or published.
+- **`storage.py` locking (BUG-2) was intentionally not touched** — it is a
+  separate concurrency pass requiring its own regression tests.
+- **BUG-6 (`win_mouse.py`) was reverted** after it froze multi-clip copy; it is
+  deferred to a `SetWindowSubclass` redesign lane with live GUI validation.
+- No Settings/UI polish work was started.
+- This lane stops here per instruction.

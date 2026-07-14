@@ -90,6 +90,23 @@ def test_guide_copy_no_encrypted_safes_claim():
     assert "encrypted" not in TOOLTIP_SAFES.lower()
 
 
+def test_close_destroys_window():
+    """BUG-8 regression: clicking X must destroy the dialog, not leave it open."""
+    import inspect
+
+    from cache_vault.ui.first_use_guide import FirstUseGuideDialog
+
+    src = inspect.getsource(FirstUseGuideDialog._close_only)
+    # Both the from_settings branch and the non-settings fallback must call
+    # self.destroy() so the window actually closes.
+    assert "self.destroy()" in src
+    from_settings_idx = src.index("_from_settings")
+    destroy_calls = [i for i in range(len(src)) if src.startswith("self.destroy()", i)]
+    assert len(destroy_calls) >= 2, (
+        "_close_only must call self.destroy() in both branches"
+    )
+
+
 def test_settings_round_trip_includes_first_use_flag(tmp_path: Path):
     path = tmp_path / "settings.json"
     Settings().save(path)

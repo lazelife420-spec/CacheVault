@@ -1,12 +1,14 @@
-# Vault Macros
+# Snippet Macros
 
-Vault Macros is a saved macro/snippet vault inside Cache Vault. It is organized with **Macro Safes**, **smart filters**, and a **setup wizard** — not a flat snippet list.
+> Previously called Vault Macros in older internal docs.
+
+Snippet Macros is a saved macro/snippet vault inside Cache Vault. It is organized with **Macro Safes**, **smart filters**, and a **setup wizard** — not a flat snippet list.
 
 **Macro Safes are logical folders only. They are not encrypted.**
 
 ## Setup wizard
 
-First time you open **Vault Macros** (sidebar → Command → Vault Macros), the **Set up Vault Macros** wizard runs if setup is not complete.
+First time you open **Snippet Macros** (sidebar → Command → Snippet Macros), the **Set up Snippet Macros** wizard runs if setup is not complete.
 
 Steps:
 
@@ -56,7 +58,7 @@ New from template:
 
 ## Inspector
 
-The Vault Macros screen inspector shows name, Safe, smart type, trigger, output mode, enabled/favorite, usage, receipt count, and warnings (conflict, no trigger, sensitive confirmation, failed last run).
+The Snippet Macros screen inspector shows name, Safe, smart type, trigger, output mode, enabled/favorite, usage, receipt count, and warnings (conflict, no trigger, sensitive confirmation, failed last run).
 
 ## Broken / Needs Attention
 
@@ -64,12 +66,12 @@ A macro appears in **Broken / Needs Attention** when it has hotkey conflicts, em
 
 ## Live execution (Phase 6.1)
 
-Vault Macros now run in daily use:
+Snippet Macros now run in daily use:
 
 - **Macro menu hotkey** (default `Ctrl+Shift+M`) opens a picker at the cursor. `1`–`9`, Enter, or click runs a macro; Esc closes without changing the clipboard.
 - **Per-macro hotkeys** run directly when unique; duplicate hotkeys open the picker filtered to those macros.
 - **Text shortcuts** (e.g. `;sig`, `;email`) expand in the foreground app via backspace + clipboard paste by default.
-- **Run** on the Vault Macros screen executes the selected macro into the last focused app (not Cache Vault itself).
+- **Run** on the Snippet Macros screen executes the selected macro into the last focused app (not Cache Vault itself).
 
 ### Output modes
 
@@ -86,7 +88,7 @@ Receipts and UI never store full expanded output or macro bodies.
 
 ### Settings toggles (live)
 
-- Enable Vault Macros
+- Enable Snippet Macros
 - Enable text shortcuts
 - Enable macro hotkeys
 - Restore clipboard after macro paste

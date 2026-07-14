@@ -127,7 +127,7 @@ class VaultLockScreen(ctk.CTkFrame):
 
     def _copy(self) -> str:
         if self._show_local_only:
-            return f"Vault sealed · Local only\n{LOCK_COPY}"
+            return f"Vault sealed · Local-first\n{LOCK_COPY}"
         return LOCK_COPY
 
     def focus_unlock(self) -> None:
@@ -188,20 +188,43 @@ class VaultControlStrip(ctk.CTkFrame):
         self._quick = ctk.CTkOptionMenu(
             self,
             width=150,
-            values=["Quick Actions", "Quick Paste", "Vault Macros",
+            values=["Quick Actions", "Quick Paste", "Snippet Macros",
                     "Export Selected", "Show First-Use Guide", "Lock Vault"],
             command=self._quick_action,
         )
         self._quick.grid(row=0, column=5, padx=4, pady=6)
 
+        # Accent line — gives the toolbar a defined edge instead of blending
+        # flat into the content below it.
+        accent = ctk.CTkFrame(self, height=2, corner_radius=0,
+                              fg_color=brand.PROOF_TEAL)
+        accent.grid(row=1, column=0, columnspan=7, sticky="ew")
+
+    def set_compact(self, compact: bool) -> None:
+        """Drop the informational Default-Safe label at narrow widths so the
+        strip's action controls don't get pushed past the window edge."""
+        if compact:
+            self._safe.grid_remove()
+        else:
+            self._safe.grid(row=0, column=3, padx=8, pady=6)
+
     def update_state(self, summary: dict) -> None:
         self._summary = summary
         capture = "Capture: Paused" if summary.get("capture_paused") else "Capture: On"
         paired = summary.get("paired_count", 0)
-        if summary.get("mobile_enabled"):
-            mobile = f"Mobile: Paired ({paired})" if paired else "Mobile: On"
+        status_text = summary.get("mobile_status_text")
+        if status_text:
+            if status_text.startswith("Error"):
+                mobile = f"Mobile: {status_text}"
+            elif status_text == "On" or status_text.startswith("On"):
+                mobile = f"Mobile: Paired ({paired})" if paired else "Mobile: On"
+            else:
+                mobile = "Mobile: Off"
         else:
-            mobile = "Mobile: Off"
+            if summary.get("mobile_enabled"):
+                mobile = f"Mobile: Paired ({paired})" if paired else "Mobile: On"
+            else:
+                mobile = "Mobile: Off"
         self._capture.set(capture)
         self._mobile.set(mobile)
         self._receipts.set("Receipts: Stamping")
@@ -243,7 +266,7 @@ class VaultControlStrip(ctk.CTkFrame):
     def _quick_action(self, choice: str) -> None:
         mapping = {
             "Quick Paste": "quick_paste",
-            "Vault Macros": "vault_macros",
+            "Snippet Macros": "vault_macros",
             "Export Selected": "export_selected",
             "Show First-Use Guide": "show_first_use_guide",
             "Lock Vault": "lock_now",

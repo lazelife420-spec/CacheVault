@@ -107,3 +107,4 @@ class FirstUseGuideDialog(ctk.CTkToplevel):
             self.destroy()
             return
         self._on_action("start")
+        self.destroy()

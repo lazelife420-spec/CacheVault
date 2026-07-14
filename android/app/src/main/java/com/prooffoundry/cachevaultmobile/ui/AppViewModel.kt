@@ -40,14 +40,23 @@ data class ConnectionDoctorInfo(
     val connectionState: ConnectionState,
     val statusOk: Boolean,
     val suggestedFix: String,
+    val appVersion: String = com.prooffoundry.cachevaultmobile.data.AppIdentity.APP_VERSION,
+    val appBuild: Int = com.prooffoundry.cachevaultmobile.data.AppIdentity.APP_BUILD,
+    val protocolVersion: Int = com.prooffoundry.cachevaultmobile.data.AppIdentity.PROTOCOL_VERSION,
+    val pcVersion: String? = null,
+    val minimumMobileVersion: String? = null,
 )
 
 data class AppUiState(
     val paired: Boolean = false,
     val status: BridgeStatus? = null,
+    val pcName: String = "",
     val hostLabel: String = "",
     val deviceId: String = "",
     val port: Int = PairingStore.DEFAULT_PORT,
+    val lastSeenAt: String? = null,
+    val autoConnectApproved: Boolean = false,
+    val keepConnectedInBackground: Boolean = false,
     val allClips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary> = emptyList(),
     val removedClips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary> = emptyList(),
     val clips: List<com.prooffoundry.cachevaultmobile.data.ClipSummary> = emptyList(),
@@ -64,6 +73,7 @@ data class AppUiState(
     val error: String? = null,
     val detailError: String? = null,
     val lastError: String? = null,
+    val activeClipId: String? = null,
     val selectedClip: com.prooffoundry.cachevaultmobile.data.ClipSummary? = null,
     val imageAsset: ImageAssetState = ImageAssetState(),
     val thumbnailBytes: Map<String, ByteArray> = emptyMap(),
@@ -78,20 +88,33 @@ class AppViewModel(
     var uiState by mutableStateOf(
         AppUiState(
             paired = repository.isPaired(),
-            loading = repository.isPaired(),
+            loading = false,
+            lastSeenAt = repository.loadPairing()?.lastSeenAt,
+            autoConnectApproved = repository.loadPairing()?.autoConnectApproved ?: false,
+            keepConnectedInBackground = repository.loadPairing()?.keepConnectedInBackground ?: false,
         ),
     )
         private set
 
     init {
         if (repository.isPaired()) {
-            refreshAll()
+            val pairing = repository.loadPairing()
+            uiState = uiState.copy(
+                pcName = pairing?.pcLabel.orEmpty(),
+                hostLabel = pairing?.pcLabel.orEmpty().ifBlank { pairing?.host.orEmpty() },
+                deviceId = pairing?.deviceId.orEmpty(),
+                port = pairing?.port ?: PairingStore.DEFAULT_PORT,
+            )
         }
     }
 
     /** Refresh vault when app returns to foreground (including first resume after cold start). */
     fun refreshOnResume() {
         if (!repository.isPaired() || uiState.loading) return
+        if (!uiState.autoConnectApproved && uiState.status == null) {
+            initializeConnectionLifecycle()
+            return
+        }
         refreshAll()
     }
 
@@ -128,15 +151,28 @@ class AppViewModel(
         viewModelScope.launch {
             uiState = uiState.copy(loading = true, error = null)
             runCatching {
-                withContext(Dispatchers.IO) { repository.verifyConnection(pairing) }
+                val updated = pairing.copy(
+                    host = offer.host,
+                    port = offer.port,
+                    pcLabel = offer.displayName,
+                )
+                withContext(Dispatchers.IO) { repository.verifyConnection(updated) }
             }.onSuccess { status ->
+                val refreshedPairing = repository.loadPairing()
                 uiState = uiState.copy(
                     paired = true,
                     status = status,
-                    hostLabel = offer.host,
+                    pcName = offer.displayName,
+                    hostLabel = offer.displayName.ifBlank { offer.host },
+                    port = offer.port,
                     loading = false,
                     pcFoundOffer = null,
                     error = null,
+                    lastSeenAt = refreshedPairing?.lastSeenAt,
+                    autoConnectApproved = refreshedPairing?.autoConnectApproved
+                        ?: uiState.autoConnectApproved,
+                    keepConnectedInBackground = refreshedPairing?.keepConnectedInBackground
+                        ?: uiState.keepConnectedInBackground,
                 )
                 refreshVaultData()
                 onSuccess()
@@ -155,13 +191,120 @@ class AppViewModel(
         }
     }
 
+    fun pairDiscoveredPc(pc: DiscoveredPc, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, error = null, pairSuccessMessage = null)
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    repository.pairDiscoveredPc(pc.host, pc.port, pc.displayName)
+                }
+            }.onSuccess { status ->
+                val pairing = repository.loadPairing()
+                uiState = uiState.copy(
+                    paired = true,
+                    status = status,
+                    pcName = pairing?.pcLabel.orEmpty().ifBlank { pc.displayName },
+                    hostLabel = pairing?.pcLabel.orEmpty().ifBlank { pc.host },
+                    deviceId = pairing?.deviceId.orEmpty(),
+                    port = pairing?.port ?: pc.port,
+                    loading = false,
+                    pcFoundOffer = null,
+                    error = null,
+                    pairSuccessMessage = UserMessages.PAIRING_SAVED,
+                    lastSeenAt = pairing?.lastSeenAt,
+                    autoConnectApproved = pairing?.autoConnectApproved ?: false,
+                    keepConnectedInBackground = pairing?.keepConnectedInBackground ?: false,
+                )
+                refreshAll()
+                onSuccess()
+            }.onFailure { err ->
+                uiState = uiState.copy(
+                    loading = false,
+                    error = err.toUserMessage(),
+                    pairSuccessMessage = null,
+                )
+            }
+        }
+    }
+
     private fun buildOffer(pc: DiscoveredPc, lastError: BridgeError?): PcFoundOffer {
-        val hasPairing = repository.isPaired()
+        val pairing = repository.loadPairing()
+        val hasPairing = pairing != null
         return PcFoundOffer(
             displayName = pc.displayName,
             host = pc.host,
             port = pc.port,
-            mode = ConnectionPlanner.offerMode(hasPairing, lastError),
+            mode = ConnectionPlanner.offerMode(
+                hasStoredPairing = hasPairing,
+                lastError = lastError,
+                autoConnectApproved = pairing?.autoConnectApproved ?: false,
+            ),
+            remembered = hasPairing,
+        )
+    }
+
+    fun initializeConnectionLifecycle(onAutoConnect: () -> Unit = {}) {
+        val pairing = repository.loadPairing() ?: return
+        if (uiState.loading) return
+        uiState = uiState.copy(
+            paired = true,
+            pcName = pairing.pcLabel,
+            hostLabel = pairing.pcLabel.ifBlank { pairing.host },
+            deviceId = pairing.deviceId,
+            port = pairing.port,
+            lastSeenAt = pairing.lastSeenAt,
+            autoConnectApproved = pairing.autoConnectApproved,
+            keepConnectedInBackground = pairing.keepConnectedInBackground,
+        )
+        if (pairing.autoConnectApproved) {
+            refreshAll(onSuccess = onAutoConnect)
+            return
+        }
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true)
+            val pc = runCatching {
+                withContext(Dispatchers.IO) { repository.discoverPc() }
+            }.getOrNull()
+            if (pc != null) {
+                uiState = uiState.copy(
+                    pcFoundOffer = buildOffer(pc, null),
+                    showNoPcFound = false,
+                    loading = false,
+                )
+            } else {
+                // Discovery found no PC — the bridge is off, unreachable, or the
+                // phone changed networks. Without this, uiState never leaves its
+                // initial (loading=false, hasLoadedVault=false, error=null) shape
+                // and resolveConnectionState reads that as CHECKING forever, even
+                // though the check has already concluded and failed.
+                val msg = UserMessages.PC_UNREACHABLE
+                uiState = uiState.copy(
+                    loading = false,
+                    hasLoadedVault = true,
+                    error = msg,
+                    lastError = msg,
+                    status = null,
+                )
+            }
+        }
+    }
+
+    fun approveAutoConnect(approved: Boolean) {
+        repository.updateConnectionPreferences(autoConnectApproved = approved)
+        uiState = uiState.copy(autoConnectApproved = approved)
+    }
+
+    fun setKeepConnectedInBackground(enabled: Boolean) {
+        repository.updateConnectionPreferences(keepConnectedInBackground = enabled)
+        uiState = uiState.copy(keepConnectedInBackground = enabled)
+    }
+
+    fun reportBackgroundConnectionFailure(message: String) {
+        repository.updateConnectionPreferences(keepConnectedInBackground = false)
+        uiState = uiState.copy(
+            keepConnectedInBackground = false,
+            error = message,
+            lastError = message,
         )
     }
 
@@ -175,19 +318,35 @@ class AppViewModel(
         viewModelScope.launch {
             uiState = uiState.copy(loading = true, error = null, pairSuccessMessage = null)
             runCatching {
-                val config = PairingConfig.sanitize(host, port, deviceId, token)
+                val existing = repository.loadPairing()
+                val config = PairingConfig.sanitize(
+                    host = host,
+                    port = port,
+                    deviceId = deviceId,
+                    token = token,
+                    pcLabel = existing?.pcLabel.orEmpty(),
+                    autoConnectApproved = existing?.autoConnectApproved ?: false,
+                    keepConnectedInBackground = existing?.keepConnectedInBackground ?: false,
+                )
                 val status = withContext(Dispatchers.IO) {
                     repository.verifyConnection(config)
                 }
                 status
             }.onSuccess {
+                val pairing = repository.loadPairing()
                 uiState = uiState.copy(
                     paired = true,
                     status = it,
-                    hostLabel = host,
+                    pcName = pairing?.pcLabel.orEmpty(),
+                    hostLabel = pairing?.pcLabel.orEmpty().ifBlank { host },
+                    deviceId = pairing?.deviceId.orEmpty().ifBlank { deviceId },
+                    port = pairing?.port ?: port,
                     loading = false,
                     error = null,
                     pairSuccessMessage = UserMessages.PAIRING_SAVED,
+                    lastSeenAt = pairing?.lastSeenAt,
+                    autoConnectApproved = pairing?.autoConnectApproved ?: false,
+                    keepConnectedInBackground = pairing?.keepConnectedInBackground ?: false,
                 )
                 refreshAll()
                 onSuccess()
@@ -300,8 +459,9 @@ class AppViewModel(
             runCatching {
                 withContext(Dispatchers.IO) { repository.client().search(query).clips }
             }.onSuccess { clips ->
-                uiState = uiState.copy(clips = clips, loading = false)
-                prefetchThumbnails(clips)
+                val filtered = VaultSections.filterClips(clips, uiState.browseFilter)
+                uiState = uiState.copy(clips = filtered, loading = false)
+                prefetchThumbnails(filtered)
             }.onFailure { err ->
                 val msg = err.toUserMessage()
                 uiState = uiState.copy(loading = false, error = msg, lastError = msg)
@@ -338,6 +498,9 @@ class AppViewModel(
                 "Turn on Mobile Access in Cache Vault on your PC."
             ConnectionState.OFFLINE ->
                 "Use the same Wi-Fi as your PC, open Cache Vault on the PC, turn on Mobile Access, then tap Retry."
+            ConnectionState.UPDATE_REQUIRED ->
+                "Update Cache Vault Mobile from the Play Store, or update Cache Vault Desktop " +
+                    "if this phone is newer than your PC supports. Re-pairing alone will not fix this."
             ConnectionState.CONNECTED -> "Connection looks good. If a clip fails, refresh the vault list."
             ConnectionState.CHECKING -> "Wait for the status check to finish, then try Refresh."
         }
@@ -349,10 +512,12 @@ class AppViewModel(
             connectionState = state,
             statusOk = uiState.status != null && uiState.error.isNullOrBlank(),
             suggestedFix = fix,
+            pcVersion = uiState.status?.cacheVaultVersion,
+            minimumMobileVersion = uiState.status?.minimumMobileVersion,
         )
     }
 
-    fun refreshAll() {
+    fun refreshAll(onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             uiState = uiState.copy(loading = true, error = null)
             runCatching {
@@ -386,6 +551,7 @@ class AppViewModel(
                 uiState = uiState.copy(
                     paired = true,
                     status = payload.status,
+                    pcName = repository.loadPairing()?.pcLabel.orEmpty(),
                     collections = payload.collections,
                     hostLabel = payload.host,
                     deviceId = payload.deviceId.ifBlank { payload.status.deviceId },
@@ -398,8 +564,14 @@ class AppViewModel(
                     hasLoadedVault = true,
                     error = null,
                     lastError = null,
+                    lastSeenAt = repository.loadPairing()?.lastSeenAt,
+                    autoConnectApproved = repository.loadPairing()?.autoConnectApproved
+                        ?: uiState.autoConnectApproved,
+                    keepConnectedInBackground = repository.loadPairing()?.keepConnectedInBackground
+                        ?: uiState.keepConnectedInBackground,
                 )
                 refreshVaultData()
+                onSuccess?.invoke()
             }.onFailure { err ->
                 val msg = err.toUserMessage()
                 uiState = uiState.copy(
@@ -436,11 +608,18 @@ class AppViewModel(
 
     fun openClip(clipId: String) {
         viewModelScope.launch {
-            uiState = uiState.copy(loading = true, detailError = null)
+            uiState = uiState.copy(
+                loading = true,
+                activeClipId = clipId,
+                selectedClip = null,
+                detailError = null,
+                imageAsset = ImageAssetState(),
+            )
             runCatching {
                 withContext(Dispatchers.IO) { repository.client().clipDetail(clipId).clip }
             }.onSuccess { clip ->
                 uiState = uiState.copy(
+                    activeClipId = clip.id,
                     selectedClip = clip,
                     loading = false,
                     imageAsset = ImageAssetState(),
@@ -449,13 +628,22 @@ class AppViewModel(
                     loadImageAsset(clip.id)
                 }
             }.onFailure { err ->
-                uiState = uiState.copy(loading = false, detailError = err.toUserMessage())
+                uiState = uiState.copy(
+                    loading = false,
+                    selectedClip = null,
+                    detailError = err.toUserMessage(),
+                )
             }
         }
     }
 
     fun closeClipDetail() {
-        uiState = uiState.copy(selectedClip = null, imageAsset = ImageAssetState(), detailError = null)
+        uiState = uiState.copy(
+            activeClipId = null,
+            selectedClip = null,
+            imageAsset = ImageAssetState(),
+            detailError = null,
+        )
     }
 
     fun loadImageAsset(clipId: String) {

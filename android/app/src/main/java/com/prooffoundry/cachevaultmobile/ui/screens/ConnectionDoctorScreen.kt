@@ -58,6 +58,10 @@ fun ConnectionDoctorScreen(
                 if (info.statusOk) "PC reachable · token accepted" else "Failed or not verified",
             )
             info.lastError?.let { DoctorRow("Last error", it) }
+            DoctorRow("App version", "${info.appVersion} (build ${info.appBuild})")
+            DoctorRow("Protocol", info.protocolVersion.toString())
+            info.pcVersion?.let { DoctorRow("PC version", it) }
+            info.minimumMobileVersion?.let { DoctorRow("Minimum supported version", it) }
             Text("Suggested fix", style = MaterialTheme.typography.labelLarge, color = StampGold)
             Text(info.suggestedFix, style = MaterialTheme.typography.bodyMedium)
             Text(

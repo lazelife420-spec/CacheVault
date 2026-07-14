@@ -227,20 +227,49 @@ auto-paste behaviour are configurable in Settings; the hotkey re-registers
 live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
 dedicated message-loop thread (requires pywin32).
 
-## Honest scope & limitations (v0.1.4)
+## Honest scope & limitations (v0.1.8)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
-global quick-paste hotkey (`Ctrl+Shift+V`) with auto-paste, local event log.
+global quick-paste hotkey (`Ctrl+Shift+V`) with auto-paste, local event log,
+screenshot capture, **desktop photo viewer** (zoom/pan/navigate image clips),
+multi-select batch copy/export, Proof Manifest exports,
+Snippet Macros, Safes, Collections, mobile LAN bridge (developer mode),
+browser extension companion (developer mode).
 
-**Not implemented (by design, for this MVP):** cloud sync, accounts, browser
-extension, mobile app, OCR, AI classification, remote backup, image/file
-capture, payment/licensing.
+**Not implemented (by design, for this release):** cloud sync, accounts,
+published browser extension (extension exists in developer mode — not yet in
+the Chrome Web Store), published mobile app (LAN bridge exists but no
+Android/iOS client app is published yet), OCR, AI classification, remote
+backup, content encryption.
+
+### Browser Extension (Developer Mode)
+
+A Manifest V3 companion extension lives in `extension/`. It can collect and
+batch-copy links from any page, and send selected links to the desktop vault
+over the local LAN bridge when paired.
+
+To load it: Chrome/Edge → `chrome://extensions` → Developer Mode → Load Unpacked → `extension/`.
+
+Permissions used: `activeTab`, `scripting`, `clipboardWrite`, `storage` — nothing broader.
+No background scraping. No `history`, `tabs`, or `<all_urls>`. Pairing uses a
+token you generate in Cache Vault Desktop Settings → Mobile Access.
+
+**This is developer/internal only — do not distribute as a packaged extension yet.**
+
+### Mobile LAN Bridge (Developer Mode)
+
+Cache Vault Desktop can receive clips from mobile devices over your local network.
+Settings → Mobile Access → Enable → pair a device with a one-time token. The bridge
+accepts `POST /mobile/v1/inbox/send` on `127.0.0.1:8742` (loopback only when no
+routable LAN is configured). Every transfer is logged as a stamped receipt.
+
+No mobile app is published yet. The bridge is documented for developers building a client.
 
 **Tradeoffs to be honest about:**
 
 - **Search is substring (`LIKE`) matching**, not a full-text index. Fine for
-  MVP volumes; an FTS index can come later.
+  current volumes; an FTS index can come later.
 - **Clip content is stored as plain text** in the local database. The schema
   isolates `content` so encryption can be added later without migration. We do
   **not** claim encryption today.
@@ -250,3 +279,5 @@ capture, payment/licensing.
   here as a deliberate tradeoff.
 - **Source app/window detection is best-effort** and degrades to "unknown"
   without crashing when it can't be determined.
+- **Safes are local vault sections**, not encrypted containers. Content inside
+  a Safe is protected by organization, not cryptography.

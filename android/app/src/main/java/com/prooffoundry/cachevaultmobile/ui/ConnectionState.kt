@@ -9,6 +9,7 @@ enum class ConnectionState(val label: String) {
     REVOKED("Device revoked"),
     OFFLINE("Not connected"),
     MOBILE_ACCESS_OFF("Mobile Access off"),
+    UPDATE_REQUIRED("Update required"),
     CHECKING("Loading…"),
 }
 
@@ -21,6 +22,12 @@ fun resolveConnectionState(
     val connError = connectionOnlyError(error)
     if (loading || (!hasLoadedVault && status == null && connError.isNullOrBlank())) {
         return ConnectionState.CHECKING
+    }
+    // Checked before "revoked"/token substrings below: an incompatible client
+    // must never be shown as merely needing re-pair, since re-pairing alone
+    // cannot fix it — the app itself must be updated.
+    if (connError?.contains("no longer compatible", ignoreCase = true) == true) {
+        return ConnectionState.UPDATE_REQUIRED
     }
     if (connError?.contains("revoked", ignoreCase = true) == true) return ConnectionState.REVOKED
     if (connError?.contains("Mobile Access is off", ignoreCase = true) == true) {
@@ -55,5 +62,6 @@ fun connectionSubtitle(state: ConnectionState, hostLabel: String): String = when
     ConnectionState.REVOKED -> "Device revoked — pair again on your PC"
     ConnectionState.OFFLINE -> "Not connected — same Wi-Fi, PC app open, then Retry"
     ConnectionState.MOBILE_ACCESS_OFF -> "Mobile Access off on your PC"
+    ConnectionState.UPDATE_REQUIRED -> "Update required — this app version is no longer supported"
     ConnectionState.CHECKING -> "Checking connection…"
 }

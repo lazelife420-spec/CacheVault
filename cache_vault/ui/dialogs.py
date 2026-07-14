@@ -11,6 +11,7 @@ from ..core import startup, vault_lock
 from ..core.hotkey import DEFAULT_HOTKEY_BINDINGS, diagnose_hotkey_spec, normalize_hotkey
 from ..core.settings import Settings
 from . import theme
+from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
 from .vault_lock import LOCK_STYLES
 
@@ -91,7 +92,8 @@ class AboutDialog(ctk.CTkToplevel):
 
 class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, master, settings: Settings, on_save: Callable[[Settings], None],
-                 *, mobile: dict | None = None, help: dict | None = None):
+                 *, mobile: dict | None = None, help: dict | None = None,
+                 external_hotkeys: dict[str, str] | None = None):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
         self.geometry("520x720")
@@ -102,8 +104,12 @@ class SettingsDialog(ctk.CTkToplevel):
         self._on_save = on_save
         self._mobile = mobile or {}
         self._help = help or {}
+        self._external_hotkeys = external_hotkeys or {}
         self._hk_entries: dict[str, ctk.CTkEntry] = {}
         self._hk_status: dict[str, ctk.CTkLabel] = {}
+        self._hk_record_btns: dict[str, ctk.CTkButton] = {}
+        self._recording_role: str | None = None
+        self._held: set[str] = set()
 
         ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
@@ -239,7 +245,7 @@ class SettingsDialog(ctk.CTkToplevel):
             settings.quick_paste_hotkey, "quick_paste",
         )
         self._macro_menu_hk = self._hotkey_row(
-            body, "Macro menu", "Open the Vault Macros picker.",
+            body, "Macro menu", "Open the Snippet Macros picker.",
             settings.macro_menu_hotkey, "macro_menu",
         )
 
@@ -288,7 +294,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._minutes.insert(0, str(settings.sensitive_expiry_minutes))
         self._minutes.pack(anchor="w", padx=8, pady=4, fill="x")
 
-        section("Vault Macros")
+        section("Snippet Macros")
         ctk.CTkLabel(
             body,
             text="Live macro hotkeys, text shortcuts, and paste/type delivery.\n"
@@ -296,7 +302,7 @@ class SettingsDialog(ctk.CTkToplevel):
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
-        self._vault_macros_on = ctk.CTkSwitch(body, text="Enable Vault Macros")
+        self._vault_macros_on = ctk.CTkSwitch(body, text="Enable Snippet Macros")
         self._vault_macros_on.pack(anchor="w", padx=8, pady=4)
         if settings.vault_macros_enabled:
             self._vault_macros_on.select()
@@ -410,7 +416,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._vault_lock_reduced_motion.pack(anchor="w", padx=8, pady=4)
         if settings.vault_lock_reduced_motion:
             self._vault_lock_reduced_motion.select()
-        self._vault_lock_local_only = ctk.CTkSwitch(body, text="Show 'Vault sealed · Local only'")
+        self._vault_lock_local_only = ctk.CTkSwitch(body, text="Show 'Vault sealed · Local-first'")
         self._vault_lock_local_only.pack(anchor="w", padx=8, pady=4)
         if settings.vault_lock_show_local_only:
             self._vault_lock_local_only.select()
@@ -483,9 +489,17 @@ class SettingsDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             row, text=title, font=ctk.CTkFont(size=12, weight="bold"),
         ).pack(side="left", anchor="w")
-        entry = ctk.CTkEntry(row, width=160, placeholder_text="Ctrl+Shift+V")
+        controls = ctk.CTkFrame(row, fg_color="transparent")
+        controls.pack(side="right")
+        entry = ctk.CTkEntry(controls, width=160, placeholder_text="Ctrl+Shift+V")
         entry.insert(0, value)
-        entry.pack(side="right")
+        entry.pack(side="left")
+        record_btn = ctk.CTkButton(
+            controls, text="Record", width=70,
+            command=lambda r=role: self._toggle_record(r),
+            **theme.secondary_button(),
+        )
+        record_btn.pack(side="left", padx=(6, 0))
         ctk.CTkLabel(
             block, text=hint, anchor="w", justify="left",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
@@ -496,8 +510,56 @@ class SettingsDialog(ctk.CTkToplevel):
         status.pack(anchor="w", pady=(2, 0))
         self._hk_entries[role] = entry
         self._hk_status[role] = status
+        self._hk_record_btns[role] = record_btn
         entry.bind("<KeyRelease>", lambda _e: self._refresh_hotkey_statuses())
         return entry
+
+    def _toggle_record(self, role: str) -> None:
+        if self._recording_role == role:
+            self._stop_record()
+            return
+        if self._recording_role is not None:
+            self._stop_record()
+        self._recording_role = role
+        self._held.clear()
+        self._hk_record_btns[role].configure(text="Press keys…")
+        self.bind("<KeyPress>", self._on_hk_key_press)
+        self.bind("<KeyRelease>", self._on_hk_key_release)
+        self.focus_set()
+
+    def _stop_record(self) -> None:
+        role = self._recording_role
+        self._recording_role = None
+        if role and role in self._hk_record_btns:
+            self._hk_record_btns[role].configure(text="Record")
+        self.unbind("<KeyPress>")
+        self.unbind("<KeyRelease>")
+
+    def _on_hk_key_press(self, event):
+        role = self._recording_role
+        if role is None:
+            return None
+        mod = _MODIFIER_KEYSYMS.get(event.keysym)
+        if mod:
+            self._held.add(mod)
+            return "break"
+        key = _normalize_keysym(event.keysym, getattr(event, "keycode", None))
+        if key is None:
+            return "break"
+        order = [m for m in ("ctrl", "alt", "shift", "win") if m in self._held]
+        spec = "+".join(order + [key])
+        entry = self._hk_entries[role]
+        entry.delete(0, "end")
+        entry.insert(0, spec)
+        self._stop_record()
+        self._refresh_hotkey_statuses()
+        return "break"
+
+    def _on_hk_key_release(self, event):
+        mod = _MODIFIER_KEYSYMS.get(event.keysym)
+        if mod:
+            self._held.discard(mod)
+        return "break"
 
     def _collect_hotkey_specs(self) -> dict[str, str]:
         return {role: entry.get().strip() for role, entry in self._hk_entries.items()}
@@ -508,11 +570,14 @@ class SettingsDialog(ctk.CTkToplevel):
             "ok": brand.PROOF_TEAL,
             "invalid": brand.WARNING_RED,
             "duplicate": brand.WARNING_RED,
+            "conflict": brand.WARNING_RED,
             "unavailable": brand.STAMP_GOLD,
             "reserved": brand.STAMP_GOLD,
         }
         for role, entry in self._hk_entries.items():
-            kind, message = diagnose_hotkey_spec(entry.get(), role, specs)
+            kind, message = diagnose_hotkey_spec(
+                entry.get(), role, specs, external_specs=self._external_hotkeys,
+            )
             label = self._hk_status[role]
             label.configure(text=message, text_color=colors.get(kind, brand.MUTED_FG))
 
@@ -541,7 +606,7 @@ class SettingsDialog(ctk.CTkToplevel):
             "Save next copy — save only the next Ctrl+C, then stop.",
             "Skip capture — ignore the next clipboard change once.",
             "Quick Paste menu — open recent clips and paste one.",
-            "Macro menu — open saved Vault Macros.",
+            "Macro menu — open saved Snippet Macros.",
             "",
             "Defaults:",
         ]
@@ -595,6 +660,11 @@ class SettingsDialog(ctk.CTkToplevel):
         mob_btns.pack(fill="x", padx=12, pady=(4, 4))
         if self._mobile.get("pair"):
             ctk.CTkButton(
+                mob_btns, text="Connect Phone",
+                command=lambda: self._mobile["pair"](bool(self._mobile_on.get())),
+                **theme.primary_button(),
+            ).pack(fill="x", pady=3)
+            ctk.CTkButton(
                 mob_btns, text="Pair Android Device",
                 command=lambda: self._mobile["pair"](bool(self._mobile_on.get())),
                 **theme.secondary_button(),
@@ -614,7 +684,11 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             card,
-            text="Off by default. Read-only API — no delete or edit from mobile.",
+            text=(
+                "Use Connect Phone to show the desktop-side connect instructions. "
+                "Phone approval still happens on Android. Off by default. "
+                "Read-only API — no delete or edit from mobile."
+            ),
             anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=12, pady=(0, 10))
         return card
@@ -983,12 +1057,7 @@ class EventLogDialog(ctk.CTkToplevel):
             FILTER_ALL,
             ReceiptRow,
             export_rows,
-            filter_rows,
-            format_detail_text,
-            format_list_line,
             format_receipt_copy,
-            rows_from_events,
-            shorten_hash,
         )
 
         super().__init__(master)

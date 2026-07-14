@@ -6,7 +6,6 @@ import logging
 from typing import Callable
 
 try:
-    import win32con
     import win32gui
     import ctypes
     from ctypes import wintypes
@@ -78,13 +77,24 @@ class WinMouseHandler:
     def stop(self) -> None:
         if self._active and self._old_wndproc:
             try:
-                win32gui.SetWindowLong(self._hwnd, GWLP_WNDPROC, self._old_wndproc)
+                self._restore_wndproc()
                 logger.info("Native mouse handler detached.")
             except Exception as exc:
                 logger.error("Error detaching native mouse handler: %s", exc)
             self._active = False
             self._old_wndproc = None
             self._new_wndproc_ptr = None
+
+    def _restore_wndproc(self) -> None:
+        # win32gui.SetWindowLong expects a *callable* for the WNDPROC slot, so
+        # handing it the original proc's integer address raises "object must be
+        # callable or a dictionary". Restore via ctypes instead, using
+        # SetWindowLongPtrW so the full 64-bit pointer width is preserved.
+        user32 = ctypes.windll.user32
+        set_ptr = getattr(user32, "SetWindowLongPtrW", None) or user32.SetWindowLongW
+        set_ptr.restype = ctypes.c_void_p
+        set_ptr.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+        set_ptr(self._hwnd, GWLP_WNDPROC, self._old_wndproc)
 
 def install_mouse_handler(root, on_back: Callable, on_forward: Callable) -> WinMouseHandler | None:
     if not _HAS_WIN32:

@@ -33,6 +33,31 @@ def _clip(**kwargs):
     return SimpleNamespace(**data)
 
 
+# -- BUG-1 regression: source_domain must use removeprefix, not lstrip --
+
+def test_source_domain_strips_www_prefix():
+    assert clip_metadata.source_domain("https://www.wikipedia.org/wiki") == "wikipedia.org"
+    assert clip_metadata.source_domain("https://www.google.com") == "google.com"
+
+
+def test_source_domain_preserves_non_www():
+    assert clip_metadata.source_domain("https://example.com/path") == "example.com"
+    assert clip_metadata.source_domain("https://docs.python.org") == "docs.python.org"
+
+
+def test_source_domain_w_starting_domains_not_corrupted():
+    """Domains starting with 'w' must not lose characters (the old .lstrip bug)."""
+    assert clip_metadata.source_domain("https://www.weather.com") == "weather.com"
+    assert clip_metadata.source_domain("https://web.whatsapp.com") == "web.whatsapp.com"
+    assert clip_metadata.source_domain("https://www.w3.org") == "w3.org"
+
+
+def test_source_domain_none_and_empty():
+    assert clip_metadata.source_domain(None) is None
+    assert clip_metadata.source_domain("") is None
+    assert clip_metadata.source_domain("not-a-url") is None
+
+
 def test_labels_for_clip_basic():
     clip = _clip()
     labels = clip_metadata.labels_for_clip(clip)

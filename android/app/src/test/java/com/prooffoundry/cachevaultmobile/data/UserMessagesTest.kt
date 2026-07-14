@@ -1,5 +1,6 @@
 package com.prooffoundry.cachevaultmobile.data
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -17,6 +18,14 @@ class UserMessagesTest {
     }
 
     @Test
+    fun invalidRememberedTokenShowsRepairRequiredNotPairingCodeCopy() {
+        val msg = UserMessages.forBridgeError(BridgeError.Unauthorized("Invalid device token."))
+        assertTrue(msg.contains("no longer trusts this phone"))
+        assertTrue(msg.contains("Re-pair to continue"))
+        assertFalse(msg.contains("pairing code was rejected"))
+    }
+
+    @Test
     fun networkShowsWifiHint() {
         val msg = UserMessages.forBridgeError(BridgeError.Network(Exception("timeout")))
         assertTrue(msg.contains("same Wi-Fi"))
@@ -27,5 +36,36 @@ class UserMessagesTest {
     fun unsupportedApiVersion() {
         val msg = UserMessages.forBridgeError(BridgeError.UnsupportedApi("99"))
         assertTrue(msg.contains("cannot talk"))
+    }
+
+    @Test
+    fun updateRequiredShowsMinimumVersionNotGenericNetworkFailure() {
+        val msg = UserMessages.forBridgeError(
+            BridgeError.UpdateRequired(
+                clientProtocol = 0,
+                serverProtocolMin = 1,
+                serverProtocolMax = 1,
+                minimumMobileVersion = "0.1.5",
+                serverMessage = null,
+            ),
+        )
+        assertTrue(msg.contains("Update required"))
+        assertTrue(msg.contains("no longer compatible"))
+        assertTrue(msg.contains("0.1.5"))
+        assertFalse(msg.contains("same Wi-Fi"))
+        assertFalse(msg.contains("Firewall"))
+    }
+
+    @Test
+    fun minimumVersionDisplayedCorrectlyWhenMissing() {
+        val msg = UserMessages.updateRequired(null)
+        assertTrue(msg.contains("Update required"))
+        assertFalse(msg.contains("null"))
+    }
+
+    @Test
+    fun trustedUpdateUrlIsHttpsAndPointsToThisApp() {
+        assertTrue(UserMessages.TRUSTED_UPDATE_URL.startsWith("https://"))
+        assertTrue(UserMessages.TRUSTED_UPDATE_URL.contains("com.prooffoundry.cachevaultmobile"))
     }
 }

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from . import models
+from .mobile import models as mobile_models
 
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -40,7 +42,7 @@ def source_domain(source_url: str | None) -> str | None:
         return None
     try:
         host = urlparse(source_url).netloc
-        return host.lower().lstrip("www.") or None
+        return host.lower().removeprefix("www.") or None
     except Exception:  # noqa: BLE001
         return None
 
@@ -80,9 +82,161 @@ def display(value: str | None, *, fallback: str = "—") -> str:
     return text if text else fallback
 
 
+def human_timestamp(iso: str) -> str:
+    """Format ISO timestamp into a human-readable string.
+
+    Example outputs:
+    - Today · 1:24 PM
+    - Yesterday · 8:13 PM
+    - Jun 27 · 10:27 PM
+    - Dec 12, 2023 · 9:00 AM
+    """
+    from datetime import datetime
+
+    if not iso:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except Exception:
+        return iso[:16].replace("T", " ")
+
+    # Normalize 'now' to match dt's timezone-awareness
+    if dt.tzinfo is None:
+        now = datetime.now()
+    else:
+        now = datetime.now(dt.tzinfo)
+
+    time_str = dt.strftime("%I:%M %p").lstrip("0")
+    if now.date() == dt.date():
+        return f"Today · {time_str}"
+    
+    from datetime import timedelta
+    if (now.date() - dt.date()) == timedelta(days=1):
+        return f"Yesterday · {time_str}"
+    
+    if now.year == dt.year:
+        return f"{dt.strftime('%b %d')} · {time_str}"
+    
+    return f"{dt.strftime('%b %d, %Y')} · {time_str}"
+
+
+def date_group_header(iso: str) -> str:
+    """Return a header label for date grouping (Today, Yesterday, Jun 27)."""
+    from datetime import datetime, timedelta
+
+    if not iso:
+        return "Older"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except Exception:
+        return "Older"
+
+    if dt.tzinfo is None:
+        now = datetime.now()
+    else:
+        now = datetime.now(dt.tzinfo)
+
+    if now.date() == dt.date():
+        return "Today"
+    if (now.date() - dt.date()) == timedelta(days=1):
+        return "Yesterday"
+    if now.year == dt.year:
+        return dt.strftime("%b %d")
+    return dt.strftime("%b %d, %Y")
+
+
+def status_badges(clip, storage=None) -> list[str]:
+    """Derive status badges based on real data.
+
+    - On PC: Asset exists in local storage
+    - From Phone: Captured via mobile share
+    - Saved to Phone: Explicitly marked as saved to mobile device
+    - Proof Recorded: Content hash exists
+    - LAN paired: Device currently paired over local network (placeholder for D4)
+    """
+    badges = mobile_models.pc_status_labels(clip, storage=storage)
+    if getattr(clip, "content_hash", None):
+        badges.append("Proof Recorded")
+
+    return badges
+
+
+def parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+
+def format_captured_at(iso: str | None) -> str:
+    dt = parse_iso(iso)
+    if dt is None:
+        return "Unknown time"
+    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    if now.date() == dt.date():
+        return f"Today {dt.strftime('%I:%M %p').lstrip('0')}"
+    yesterday = now.date() - timedelta(days=1)
+    if yesterday == dt.date():
+        return f"Yesterday {dt.strftime('%I:%M %p').lstrip('0')}"
+    return dt.strftime("%b %d, %Y")
+
+
+def relative_age(iso: str | None) -> str:
+    dt = parse_iso(iso)
+    if dt is None:
+        return "Unknown age"
+    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    delta = now - dt
+    seconds = max(0, int(delta.total_seconds()))
+    if seconds < 60:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hr ago" if hours == 1 else f"{hours} hrs ago"
+    days = delta.days
+    if days < 7:
+        return f"{days} day ago" if days == 1 else f"{days} days ago"
+    weeks = max(1, days // 7)
+    return f"{weeks} week ago" if weeks == 1 else f"{weeks} weeks ago"
+
+
+def source_summary_line(clip, storage=None) -> str:
+    source = display(getattr(clip, "source_app", None))
+    captured = format_captured_at(getattr(clip, "created_at", None))
+    age = relative_age(getattr(clip, "created_at", None))
+    safe = display(getattr(clip, "safe_name", None))
+    if safe == "—":
+        safe = "Default Safe"
+
+    # Check if this is an image/screenshot
+    is_image = False
+    cls = getattr(clip, "classification", None)
+    ct = getattr(clip, "content_type", None)
+    if (isinstance(ct, str) and ct.startswith("image")) or (isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower())) or cls == models.CLASS_IMAGE:
+        is_image = True
+
+    if is_image:
+        dims = ""
+        if storage:
+            try:
+                rec = storage.get_asset_record(clip.id)
+                if rec and rec.width and rec.height:
+                    dims = f" · {rec.width}×{rec.height}"
+            except Exception:
+                pass
+        return f"Screenshot · {source} · {captured}{dims}"
+
+    return f"{source} · {captured} · {age} · {safe}"
+
+
 def _time_bucket(iso: str) -> str:
     """Bucket an ISO timestamp into Today/Yesterday/This Week/Older."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
 
     if not iso:
         return "Older"
@@ -101,7 +255,7 @@ def _time_bucket(iso: str) -> str:
     delta = now - dt
     if delta < timedelta(days=1) and now.date() == dt.date():
         return "Today"
-    if delta < timedelta(days=2) and (now - timedelta(days=1)).date() == dt.date():
+    if delta < timedelta(days=2) and (now.date() - dt.date()) == timedelta(days=1):
         return "Yesterday"
     if delta < timedelta(days=7):
         return "This Week"
