@@ -66,6 +66,19 @@ class BridgeClientTest {
         client.status()
     }
 
+    @Test(expected = BridgeError.Unauthorized::class)
+    fun statusOn401ThrowsUnauthorized() {
+        // A revoked or rejected token must surface distinctly from a network
+        // failure — resolveConnectionState maps this to Repair-needed/Revoked,
+        // never to a silent success or an indefinite Checking state.
+        server.enqueue(
+            MockResponse().setResponseCode(401).setBody(
+                """{"error":"unauthorized","message":"Invalid device token."}""",
+            ),
+        )
+        client.status()
+    }
+
     @Test
     fun clipDetailReturnsFullContent() {
         server.enqueue(

@@ -261,6 +261,7 @@ class AppViewModel(
             return
         }
         viewModelScope.launch {
+            uiState = uiState.copy(loading = true)
             val pc = runCatching {
                 withContext(Dispatchers.IO) { repository.discoverPc() }
             }.getOrNull()
@@ -268,6 +269,21 @@ class AppViewModel(
                 uiState = uiState.copy(
                     pcFoundOffer = buildOffer(pc, null),
                     showNoPcFound = false,
+                    loading = false,
+                )
+            } else {
+                // Discovery found no PC — the bridge is off, unreachable, or the
+                // phone changed networks. Without this, uiState never leaves its
+                // initial (loading=false, hasLoadedVault=false, error=null) shape
+                // and resolveConnectionState reads that as CHECKING forever, even
+                // though the check has already concluded and failed.
+                val msg = UserMessages.PC_UNREACHABLE
+                uiState = uiState.copy(
+                    loading = false,
+                    hasLoadedVault = true,
+                    error = msg,
+                    lastError = msg,
+                    status = null,
                 )
             }
         }
