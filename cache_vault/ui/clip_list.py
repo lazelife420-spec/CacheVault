@@ -7,19 +7,22 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import clip_accents, clip_metadata
+from ..core import clip_accents, clip_metadata, models
 from ..core.models import Clip
 from . import theme
+from .page_scaffold import EmptyState
 
 
 class ClipList(ctk.CTkScrollableFrame):
     def __init__(self, master, on_select: Callable[[Clip], None],
                  on_context: Callable[[Clip, int, int], None] | None = None,
-                 on_selection_change: Callable[[list[str]], None] | None = None, **kw):
+                 on_selection_change: Callable[[list[str]], None] | None = None,
+                 on_double_click: Callable[[Clip], None] | None = None, **kw):
         super().__init__(master, **kw)
         self._on_select = on_select
         self._on_context = on_context
         self._on_selection_change = on_selection_change
+        self._on_double_click = on_double_click
         self._rows: list[ctk.CTkFrame] = []
         self._row_by_id: dict[str, ctk.CTkFrame] = {}
         self._selected_id: str | None = None
@@ -27,15 +30,33 @@ class ClipList(ctk.CTkScrollableFrame):
         self._selected_ids: set[str] = set()
         self._render_order: list[str] = []
         self._anchor_id: str | None = None
+        self._rail_by_id: dict[str, ctk.CTkFrame] = {}
+        self._selected_badge_by_id: dict[str, ctk.CTkLabel] = {}
+        self._action_bar_by_id: dict[str, ctk.CTkFrame] = {}
         self._collapsed_groups: set[tuple[str, str]] = set()
         self._last_clips: list[Clip] = []
         self._last_empty_message: str | None = None
         self._last_group_by: str | None = None
         self._render_job: str | None = None
-        self._empty = ctk.CTkLabel(
-            self, text="No clips yet.\nCopy something and it will appear here.",
-            text_color=brand.MUTED_FG, justify="center",
+        self._more_count: int = 0
+        self._more_label: ctk.CTkLabel | None = None
+        self._empty_container = ctk.CTkFrame(self, fg_color="transparent")
+
+    def _show_more_footer(self) -> None:
+        if self._more_count <= 0:
+            return
+        text = (
+            f"+ {self._more_count} more not shown — search, filter, or sort "
+            "to bring older clips into view."
         )
+        if self._more_label is None or not self._more_label.winfo_exists():
+            self._more_label = ctk.CTkLabel(
+                self, text=text, text_color=brand.MUTED_FG, justify="center",
+                font=theme.body_font(10), wraplength=420,
+            )
+        else:
+            self._more_label.configure(text=text)
+        self._more_label.pack(pady=(8, 14))
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
         self.cancel_render()
@@ -43,24 +64,76 @@ class ClipList(ctk.CTkScrollableFrame):
         self._last_empty_message = empty_message
         self._last_group_by = group_by
         for widget in list(self.winfo_children()):
-            if widget is not self._empty:
+            if widget is not self._empty_container:
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
+        self._rail_by_id.clear()
+        self._selected_badge_by_id.clear()
+        self._action_bar_by_id.clear()
         self._render_order.clear()
-        self._empty.pack_forget()
+        self._empty_container.pack_forget()
 
         if not clips:
-            self._empty.configure(
-                text=empty_message or (
-                    "No saved clips yet.\nCopy something and Cache Vault will save it here."
-                )
+            for w in self._empty_container.winfo_children():
+                w.destroy()
+
+            actions = None
+            title = "No clips yet"
+            icon = "📭"
+            desc = empty_message or "Copy something and it will appear here."
+
+            shell = self.winfo_toplevel()
+            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+
+            from ..core import storage as S
+            if active_filter == S.FILTER_DUPLICATES:
+                title = "No Duplicates"
+                icon = "≡"
+                desc = "Everything looks clean."
+            elif active_filter == S.FILTER_FAVORITES:
+                title = "No Favorites"
+                icon = "★"
+                desc = "Star clips to save them here."
+            elif active_filter == S.FILTER_SCREENSHOTS:
+                title = "No Screenshots"
+                icon = "▦"
+                desc = "Screenshots will appear here."
+            elif active_filter == S.FILTER_SENSITIVE:
+                title = "No Sensitive Items"
+                icon = "⚠"
+                desc = "Sensitive clips will appear here."
+            elif active_filter == S.FILTER_RECENTLY_REMOVED:
+                title = "No Recently Removed"
+                icon = "↩"
+                desc = "Clean trash bin."
+            else:
+                title = "No clips match filters"
+                icon = "📭"
+                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
+                    actions = [
+                        ("Clear Filters", shell._clear_filters, False),
+                        ("Save Clipboard", shell._manual_save_clipboard, True),
+                    ]
+
+            est = EmptyState(
+                self._empty_container,
+                title=title,
+                description=desc,
+                icon=icon,
+                actions=actions,
             )
-            self._empty.pack(pady=40)
+            est.pack(fill="both", expand=True)
+            self._empty_container.pack(fill="both", expand=True, pady=20)
             return
 
         for clip in clips:
             self._rows.append(self._build_row(clip))
+        self._show_more_footer()
+
+    def destroy(self) -> None:
+        self.cancel_render()
+        super().destroy()
 
     def cancel_render(self) -> None:
         if self._render_job:
@@ -70,27 +143,75 @@ class ClipList(ctk.CTkScrollableFrame):
                 pass
             self._render_job = None
 
-    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
+    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None, more_count: int = 0) -> None:
         self.cancel_render()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
+        self._more_count = more_count
 
         for widget in list(self.winfo_children()):
-            if widget is not self._empty:
+            if widget is not self._empty_container:
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
+        self._rail_by_id.clear()
+        self._selected_badge_by_id.clear()
+        self._action_bar_by_id.clear()
         self._render_order.clear()
-        self._empty.pack_forget()
+        self._empty_container.pack_forget()
 
         if not clips:
-            self._empty.configure(
-                text=empty_message or (
-                    "No saved clips yet.\nCopy something and Cache Vault will save it here."
-                )
+            for w in self._empty_container.winfo_children():
+                w.destroy()
+
+            actions = None
+            title = "No clips yet"
+            icon = "📭"
+            desc = empty_message or "Copy something and it will appear here."
+
+            shell = self.winfo_toplevel()
+            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+
+            from ..core import storage as S
+            if active_filter == S.FILTER_DUPLICATES:
+                title = "No Duplicates"
+                icon = "≡"
+                desc = "Everything looks clean."
+            elif active_filter == S.FILTER_FAVORITES:
+                title = "No Favorites"
+                icon = "★"
+                desc = "Star clips to save them here."
+            elif active_filter == S.FILTER_SCREENSHOTS:
+                title = "No Screenshots"
+                icon = "▦"
+                desc = "Screenshots will appear here."
+            elif active_filter == S.FILTER_SENSITIVE:
+                title = "No Sensitive Items"
+                icon = "⚠"
+                desc = "Sensitive clips will appear here."
+            elif active_filter == S.FILTER_RECENTLY_REMOVED:
+                title = "No Recently Removed"
+                icon = "↩"
+                desc = "Clean trash bin."
+            else:
+                title = "No clips match filters"
+                icon = "📭"
+                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
+                    actions = [
+                        ("Clear Filters", shell._clear_filters, False),
+                        ("Save Clipboard", shell._manual_save_clipboard, True),
+                    ]
+
+            est = EmptyState(
+                self._empty_container,
+                title=title,
+                description=desc,
+                icon=icon,
+                actions=actions,
             )
-            self._empty.pack(pady=40)
+            est.pack(fill="both", expand=True)
+            self._empty_container.pack(fill="both", expand=True, pady=20)
             return
 
         batch_size = 15
@@ -116,6 +237,7 @@ class ClipList(ctk.CTkScrollableFrame):
             self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
         else:
             self._render_job = None
+            self._show_more_footer()
 
     def _render_next_batch_flat(self, pending: list[tuple[str, any]], start_idx: int, batch_size: int) -> None:
         end_idx = min(start_idx + batch_size, len(pending))
@@ -130,6 +252,7 @@ class ClipList(ctk.CTkScrollableFrame):
             self._render_job = self.after(10, lambda: self._render_next_batch_flat(pending, end_idx, batch_size))
         else:
             self._render_job = None
+            self._show_more_footer()
 
     def _build_group_header(self, group_by: str, title: str, count: int) -> None:
         style = clip_accents.group_header_accent(group_by, title)
@@ -169,12 +292,25 @@ class ClipList(ctk.CTkScrollableFrame):
         row = ctk.CTkFrame(
             self, corner_radius=8,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
-            border_width=1 if selected else 0,
+            border_width=3 if selected else 1,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
         row.pack(fill="x", padx=4, pady=2)
         self._row_by_id[clip.id] = row
         self._render_order.append(clip.id)
+
+        frame = ctk.CTkFrame(row, fg_color="transparent")
+        frame.pack(fill="x")
+        rail = ctk.CTkFrame(
+            frame,
+            width=8 if selected else 4,
+            fg_color=brand.PROOF_TEAL if selected else brand.PROOF_TEAL_DIM,
+            corner_radius=6,
+        )
+        rail.pack(side="left", fill="y", padx=(0, 8), pady=8)
+        self._rail_by_id[clip.id] = rail
+        body = ctk.CTkFrame(frame, fg_color="transparent")
+        body.pack(side="left", fill="both", expand=True, pady=4, padx=(0, 6))
 
         badge = clip_metadata.format_label(clip.classification, clip.content_type).upper()
         if clip.is_sensitive:
@@ -182,8 +318,8 @@ class ClipList(ctk.CTkScrollableFrame):
         elif clip.duplicate_of:
             badge = f"{badge} · DUPLICATE"
 
-        top = ctk.CTkFrame(row, fg_color="transparent")
-        top.pack(fill="x", padx=10, pady=(6, 0))
+        top = ctk.CTkFrame(body, fg_color="transparent")
+        top.pack(fill="x", padx=2, pady=(6, 0))
         badge_style = clip_accents.type_accent(clip.classification, clip.content_type)
         if clip.is_sensitive:
             badge_style = clip_accents.label_accent("Sensitive")
@@ -191,9 +327,23 @@ class ClipList(ctk.CTkScrollableFrame):
             badge_style = clip_accents.label_accent("Duplicate")
 
         ctk.CTkLabel(
-            top, text=badge, font=ctk.CTkFont(size=9, weight="bold"),
+            top, text=badge, font=ctk.CTkFont(size=10, weight="bold"),
             text_color=badge_style.accent,
         ).pack(side="left")
+
+        badge_lbl = ctk.CTkLabel(
+            top,
+            text="SELECTED",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=brand.FOUNDRY_BLACK,
+            fg_color=brand.PROOF_TEAL,
+            corner_radius=999,
+            padx=10,
+            pady=2,
+        )
+        self._selected_badge_by_id[clip.id] = badge_lbl
+        if selected:
+            badge_lbl.pack(side="left", padx=(8, 0))
         trail = ctk.CTkFrame(top, fg_color="transparent")
         trail.pack(side="right")
         if clip.is_pinned:
@@ -207,34 +357,52 @@ class ClipList(ctk.CTkScrollableFrame):
                          text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
-        ctk.CTkLabel(row, text=title, anchor="w",
-                     font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x", padx=10)
+        ctk.CTkLabel(
+            body, text=title, anchor="w",
+            font=ctk.CTkFont(size=13 if selected else 12, weight="bold"),
+            text_color=brand.RECEIPT_WHITE,
+        ).pack(fill="x", padx=2)
 
         preview_lines = (clip.preview or "(empty)").splitlines()[:3]
         preview = "\n".join(preview_lines)
         if len((clip.preview or "").splitlines()) > 3:
             preview += "…"
-        ctk.CTkLabel(row, text=preview, anchor="w", justify="left", wraplength=420,
-                     font=ctk.CTkFont(size=10)).pack(fill="x", padx=10, pady=(0, 2))
+        ctk.CTkLabel(
+            body, text=preview, anchor="w", justify="left", wraplength=420,
+            font=ctk.CTkFont(size=11),
+            text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
+        ).pack(fill="x", padx=2, pady=(2, 4))
 
         # Labels/chips
         try:
             from ..core.clip_metadata import labels_for_clip
             labels = labels_for_clip(clip)
-            chips = ctk.CTkFrame(row, fg_color="transparent")
-            chips.pack(fill="x", padx=10, pady=(0, 6))
+            chips = ctk.CTkFrame(body, fg_color="transparent")
+            chips.pack(fill="x", padx=2, pady=(0, 6))
             for lab in labels[:4]:
                 self._build_chip(chips, lab)
         except Exception:
             pass
 
-        src = clip_metadata.display(clip.source_app)
-        added = _short_time(clip.created_at)
-        used = _short_time(clip.date_used or clip.updated_at)
+        # Single clean metadata row
+        window = self.winfo_toplevel()
+        storage = getattr(getattr(window, "vault", None), "storage", None)
+        meta_str = clip_metadata.source_summary_line(clip, storage)
+
         ctk.CTkLabel(
-            row, text=f"{src} · Added {added} · Last used {used}",
-            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=9),
-        ).pack(fill="x", padx=10, pady=(0, 8))
+            body,
+            text=meta_str,
+            anchor="w",
+            text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
+            font=ctk.CTkFont(size=11, weight="bold" if selected else "normal"),
+        ).pack(fill="x", padx=2, pady=(0, 8))
+
+        # Inline Action Bar
+        action_bar = ctk.CTkFrame(body, fg_color="transparent")
+        self._action_bar_by_id[clip.id] = action_bar
+        if selected:
+            action_bar.pack(fill="x", padx=2, pady=(4, 4))
+            self._fill_action_bar(action_bar, clip)
 
         self._bind_clip_events(row, clip)
         return row
@@ -268,15 +436,25 @@ class ClipList(ctk.CTkScrollableFrame):
         widget.bind("<Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Control-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
         widget.bind("<Shift-Button-1>", lambda e, c=clip: self._click(e, c), add="+")
+        widget.bind("<Double-Button-1>", lambda e, c=clip: self._double_click(e, c), add="+")
         widget.bind("<Button-3>", lambda e, c=clip: self._context(e, c), add="+")
         for child in widget.winfo_children():
             self._bind_clip_events(child, clip)
+
+    def _double_click(self, event, clip: Clip) -> str:
+        if self._on_double_click:
+            self._on_double_click(clip)
+        return "break"
 
     # Tk event.state modifier bit masks.
     _CTRL_MASK = 0x0004
     _SHIFT_MASK = 0x0001
 
     def _click(self, event, clip: Clip) -> str:
+        try:
+            self.winfo_toplevel().focus_set()
+        except Exception:
+            pass
         state = getattr(event, "state", 0) or 0
         if state & self._CTRL_MASK:
             self._toggle_select(clip)
@@ -359,14 +537,58 @@ class ClipList(ctk.CTkScrollableFrame):
             ordered = [cid for cid in order if cid in self._selected_ids]
             callback(ordered)
 
-    def _repaint_selection(self) -> None:
-        for clip_id, row in self._row_by_id.items():
-            is_selected = clip_id in self._selected_ids
-            row.configure(
-                fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                border_width=1 if is_selected else 0,
-                border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+    def _update_row_visuals(self, clip_id: str, is_selected: bool) -> None:
+        if not hasattr(self, "_rail_by_id"):
+            self._rail_by_id = {}
+        if not hasattr(self, "_selected_badge_by_id"):
+            self._selected_badge_by_id = {}
+        row = self._row_by_id.get(clip_id)
+        if row is None:
+            return
+        row.configure(
+            fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
+            border_width=3 if is_selected else 1,
+            border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+        )
+        rail = self._rail_by_id.get(clip_id)
+        if rail is not None:
+            rail.configure(
+                width=8 if is_selected else 4,
+                fg_color=brand.PROOF_TEAL if is_selected else brand.PROOF_TEAL_DIM,
             )
+        badge_lbl = self._selected_badge_by_id.get(clip_id)
+        if badge_lbl is not None:
+            if is_selected:
+                if not badge_lbl.winfo_ismapped():
+                    badge_lbl.pack(side="left", padx=(8, 0))
+            else:
+                if badge_lbl.winfo_ismapped():
+                    badge_lbl.pack_forget()
+
+        # Dynamic action bar management
+        if not hasattr(self, "_action_bar_by_id"):
+            self._action_bar_by_id = {}
+        action_bar = self._action_bar_by_id.get(clip_id)
+        if action_bar is not None:
+            if is_selected:
+                if not action_bar.winfo_ismapped():
+                    action_bar.pack(fill="x", padx=2, pady=(4, 4))
+                    # Find clip
+                    clip = None
+                    for c in getattr(self, "_last_clips", []):
+                        if c.id == clip_id:
+                            clip = c
+                            break
+                    if clip:
+                        self._fill_action_bar(action_bar, clip)
+            else:
+                if action_bar.winfo_ismapped():
+                    action_bar.pack_forget()
+
+    def _repaint_selection(self) -> None:
+        for clip_id in self._row_by_id:
+            is_selected = clip_id in self._selected_ids
+            self._update_row_visuals(clip_id, is_selected)
 
     def set_selected(self, clip_id: str | None) -> None:
         previous_id = self._selected_id
@@ -376,9 +598,7 @@ class ClipList(ctk.CTkScrollableFrame):
         if clip_id is not None:
             self._apply_selection(previous_id, clip_id)
         elif previous_id:
-            row = self._row_by_id.get(previous_id)
-            if row is not None:
-                row.configure(fg_color=brand.ROW_BG, border_width=0)
+            self._update_row_visuals(previous_id, False)
 
     def open_context_for_selected(self, clip: Clip) -> None:
         row = self._row_by_id.get(clip.id)
@@ -398,19 +618,83 @@ class ClipList(ctk.CTkScrollableFrame):
             if row is None:
                 continue
             is_selected = clip_id == selected_id
+            self._update_row_visuals(clip_id, is_selected)
             if is_selected:
-                row.configure(
-                    fg_color=brand.ROW_SELECTED_BG,
-                    border_width=1,
-                    border_color=brand.PROOF_TEAL,
-                )
                 # Ensure the row is visible in the scrollable frame.
                 self._safe_see(row)
-            else:
-                row.configure(
-                    fg_color=brand.ROW_BG,
-                    border_width=0,
-                )
+
+    def _fill_action_bar(self, parent, clip: Clip) -> None:
+        for child in parent.winfo_children():
+            child.destroy()
+
+        window = self.winfo_toplevel()
+        # Detect type
+        is_image = False
+        cls = getattr(clip, "classification", None)
+        ct = getattr(clip, "content_type", None)
+        if (isinstance(ct, str) and ct.startswith("image")) or (isinstance(cls, str) and ("screen" in cls.lower() or "screenshot" in cls.lower())) or cls == models.CLASS_IMAGE:
+            is_image = True
+        is_link = (cls == models.CLASS_LINK)
+
+        # Primary Copy
+        copy_label = "Copy Image" if is_image else "Copy"
+        ctk.CTkButton(
+            parent, text=copy_label, width=70, height=22,
+            command=lambda: window._copy_again(clip.id),
+            **theme.primary_button()
+        ).pack(side="left", padx=2)
+
+        # Primary Open
+        if is_link:
+            ctk.CTkButton(
+                parent, text="Open Link", width=70, height=22,
+                command=lambda: window._open_clip_link(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+        elif is_image:
+            ctk.CTkButton(
+                parent, text="View Larger", width=80, height=22,
+                command=lambda: window._open_photo_viewer(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+        else:
+            if cls == models.CLASS_PATH:
+                ctk.CTkButton(
+                    parent, text="Open Path", width=70, height=22,
+                    command=lambda: window._open_clip_path(clip.id),
+                    **theme.secondary_button()
+                ).pack(side="left", padx=2)
+
+        # Edit (not for image)
+        if not is_image:
+            ctk.CTkButton(
+                parent, text="Edit", width=50, height=22,
+                command=lambda: window._edit_clip_text(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+
+        # Duplicate (not for image)
+        if not is_image:
+            ctk.CTkButton(
+                parent, text="Duplicate", width=70, height=22,
+                command=lambda: window._duplicate_as_editable_clip(clip.id),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+
+        # Combine (only if text/not image)
+        if not is_image:
+            ctk.CTkButton(
+                parent, text="Combine", width=65, height=22,
+                command=lambda: window._open_clip_composer(),
+                **theme.secondary_button()
+            ).pack(side="left", padx=2)
+
+        # More...
+        ctk.CTkButton(
+            parent, text="More…", width=50, height=22,
+            command=lambda: self.open_context_for_selected(clip),
+            **theme.secondary_button()
+        ).pack(side="left", padx=2)
 
     def _safe_see(self, widget) -> None:
         try:

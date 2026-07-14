@@ -19,6 +19,24 @@ def default_settings_path() -> Path:
     return Path(base) / "CacheVault" / "settings.json"
 
 
+# Sidebar accordion section headings that start collapsed on a fresh profile
+# (no settings.json yet). Must mirror the headings in cache_vault/ui/filters.py
+# (FILTER_GROUPS headings, plus "COLLECTIONS" and "SAFES"). Once a settings
+# file exists, whatever it explicitly lists here wins — this default is only
+# used the first time a profile is created.
+DEFAULT_COLLAPSED_SIDEBAR_SECTIONS: list[str] = [
+    "COMMAND",
+    "VAULT",
+    "SMART FOLDERS",
+    "REVIEW",
+    "PROOF",
+    "ACCESS",
+    "TIME",
+    "COLLECTIONS",
+    "SAFES",
+]
+
+
 @dataclass
 class Settings:
     capture_paused: bool = False
@@ -93,7 +111,10 @@ class Settings:
     vault_lock_accent: str = "#1A9E8C"
     vault_lock_reduced_motion: bool = True
     vault_lock_show_local_only: bool = True
-    sidebar_collapsed_sections: list[str] = field(default_factory=list)
+    sidebar_collapsed_sections: list[str] = field(
+        default_factory=lambda: list(DEFAULT_COLLAPSED_SIDEBAR_SECTIONS)
+    )
+    storage_auto_vacuum_policy: str = "never"  # "never" or "safe"
 
     # --- persistence ---
     @classmethod

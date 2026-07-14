@@ -25,7 +25,7 @@ One-liner: A local-first clipboard vault for useful text, code, screenshots, rec
 | Proof-pack export | No | Yes | Implemented | Founder: `proof_pack_export` |
 | HTML bundle export | No | Yes | Implemented | Founder: `html_bundle_export` |
 | Editable copies (create/edit/save) | Limited | Yes | Implemented | Founder: `editable_copies_advanced` |
-| Vault Macros | Limited | Yes | Implemented | Founder: `macros_advanced` |
+| Snippet Macros | Limited | Yes | Implemented | Founder: `macros_advanced` |
 | Custom Safes (organize beyond default) | Basic | Yes | Implemented | Founder: `safes_advanced` for custom safes |
 | Advanced filters / duplicate review | Basic | Yes | Partial | Founder: `smart_filters_advanced` for duplicate/sensitive review screens |
 | Mobile bridge | No | No | Not claimed | Do not ship in this SKU |
@@ -43,7 +43,7 @@ One-liner: A local-first clipboard vault for useful text, code, screenshots, rec
 | `html_bundle_export` | HTML bundle workflows and exports |
 | `editable_copies_advanced` | Editable copy create/open/save workflows |
 | `smart_filters_advanced` | Duplicates review, sensitive filter power tools |
-| `macros_advanced` | Vault Macros screen and macro execution |
+| `macros_advanced` | Snippet Macros screen and macro execution |
 | `safes_advanced` | Create/customize Safes beyond default |
 
 ## Free limits (policy)
@@ -63,7 +63,7 @@ Founder unlocks power workflows:
 - Bulk and proof-backed exports
 - ZIP bundles with manifest + SHA256SUMS
 - Editable-copy and HTML-bundle receipt workflows
-- Vault Macros and custom Safes
+- Snippet Macros and custom Safes
 - Advanced review filters
 
 ## Doctrine

@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from typing import Callable
 
-import customtkinter as ctk
 from customtkinter import CTkScrollableFrame, CTkTextbox
 
 from .win_scroll import (

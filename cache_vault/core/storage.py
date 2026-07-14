@@ -161,6 +161,7 @@ class VaultStorage:
         "safe_id": "TEXT DEFAULT 'default'",
         "safe_name": "TEXT DEFAULT 'Default Safe'",
         "capture_mode": "TEXT DEFAULT 'auto'",
+        "is_saved_to_phone": "INTEGER DEFAULT 0",
     }
 
     def _migrate(self) -> None:
@@ -231,6 +232,7 @@ class VaultStorage:
             safe_id=row["safe_id"] if "safe_id" in row.keys() and row["safe_id"] else "default",
             safe_name=row["safe_name"] if "safe_name" in row.keys() and row["safe_name"] else "Default Safe",
             capture_mode=row["capture_mode"] if "capture_mode" in row.keys() and row["capture_mode"] else models.CAPTURE_AUTO,
+            is_saved_to_phone=bool(row["is_saved_to_phone"]) if "is_saved_to_phone" in row.keys() else False,
         )
 
     # --- writes ------------------------------------------------------------
@@ -248,8 +250,8 @@ class VaultStorage:
                 tags, is_pinned, is_kept, is_sensitive, expires_at,
                 deleted_at, duplicate_of, collection, title, source_url,
                 normalized_hash, size_bytes, last_used_at, use_count, copied_count,
-                safe_id, safe_name, capture_mode
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                safe_id, safe_name, capture_mode, is_saved_to_phone
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 clip.id, clip.created_at, clip.updated_at, clip.content_hash,
                 clip.content_type, clip.content, clip.preview, clip.source_app,
@@ -262,6 +264,7 @@ class VaultStorage:
                 clip.safe_id or "default",
                 clip.safe_name or "Default Safe",
                 clip.capture_mode or models.CAPTURE_AUTO,
+                int(clip.is_saved_to_phone),
             ),
         )
         self.conn.commit()

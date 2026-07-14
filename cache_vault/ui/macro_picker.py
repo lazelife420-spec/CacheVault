@@ -18,7 +18,7 @@ class MacroPicker(ctk.CTkToplevel):
         macros: list[Macro],
         on_choose: Callable[[Macro], None],
         *,
-        title: str = "Vault Macros",
+        title: str = "Snippet Macros",
     ):
         super().__init__(master)
         self._macros = macros
@@ -37,7 +37,7 @@ class MacroPicker(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self,
-            text="Vault Macros   —   ↑/↓ select · 1–9 run · Enter run · Esc cancel",
+            text="Snippet Macros   —   ↑/↓ select · 1–9 run · Enter run · Esc cancel",
             anchor="w",
             font=ctk.CTkFont(size=11),
             text_color=("gray40", "gray65"),

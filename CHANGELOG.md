@@ -2,6 +2,131 @@
 
 ## Unreleased
 
+_No unreleased changes yet._
+
+## Cache Vault v0.1.9
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+- **Multi-link Save workflows** — save links separately, combined as one text clip, or as a batch.
+- **Edit & Duplicate Clip** — edit text clips directly and duplicate clips as editable.
+- **Cards Multi-Select visuals** — active card borders, rails, and SELECTED badges are correctly repainted for all elements in multi-selection.
+
+### Fixed
+- **TclError Late Callback Guard** — wrapped `report_callback_exception` to intercept and safely log/suppress benign tkinter event-loop lifecycle TclErrors.
+- **MultiLinkPasteDialog geometry** — resized dialog default geometry to prevent button clipping.
+
+## Cache Vault v0.1.8
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+
+- **Desktop Photo Viewer** — double-click any image clip to open a full-screen
+  viewer with canvas-based zoom/pan, Fit and 1:1 controls, and Previous/Next
+  navigation across all image clips in the vault (PR #44).
+
+### Fixed
+
+- **Action surface cleanup** — removed duplicated Safe context menu construction;
+  standardised safe action labels; deep-linked SettingsHub category routing from
+  "Configure Hotkey"; clarified "Copy MD" / "Copy Plain" label parity (PR #42).
+- **Disabled-stub clarity** — Export Safe Proof Zip and Delete Safe stubs now
+  carry "(planned)" labels; receipt path / Open Receipt actions are conditionally
+  enabled only when a local receipt file exists; redundant Home status
+  "Set as Default Safe" removed (PR #43).
+- **Photo Viewer — Polish 1** — mouse-wheel zoom (`<MouseWheel>`), `f`/`F`
+  keyboard shortcut for Fit, double-click canvas to toggle Fit ↔ 1:1, dynamic
+  window title showing current clip name, nav label/buttons always update even on
+  missing-asset early-return, clean zoom labels `Zoom −` / `Zoom +` (PR #45).
+- **Photo Viewer — image filter case bug** — the viewer filtered clips by
+  comparing against hardcoded `"IMAGE"` while the real DB constant is
+  `CONTENT_IMAGE = "image"` (lowercase). This silently collapsed the navigation
+  list to one entry, breaking Prev/Next in production. Fixed by importing and
+  using `CONTENT_IMAGE`; test fixtures corrected to match real model values
+  (PR #46, found during packaged sanity pass).
+
+### QA
+
+- Packaged EXE built and sanity-checked: viewer construction, wheel zoom,
+  f-key fit, double-click toggle, dynamic title, missing-asset nav, action
+  callbacks, zoom label correctness.
+- Production navigation bug (PR #46) discovered by the sanity pass with real
+  `VaultStorage`; invisible in unit tests which used matching mock strings.
+- Full test suite PASS.
+- `compileall`: PASS. `--selftest`: PASS.
+
+## Cache Vault v0.1.7
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+
+- **Paste Macro one-shot UX** — selected clip → right-click or preview panel → Create Paste Macro… opens the macro editor prefilled with the clip's title and body. Save to Snippet Macros remains available as the silent/secondary path (PR #39).
+
+### Fixed
+
+- **Keyboard-focus crash on dialog close** — `_keyboard_focus_is_text_input` now resolves string widget paths (Tkinter passes hierarchical path strings instead of widget objects when focus is inside a `CTkToplevel`) via `nametowidget` with exception safety, preventing `AttributeError` and the subsequent `TclError: bad window path name` crash (commit `30d942e`).
+
+### QA
+
+- Verified by automated packaged Paste Macro QA (EXE build): selected clip → MacroEditDialog prefilled → Ctrl+8 hotkey recorded → saved → pasted cleanly in Notepad.
+- 838-test suite: PASS.
+- `compileall`: PASS. `--selftest`: PASS.
+
+
+
+## Cache Vault v0.1.6
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+
+- **Sidebar right-click context menus** — added context menus for headings (expand/collapse options), individual safes (full management options like delete, rename, etc.), the Founder badge, and macro/paste rows.
+- **Numpad hotkey correctness** — preserved numpad identity in hotkeys (e.g. distinguishing Ctrl+Numpad2 from Ctrl+2) (PR #32).
+
+### Fixed
+
+- **Collapse All / Expand All persistence** — fixed coordinate alignment in automated packaged QA, and verified full settings persistence to settings.json (PR #31, PR #34).
+- **`+ New Safe` dialog and disabled safe actions** — verified dialog opens correctly and destructive actions (Rename, Delete, Export) remain disabled on the Default Safe.
+- **Settings Hub hotkey recorder** — verified the recorder enters "Recording..." state and correctly captures keyboard combos (e.g., Ctrl+F9).
+- **Selection parity** — verified toolbar actions match right-click context menu options for single/multi selection.
+- **Hotkey reliability** — focus and window-ownership stability fixes for the hotkey recorder.
+
+### Changed
+
+- **Hero/header redesign** — redesigned home dashboard hero showing status pills and custody stats tiles, and a cleaner window toolbar header with a 2px teal accent line (PR #34).
+
+## Cache Vault v0.1.5
+
+`/proof` unchanged this release. Stable not claimed.
+
+### Added
+
+- **Android reconnect lifecycle hardening** — the Android companion app reconnects more reliably after desktop restarts and network changes.
+- **Settings Hub: General category** — live version/build, packaged-vs-source detection, data folder path with an Open Data Folder action, and a first-use guide replay action.
+- **Settings Hub: Diagnostics category** — crash log path (Open Crash Log action only when a log file exists), live database path, and selftest instructions as plain text (CLI-only, never a button).
+- **Settings Hub: shared hotkey recorder** — Settings Hub now uses the same recorder as the rest of the app instead of a separate implementation.
+
+### Fixed
+
+- **Mobile Access device status labels** — per-device status (Online, Offline, Waiting for phone approval, Revoked) instead of a single generic state.
+- **Hotkey recording stabilization** — fixed flaky capture in the recorder used by macro dialogs and Settings Hub.
+- **Settings Hub ownership and z-order** — single-instance behavior and correct window ownership/z-order relative to the main window.
+- **Settings Hub: Mobile Bridge live status** — Bridge, LAN discovery (mDNS), LAN IP, last phone request, and paired-device count now render as live status instead of static placeholders.
+- **Settings Hub: Mobile Bridge actions** — "Pair Android Device", "Mobile Access Receipts", and "Paired Devices" buttons are now wired to their real dialogs.
+- **Settings Hub: Excluded apps** — the field previously rendered as a single-line entry and silently discarded list edits on save; it now renders as a multi-line textarea and correctly saves/loads the list.
+
+### Changed
+
+- **CI gate** — dropped Python 3.11 from the required PR/push matrix; 3.12 and 3.13 remain required and green.
+
+### Internal / QA
+
+- An audit of Settings Hub real controls (see `docs/CACHE_VAULT_SETTINGS_HUB_REAL_CONTROLS_AUDIT_2026-07-03.md`) identified the Mobile Bridge and Excluded Apps gaps fixed above.
+- A full packaged-EXE QA pass is recorded in `docs/CACHE_VAULT_PACKAGED_DESKTOP_QA_RECEIPT_2026-07-04.md`: selftest, founder license smoke, packaged GUI checks, mobile bridge runtime proof, and a real Android phone Send-to-PC proof all passed. Final public checksums are provided in `SHA256SUMS.txt` attached to the release.
+
 ## Cache Vault v0.1.4
 
 Release label: **v0.1.4** · Public distribution release

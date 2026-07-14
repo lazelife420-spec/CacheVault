@@ -8,10 +8,14 @@ on:
 jobs:
   test:
     runs-on: windows-latest
+    # 3.11 is intentionally excluded from the default matrix (release EXE
+    # ships on 3.13; see docs/CACHE_VAULT_PYTHON_CI_GATE_UPDATE_2026-07-03.md).
+    # Its runner leg has repeatedly taken 20min-1h+ vs ~2min for 3.12/3.13,
+    # which stalled PR checks even when it eventually passed.
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v5
 

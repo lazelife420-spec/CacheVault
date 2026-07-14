@@ -9,7 +9,7 @@ from typing import Callable
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-from .. import __version__, brand
+from .. import brand
 from ..core import app_receipt
 from ..feature_gate import founder_feature_label
 from .. import licensing
@@ -159,11 +159,11 @@ class FounderDialog(ctk.CTkToplevel):
             "• proof-pack exports",
             "• HTML bundles",
             "• editable copy workflows",
-            "• Vault Macros and custom Safes",
+            "• Snippet Macros and custom Safes",
             "• advanced review filters",
-            "• future Founder updates",
+            "• Founder-track updates",
             "",
-            "One-time early price: $19 lifetime",
+            "Early price: $19 one-time Founder license",
             "",
         ]
         if status.state == licensing.LicenseState.FOUNDER_VALID:

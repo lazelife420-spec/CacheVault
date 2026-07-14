@@ -247,7 +247,7 @@ def main() -> int:
     result["app_launch"] = {
         "window_exists": True,
         "title": app.title(),
-        "settings_vault_macros_section": "Vault Macros" in inspect.getsource(SettingsDialog.__init__),
+        "settings_vault_macros_section": "Snippet Macros" in inspect.getsource(SettingsDialog.__init__),
     }
 
     def _seed_macros() -> None:

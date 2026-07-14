@@ -212,6 +212,7 @@ class TestSettingsDialog:
 
         mobile_buttons = set(_button_texts(dialog._mobile_section))
         assert mobile_buttons == {
+            "Connect Phone",
             "Pair Android Device",
             "Paired Devices",
             brand.TERM_MOBILE_ACCESS_RECEIPTS,

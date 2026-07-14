@@ -1,6 +1,7 @@
 package com.prooffoundry.cachevaultmobile
 
 import android.app.Application
+import com.prooffoundry.cachevaultmobile.connect.BackgroundConnectionService
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.PairingStore
 
@@ -14,5 +15,10 @@ class CacheVaultMobileApp : Application() {
         super.onCreate()
         pairingStore = PairingStore(this)
         bridgeRepository = BridgeRepository(pairingStore, appContext = this)
+        if (pairingStore.load()?.keepConnectedInBackground == true &&
+            BackgroundConnectionService.canPostNotification(this)
+        ) {
+            BackgroundConnectionService.start(this)
+        }
     }
 }

@@ -7,7 +7,6 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core.hotkey import parse_hotkey
 from ..core.command_center import (
     ACTION_SPECS,
     HotkeyAction,
@@ -20,6 +19,8 @@ from ..core.command_center import (
     implemented_action_keys,
 )
 from . import theme
+from ..core.hotkey import normalize_keysym as _normalize_keysym
+from .hotkey_recording import DialogHotkeyRecorder
 
 _MODIFIER_KEYSYMS = {
     "Shift_L": "shift", "Shift_R": "shift",
@@ -27,24 +28,6 @@ _MODIFIER_KEYSYMS = {
     "Alt_L": "alt", "Alt_R": "alt",
     "Super_L": "win", "Super_R": "win", "Win_L": "win", "Win_R": "win",
 }
-
-_KEYSYM_ALIASES = {
-    "Return": "enter", "KP_Enter": "enter", "Escape": "esc", "Tab": "tab",
-    "space": "space", "Delete": "delete", "Insert": "insert", "Home": "home",
-    "End": "end", "Prior": "pageup", "Next": "pagedown",
-}
-
-
-def _normalize_keysym(keysym: str) -> str | None:
-    if not keysym:
-        return None
-    if keysym in _KEYSYM_ALIASES:
-        return _KEYSYM_ALIASES[keysym]
-    if len(keysym) == 1 and keysym.isalnum():
-        return keysym.lower()
-    if keysym.lower().startswith("f") and keysym[1:].isdigit():
-        return keysym.lower()
-    return None
 
 
 def _bring_to_front(win: ctk.CTkToplevel, master) -> None:
@@ -88,9 +71,6 @@ class HotkeyActionDialog(ctk.CTkToplevel):
         self._win32 = win32_available
         self._on_save = on_save
         self._on_delete = on_delete
-        self._recording = False
-        self._held: set[str] = set()
-
         self.title("New Hotkey" if self._is_new else "Edit Hotkey")
         self.geometry("480x600")
         self.resizable(False, True)
@@ -161,6 +141,17 @@ class HotkeyActionDialog(ctk.CTkToplevel):
                                     font=ctk.CTkFont(size=11), wraplength=420,
                                     justify="left")
         self._status.pack(anchor="w", padx=8, pady=(4, 0))
+        self._recorder = DialogHotkeyRecorder(
+            self,
+            entry=self._hotkey,
+            button=self._record_btn,
+            normalize_keysym=_normalize_keysym,
+            modifier_keysyms=_MODIFIER_KEYSYMS,
+            on_complete=self._refresh_status,
+            on_hint=lambda text: self._status.configure(
+                text=text, text_color=brand.MUTED_FG,
+            ),
+        )
 
         # Action type
         ctk.CTkLabel(body, text="Action", anchor="w",
@@ -249,43 +240,7 @@ class HotkeyActionDialog(ctk.CTkToplevel):
 
     # --- recorder ----------------------------------------------------------
     def _toggle_record(self) -> None:
-        if self._recording:
-            self._stop_record()
-            return
-        self._recording = True
-        self._held.clear()
-        self._record_btn.configure(text="Recording… press keys")
-        self.bind("<KeyPress>", self._on_key_press)
-        self.bind("<KeyRelease>", self._on_key_release)
-        self.focus_set()
-
-    def _stop_record(self) -> None:
-        self._recording = False
-        self._record_btn.configure(text="Press shortcut now")
-        self.unbind("<KeyPress>")
-        self.unbind("<KeyRelease>")
-
-    def _on_key_press(self, event):
-        mod = _MODIFIER_KEYSYMS.get(event.keysym)
-        if mod:
-            self._held.add(mod)
-            return "break"
-        key = _normalize_keysym(event.keysym)
-        if key is None:
-            return "break"
-        order = [m for m in ("ctrl", "alt", "shift", "win") if m in self._held]
-        spec = "+".join(order + [key])
-        self._hotkey.delete(0, "end")
-        self._hotkey.insert(0, spec)
-        self._stop_record()
-        self._refresh_status()
-        return "break"
-
-    def _on_key_release(self, event):
-        mod = _MODIFIER_KEYSYMS.get(event.keysym)
-        if mod:
-            self._held.discard(mod)
-        return "break"
+        self._recorder.toggle()
 
     # --- status ------------------------------------------------------------
     def _refresh_status(self) -> None:
@@ -300,9 +255,12 @@ class HotkeyActionDialog(ctk.CTkToplevel):
             spec, self_id=self._action.id, other_actions=self._other_actions,
             reserved_specs=self._reserved_specs, win32_available=self._win32,
         )
+        if self._recorder.recording:
+            return
         colors = {
             "ok": brand.PROOF_TEAL,
             "invalid": brand.WARNING_RED,
+            "duplicate": brand.WARNING_RED,
             "conflict": brand.WARNING_RED,
             "reserved": brand.STAMP_GOLD,
             "unavailable": brand.STAMP_GOLD,
@@ -345,7 +303,7 @@ class HotkeyActionDialog(ctk.CTkToplevel):
                 a.hotkey, self_id=a.id, other_actions=self._other_actions,
                 reserved_specs=self._reserved_specs, win32_available=self._win32,
             )
-            if chk == "invalid":
+            if chk in {"invalid", "duplicate", "conflict", "reserved"}:
                 self._status.configure(text=msg, text_color=brand.WARNING_RED)
                 return
 
@@ -356,3 +314,8 @@ class HotkeyActionDialog(ctk.CTkToplevel):
         if self._on_delete is not None:
             self._on_delete(self._action.id)
         self.destroy()
+
+    def destroy(self) -> None:
+        if hasattr(self, "_recorder"):
+            self._recorder.cleanup()
+        super().destroy()

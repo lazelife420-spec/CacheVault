@@ -322,6 +322,7 @@ def _matches_filter(row: ReceiptRow, flt: str, now: datetime | None = None) -> b
             "clipboard_sensitive_not_auto_saved",
             "item_moved_to_safe",
             "safe_created",
+            "macro_transform",
         }
     if flt == FILTER_COPIED:
         return row.action_raw == models.EVENT_COPIED_AGAIN
@@ -390,6 +391,10 @@ def format_detail_text(row: ReceiptRow) -> str:
         lines.append(f"Route: {row.route}")
     if row.reason:
         lines.append(f"Reason: {row.reason}")
+    if row.details:
+        for k, v in sorted(row.details.items()):
+            label = k.replace("_", " ").title()
+            lines.append(f"{label}: {v}")
     if row.legacy:
         lines.append("Note: Parsed from legacy receipt format.")
     return "\n".join(lines)

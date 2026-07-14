@@ -11,4 +11,10 @@ def __getattr__(name: str):
     if name == "MobileBridge":
         from .bridge import MobileBridge
         return MobileBridge
+    if name == "MobileAccessController":
+        from .mobile_access_controller import MobileAccessController
+        return MobileAccessController
+    if name == "relative_timestamp":
+        from .mobile_access_controller import relative_timestamp
+        return relative_timestamp
     raise AttributeError(name)

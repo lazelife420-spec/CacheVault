@@ -12,10 +12,10 @@ object VaultSections {
     fun computeCounts(all: List<ClipSummary>, removed: List<ClipSummary>): VaultSectionCounts {
         val live = all.filter { it.deletedAt == null }
         return VaultSectionCounts(
-            text = live.count { typeBadge(it) == "TXT" },
-            links = live.count { typeBadge(it) == "LINK" },
-            code = live.count { typeBadge(it) == "CODE" },
-            commands = live.count { typeBadge(it) == "CMD" },
+            text = live.count { matchesBrowseFilter(it, BrowseFilter.TEXT) },
+            links = live.count { matchesBrowseFilter(it, BrowseFilter.LINKS) },
+            code = live.count { matchesBrowseFilter(it, BrowseFilter.CODE) },
+            commands = live.count { matchesBrowseFilter(it, BrowseFilter.COMMANDS) },
             screenshots = live.count { ClipKinds.isImageReference(it) && it.hasAsset },
             favorites = live.count { it.isFavorite },
             recentlySaved = live.size,
@@ -34,11 +34,11 @@ object VaultSections {
         return when (filter) {
             BrowseFilter.ALL -> live
             BrowseFilter.FAVORITES -> live.filter { it.isFavorite }
-            BrowseFilter.TEXT -> live.filter { typeBadge(it) == "TXT" }
-            BrowseFilter.LINKS -> live.filter { typeBadge(it) == "LINK" }
-            BrowseFilter.CODE -> live.filter { typeBadge(it) == "CODE" }
-            BrowseFilter.COMMANDS -> live.filter { typeBadge(it) == "CMD" }
-            BrowseFilter.FILES -> live.filter { typeBadge(it) == "FILE" }
+            BrowseFilter.TEXT -> live.filter { matchesBrowseFilter(it, BrowseFilter.TEXT) }
+            BrowseFilter.LINKS -> live.filter { matchesBrowseFilter(it, BrowseFilter.LINKS) }
+            BrowseFilter.CODE -> live.filter { matchesBrowseFilter(it, BrowseFilter.CODE) }
+            BrowseFilter.COMMANDS -> live.filter { matchesBrowseFilter(it, BrowseFilter.COMMANDS) }
+            BrowseFilter.FILES -> live.filter { matchesBrowseFilter(it, BrowseFilter.FILES) }
             BrowseFilter.SENSITIVE -> live.filter { it.isSensitive }
             BrowseFilter.REMOVED -> removed
         }
@@ -50,5 +50,18 @@ object VaultSections {
     fun recentPreview(clips: List<ClipSummary>, limit: Int = HOME_RECENT_LIMIT): List<ClipSummary> =
         clips.filter { it.deletedAt == null }.take(limit)
 
-    private fun typeBadge(clip: ClipSummary): String = ClipListFormatter.typeBadge(clip)
+    private fun matchesBrowseFilter(clip: ClipSummary, filter: BrowseFilter): Boolean = when (filter) {
+        BrowseFilter.TEXT -> {
+            !ClipKinds.isImageReference(clip) &&
+                !ClipKinds.isLink(clip) &&
+                !ClipKinds.isPath(clip) &&
+                !clip.classification.equals("code", ignoreCase = true) &&
+                !clip.classification.equals("command", ignoreCase = true)
+        }
+        BrowseFilter.LINKS -> ClipKinds.isLink(clip)
+        BrowseFilter.CODE -> clip.classification.equals("code", ignoreCase = true)
+        BrowseFilter.COMMANDS -> clip.classification.equals("command", ignoreCase = true)
+        BrowseFilter.FILES -> ClipKinds.isPath(clip) && !ClipKinds.isImageReference(clip)
+        else -> true
+    }
 }

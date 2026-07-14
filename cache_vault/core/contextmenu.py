@@ -65,14 +65,59 @@ def copy_clean_menu_items(clip: Clip) -> list[MenuItem]:
     ]
 
 
-def clip_menu_items(clip: Clip) -> list[MenuItem]:
-    """Build the context-menu items for ``clip``.
+def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
+    """Build the context-menu items for clip or multiple clips.
 
-    A clip in Recently Removed (``deleted_at`` set) gets Restore / Permanently
-    Remove. Otherwise the normal menu is shown. File actions (Open / Reveal)
-    appear only for clearly-local Windows path clips; Open is disabled when the
-    target is gone, Reveal stays available while the parent folder exists.
+    If a list of clips is passed and contains more than one item, returns a flat
+    list of selection-aware MenuItems. Otherwise, returns the nested single-clip spec.
     """
+    if isinstance(clip_or_clips, list) and len(clip_or_clips) > 1:
+        clips = clip_or_clips
+        from .selection import analyze_selection
+        summary = analyze_selection(clips)
+
+        if summary.selection_class == "link_only":
+            return [
+                MenuItem("copy_plain", "Copy as Plain List"),
+                MenuItem("copy_markdown", "Copy as Markdown"),
+                MenuItem("combine", "Combine Clips…"),
+                MenuItem("copy_numbered", "Copy as Numbered List"),
+                MenuItem("move_safe", "Save to Safe…", separator_before=True),
+                MenuItem("receipt", "Create Receipt"),
+                MenuItem("export", "Export"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+        elif summary.selection_class == "image_only":
+            return [
+                MenuItem("copy_pngs", "Copy PNG Files"),
+                MenuItem("save_pngs", "Save All As PNG"),
+                MenuItem("export_zip", "Export ZIP"),
+                MenuItem("copy_paths", "Copy File Paths"),
+                MenuItem("view_proof", "View Proof"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+        elif summary.selection_class == "mixed":
+            return [
+                MenuItem("export_bundle", "Export Bundle"),
+                MenuItem("copy_text_links", "Copy Text + Links"),
+                MenuItem("save_screenshots", "Save Screenshots"),
+                MenuItem("receipt", "Create Receipt"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+        else:  # text_only / other
+            return [
+                MenuItem("copy_plain", "Copy as Plain List"),
+                MenuItem("copy_markdown", "Copy as Markdown"),
+                MenuItem("combine", "Combine Clips…"),
+                MenuItem("copy_numbered", "Copy as Numbered List"),
+                MenuItem("move_safe", "Save to Safe…", separator_before=True),
+                MenuItem("receipt", "Create Receipt"),
+                MenuItem("remove", "Delete Selected", separator_before=True),
+            ]
+
+    # Single clip path
+    clip = clip_or_clips[0] if isinstance(clip_or_clips, list) else clip_or_clips
+
     if clip.deleted_at is not None:
         return [
             MenuItem("copy_again", "Copy Again"),
@@ -90,6 +135,8 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
     if clip.classification == models.CLASS_LINK:
         primary_children.insert(0, MenuItem("open_link", "Open Link"))
     if clip.content_type == models.CONTENT_IMAGE:
+        primary_children.append(MenuItem("view_larger", "View Larger"))
+        primary_children.append(MenuItem("save_asset_as", "Save PNG"))
         primary_children.append(MenuItem("drag_out", "Drag PNG"))
         primary_children.append(MenuItem("open_asset_folder", "Open Asset Folder"))
 
@@ -100,11 +147,12 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
             "Remove from Favorites" if clip.is_pinned else "Add to Favorites",
         ),
         MenuItem(
-            "toggle_favorite",
+            "mark_keep",
             "Mark Keep",
             enabled=not clip.is_pinned,
         ),
-        MenuItem("send_to_macro_safe", "Send to Vault Macros", separator_before=True),
+        MenuItem("send_to_macro_safe", "Send to Snippet Macros", separator_before=True),
+        MenuItem("create_paste_macro", "Create Paste Macro…"),
     ]
 
     proof_children = [
@@ -119,6 +167,16 @@ def clip_menu_items(clip: Clip) -> list[MenuItem]:
             "create_editable_copy",
             "Create Editable Copy",
             enabled=pathutil.is_local_path(clip.content),
+        ),
+        MenuItem(
+            "edit_clip_text",
+            "Edit Clip Text",
+            enabled=clip.content_type != models.CONTENT_IMAGE,
+        ),
+        MenuItem(
+            "duplicate_editable_clip",
+            "Duplicate as Editable Clip",
+            enabled=clip.content_type != models.CONTENT_IMAGE,
         ),
         MenuItem("copy_metadata", "Copy Metadata"),
         MenuItem("copy_item_id", "Copy Item ID"),

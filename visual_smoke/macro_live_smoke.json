@@ -1,8 +1,8 @@
 {
-  "branch": "feature/context-menus-copy-clean",
-  "commit": "567fc8b892b4f5a5312d19e0bf31821d529ac5ca",
+  "branch": "hotfix/v0.1.4.1-local-stability",
+  "commit": "142bbf4b398c7d9a035ccb7e23b077cafde3fd29",
   "crash_log_before": {
-    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\crash.log",
+    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_cldyo6i1\\CacheVault\\crash.log",
     "size": 0,
     "blocks": 0
   },
@@ -59,12 +59,12 @@
     "capture_binding_count": 3
   },
   "crash_log_after": {
-    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\crash.log",
+    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_cldyo6i1\\CacheVault\\crash.log",
     "size": 0,
     "blocks": 0
   },
   "crash_log": {
-    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\crash.log",
+    "path": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_cldyo6i1\\CacheVault\\crash.log",
     "new_blocks": 0,
     "benign_only": true,
     "no_user_dialog": true
@@ -72,19 +72,19 @@
   "receipts": {
     "text_shortcut_expanded": {
       "count": 3,
-      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\text_shortcut_expanded-e9b6797f-20260620-172919.json",
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_cldyo6i1\\CacheVault\\Receipts\\2026-06-28\\text_shortcut_expanded-f15d81db-20260628-182419.json",
       "has_macro_body": false,
       "leaks_secret": false
     },
     "macro_hotkey_executed": {
       "count": 1,
-      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\macro_hotkey_executed-0cbac30b-20260620-172928.json",
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_cldyo6i1\\CacheVault\\Receipts\\2026-06-28\\macro_hotkey_executed-25722470-20260628-182407.json",
       "has_macro_body": false,
       "leaks_secret": false
     },
     "macro_picker_executed": {
       "count": 2,
-      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\macro_picker_executed-c277b441-20260620-172934.json",
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_cldyo6i1\\CacheVault\\Receipts\\2026-06-28\\macro_picker_executed-8b607b82-20260628-182353.json",
       "has_macro_body": false,
       "leaks_secret": false
     },
@@ -94,7 +94,7 @@
     },
     "macro_blocked_sensitive": {
       "count": 1,
-      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_ee4cxtpk\\CacheVault\\Receipts\\2026-06-20\\macro_blocked_sensitive-029511d6-20260620-172945.json",
+      "latest": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv_macro_smoke_cldyo6i1\\CacheVault\\Receipts\\2026-06-28\\macro_blocked_sensitive-c6377c69-20260628-182424.json",
       "has_macro_body": false,
       "leaks_secret": false
     },

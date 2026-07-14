@@ -20,6 +20,7 @@ from .events import EventLog
 from .models import Clip
 from .settings import Settings
 from .storage import VaultStorage
+from .mobile.models import is_mobile_inbox_clip
 
 
 class Vault:
@@ -233,6 +234,10 @@ class Vault:
             for cid in pruned:
                 self.events.record(models.EVENT_DELETED, cid,
                                    {"action": "history_prune"})
+
+        # Apply regex macros and save transformed copies
+        self._apply_macros_to_captured_clip(clip)
+
         return clip
 
     def capture_manual(
@@ -316,39 +321,56 @@ class Vault:
         clip.last_used_at = clip.created_at
 
         self.storage.add_clip(clip)
-        record_capture_receipt(
-            self.events,
-            action=models.ACTION_MOBILE_SENT_TO_PC,
-            event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
-            success=True,
-            clip_id=clip.id,
-            safe_id=sid,
-            safe_name=sname,
-            capture_mode=models.CAPTURE_MOBILE_SHARE,
-            source_app=source_app,
-            content_hash=chash,
-            item_type=clip.classification,
-        )
-        self.events.record(
-            models.EVENT_CAPTURED, clip.id,
-            {
-                "classification": clip.classification,
-                "is_sensitive": clip.is_sensitive,
-                "source_app": source_app,
-                "source_window": source_window,
-                "source_url": clip.source_url,
+        if device_id == models.CLI_DEVICE_ID:
+            from .editable_copies import write_file_receipt
+            payload = {
+                "action": "cli_push",
+                "timestamp": models.now_iso(),
+                "success": True,
+                "clip_id": clip.id,
                 "safe_id": sid,
                 "safe_name": sname,
-                "capture_mode": models.CAPTURE_MOBILE_SHARE,
-                "mobile_device_id": device_id,
-                "mobile_device_name": device_name,
-            },
-        )
+                "source": "cli",
+                "count": 1,
+                "content_type": clip.classification or "text",
+                "safe": sname or "Dev",
+                "receipt_requested": True,
+                "transfer_status": "completed",
+            }
+            write_file_receipt("cli_push", payload)
+            self.events.record("cli_push", clip.id, payload)
+        else:
+            record_capture_receipt(
+                self.events,
+                action=models.ACTION_MOBILE_SENT_TO_PC,
+                event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
+                success=True,
+                clip_id=clip.id,
+                safe_id=sid,
+                safe_name=sname,
+                capture_mode=models.CAPTURE_MOBILE_SHARE,
+                source_app=source_app,
+                content_hash=chash,
+                item_type=clip.classification,
+            )
+            self.events.record(
+                models.EVENT_CAPTURED, clip.id,
+                {
+                    "classification": clip.classification,
+                    "safe_id": sid,
+                    "safe_name": sname,
+                    "is_sensitive": clip.is_sensitive,
+                }
+            )
         if self.settings.history_max_clips > 0:
             pruned = self.storage.prune_history(self.settings.history_max_clips)
             for cid in pruned:
                 self.events.record(models.EVENT_DELETED, cid,
                                    {"action": "history_prune"})
+
+        # Apply regex macros and save transformed copies
+        self._apply_macros_to_captured_clip(clip)
+
         return clip
 
     def capture_mobile_image_share(
@@ -419,44 +441,192 @@ class Vault:
         )
         self.storage.save_clip_asset(record, image_bytes)
 
-        record_capture_receipt(
-            self.events,
-            action=models.ACTION_MOBILE_SENT_TO_PC,
-            event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
-            success=True,
-            clip_id=clip.id,
-            safe_id=sid,
-            safe_name=sname,
-            capture_mode=models.CAPTURE_MOBILE_SHARE,
-            source_app=source_app,
-            content_hash=chash,
-            item_type=models.CLASS_IMAGE,
-        )
-        self.events.record(
-            models.EVENT_CAPTURED, clip.id,
-            {
-                "classification": models.CLASS_IMAGE,
-                "content_type": models.CONTENT_IMAGE,
-                "source_app": source_app,
-                "source_window": source_window,
+        if device_id == models.CLI_DEVICE_ID:
+            from .editable_copies import write_file_receipt
+            payload = {
+                "action": "cli_push",
+                "timestamp": models.now_iso(),
+                "success": True,
+                "clip_id": clip.id,
                 "safe_id": sid,
                 "safe_name": sname,
-                "capture_mode": models.CAPTURE_MOBILE_SHARE,
-                "mobile_device_id": device_id,
-                "mobile_device_name": device_name,
-            },
-        )
+                "source": "cli",
+                "count": 1,
+                "content_type": models.CLASS_IMAGE,
+                "safe": sname or "Dev",
+                "receipt_requested": True,
+                "transfer_status": "completed",
+            }
+            write_file_receipt("cli_push", payload)
+            self.events.record("cli_push", clip.id, payload)
+        else:
+            record_capture_receipt(
+                self.events,
+                action=models.ACTION_MOBILE_SENT_TO_PC,
+                event_type=models.EVENT_MOBILE_INBOX_RECEIVED,
+                success=True,
+                clip_id=clip.id,
+                safe_id=sid,
+                safe_name=sname,
+                capture_mode=models.CAPTURE_MOBILE_SHARE,
+                source_app=source_app,
+                content_hash=chash,
+                item_type=models.CLASS_IMAGE,
+            )
+            self.events.record(
+                models.EVENT_CAPTURED, clip.id,
+                {
+                    "classification": models.CLASS_IMAGE,
+                    "content_type": models.CONTENT_IMAGE,
+                    "source_app": source_app,
+                    "source_window": source_window,
+                    "safe_id": sid,
+                    "safe_name": sname,
+                    "capture_mode": models.CAPTURE_MOBILE_SHARE,
+                    "mobile_device_id": device_id,
+                    "mobile_device_name": device_name,
+                },
+            )
         if self.settings.history_max_clips > 0:
             pruned = self.storage.prune_history(self.settings.history_max_clips)
             for cid in pruned:
                 self.events.record(models.EVENT_DELETED, cid,
                                    {"action": "history_prune"})
+
+        # Apply regex macros and save transformed copies
+        self._apply_macros_to_captured_clip(clip)
+
         return clip
 
+    def _apply_macros_to_captured_clip(self, clip: Clip) -> list[Clip]:
+        """Apply enabled regex macros to text clips and save transformed copies."""
+        if clip.content_type == models.CONTENT_IMAGE or clip.classification == models.CLASS_IMAGE:
+            return []
+
+        # Prevent duplicate transform loop recursion
+        if clip.duplicate_of is not None or "macro-transformed" in (clip.tags or []):
+            return []
+
+        from .regex_macros import load_regex_macros, apply_macro, build_macro_receipt_payload, validate_macro
+        from .editable_copies import write_file_receipt
+
+        try:
+            macros = load_regex_macros()
+        except Exception:
+            return []
+
+        new_clips = []
+        for macro in macros:
+            if not macro.enabled:
+                continue
+
+            validation_err = validate_macro(macro)
+            if validation_err:
+                self.events.record(
+                    "macro_warning",
+                    clip.id,
+                    {"macro_id": macro.macro_id, "error": validation_err},
+                )
+                continue
+
+            try:
+                transformed_content, did_transform = apply_macro(
+                    macro,
+                    clip.content,
+                    content_type=clip.classification,
+                    safe_id=clip.safe_id,
+                    source=clip.source_app or ("cli" if clip.capture_mode == "cli" else "desktop_capture"),
+                )
+
+                if not did_transform or transformed_content == clip.content:
+                    continue
+
+                from .models import Clip
+                from . import classify, sensitive, clip_metadata
+
+                chash = models.content_hash(transformed_content)
+                result = classify.classify(transformed_content)
+                sens = sensitive.detect(transformed_content)
+                size_bytes = clip_metadata.size_bytes_for(transformed_content)
+
+                transformed_clip = Clip(
+                    content_hash=chash,
+                    content=transformed_content,
+                    source_app=clip.source_app,
+                    source_window=clip.source_window,
+                    classification=result.classification,
+                    tags=list(set((result.tags or []) + ["macro-transformed", f"original:{clip.id}"])),
+                    is_sensitive=sens.is_sensitive,
+                    safe_id=clip.safe_id,
+                    safe_name=clip.safe_name,
+                    capture_mode=clip.capture_mode,
+                )
+
+                if sens.is_sensitive:
+                    transformed_clip.preview = sensitive.masked_preview(transformed_content)
+                    if self.settings.sensitive_expiry_enabled:
+                        transformed_clip.expires_at = sensitive.compute_expiry(
+                            self.settings.sensitive_expiry_minutes
+                        )
+                else:
+                    transformed_clip.preview = models.make_preview(transformed_content)
+
+                base_title = clip.title or "Text Clip"
+                transformed_clip.title = f"[Macro: {macro.name}] {base_title}"
+                transformed_clip.source_url = clip.source_url
+                transformed_clip.normalized_hash = clip_metadata.normalized_hash(transformed_content)
+                transformed_clip.size_bytes = size_bytes
+                transformed_clip.use_count = 1
+                transformed_clip.last_used_at = transformed_clip.created_at
+                transformed_clip.duplicate_of = clip.id
+
+                self.storage.add_clip(transformed_clip)
+
+                # Record macro receipt
+                receipt = build_macro_receipt_payload(
+                    macro,
+                    clip.content,
+                    transformed_content,
+                    matched=True,
+                    transformed=True,
+                    source=clip.source_app or "desktop_capture",
+                )
+                receipt["original_clip_id"] = clip.id
+                receipt["transformed_clip_id"] = transformed_clip.id
+
+                write_file_receipt("macro_transform", receipt)
+                self.events.record("macro_transform", transformed_clip.id, receipt)
+                self.events.record(
+                    models.EVENT_CAPTURED,
+                    transformed_clip.id,
+                    {
+                        "classification": transformed_clip.classification,
+                        "is_sensitive": transformed_clip.is_sensitive,
+                        "safe_id": transformed_clip.safe_id,
+                        "safe_name": transformed_clip.safe_name,
+                        "capture_mode": transformed_clip.capture_mode,
+                        "is_macro_copy": True,
+                        "original_clip_id": clip.id,
+                    },
+                )
+                new_clips.append(transformed_clip)
+
+            except Exception as e:
+                self.events.record(
+                    "macro_warning",
+                    clip.id,
+                    {"macro_id": macro.macro_id, "error": f"Transformation error: {e}"},
+                )
+
+        return new_clips
+
     def list_mobile_inbox(self, *, limit: int = 200) -> list[Clip]:
-        return self.storage.list_by_capture_mode(
-            models.CAPTURE_MOBILE_SHARE, limit=limit,
-        )
+        return [
+            clip for clip in self.storage.list_by_capture_mode(
+                models.CAPTURE_MOBILE_SHARE, limit=limit,
+            )
+            if is_mobile_inbox_clip(clip)
+        ]
 
     def capture_image(
         self,
@@ -1140,6 +1310,30 @@ class Vault:
 
     def clip_usage_events(self, clip_id: str) -> list[dict]:
         return self.storage.events_for_clip(clip_id)
+
+    def inspect_storage_health(self):
+        """Inspect storage health of the vault's SQLite database."""
+        from . import storage_health
+        return storage_health.inspect_health(self.storage.conn)
+
+    def optimize_storage(self) -> None:
+        """Run database index optimization."""
+        from . import storage_health
+        storage_health.run_optimize(self.storage.conn)
+
+    def vacuum_storage(self) -> None:
+        """Explicitly run SQLite database vacuum to reclaim space."""
+        from . import storage_health
+        storage_health.run_vacuum(self.storage.conn)
+
+    def maybe_auto_vacuum(self) -> bool:
+        """Runs VACUUM if the auto-vacuum policy is set to 'safe' and recommended."""
+        if self.settings.storage_auto_vacuum_policy == "safe":
+            report = self.inspect_storage_health()
+            if report.recommend_vacuum:
+                self.vacuum_storage()
+                return True
+        return False
 
     def close(self) -> None:
         self.storage.close()

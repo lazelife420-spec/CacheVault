@@ -3,9 +3,37 @@ from __future__ import annotations
 from types import SimpleNamespace
 import inspect
 
+import pytest
+
 from cache_vault import brand
+from cache_vault.core import models
+from cache_vault.core.models import Clip
 from cache_vault.ui.clip_grid import ClipGrid
 from cache_vault.ui.clip_list import ClipList
+from cache_vault.ui.shell import CacheVaultApp
+from tests.tk_support import probe_tk_ui, _tcl_unavailable
+
+OK, REASON = probe_tk_ui()
+
+
+def _make_app(vault):
+    try:
+        return CacheVaultApp(vault=vault)
+    except Exception as exc:  # noqa: BLE001
+        if _tcl_unavailable(exc):
+            pytest.skip(f"Tk runtime unavailable at app construction: {exc}")
+        raise
+
+
+def _png_bytes(color: str = "blue") -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("RGB", (8, 6), color)
+    out = BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
 
 
 class FakeWidget:
@@ -263,21 +291,21 @@ def test_shell_selection_hint_is_wired():
 
 
 def test_shell_context_menu_is_bulk_aware():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    open_menu = inspect.getsource(CacheVaultApp._open_clip_menu)
-    bulk_menu = inspect.getsource(CacheVaultApp._open_bulk_clip_menu)
+    open_menu = inspect.getsource(clip_context.open_clip_menu)
+    bulk_menu = inspect.getsource(clip_context.open_bulk_clip_menu)
 
     # Branches to the bulk menu only when >1 selected AND the clicked row is in it.
-    assert "len(self._selected_clip_ids) > 1" in open_menu
-    assert "clip.id in self._selected_clip_ids" in open_menu
-    assert "_open_bulk_clip_menu" in open_menu
+    assert "len(window._selected_clip_ids) > 1" in open_menu
+    assert "clip.id in window._selected_clip_ids" in open_menu
+    assert "open_bulk_clip_menu" in open_menu
 
     # Bulk menu targets the whole set via the _bulk_* methods and names the count.
-    assert "self._bulk_copy" in bulk_menu
-    assert "self._bulk_export_proof" in bulk_menu
-    assert "self._bulk_move_to_safe" in bulk_menu
-    assert "self._bulk_remove" in bulk_menu
+    assert "window._bulk_copy" in bulk_menu
+    assert "window._bulk_export_proof" in bulk_menu
+    assert "window._bulk_move_to_safe" in bulk_menu
+    assert "window._bulk_remove" in bulk_menu
     assert "{n}" in bulk_menu  # labels state how many clips are affected
 
 
@@ -316,23 +344,71 @@ def test_shell_selection_keyboard_and_lock_guards_are_wired():
     assert "_update_selected_action_strip(None)" in source
 
 
-def test_command_center_recent_clip_context_selects_before_menu():
+def test_command_center_recent_clip_context_selects_before_menu(tk_root):
     from cache_vault.ui.home_dashboard import HomeDashboard
+    from cache_vault.core.models import Clip
+    import tkinter as tk
 
-    source = inspect.getsource(HomeDashboard._bind_clip_card)
+    selected_clips = []
+    context_calls = []
 
-    assert "self._selected_clip_id = c.id" in source
-    assert "self._on_select_clip(c)" in source
-    assert "self._on_clip_context(c, e.x_root, e.y_root)" in source
-    assert source.index("self._on_select_clip(c)") < source.index("self._on_clip_context")
+    c1 = Clip(content="hello", title="Hello")
+    c1.id = "clip-1"
+
+    dashboard = HomeDashboard(
+        tk_root,
+        on_filter=lambda k: None,
+        on_open_receipts=lambda: None,
+        on_mobile_settings=lambda: None,
+        on_pair_android=lambda: None,
+        on_export=lambda: None,
+        on_select_clip=lambda c: selected_clips.append(c),
+        on_copy=lambda _id: None,
+        on_clip_context=lambda c, x, y: context_calls.append((c, x, y)),
+    )
+
+    summary = {
+        "all": 1, "favorites": 0, "screenshots": 0, "duplicates": 0,
+        "recently_removed": 0, "receipts": 0, "sensitive": 0, "expired": 0,
+        "capture_paused": False, "mobile_enabled": False,
+    }
+    dashboard.render(summary, [c1], [], [])
+    dashboard.update_idletasks()
+
+    event = tk.Event()
+    event.x_root = 100
+    event.y_root = 200
+
+    dashboard._on_card_context_menu(event, c1)
+
+    assert dashboard._selected_ids == {"clip-1"}
+    assert len(selected_clips) == 1
+    assert selected_clips[0].id == "clip-1"
+
+    assert len(context_calls) == 1
+    assert context_calls[0] == (c1, 100, 200)
+
+    # Multi-selection context preservation check
+    c2 = Clip(content="world", title="World")
+    c2.id = "clip-2"
+    dashboard.render(summary, [c1, c2], [], [])
+    dashboard.update_idletasks()
+
+    dashboard._selected_ids = {"clip-1", "clip-2"}
+    dashboard._on_card_context_menu(event, c1)
+
+    # Must preserve the multi-selection count/ids
+    assert dashboard._selected_ids == {"clip-1", "clip-2"}
+
+    dashboard.destroy()
 
 
 def test_command_center_empty_space_menu_has_only_app_commands():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    source = inspect.getsource(CacheVaultApp._open_home_app_menu)
+    source = inspect.getsource(clip_context.open_home_app_menu)
 
-    assert "_open_locked_menu" in source
+    assert "open_locked_menu" in source
     assert "Quick Paste" in source
     assert "Save Current Clipboard" in source
     assert "Open All Clips" in source
@@ -345,11 +421,11 @@ def test_command_center_empty_space_menu_has_only_app_commands():
 
 
 def test_command_center_dashboard_card_menu_is_navigation_not_clip_menu():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    source = inspect.getsource(CacheVaultApp._open_home_card_menu)
+    source = inspect.getsource(clip_context.open_home_card_menu)
 
-    assert "_open_locked_menu" in source
+    assert "open_locked_menu" in source
     assert "_navigate_filter" in source
     assert "_navigate_screen" in source
     assert "_open_clip_menu" not in source
@@ -357,11 +433,11 @@ def test_command_center_dashboard_card_menu_is_navigation_not_clip_menu():
 
 
 def test_command_center_status_menu_has_relevant_status_actions_only():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    source = inspect.getsource(CacheVaultApp._open_home_status_menu)
+    source = inspect.getsource(clip_context.open_home_status_menu)
 
-    assert "_open_locked_menu" in source
+    assert "open_locked_menu" in source
     assert "Open Safe" in source
     assert "Copy Safe Summary" in source
     assert "Open Receipts" in source
@@ -371,16 +447,84 @@ def test_command_center_status_menu_has_relevant_status_actions_only():
 
 
 def test_command_center_context_copy_avoids_forbidden_claims():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
     source = "\n".join(
         inspect.getsource(fn)
         for fn in (
-            CacheVaultApp._open_home_app_menu,
-            CacheVaultApp._open_home_card_menu,
-            CacheVaultApp._open_home_status_menu,
+            clip_context.open_home_app_menu,
+            clip_context.open_home_card_menu,
+            clip_context.open_home_status_menu,
         )
     ).lower()
 
     for claim in ("cloud sync", "encrypted safes", "final release", "bank-grade", "military-grade"):
         assert claim not in source
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_selected_action_strip_is_hidden(vault):
+    """The single-select toolbar strip must be hidden, 
+    so it should generate no buttons.
+    """
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+
+        link_clip = Clip(
+            content="https://example.com", preview="https://example.com",
+            classification=models.CLASS_LINK,
+        )
+        app._update_selected_action_strip(link_clip)
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert len(labels) == 0
+
+        text_clip = Clip(content="plain text note", preview="plain text note")
+        app._update_selected_action_strip(text_clip)
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert len(labels) == 0
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_bulk_action_strip_keeps_danger_under_more(vault, tmp_path, monkeypatch):
+    """The bulk strip exposes workflow actions; destructive actions stay in More."""
+    # capture_image() persists real asset files under %LOCALAPPDATA%; redirect
+    # to a tmp dir so this test never touches the real user profile.
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+
+        text1 = vault.capture("first note")
+        text2 = vault.capture("second note")
+        app._update_bulk_action_strip([text1.id, text2.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert labels == ["Copy Combined Text", "Create Proof Receipt", "Export Selection", "More…"]
+
+        link1 = vault.capture("https://example.com/1")
+        link2 = vault.capture("https://example.com/2")
+        app._update_bulk_action_strip([link1.id, link2.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert labels == ["Copy Combined Text", "Create Proof Receipt", "Export Selection", "More…"]
+
+        # Distinct colors: capture_image() silently returns None for
+        # byte-identical duplicate captures.
+        img1 = vault.capture_image(_png_bytes("red"), width=8, height=6)
+        img2 = vault.capture_image(_png_bytes("blue"), width=8, height=6)
+        assert img1 is not None and img2 is not None
+        app._update_bulk_action_strip([img1.id, img2.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert labels == ["Create Proof Receipt", "Export Selection", "Save Images", "More…"]
+
+        # Mixed selections expose both text and image workflows without danger.
+        app._update_bulk_action_strip([text1.id, img1.id])
+        labels = [b.cget("text") for b in app._selected_action_buttons]
+        assert labels == [
+            "Copy Combined Text", "Create Proof Receipt", "Export Selection",
+            "Save Images", "More…",
+        ]
+    finally:
+        app.destroy()

@@ -21,3 +21,8 @@ android/*.iml
 
 # Generated review artifact (regenerate with tools/verify_assets.py)
 assets/cache-vault-contact-sheet.png
+
+.snapshots/
+
+# Local visual smoke / runtime proof screenshots (may contain clipboard data)
+visual_smoke/

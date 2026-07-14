@@ -4,6 +4,13 @@ package com.prooffoundry.cachevaultmobile.data
 object UserMessages {
     const val SUPPORTED_API_VERSION = "1"
 
+    /**
+     * The only URL the app will ever open for an update — never a URL
+     * supplied by the PC or any other untrusted source.
+     */
+    const val TRUSTED_UPDATE_URL =
+        "https://play.google.com/store/apps/details?id=com.prooffoundry.cachevaultmobile"
+
     const val PC_UNREACHABLE =
         "Cannot reach your PC.\nMake sure your phone and PC are on the same Wi-Fi."
 
@@ -28,12 +35,21 @@ object UserMessages {
         "This screenshot is not available on your PC.\nIt may not have been saved as an image asset."
 
     const val REPAIR_NEEDED =
-        "Could not connect.\nYour phone reached the PC, but the pairing code was rejected.\nGenerate a fresh pairing code on the PC."
+        "This PC no longer trusts this phone.\nRe-pair to continue."
 
     const val PAIRING_SAVED = "Saved — connected to PC"
 
     const val PC_FOUND_SECURE =
         "Local vault detected on this Wi-Fi."
+
+    /** Exact copy required for the blocking "Update required" screen. */
+    fun updateRequired(minimumMobileVersion: String?): String {
+        val minimum = minimumMobileVersion?.takeIf { it.isNotBlank() } ?: "a newer version"
+        return "Update required\n\n" +
+            "This version of the CacheVault companion is no longer compatible " +
+            "with the desktop bridge.\n\n" +
+            "Minimum supported version: $minimum"
+    }
 
     fun forBridgeError(error: BridgeError): String = when (error) {
         is BridgeError.Disabled -> MOBILE_ACCESS_OFF
@@ -42,6 +58,7 @@ object UserMessages {
             error.message?.contains("token", ignoreCase = true) == true -> REPAIR_NEEDED
             else -> PAIRING_FAILED
         }
+        is BridgeError.UpdateRequired -> updateRequired(error.minimumMobileVersion)
         is BridgeError.UnsupportedApi -> UNSUPPORTED_API
         is BridgeError.Network -> "$PC_UNREACHABLE\n\n$FIREWALL_HINT"
         is BridgeError.NotFound -> NOT_FOUND

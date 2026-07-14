@@ -8,14 +8,21 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import models
-from ..core.lan_ip import advanced_lan_ipv4, lan_ip_guidance, list_lan_ipv4, recommended_lan_ipv4
+from ..core.lan_ip import advanced_lan_ipv4, list_lan_ipv4, recommended_lan_ipv4
 from ..core.mobile.connection_doctor import connection_doctor_text
-from ..core.mobile.models import DEFAULT_MOBILE_PORT
+from ..core.mobile.models import (
+    DEFAULT_MOBILE_PORT,
+    DEVICE_STATUS_OFFLINE,
+    DEVICE_STATUS_ONLINE,
+    DEVICE_STATUS_REVOKED,
+    DEVICE_STATUS_WAITING_APPROVAL,
+    PairedDevice,
+    paired_device_status,
+)
 from . import theme
 from .pairing_help import (
     PAIRING_ERROR,
     PAIRING_PLACEHOLDER,
-    mask_token,
     pairing_copy_all_text,
     pairing_success_text,
     normalize_device_name,
@@ -171,8 +178,13 @@ class PairAndroidDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             scroll,
-            text="QR pairing is coming next. Token shown once — treat as secret.",
-            anchor="w", text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=10),
+            text=(
+                "Token is hidden by default. Do not share screenshots that reveal "
+                "it. After testing, use Revoke All Devices or generate a fresh "
+                "code. QR pairing is coming next."
+            ),
+            anchor="w", justify="left", wraplength=500,
+            text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=8, pady=(8, 4))
 
         ctk.CTkButton(scroll, text="Close", command=self.destroy,
@@ -358,6 +370,18 @@ class MobileAccessReceiptsDialog(ctk.CTkToplevel):
         _bring_to_front(self, master, modal=False)
 
 
+_DEVICE_STATUS_COLORS = {
+    DEVICE_STATUS_ONLINE: brand.PROOF_TEAL,
+    DEVICE_STATUS_OFFLINE: brand.MUTED_FG,
+    DEVICE_STATUS_WAITING_APPROVAL: brand.STAMP_GOLD,
+    DEVICE_STATUS_REVOKED: brand.WARNING_RED,
+}
+
+
+def _device_status_color(status: str) -> str:
+    return _DEVICE_STATUS_COLORS.get(status, brand.MUTED_FG)
+
+
 class PairedDevicesDialog(ctk.CTkToplevel):
     def __init__(self, master, devices: list[dict],
                  on_revoke: Callable[[str], None]):
@@ -380,14 +404,29 @@ class PairedDevicesDialog(ctk.CTkToplevel):
             ctk.CTkLabel(frame, text="No paired devices yet.",
                          text_color=brand.MUTED_FG).pack(pady=20)
         for d in devices:
+            device = PairedDevice.from_dict(d)
+            status = paired_device_status(device)
+            last_seen = device.last_seen_at or "Never"
             row = ctk.CTkFrame(frame, fg_color="transparent")
             row.pack(fill="x", pady=4)
-            label = f"{d.get('device_name', '?')}  ({d.get('device_id', '')[:8]}…)"
-            ctk.CTkLabel(row, text=label, anchor="w").pack(side="left", padx=4)
-            ctk.CTkButton(
-                row, text="Revoke", width=70, command=lambda i=d["device_id"]: self._revoke(i),
-                **theme.destructive_button(),
-            ).pack(side="right", padx=4)
+            info = ctk.CTkFrame(row, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(
+                info, text=f"{device.device_name}  ({device.device_id[:8]}…)",
+                anchor="w", justify="left",
+            ).pack(anchor="w", padx=4)
+            ctk.CTkLabel(
+                info, text=f"Status: {status}  ·  Last seen: {last_seen}",
+                anchor="w", justify="left",
+                text_color=_device_status_color(status),
+                font=ctk.CTkFont(size=11, weight="bold"),
+            ).pack(anchor="w", padx=4)
+            if status != DEVICE_STATUS_REVOKED:
+                ctk.CTkButton(
+                    row, text="Revoke", width=70,
+                    command=lambda i=d["device_id"]: self._revoke(i),
+                    **theme.destructive_button(),
+                ).pack(side="right", padx=4)
 
         from .dialogs import _bring_to_front
         _bring_to_front(self, master, modal=True)

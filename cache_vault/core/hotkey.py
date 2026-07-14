@@ -9,11 +9,9 @@ simply unavailable (the rest of the app is unaffected).
 from __future__ import annotations
 
 import threading
-import time
 from typing import Callable, Optional
 
 try:  # pragma: no cover - optional dependency / Windows only
-    import win32api  # type: ignore
     import win32con  # type: ignore
     import win32gui  # type: ignore
     _HAS_WIN32 = True
@@ -31,6 +29,9 @@ _MODS = {
 _MOD_NOREPEAT = 0x4000
 _WM_HOTKEY = 0x0312
 
+# Win32 VK_NUMPAD0..9 — distinct from top-row 0x30..0x39.
+_NUMPAD_VK = {f"num{n}": 0x60 + n for n in range(10)}
+
 _NAMED_VK = {
     "space": 0x20, "enter": 0x0D, "return": 0x0D, "tab": 0x09,
     "esc": 0x1B, "escape": 0x1B, "insert": 0x2D, "ins": 0x2D,
@@ -39,9 +40,95 @@ _NAMED_VK = {
     **{f"f{n}": 0x70 + (n - 1) for n in range(1, 13)},
 }
 
+_MODIFIER_KEYSYMS = {
+    "Shift_L": "shift", "Shift_R": "shift",
+    "Control_L": "ctrl", "Control_R": "ctrl",
+    "Alt_L": "alt", "Alt_R": "alt",
+    "Super_L": "win", "Super_R": "win", "Win_L": "win", "Win_R": "win",
+}
+
+_KEYSYM_ALIASES = {
+    "Return": "enter", "KP_Enter": "enter", "Escape": "esc", "Tab": "tab",
+    "space": "space", "Delete": "delete", "Insert": "insert", "Home": "home",
+    "End": "end", "Prior": "pageup", "Next": "pagedown",
+}
+
+# Tk KP_* names that map to numpad digits on layouts without dedicated KP_N keys.
+_KP_DIGIT_ALIASES = {
+    "Insert": "0", "End": "1", "Down": "2", "Next": "3", "Left": "4",
+    "Begin": "5", "Right": "6", "Home": "7", "Up": "8", "Prior": "9",
+}
+
+
+def _canonical_mod(part: str) -> str:
+    return {"control": "ctrl", "super": "win", "meta": "win"}.get(part, part)
+
+
+def _canonical_key_token(part: str) -> str:
+    """Normalize a single key token for storage / comparison."""
+    part = _canonical_mod(part.lower())
+    if part.startswith("numpad") and part[6:].isdigit():
+        return f"num{part[6:]}"
+    if part.startswith("num") and len(part) == 4 and part[3].isdigit():
+        return part
+    return part
+
+
+def _parse_parts(spec: str) -> list[str]:
+    parts: list[str] = []
+    for raw in (spec or "").lower().replace(" ", "").split("+"):
+        if not raw:
+            continue
+        parts.append(_canonical_key_token(raw))
+    return parts
+
+
+def canonical_hotkey_spec(spec: str) -> str:
+    """Canonical storage/comparison form, e.g. ``ctrl+num2``."""
+    return "+".join(_parse_parts(spec))
+
+
+def _format_key_display(key: str) -> str:
+    key = key.lower()
+    if key.startswith("num") and len(key) == 4 and key[3].isdigit():
+        return f"Num {key[3]}"
+    if len(key) == 1:
+        return key.upper()
+    if key.lower().startswith("f") and key[1:].isdigit():
+        return key.lower()
+    return key.capitalize()
+
+
+def normalize_keysym(keysym: str, keycode: int | None = None) -> str | None:
+    """Map a Tk keysym (+ optional keycode) to a hotkey key token."""
+    if not keysym:
+        return None
+    if keysym in _KEYSYM_ALIASES:
+        return _KEYSYM_ALIASES[keysym]
+    if keysym.startswith("KP_"):
+        tail = keysym[3:]
+        if tail.isdigit():
+            return f"num{tail}"
+        digit = _KP_DIGIT_ALIASES.get(tail)
+        if digit is not None:
+            return f"num{digit}"
+    if len(keysym) == 1 and keysym.isalnum():
+        if keycode is not None and 0x60 <= keycode <= 0x69:
+            return f"num{keycode - 0x60}"
+        return keysym.lower()
+    if keysym.lower().startswith("f") and keysym[1:].isdigit():
+        return keysym.lower()
+    return None
+
 
 def _vk_for(key: str) -> Optional[int]:
     key = key.lower()
+    if key in _NUMPAD_VK:
+        return _NUMPAD_VK[key]
+    if key.startswith("numpad") and key[6:].isdigit():
+        n = int(key[6:])
+        if 0 <= n <= 9:
+            return 0x60 + n
     if len(key) == 1:
         return ord(key.upper())
     return _NAMED_VK.get(key)
@@ -67,18 +154,10 @@ def parse_hotkey(spec: str) -> tuple[int, Optional[int]]:
 def normalize_hotkey(spec: str) -> str:
     """Human-readable, canonical form for display, e.g. ``Ctrl+Shift+V``."""
     order = ["ctrl", "alt", "shift", "win"]
-    seen = set()
-    mod_parts: list[str] = []
-    key_part = ""
-    for part in spec.lower().replace(" ", "").split("+"):
-        canon = {"control": "ctrl", "super": "win", "meta": "win"}.get(part, part)
-        if canon in _MODS and canon not in seen:
-            seen.add(canon)
-        elif canon not in _MODS and part:
-            key_part = part.upper() if len(part) == 1 else part.capitalize()
-    for m in order:
-        if m in seen:
-            mod_parts.append(m.capitalize())
+    parts = _parse_parts(spec)
+    mod_parts = [m.capitalize() for m in order if m in parts]
+    key_tokens = [p for p in parts if p not in _MODS]
+    key_part = _format_key_display(key_tokens[0]) if key_tokens else ""
     return "+".join(mod_parts + ([key_part] if key_part else []))
 
 
@@ -98,7 +177,7 @@ _WINDOWS_RESERVED_DISPLAY = frozenset({
 
 
 def _canonical_key(spec: str) -> str:
-    return "+".join(p.lower() for p in normalize_hotkey(spec).split("+"))
+    return canonical_hotkey_spec(spec)
 
 
 def diagnose_hotkey_spec(
@@ -107,10 +186,16 @@ def diagnose_hotkey_spec(
     all_specs: dict[str, str],
     *,
     win32_available: bool | None = None,
+    external_specs: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     """Return ``(kind, message)`` for settings UI status labels.
 
-    *kind* is one of: ``ok``, ``invalid``, ``duplicate``, ``unavailable``, ``reserved``.
+    *kind* is one of: ``ok``, ``invalid``, ``duplicate``, ``conflict``,
+    ``unavailable``, ``reserved``.
+
+    ``external_specs`` maps a raw hotkey string (e.g. a Vault Macro or Hotkey
+    Action combo) to a human label describing its owner. A match reports a
+    ``conflict`` so the user knows the shortcut is already claimed elsewhere.
     """
     if win32_available is None:
         win32_available = _HAS_WIN32
@@ -127,6 +212,10 @@ def diagnose_hotkey_spec(
     ]
     if dup_roles:
         return "duplicate", "Same shortcut used elsewhere in Cache Vault"
+    if external_specs:
+        for other_spec, label in external_specs.items():
+            if other_spec and _canonical_key(other_spec) == canon_key:
+                return "conflict", f"Already used by {label}"
     if not win32_available:
         return "unavailable", "Global shortcuts need Windows (pywin32)"
     if canon_key in _WINDOWS_RESERVED_DISPLAY:

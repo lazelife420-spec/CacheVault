@@ -87,7 +87,7 @@ def main() -> None:
     draw.text((x, 380), "Free vault + Founder proof workflows", fill=MUTED, font=_font(28))
 
     draw.rounded_rectangle((x, 460, x + 320, 520), radius=14, fill=ACCENT)
-    draw.text((x + 28, 474), "Windows · Lifetime license", fill=(4, 47, 46), font=_font(24, bold=True))
+    draw.text((x + 28, 474), "Windows · One-time Founder license", fill=(4, 47, 46), font=_font(24, bold=True))
 
     draw.rounded_rectangle((W - 280, H - 72, W - 48, H - 28), radius=12, outline=ACCENT, width=2)
     draw.text((W - 252, H - 62), "Proof Foundry", fill=ACCENT, font=_font(22, bold=True))

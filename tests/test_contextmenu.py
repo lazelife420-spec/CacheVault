@@ -32,6 +32,8 @@ def test_text_clip_has_no_file_actions():
     assert keys == ["primary", "copy_clean", "organize", "proof", "advanced", "danger"]
     assert "open" not in _all_keys(items) and "reveal" not in _all_keys(items)
     assert advanced["create_editable_copy"].enabled is False
+    assert advanced["edit_clip_text"].enabled is True
+    assert advanced["duplicate_editable_clip"].enabled is True
 
 
 def test_removed_clip_menu_offers_restore():
@@ -126,8 +128,11 @@ def test_image_clip_gets_image_and_asset_actions():
     ))
 
     primary = _children(items, "primary")
+    advanced = {i.key: i for i in _children(items, "advanced")}
     assert primary[0].label == "Copy Image"
     assert "open_asset_folder" in _all_keys(items)
+    assert advanced["edit_clip_text"].enabled is False
+    assert advanced["duplicate_editable_clip"].enabled is False
 
 
 def test_context_menu_uses_professional_groups():
@@ -136,28 +141,186 @@ def test_context_menu_uses_professional_groups():
     assert _keys(_children(items, "danger")) == ["remove"]
 
 
-def test_shell_context_menus_guard_locked_state():
-    from cache_vault.ui.shell import CacheVaultApp
+def test_shell_context_menu_guards_locked_state():
+    from cache_vault.ui import clip_context
 
-    src = inspect.getsource(CacheVaultApp._open_clip_menu)
+    src = inspect.getsource(clip_context.open_clip_menu)
     assert "_locked()" in src
-    assert "_open_locked_menu" in src
+    assert "open_locked_menu" in src
 
 
 def test_shell_has_receipt_context_menu():
+    from cache_vault.ui import clip_context
     from cache_vault.ui.shell import CacheVaultApp
 
-    src = inspect.getsource(CacheVaultApp)
-    assert "_open_receipt_menu" in src
+    src = inspect.getsource(clip_context)
+    assert "open_receipt_menu" in src
     assert "Copy Receipt Summary" in src
-    assert "EVENT_RECEIPT_SUMMARY_COPIED" in src
+    shell_src = inspect.getsource(CacheVaultApp)
+    assert "EVENT_RECEIPT_SUMMARY_COPIED" in shell_src
 
 
 def test_shell_has_safe_context_menu():
-    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
 
-    src = inspect.getsource(CacheVaultApp)
-    assert "_open_safe_menu" in src
+    src = inspect.getsource(clip_context)
+    assert "open_safe_menu" in src
     assert "Set as Default Safe" in src
     assert "Copy Safe Summary" in src
-    assert "Export Safe Proof Zip" in src
+    assert "Export Safe Proof Zip (planned)" not in src
+
+
+# -- BUG-4 regression: "Mark Keep" must use a distinct key and dispatch --
+
+def test_mark_keep_has_distinct_menu_key():
+    """Favorite toggle and Mark Keep must not share the 'toggle_favorite' key."""
+    organize = _children(clip_menu_items(_clip("x")), "organize")
+    by_label = {i.label: i for i in organize}
+    assert by_label["Add to Favorites"].key == "toggle_favorite"
+    assert by_label["Mark Keep"].key == "mark_keep"
+
+
+def test_menu_keys_are_unique():
+    """No two leaf menu items may share a dispatch key (would cause ambiguity)."""
+    for clip in (
+        _clip("plain", classification=models.CLASS_PLAIN),
+        _clip("https://example.com", classification=models.CLASS_LINK),
+        _clip("img", content_type=models.CONTENT_IMAGE, classification=models.CLASS_IMAGE),
+    ):
+        keys = _all_keys(clip_menu_items(clip))
+        # Drop the structural group keys; check the actionable leaves are unique.
+        assert len(keys) == len(set(keys)), f"duplicate menu key in {keys}"
+
+
+def test_clip_menu_dispatch_wires_mark_keep():
+    """The clip context-menu dispatch must handle 'mark_keep' (else KeyError)."""
+    from cache_vault.ui import clip_context
+
+    src = inspect.getsource(clip_context.open_clip_menu)
+    assert '"mark_keep": lambda: window._mark_keep(clip.id)' in src
+
+
+def test_context_menus_are_destroyed_after_use():
+    """Every popup menu must be destroyed to avoid leaking Tk menu handles.
+
+    Leaked menus eventually trigger 'No more menus can be allocated', which
+    breaks bulk copy and every other context menu.
+    """
+    from cache_vault.ui import clip_context
+
+    src = inspect.getsource(clip_context)
+    # The freeing helper must exist and actually destroy the menu.
+    helper = inspect.getsource(clip_context.destroy_menu)
+    assert "menu.destroy()" in helper
+    # We centralized popup cleanup in popup_menu function
+    popup = inspect.getsource(clip_context.popup_menu)
+    assert "menu.grab_release()" in popup
+    assert "destroy_menu(menu)" in popup
+
+
+def test_mark_keep_handler_sets_kept_flag(vault):
+    """Choosing Mark Keep performs the intended action: it sets is_kept, not favorite."""
+    clip = vault.capture("keep me")
+    assert clip.is_kept is False
+    assert clip.is_pinned is False
+
+    vault.mark_keep(clip.id)
+
+    reloaded = vault.storage.get_clip(clip.id)
+    assert reloaded.is_kept is True
+    assert reloaded.is_pinned is False  # must NOT toggle favorite (the old bug)
+
+
+def test_create_paste_macro_menu_item_present():
+    """Verify that 'Create Paste Macro' exists in the Organize submenu children."""
+    items = clip_menu_items(_clip("hello macro"))
+    organize = _children(items, "organize")
+    organize_keys = [item.key for item in organize]
+    assert "create_paste_macro" in organize_keys
+    create_item = next(item for item in organize if item.key == "create_paste_macro")
+    assert create_item.label == "Create Paste Macro…"
+
+
+def test_clip_menu_dispatch_wires_create_paste_macro():
+    """Verify that the dispatch map has the create_paste_macro lambda wired correctly."""
+    from cache_vault.ui import clip_context
+    src = inspect.getsource(clip_context.open_clip_menu)
+    assert '"create_paste_macro": lambda: window._create_macro_from_clip(clip.id)' in src
+
+
+def test_sidebar_safe_menu_delegates_to_clip_context():
+    """Verify that sidebar_context.open_safe_menu delegates to clip_context."""
+    import inspect
+    from cache_vault.ui import sidebar_context
+    src = inspect.getsource(sidebar_context.open_safe_menu)
+    assert "from .clip_context import open_safe_menu" in src
+    assert "_open_safe_menu(window, safe, x_root, y_root)" in src
+
+
+def test_shortcuts_quick_paste_macros_configure_hotkey_deep_links():
+    """Verify Configure Hotkey actions pass shortcuts/macros category to open_settings."""
+    import inspect
+    from cache_vault.ui import sidebar_context
+    src1 = inspect.getsource(sidebar_context.open_quick_paste_nav_menu)
+    assert 'window._open_settings("shortcuts")' in src1
+    src2 = inspect.getsource(sidebar_context.open_macros_nav_menu)
+    assert 'window._open_settings("macros")' in src2
+
+
+def test_selected_action_strip_labels():
+    """Verify that the multi-selection strip uses workflow-first labels."""
+    import inspect
+    from cache_vault.ui import shell
+    src = inspect.getsource(shell.CacheVaultApp._update_bulk_action_strip)
+    assert '"Copy Combined Text"' in src
+    assert '"Create Proof Receipt"' in src
+    assert '"Export Selection"' in src
+    assert '"More…"' in src
+    assert '"Remove"' not in src
+
+
+def test_cleanup_2_disabled_stubs_and_home_status():
+    """Verify new labels, deleted Set as Default Safe from home status menu, and receipts path logic."""
+    import inspect
+    from cache_vault.ui import clip_context
+    src = inspect.getsource(clip_context)
+
+    # 1. open_home_status_menu does NOT have Set as Default Safe anymore, has (planned)
+    assert "Set as Default Safe" not in inspect.getsource(clip_context.open_home_status_menu)
+    assert "Export Safe Proof Zip (planned)" not in inspect.getsource(clip_context.open_home_status_menu)
+
+    # 2. open_receipt_menu uses _find_receipt_file and has (no local file) labels
+    assert "receipt_file = _find_receipt_file(row)" in inspect.getsource(clip_context.open_receipt_menu)
+    assert '"Copy Receipt Path (no local file)"' in inspect.getsource(clip_context.open_receipt_menu)
+    assert '"Open Receipt File / Folder (no local file)"' in inspect.getsource(clip_context.open_receipt_menu)
+
+
+def test_photo_viewer_context_and_preview():
+    """Verify that 'View Larger' is wired to the context menu, dispatch, and preview panel."""
+    import inspect
+    from cache_vault.ui import clip_context, preview
+    from cache_vault.core import contextmenu
+
+    # 1. MenuItem view_larger is inserted for images in contextmenu.py
+    menu_src = inspect.getsource(contextmenu.clip_menu_items)
+    assert 'MenuItem("view_larger", "View Larger")' in menu_src
+
+    # 2. Mapped in clip_context.py dispatch
+    assert '"view_larger": lambda: window._open_photo_viewer(clip.id)' in inspect.getsource(clip_context.open_clip_menu)
+
+    # 3. View Larger button is added in preview.py
+    assert 'add_sec("View Larger", "view_larger", 0, 0, **theme.secondary_button())' in inspect.getsource(preview.PreviewPanel._render_buttons)
+    # Double-click is bound to view_larger
+    assert 'lambda _e, c=clip: self._fire("view_larger", c)' in inspect.getsource(preview.PreviewPanel._render_image_preview)
+
+
+def test_shell_clip_workflows_are_wired():
+    from cache_vault.ui.shell import CacheVaultApp
+    from cache_vault.ui import clip_context
+
+    shell_src = inspect.getsource(CacheVaultApp)
+    ctx_src = inspect.getsource(clip_context)
+    assert "Combine" in shell_src
+    assert "MultiLinkPasteDialog" in shell_src
+    assert '"edit_clip_text": lambda: window._edit_clip_text(clip.id)' in ctx_src
+    assert '"duplicate_editable_clip": lambda: window._duplicate_as_editable_clip(clip.id)' in ctx_src

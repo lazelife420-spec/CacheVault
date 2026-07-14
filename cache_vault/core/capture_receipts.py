@@ -24,6 +24,9 @@ def _receipt_base(
     item_type: str | None = None,
     warning: str | None = None,
     error: str | None = None,
+    source_device: str | None = None,
+    paired_device_id: str | None = None,
+    transfer_status: str | None = None,
 ) -> dict:
     body = {
         "action": action,
@@ -36,6 +39,9 @@ def _receipt_base(
         "source_app": source_app,
         "hash": content_hash,
         "item_type": item_type,
+        "source_device": source_device,
+        "paired_device_id": paired_device_id,
+        "transfer_status": transfer_status,
     }
     if warning:
         body["warning"] = warning[:200]
@@ -59,6 +65,9 @@ def record_capture_receipt(
     item_type: str | None = None,
     warning: str | None = None,
     error: str | None = None,
+    source_device: str | None = None,
+    paired_device_id: str | None = None,
+    transfer_status: str | None = None,
 ) -> None:
     payload = _receipt_base(
         action=action,
@@ -72,6 +81,9 @@ def record_capture_receipt(
         item_type=item_type,
         warning=warning,
         error=error,
+        source_device=source_device,
+        paired_device_id=paired_device_id,
+        transfer_status=transfer_status,
     )
     write_file_receipt(action, payload)
     events.record(event_type, clip_id, payload)

@@ -119,10 +119,10 @@ def _chip(draw, x, y, text, font, fg, border):
 
 # --- Mock vault window ------------------------------------------------------
 CLIPS = [
-    ("CODE", "git rebase -i HEAD~4   # squash before the PR", "Local only", True),
+    ("CODE", "git rebase -i HEAD~4   # squash before the PR", "Local-first", True),
     ("LINK", "https://docs.cachevault.app/proof-manifests", "Receipt stamped", False),
     ("TEXT", "Q3 launch checklist — finalize pricing + release notes", "Favorited", False),
-    ("NOTE", "Investor reply: send the one-pager + 90s demo Thursday", "Local only", False),
+    ("NOTE", "Investor reply: send the one-pager + 90s demo Thursday", "Local-first", False),
     ("IMG", "screenshot-2026-06-24-dashboard.png", "Hash verified", True),
 ]
 BADGE = {

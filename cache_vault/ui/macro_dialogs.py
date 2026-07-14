@@ -13,13 +13,19 @@ from ..core.vault_macros import (
     MACRO_TEMPLATES,
     OUTPUT_CLIPBOARD_PASTE,
     OUTPUT_KEYSTROKE,
+    RESERVED_HOTKEYS,
+    TRIGGER_HOTKEY,
+    TRIGGER_MENU_ONLY,
+    TRIGGER_TEXT_SHORTCUT,
     MacroSafeRegistry,
     SetupChoices,
     STARTER_MACRO_SAFES,
     complete_macro_setup,
-    suggest_smart_type,
+    normalize_hotkey,
 )
 from . import theme
+from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
+from .hotkey_recording import DialogHotkeyRecorder
 
 
 def _bring_to_front(win: ctk.CTkToplevel) -> None:
@@ -54,7 +60,7 @@ class VaultMacrosSetupDialog(ctk.CTkToplevel):
         record_receipt: Callable[[str, dict], None] | None = None,
     ):
         super().__init__(master)
-        self.title("Set up Vault Macros")
+        self.title("Set up Snippet Macros")
         self.geometry("520x680")
         self.resizable(False, True)
         self.minsize(520, 560)
@@ -78,7 +84,7 @@ class VaultMacrosSetupDialog(ctk.CTkToplevel):
         scroll.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(
-            scroll, text="Set up Vault Macros",
+            scroll, text="Set up Snippet Macros",
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(anchor="w", pady=(4, 2))
         ctk.CTkLabel(
@@ -184,14 +190,28 @@ class MacroEditDialog(ctk.CTkToplevel):
         macro,
         registry: MacroSafeRegistry,
         on_save: Callable,
+        other_macros: list | None = None,
+        reserved_specs: set[str] | frozenset[str] | None = None,
     ):
         super().__init__(master)
-        self.title(f"{brand.TERM_VAULT_MACROS} — Edit")
-        self.geometry("520x620")
+        self.title(f"{brand.TERM_SNIPPET_MACROS} — Edit")
+        self.geometry("520x780")
         self.resizable(False, True)
+        self.minsize(520, 600)
         self._macro = macro
         self._registry = registry
         self._on_save = on_save
+        self._other_macros = other_macros or []
+        self._reserved_specs = {
+            normalize_hotkey(s) for s in (reserved_specs or set()) if s
+        }
+        self._TRIGGER_ORDER = (TRIGGER_MENU_ONLY, TRIGGER_HOTKEY, TRIGGER_TEXT_SHORTCUT)
+        self._TRIGGER_LABELS = {
+            TRIGGER_MENU_ONLY: "Menu only (no shortcut)",
+            TRIGGER_HOTKEY: "Hotkey combo",
+            TRIGGER_TEXT_SHORTCUT: "Text shortcut",
+        }
+        self._label_to_trigger = {v: k for k, v in self._TRIGGER_LABELS.items()}
 
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.pack(side="bottom", fill="x", padx=12, pady=(0, 12))
@@ -236,7 +256,73 @@ class MacroEditDialog(ctk.CTkToplevel):
             command=self._suggest_type, **theme.secondary_button(),
         ).pack(anchor="w", pady=(0, 8))
 
+        _section(body, "Trigger & output")
 
+        ctk.CTkLabel(body, text="Trigger").pack(anchor="w")
+        self._trigger = ctk.CTkOptionMenu(
+            body,
+            values=[self._TRIGGER_LABELS[t] for t in self._TRIGGER_ORDER],
+            command=lambda _v: self._on_trigger_changed(),
+        )
+        self._trigger.set(
+            self._TRIGGER_LABELS.get(macro.trigger_type, self._TRIGGER_LABELS[TRIGGER_MENU_ONLY])
+        )
+        self._trigger.pack(anchor="w", pady=(0, 6))
+
+        self._trigger_value_holder = ctk.CTkFrame(body, fg_color="transparent")
+        self._trigger_value_holder.pack(anchor="w", fill="x")
+
+        self._hotkey_row = ctk.CTkFrame(self._trigger_value_holder, fg_color="transparent")
+        self._hotkey = ctk.CTkEntry(self._hotkey_row, width=220, placeholder_text="ctrl+shift+1")
+        if macro.trigger_type == TRIGGER_HOTKEY:
+            self._hotkey.insert(0, macro.trigger_value or "")
+        self._hotkey.pack(side="left")
+        self._hotkey.bind("<KeyRelease>", lambda _e: self._refresh_hotkey_status())
+        self._record_btn = ctk.CTkButton(
+            self._hotkey_row, text="Press shortcut now", width=150,
+            command=self._toggle_record, **theme.secondary_button(),
+        )
+        self._record_btn.pack(side="left", padx=(8, 0))
+
+        self._shortcut = ctk.CTkEntry(self._trigger_value_holder, width=220, placeholder_text=";sig")
+        if macro.trigger_type == TRIGGER_TEXT_SHORTCUT:
+            self._shortcut.insert(0, macro.trigger_value or "")
+
+        self._trigger_status = ctk.CTkLabel(
+            body, text="", anchor="w", justify="left",
+            font=theme.body_font(10), wraplength=460,
+        )
+        self._trigger_status.pack(anchor="w", pady=(4, 8))
+        self._recorder = DialogHotkeyRecorder(
+            self,
+            entry=self._hotkey,
+            button=self._record_btn,
+            normalize_keysym=_normalize_keysym,
+            modifier_keysyms=_MODIFIER_KEYSYMS,
+            on_complete=self._refresh_hotkey_status,
+            on_hint=lambda text: self._trigger_status.configure(
+                text=text, text_color=brand.MUTED_FG,
+            ),
+        )
+
+        ctk.CTkLabel(body, text="Output mode").pack(anchor="w")
+        self._output = ctk.CTkOptionMenu(body, values=["Clipboard paste", "Keystroke"])
+        self._output.set(
+            "Keystroke" if macro.output_mode == OUTPUT_KEYSTROKE else "Clipboard paste"
+        )
+        self._output.pack(anchor="w", pady=(0, 8))
+
+        self._enabled = ctk.CTkCheckBox(body, text="Enabled")
+        self._enabled.select() if macro.enabled else self._enabled.deselect()
+        self._enabled.pack(anchor="w", pady=2)
+        self._favorite = ctk.CTkCheckBox(body, text="Favorite")
+        self._favorite.select() if macro.favorite else self._favorite.deselect()
+        self._favorite.pack(anchor="w", pady=2)
+        self._sensitive = ctk.CTkCheckBox(body, text="Require confirmation (sensitive)")
+        self._sensitive.select() if macro.sensitive_confirm else self._sensitive.deselect()
+        self._sensitive.pack(anchor="w", pady=(2, 8))
+
+        self._on_trigger_changed()
 
         self.transient(master)
         _bring_to_front(self)
@@ -262,6 +348,68 @@ class MacroEditDialog(ctk.CTkToplevel):
         st = suggest_smart_type(body, self._name.get())
         self._stype.set(SMART_TYPE_LABELS.get(st, st))
 
+    def _current_trigger(self) -> str:
+        return self._label_to_trigger.get(self._trigger.get(), TRIGGER_MENU_ONLY)
+
+    def _on_trigger_changed(self) -> None:
+        tt = self._current_trigger()
+        self._hotkey_row.pack_forget()
+        self._shortcut.pack_forget()
+        if tt == TRIGGER_HOTKEY:
+            self._hotkey_row.pack(anchor="w", fill="x")
+            self._refresh_hotkey_status()
+        elif tt == TRIGGER_TEXT_SHORTCUT:
+            self._shortcut.pack(anchor="w")
+            self._trigger_status.configure(
+                text="Type this text anywhere to expand the macro (e.g. ;sig).",
+                text_color=brand.MUTED_FG,
+            )
+        else:
+            if self._recorder.recording:
+                self._recorder.stop(cancelled=True)
+            self._trigger_status.configure(
+                text="Run from the macro menu or the Run button only.",
+                text_color=brand.MUTED_FG,
+            )
+
+    def _refresh_hotkey_status(self) -> None:
+        if self._recorder.recording:
+            return
+        spec = normalize_hotkey(self._hotkey.get())
+        if not spec:
+            self._trigger_status.configure(
+                text="Enter or record a hotkey combo (e.g. ctrl+shift+1).",
+                text_color=brand.MUTED_FG,
+            )
+            return
+        if spec in RESERVED_HOTKEYS or spec in self._reserved_specs:
+            self._trigger_status.configure(
+                text=f"'{spec}' is reserved by Cache Vault — choose another combo.",
+                text_color=brand.STAMP_GOLD,
+            )
+            return
+        clash = next(
+            (
+                m for m in self._other_macros
+                if m.trigger_type == TRIGGER_HOTKEY
+                and normalize_hotkey(m.trigger_value) == spec
+            ),
+            None,
+        )
+        if clash is not None:
+            self._trigger_status.configure(
+                text=f"Conflicts with macro '{clash.name}' — both use {spec}.",
+                text_color=brand.WARNING_RED,
+            )
+            return
+        self._trigger_status.configure(
+            text=f"Hotkey {spec} → pastes this macro into the active app.",
+            text_color=brand.PROOF_TEAL,
+        )
+
+    def _toggle_record(self) -> None:
+        self._recorder.toggle()
+
     def _save(self) -> None:
         from ..core.vault_macros import SMART_TYPE_LABELS, SMART_TYPES
         label_to_type = {SMART_TYPE_LABELS[t]: t for t in SMART_TYPES}
@@ -271,14 +419,63 @@ class MacroEditDialog(ctk.CTkToplevel):
         self._macro.body = self._body.get("1.0", "end").strip()
         self._macro.safe_id = name_to_id.get(self._safe.get(), self._macro.safe_id)
         self._macro.smart_type = label_to_type.get(self._stype.get(), self._macro.smart_type)
+
+        trigger_type = self._current_trigger()
+        if trigger_type == TRIGGER_HOTKEY:
+            trigger_value = normalize_hotkey(self._hotkey.get())
+            if not trigger_value:
+                self._trigger_status.configure(
+                    text="Enter or record a hotkey combo (e.g. ctrl+shift+1).",
+                    text_color=brand.WARNING_RED,
+                )
+                return
+            if trigger_value in RESERVED_HOTKEYS or trigger_value in self._reserved_specs:
+                self._trigger_status.configure(
+                    text=f"'{trigger_value}' is reserved by Cache Vault - choose another combo.",
+                    text_color=brand.WARNING_RED,
+                )
+                return
+            clash = next(
+                (
+                    m for m in self._other_macros
+                    if m.id != self._macro.id
+                    and m.trigger_type == TRIGGER_HOTKEY
+                    and normalize_hotkey(m.trigger_value) == trigger_value
+                ),
+                None,
+            )
+            if clash is not None:
+                self._trigger_status.configure(
+                    text=f"Conflicts with macro '{clash.name}' - both use {trigger_value}.",
+                    text_color=brand.WARNING_RED,
+                )
+                return
+        elif trigger_type == TRIGGER_TEXT_SHORTCUT:
+            trigger_value = self._shortcut.get().strip()
+        else:
+            trigger_value = ""
+        self._macro.trigger_type = trigger_type
+        self._macro.trigger_value = trigger_value
+        self._macro.output_mode = (
+            OUTPUT_KEYSTROKE if self._output.get() == "Keystroke" else OUTPUT_CLIPBOARD_PASTE
+        )
+        self._macro.enabled = bool(self._enabled.get())
+        self._macro.favorite = bool(self._favorite.get())
+        self._macro.sensitive_confirm = bool(self._sensitive.get())
+
         self._on_save(self._macro)
         self.destroy()
+
+    def destroy(self) -> None:
+        if hasattr(self, "_recorder"):
+            self._recorder.cleanup()
+        super().destroy()
 
 
 class MacroTemplatePicker(ctk.CTkToplevel):
     def __init__(self, master, *, on_pick: Callable[[str], None]):
         super().__init__(master)
-        self.title(f"{brand.TERM_VAULT_MACROS} — New from template")
+        self.title(f"{brand.TERM_SNIPPET_MACROS} — New from template")
         self.geometry("420x360")
         self.resizable(False, False)
         self._on_pick = on_pick

@@ -6,6 +6,9 @@ data class PairingConfig(
     val deviceId: String,
     val token: String,
     val pcLabel: String = "",
+    val lastSeenAt: String? = null,
+    val autoConnectApproved: Boolean = false,
+    val keepConnectedInBackground: Boolean = false,
 ) {
     companion object {
         fun sanitize(
@@ -14,12 +17,18 @@ data class PairingConfig(
             deviceId: String,
             token: String,
             pcLabel: String = "",
+            lastSeenAt: String? = null,
+            autoConnectApproved: Boolean = false,
+            keepConnectedInBackground: Boolean = false,
         ): PairingConfig = PairingConfig(
             host = sanitizeHost(host),
             port = port,
             deviceId = sanitizeDeviceId(deviceId),
             token = sanitizeToken(token),
             pcLabel = pcLabel.trim(),
+            lastSeenAt = lastSeenAt?.trim()?.ifBlank { null },
+            autoConnectApproved = autoConnectApproved,
+            keepConnectedInBackground = keepConnectedInBackground,
         )
     }
 }
@@ -48,6 +57,22 @@ data class BridgeStatus(
     val cacheVaultVersion: String,
     val deviceId: String,
     val readOnly: Boolean,
+    val compatible: Boolean? = null,
+    val serverProtocolMin: Int? = null,
+    val serverProtocolMax: Int? = null,
+    val minimumMobileVersion: String? = null,
+    val updateRequired: Boolean = false,
+)
+
+data class PairDeviceGrant(
+    val deviceId: String,
+    val deviceName: String,
+    val token: String,
+    val compatible: Boolean? = null,
+    val serverProtocolMin: Int? = null,
+    val serverProtocolMax: Int? = null,
+    val minimumMobileVersion: String? = null,
+    val updateRequired: Boolean = false,
 )
 
 data class ClipSummary(
@@ -111,6 +136,15 @@ sealed class BridgeError(message: String) : Exception(message) {
     class Unknown(code: Int, body: String) : BridgeError("HTTP $code: $body")
     class UnsupportedApi(version: String) :
         BridgeError("Unsupported mobile API version: $version")
+
+    /** HTTP 426 — the versioned compatibility handshake rejected this client. */
+    class UpdateRequired(
+        val clientProtocol: Int?,
+        val serverProtocolMin: Int?,
+        val serverProtocolMax: Int?,
+        val minimumMobileVersion: String?,
+        serverMessage: String?,
+    ) : BridgeError(serverMessage ?: "This app version is no longer compatible with your PC.")
 }
 
 data class ImageAssetResult(

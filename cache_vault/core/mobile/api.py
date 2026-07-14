@@ -6,14 +6,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
-from .. import models, search
-from ..storage import (
-    FILTER_ALL,
-    FILTER_FAVORITES,
-    FILTER_RECENTLY_REMOVED,
-    FILTER_SEARCH_ALL,
-    VaultStorage,
-)
+from .. import models
+from ..storage import VaultStorage
 from .models import MobileAccessReceipt
 
 
@@ -54,6 +48,10 @@ INBOX_POST_ROUTES = frozenset({
     "/mobile/v1/inbox/send",
 })
 
+PUBLIC_PAIR_POST_ROUTES = frozenset({
+    "/mobile/v1/pair-device",
+})
+
 INBOX_GET_ROUTES = frozenset({
     "/mobile/v1/inbox",
 })
@@ -68,6 +66,8 @@ def route_family(path: str) -> str | None:
     if path in READ_ONLY_ROUTES:
         return path
     if path in INBOX_POST_ROUTES:
+        return path
+    if path in PUBLIC_PAIR_POST_ROUTES:
         return path
     if CLIP_ID_RE.match(path):
         return "/mobile/v1/clips/{id}"
@@ -150,6 +150,7 @@ def action_for_route(route_family: str, method: str) -> str:
         "/mobile/v1/clips/{id}/save": "save",
         "/mobile/v1/inbox/send": "mobile_sent_to_pc",
         "/mobile/v1/inbox": "mobile_inbox_list",
+        "/mobile/v1/pair-device": "pair_device",
     }
     return mapping.get(route_family, method.lower())
 

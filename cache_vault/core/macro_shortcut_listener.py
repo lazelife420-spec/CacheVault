@@ -14,7 +14,6 @@ from .vault_macros import Macro, TRIGGER_TEXT_SHORTCUT
 
 try:
     import win32api  # type: ignore
-    import win32gui  # type: ignore
 
     _HAS_WIN32 = True
 except Exception:  # noqa: BLE001
@@ -23,6 +22,7 @@ except Exception:  # noqa: BLE001
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
 WM_SYSKEYDOWN = 0x0104
+WM_QUIT = 0x0012
 VK_BACK = 0x08
 VK_SHIFT = 0x10
 
@@ -59,6 +59,7 @@ class TextShortcutListener:
         self._macros: list[Macro] = []
         self._buffer = ""
         self._thread: Optional[threading.Thread] = None
+        self._thread_id: int | None = None
         self._hook_id = None
         self._hook_proc_ref = None
 
@@ -86,6 +87,18 @@ class TextShortcutListener:
             except Exception:  # noqa: BLE001
                 pass
         self._hook_id = None
+        # Break the GetMessageW loop in _run() so the hook thread can exit;
+        # unhooking alone leaves the thread blocked until process exit.
+        if self._thread_id and _user32:
+            try:
+                _user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
+            except Exception:  # noqa: BLE001
+                pass
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+        self._thread = None
+        self._thread_id = None
 
     def _append_char(self, ch: str) -> None:
         self._buffer = (self._buffer + ch)[-self._max_buffer :]
@@ -155,6 +168,8 @@ class TextShortcutListener:
     def _run(self) -> None:  # pragma: no cover - Windows hook thread
         if not _user32 or not _kernel32:
             return
+
+        self._thread_id = _kernel32.GetCurrentThreadId()
 
         CMPFUNC = ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.c_uint, ctypes.c_void_p)
         hook_id_box = {"id": None}
