@@ -59,6 +59,11 @@ class StatusRow:
     level: str = "info"  # info | ok | warning | error
     action_label: str = ""
     action: Callable[[], None] | None = None
+    # Optional: True while value_getter()'s answer is still resolving in the
+    # background (e.g. a deadline-bounded network lookup). When set, the
+    # settings panel may poll for an updated value instead of treating the
+    # first render as final.
+    is_pending: Callable[[], bool] | None = None
 
 
 # ---------------------------------------------------------------------------

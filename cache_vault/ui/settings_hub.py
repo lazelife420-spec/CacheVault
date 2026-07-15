@@ -74,6 +74,11 @@ class SettingsHub(ctk.CTkToplevel):
         self._selected_category_id: str | None = None
         self._present_job = None
         self._closed = False
+        # Bumped every time the settings area is rebuilt (category switch,
+        # search) so a stale scheduled status-row poll from a prior render
+        # can recognize itself as superseded and no-op instead of touching
+        # widgets that may since have been destroyed.
+        self._status_generation = 0
 
         # Mapping: field.key -> (variable, widget)
         self._field_bindings: dict[str, tuple[Any, ctk.CTkBaseClass]] = {}
@@ -323,6 +328,7 @@ class SettingsHub(ctk.CTkToplevel):
 
     def _clear_settings_area(self):
         self._teardown_recorders()
+        self._status_generation += 1
         for widget in self._settings_scroll.winfo_children():
             widget.destroy()
 
@@ -335,6 +341,12 @@ class SettingsHub(ctk.CTkToplevel):
                 pass
         self._active_recorders.clear()
         self._hotkey_hints.clear()
+
+    # How many times to re-poll a still-pending status row after its first
+    # render, ~1s apart. Bounds total wait so a permanently-hung resolver
+    # settles on a fallback instead of polling forever.
+    _STATUS_POLL_MAX_ATTEMPTS = 5
+    _STATUS_POLL_INTERVAL_MS = 1000
 
     def _render_status_card(self, rows: list[StatusRow]):
         card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)
@@ -349,6 +361,9 @@ class SettingsHub(ctk.CTkToplevel):
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color=brand.MUTED_FG,
         ).pack(anchor="w", pady=(0, 10))
+
+        gen = self._status_generation
+        pending_rows: list[tuple[ctk.CTkLabel, StatusRow]] = []
 
         for row in rows:
             row_frame = ctk.CTkFrame(inner, fg_color="transparent")
@@ -369,12 +384,21 @@ class SettingsHub(ctk.CTkToplevel):
                 val_text = "Error"
                 val_color = "#F56C6C"
 
-            ctk.CTkLabel(
+            val_label = ctk.CTkLabel(
                 row_frame,
                 text=val_text,
                 font=ctk.CTkFont(size=13, weight="bold"),
                 text_color=val_color
-            ).pack(side="right")
+            )
+            val_label.pack(side="right")
+
+            if row.is_pending is not None:
+                try:
+                    still_pending = row.is_pending()
+                except Exception:  # noqa: BLE001 - a broken predicate shouldn't stop polling
+                    still_pending = False
+                if still_pending:
+                    pending_rows.append((val_label, row))
 
             if row.action is not None:
                 ctk.CTkButton(
@@ -386,6 +410,59 @@ class SettingsHub(ctk.CTkToplevel):
                     font=ctk.CTkFont(size=11),
                     **theme.secondary_button(),
                 ).pack(side="right", padx=(0, 12))
+
+        if pending_rows:
+            self.after(
+                self._STATUS_POLL_INTERVAL_MS,
+                lambda: self._poll_status_rows(gen, pending_rows, attempt=1),
+            )
+
+    def _poll_status_rows(
+        self,
+        gen: int,
+        pending_rows: list[tuple[ctk.CTkLabel, "StatusRow"]],
+        attempt: int,
+    ) -> None:
+        """Re-check still-pending status rows and update their labels in place.
+
+        Discards itself if the window has closed or the settings area has
+        been rebuilt since this poll was scheduled (category switch,
+        search) — the widgets it holds references to may no longer exist.
+        """
+        if self._closed or gen != self._status_generation:
+            return
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:  # noqa: BLE001 - window may be mid-teardown
+            return
+
+        still_pending: list[tuple[ctk.CTkLabel, StatusRow]] = []
+        for val_label, row in pending_rows:
+            try:
+                if not val_label.winfo_exists():
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            try:
+                val_text = row.value_getter()
+            except Exception:  # noqa: BLE001
+                val_text = "Error"
+            try:
+                val_label.configure(text=val_text)
+            except Exception:  # noqa: BLE001 - label may have been destroyed mid-poll
+                continue
+            try:
+                if row.is_pending is not None and row.is_pending():
+                    still_pending.append((val_label, row))
+            except Exception:  # noqa: BLE001
+                pass
+
+        if still_pending and attempt < self._STATUS_POLL_MAX_ATTEMPTS:
+            self.after(
+                self._STATUS_POLL_INTERVAL_MS,
+                lambda: self._poll_status_rows(gen, still_pending, attempt=attempt + 1),
+            )
 
     def _render_group_card(self, group_name: str, fields: list[SettingsField]):
         card = ctk.CTkFrame(self._settings_scroll, fg_color=brand.ROW_BG, corner_radius=12)

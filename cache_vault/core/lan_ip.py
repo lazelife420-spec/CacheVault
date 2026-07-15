@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import socket
+import threading
+import time
 
 
 def _private_sort_key(ip: str) -> tuple[int, str]:
@@ -38,6 +40,83 @@ def list_lan_ipv4() -> list[str]:
     except OSError:
         pass
     return sorted(found, key=_private_sort_key)
+
+
+PENDING_TEXT = "Detecting…"
+UNAVAILABLE_TEXT = "Could not detect"
+
+
+class LanIpResolver:
+    """Deadline-bounded, cached, background LAN IPv4 lookup.
+
+    ``socket.getaddrinfo`` has no timeout of its own and can block for far
+    longer than any UI should wait on a misbehaving resolver/VPN/DNS setup,
+    so resolution always runs on a worker thread — never on the caller's
+    thread. ``status_text()`` never blocks: it returns a cached result
+    immediately if one exists, "Detecting…" while a lookup is in flight and
+    under the deadline, or a fallback string once the deadline has elapsed
+    without a result. A finished lookup updates the cache regardless of how
+    long it took, so a slow-but-eventually-successful resolution still
+    self-corrects the next time the value is read.
+    """
+
+    def __init__(self, deadline: float = 1.0) -> None:
+        self._deadline = deadline
+        self._lock = threading.Lock()
+        self._cached_ips: list[str] | None = None
+        self._thread: threading.Thread | None = None
+        self._started_at: float | None = None
+        self._generation = 0
+
+    def status_text(self) -> str:
+        ips, resolving, elapsed = self._snapshot()
+        if ips is not None:
+            rec = recommended_lan_ipv4(ips)
+            return rec or "Not detected"
+        if resolving and elapsed is not None and elapsed < self._deadline:
+            return PENDING_TEXT
+        return UNAVAILABLE_TEXT
+
+    def is_pending(self) -> bool:
+        ips, resolving, elapsed = self._snapshot()
+        if ips is not None:
+            return False
+        return resolving and elapsed is not None and elapsed < self._deadline
+
+    def reset(self) -> None:
+        """Drop the cache and invalidate any in-flight lookup's result."""
+        with self._lock:
+            self._cached_ips = None
+            self._generation += 1
+
+    def _snapshot(self) -> tuple[list[str] | None, bool, float | None]:
+        """Returns (cached_ips_or_None, still_resolving, seconds_elapsed).
+
+        Starts a background lookup if no cache exists and none is already
+        running — never more than one concurrent lookup per resolver.
+        """
+        with self._lock:
+            if self._cached_ips is not None:
+                return self._cached_ips, False, None
+            if self._thread is None or not self._thread.is_alive():
+                self._generation += 1
+                gen = self._generation
+                self._started_at = time.monotonic()
+                t = threading.Thread(target=self._resolve, args=(gen,), daemon=True)
+                self._thread = t
+                t.start()
+            elapsed = time.monotonic() - self._started_at if self._started_at else None
+            return None, True, elapsed
+
+    def _resolve(self, gen: int) -> None:
+        try:
+            ips = list_lan_ipv4()
+        except Exception:
+            ips = []
+        with self._lock:
+            if gen != self._generation:
+                return  # superseded by a reset() — discard this late result
+            self._cached_ips = ips
 
 
 def best_lan_ipv4() -> str | None:
