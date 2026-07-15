@@ -40,6 +40,26 @@ This is a product-generation release, not an incremental patch.
   because Mobile Access was turned off on the desktop now resolves to an
   honest "Not connected" state, and any send attempt fails clearly, instead
   of showing "Checking…"/"Loading…" indefinitely.
+- **"Check for update" destination fixed** — previously opened a dead
+  Google Play Store listing; now opens the CacheVault download page
+  directly, with an honest in-app message if the launch itself fails.
+
+### Security — Production Release Signing
+Every CacheVault Mobile build up to v0.1.3-rc6 was signed with the shared
+Android debug key used for internal testing. v0.2.0 is the first build
+signed with a dedicated, permanently-retained production release key.
+
+**This means a one-time manual upgrade step is required.** Android refuses
+to install an update whose signing certificate doesn't match the currently
+installed app's — even though the app ID is identical. If you have any
+earlier CacheVault Mobile build installed:
+1. Uninstall it.
+2. Install the v0.2.0 APK.
+3. Re-pair with CacheVault desktop.
+
+Nothing is lost beyond the saved pairing itself — no clip content is ever
+stored on the phone, it's always loaded live from the desktop over the
+pairing connection, so re-pairing fully restores normal use.
 
 ### Compatibility
 - Mobile protocol range for this release: **protocol 1** only.
@@ -49,6 +69,9 @@ This is a product-generation release, not an incremental patch.
 - Real Galaxy S23 pairing, phone-to-desktop clip transfer, desktop device
   identity display, the Update-required UI, disabled-bridge send-blocking,
   and re-enable/reconnect were all proven on physical hardware.
+- The installed-device signing mismatch above was confirmed directly: the
+  build installed on the test device was pulled and its certificate
+  verified against the new production certificate with `apksigner`.
 
 See `CHANGELOG.md` "Cache Vault v0.2.0" for the full itemized list.
 

@@ -38,6 +38,17 @@ companion.
   resolves to an honest "Not connected" state (and a clear "could not send"
   failure on any send attempt) instead of showing "Checking…"/"Loading…"
   indefinitely.
+- **"Check for update" destination fixed** — the button previously opened a
+  Google Play Store listing that returns "Item not found"; it now opens the
+  CacheVault download page directly, and a failed launch now shows an
+  honest in-app message instead of doing nothing (or crashing).
+
+### Security
+- **CacheVault Mobile is now production-signed.** Every prior build,
+  through v0.1.3-rc6, was signed with the shared Android debug key used for
+  internal testing. v0.2.0 introduces a dedicated, permanently-retained
+  release signing key. See **Upgrading from a debug-signed install** below
+  — this is a one-time, unavoidable transition, not a defect.
 
 ### Verified
 - Real Galaxy S23 pairing, phone-to-desktop clip transfer, disabled-bridge
@@ -49,6 +60,19 @@ companion.
   be on the **same Wi-Fi**. No cloud account. No subscription.
 - Mobile protocol range for this release: **protocol 1** only.
   Minimum compatible mobile app version: **0.1.0**.
+
+### Upgrading from a debug-signed install
+Android will not install v0.2.0 over an existing CacheVault Mobile install
+signed with the old debug key (v0.1.3-rc6 or earlier) — the app ID matches
+but the signing certificate doesn't, which Android treats as a different
+app for update purposes. To upgrade:
+1. Uninstall the existing CacheVault Mobile app.
+2. Install the v0.2.0 APK.
+3. Re-pair with CacheVault desktop.
+
+No clip content is stored on the phone — everything loads live from the
+desktop over the pairing connection — so the only thing uninstalling loses
+is the saved pairing itself, which re-pairing immediately restores.
 
 ## Cache Vault v0.1.9
 
