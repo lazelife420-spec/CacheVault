@@ -1250,18 +1250,28 @@ class Vault:
         return len(ids)
 
     # --- queries -----------------------------------------------------------
-    def list_clips(self, query=None):
-        return self.storage.list_clips(query)
+    def list_clips(self, query=None, *, limit: int | None = None, offset: int = 0, conn=None):
+        return self.storage.list_clips(query, limit=limit, offset=offset, conn=conn)
 
-    def counts(self):
-        out = self.storage.counts()
+    def count_clips(self, query=None, conn=None) -> int:
+        return self.storage.count_clips(query, conn=conn)
+
+    def counts(self, conn=None):
+        out = self.storage.counts(conn=conn)
         from .smart_folders import count_all
 
-        out.update(count_all(self.storage))
+        out.update(count_all(self.storage, conn=conn))
         return out
 
-    def dashboard_summary(self) -> dict:
-        counts = self.storage.counts()
+    def dashboard_summary(self, counts: dict | None = None) -> dict:
+        """Summary stats for the home dashboard / sidebar header.
+
+        ``counts`` lets a caller that already has a fresh ``self.counts()``
+        result (e.g. a refresh snapshot) pass it in so this doesn't re-run
+        the same ~13 queries (including another full duplicate-group scan)
+        a second time in the same refresh.
+        """
+        counts = counts if counts is not None else self.storage.counts()
         recent = self.events.recent(1)
         last_action = recent[0]["event_type"] if recent else "—"
         copy_counts = self.editable_copy_counts()
@@ -1274,7 +1284,7 @@ class Vault:
             "all": counts.get("all", 0),
             "favorites": counts.get("favorites", 0),
             "screenshots": counts.get("screenshots", 0),
-            "duplicates": self.storage.count_duplicate_groups(),
+            "duplicates": counts.get("duplicates", 0),
             "recently_removed": counts.get("recently_removed", 0),
             "receipts": len(self.events.recent(500)),
             "sensitive": counts.get("sensitive", 0),

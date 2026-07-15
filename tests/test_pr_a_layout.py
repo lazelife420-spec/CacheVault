@@ -11,6 +11,7 @@ from cache_vault.ui.filters import (
 )
 from cache_vault.core.storage import FILTER_ALL, FILTER_HOME, FILTER_OLDER, FILTER_TODAY, FILTER_WEEK
 from cache_vault.core.models import Clip, CONTENT_TEXT
+from tests.tk_support import wait_for_refresh
 import tkinter as tk
 
 # The eight pages covered by the A3 corrective pass.
@@ -225,6 +226,7 @@ def test_no_repeated_in_body_page_title(app):
     for key in (FILTER_HOME, NAV_HOTKEY_ACTIONS, NAV_EDITABLE_COPIES, NAV_MOBILE_ACCESS):
         app._navigate_screen(key)
         app._do_refresh_sync()  # header title / page routing is debounced via refresh()
+        wait_for_refresh(app)
         title = app._page_header._title_label.cget("text")
         if key == FILTER_HOME:
             content_widget = app._home
@@ -328,6 +330,7 @@ def test_today_week_older_share_clip_page_template(app):
     for key in (FILTER_ALL, FILTER_TODAY, FILTER_WEEK, FILTER_OLDER):
         app._navigate_screen(key)
         app._do_refresh_sync()  # page widget swap (_show_clips) is debounced via refresh()
+        wait_for_refresh(app)
         assert app._filters.active == key
         assert app._vault_screens.grid_info() == {}
         assert app._home.grid_info() == {}

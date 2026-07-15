@@ -10,7 +10,7 @@ surfaces the remainder, instead of rendering the whole vault.
 import pytest
 
 from cache_vault.ui.shell import CacheVaultApp, MAX_VISIBLE_CLIPS
-from tests.tk_support import probe_tk_ui, _tcl_unavailable  # noqa: PLC2701
+from tests.tk_support import probe_tk_ui, _tcl_unavailable, wait_for_refresh  # noqa: PLC2701
 
 OK, REASON = probe_tk_ui()
 
@@ -47,11 +47,12 @@ def test_large_history_is_capped(tmp_path):
     try:
         app.withdraw()
         app._navigate_screen(S.FILTER_ALL)
-        # refresh() is debounced — call _do_refresh_sync() directly for
-        # synchronous test behaviour so _visible_clip_ids is populated
-        # before the assertions.
+        # refresh() is debounced — call _do_refresh_sync() directly to skip
+        # the debounce timer. The DB read + render still happen on a worker
+        # thread and get applied via after(), so wait for that to settle
+        # before asserting on _visible_clip_ids.
         app._do_refresh_sync()
-        app.update()
+        wait_for_refresh(app)
 
         assert len(app._visible_clip_ids) == MAX_VISIBLE_CLIPS
         actual_total = len(vault.storage.list_clips())

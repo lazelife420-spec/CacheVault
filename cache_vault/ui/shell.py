@@ -239,6 +239,25 @@ class CacheVaultApp(ctk.CTk):
         self._expiry_job = None
         self._shutting_down = False
         self._main_thread_calls: queue.SimpleQueue = queue.SimpleQueue()
+        # Count of refresh requests queued/running but not yet applied (or
+        # failed). Tests poll this to know when an async refresh has
+        # settled; production code uses it only via _alive()-guarded apply
+        # callbacks, never read directly for control flow.
+        self._refresh_workers_in_flight = 0
+        # A single persistent worker thread processes refresh-snapshot
+        # requests one at a time, in arrival order -- not a new OS thread
+        # per refresh() call. Under a test suite building hundreds of app
+        # instances (each refreshing many times), spawn-per-call thread
+        # creation churn was heavy enough to destabilize the Tk/Tcl runtime
+        # (observed as sporadic "couldn't read ttk/combobox.tcl" errors
+        # constructing later Tk windows). One long-lived thread per app
+        # avoids that, and serializing refreshes is also just correct: it
+        # avoids N concurrent reader connections hitting the vault at once.
+        self._refresh_request_queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._refresh_worker_thread = threading.Thread(
+            target=self._refresh_worker_loop, name="refresh-worker", daemon=True,
+        )
+        self._refresh_worker_thread.start()
         self._view_mode = "cards"
         self._selected_clip_id: str | None = None
         self._selected_clip_ids: list[str] = []
@@ -465,6 +484,8 @@ class CacheVaultApp(ctk.CTk):
         if hasattr(self, "_refresh_job") and self._refresh_job:
             self.after_cancel(self._refresh_job)
             self._refresh_job = None
+        if hasattr(self, "_refresh_request_queue"):
+            self._refresh_request_queue.put(None)  # wake and stop the worker
 
         # 2. Stop system listeners
         for attr in ("_monitor", "_hotkey", "_capture_hotkeys", "_macro_hotkeys", "_command_hotkeys", "_text_shortcut_listener", "_tray", "_mobile_bridge"):
@@ -1610,23 +1631,119 @@ class CacheVaultApp(ctk.CTk):
             ls.pack(fill="both", expand=True, pady=20)
 
     def _do_refresh_sync(self) -> None:
+        """Kicks off a refresh: DB reads happen on the background refresh
+        worker thread (see _refresh_worker_loop/_collect_refresh_snapshot),
+        Tk widget work happens afterward on the main thread (see
+        _apply_refresh_snapshot). Never do DB/network work directly in this
+        method or its continuation -- that's the whole point of the split.
+        """
+        # Cancel our own pending after() job if this is being invoked
+        # directly (e.g. by a test skipping the debounce) rather than by
+        # that job firing -- otherwise the still-scheduled timer fires 50ms
+        # later and enqueues a second, redundant refresh for the same
+        # generation.
+        if self._refresh_job is not None:
+            try:
+                self.after_cancel(self._refresh_job)
+            except Exception:  # noqa: BLE001 - job may already be gone
+                pass
         self._refresh_job = None
         if not self._alive():
             return
         tooltip.hide_tooltip()
         self._cancel_all_refreshes()
+        if self._locked():
+            self._render_locked_surface()
+            self._lock_screen.lift()
+            return
+
+        active = self._filters.active
+        general_clips = active not in NAV_SCREEN_KEYS and active != FILTER_HOME
+        query = self._build_query() if general_clips else None
+        gen = self._refresh_generation
+        self._refresh_workers_in_flight += 1
+        self._refresh_request_queue.put((gen, active, query))
+
+    def _refresh_worker_loop(self) -> None:
+        """The one persistent background thread for this app instance.
+        Processes refresh-snapshot requests one at a time, in the order
+        refresh() calls arrived, for as long as the app is alive.
+        """
+        while True:
+            item = self._refresh_request_queue.get()
+            if item is None:
+                return  # shutdown sentinel, see destroy()
+            gen, active, query = item
+            self._collect_refresh_snapshot(gen, active, query)
+
+    def _collect_refresh_snapshot(self, gen: int, active: str, query) -> None:
+        """Runs on the refresh worker thread: DB reads only, never touches
+        Tk.
+
+        Uses a dedicated read-only connection (VaultStorage.reader_connection)
+        instead of the shared self.conn, which the main thread may be using
+        concurrently for writes/event recording. Results are handed back to
+        the Tk thread via _call_on_main -- nothing here may construct,
+        configure, or destroy a widget.
+        """
+        try:
+            with self.vault.storage.reader_connection() as reader:
+                counts = self.vault.counts(conn=reader)
+                clips = None
+                total_clips = None
+                if query is not None:
+                    # A real reader connection is dedicated to this worker
+                    # (never touched by the main thread), so an explicit
+                    # transaction safely pins one snapshot for the page of
+                    # rows and the total count together. The `:memory:`
+                    # fallback hands back the shared self.conn instead
+                    # (see reader_connection) -- holding an explicit BEGIN
+                    # open on that from a background thread would contend
+                    # with the main thread's own reads/writes on the same
+                    # connection (observed as multi-second stalls, ~SQLite's
+                    # default busy-timeout), so skip it there and accept the
+                    # tiny consistency window; it's test-only.
+                    dedicated_reader = reader is not self.vault.storage.conn
+                    if dedicated_reader:
+                        reader.execute("BEGIN")
+                    try:
+                        clips = self.vault.list_clips(
+                            query, limit=MAX_VISIBLE_CLIPS, conn=reader,
+                        )
+                        total_clips = self.vault.count_clips(query, conn=reader)
+                    finally:
+                        if dedicated_reader:
+                            reader.execute("ROLLBACK")
+        except Exception as exc:  # noqa: BLE001
+            self._call_on_main(lambda: self._apply_refresh_failure(gen, exc))
+            return
+        self._call_on_main(
+            lambda: self._apply_refresh_snapshot(gen, active, query, counts, clips, total_clips)
+        )
+
+    def _apply_refresh_failure(self, gen: int, exc: Exception) -> None:
+        self._refresh_workers_in_flight = max(0, self._refresh_workers_in_flight - 1)
+        if gen != self._refresh_generation or not self._alive():
+            return  # superseded by a newer refresh, or the window is gone
+        write_crash("refresh", exc)
+
+    def _apply_refresh_snapshot(
+        self, gen: int, active: str, query, counts: dict, clips, total_clips,
+    ) -> None:
+        """Main-thread apply phase for a refresh started by _do_refresh_sync.
+
+        Discards stale results: if a newer refresh() call has already
+        bumped _refresh_generation since this worker started, or the window
+        no longer exists, this is a no-op rather than overwriting newer
+        state with an older snapshot.
+        """
+        self._refresh_workers_in_flight = max(0, self._refresh_workers_in_flight - 1)
+        if gen != self._refresh_generation or not self._alive():
+            return
         try:
             from ..core import storage as S
 
-            if self._locked():
-                self._render_locked_surface()
-                self._lock_screen.lift()
-                return
-
-            active = self._filters.active
-
-            counts = self.vault.counts()
-            summary = self.vault.dashboard_summary()
+            summary = self.vault.dashboard_summary(counts=counts)
             counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
             counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
             counts[NAV_MOBILE_INBOX] = summary.get("mobile_inbox", 0)
@@ -1687,12 +1804,10 @@ class CacheVaultApp(ctk.CTk):
                 clip_count = summary.get("all", 0)
             else:
                 self._show_clips()
-                query = self._build_query()
-                all_clips = self.vault.list_clips(query)
-                total_clips = len(all_clips)
-                self._page_header.set_content(self._filters.active_label, f"{total_clips} clips")
-                clips = all_clips[:MAX_VISIBLE_CLIPS]
+                # clips/total_clips were already fetched (paginated, in SQL)
+                # on the worker thread for this exact query + generation.
                 more_count = total_clips - len(clips)
+                self._page_header.set_content(self._filters.active_label, f"{total_clips} clips")
                 self._visible_clip_ids = [c.id for c in clips]
                 self._selected_clip_ids = [
                     cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
@@ -1728,7 +1843,6 @@ class CacheVaultApp(ctk.CTk):
                 self._lock_screen.lift()
         except Exception as exc:  # noqa: BLE001
             write_crash("refresh", exc)
-            raise
 
     def _render_locked_surface(self) -> None:
         self._selected_clip_id = None
