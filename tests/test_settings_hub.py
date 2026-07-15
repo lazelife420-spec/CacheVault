@@ -88,6 +88,25 @@ class TestSettingsHub(unittest.TestCase):
         self.assertEqual(hub._present_job, "raise-job")
         hub.destroy()
 
+    def test_present_centers_hub_over_the_main_window(self):
+        """Before this, Settings Hub opened at a fixed geometry with no
+        +x+y offset -- left to the window manager, not centered over the
+        app. present()'s deferred raise must now center it over self.root."""
+        self.root.geometry("1200x800+100+100")
+        self.root.update_idletasks()
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        try:
+            hub.present()
+            deadline = time.time() + 2.0
+            geo = hub.geometry()
+            while time.time() < deadline and not geo.startswith("900x700"):
+                hub.update()
+                time.sleep(0.02)
+                geo = hub.geometry()
+            assert geo.startswith("900x700"), geo
+        finally:
+            hub.destroy()
+
     def test_destroy_clears_pending_present_and_notifies_once(self):
         """Verify closing cancels delayed raise work and clears the owner once."""
         on_close = MagicMock()

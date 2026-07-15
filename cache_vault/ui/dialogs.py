@@ -25,18 +25,48 @@ def version_line() -> str:
     return f"{base} · {label}" if label else base
 
 
-def _bring_to_front(win: ctk.CTkToplevel, master, *, modal: bool) -> None:
+def _center_on_parent(win: ctk.CTkToplevel, master, width: int, height: int) -> None:
+    """Position ``win`` centered over ``master``, clamped to stay on-screen.
+
+    Best-effort: a dialog opened while its parent is still being laid out
+    (winfo_width()/height() not yet realized) just falls back to whatever
+    position Tk/the window manager already picked, rather than raising.
+    """
+    try:
+        master.update_idletasks()
+        px, py = master.winfo_rootx(), master.winfo_rooty()
+        pw, ph = master.winfo_width(), master.winfo_height()
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    except Exception:  # noqa: BLE001
+        return
+    x = px + max(0, (pw - width) // 2)
+    y = py + max(0, (ph - height) // 2)
+    x = max(0, min(x, max(0, sw - width)))
+    y = max(0, min(y, max(0, sh - height)))
+    win.geometry(f"{width}x{height}+{x}+{y}")
+
+
+def _bring_to_front(
+    win: ctk.CTkToplevel, master, *, modal: bool, center_on: tuple[int, int] | None = None,
+) -> None:
     """Raise a CustomTkinter toplevel above its parent and focus it.
 
     CTkToplevel defers its window draw (a withdraw/deiconify cycle), so an
     immediate lift() gets overridden and the dialog can appear *behind* the
     main window. Tying it to the parent with transient() and lifting/focusing
     after that cycle fixes the z-order; ``modal`` also grabs input.
+
+    ``center_on``, if given as ``(width, height)``, centers the dialog over
+    ``master`` instead of leaving it at whatever fixed/default position the
+    window manager chose -- opt-in per caller (most existing callers of this
+    helper rely on their current placement and aren't part of this change).
     """
     win.transient(master)
 
     def _raise() -> None:
         try:
+            if center_on is not None:
+                _center_on_parent(win, master, *center_on)
             win.deiconify()
             win.lift()
             win.focus_force()

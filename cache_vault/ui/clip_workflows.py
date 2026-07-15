@@ -92,7 +92,14 @@ class ClipComposerDialog(ctk.CTkToplevel):
             command=self.destroy, **theme.secondary_button(),
         ).pack(side="right")
         self.bind("<Escape>", lambda _e: self.destroy())
-        _bring_to_front(self, master, modal=True)
+        _bring_to_front(self, master, modal=True, center_on=(760, 560))
+
+    def destroy(self) -> None:
+        try:
+            self.grab_release()
+        except Exception:  # noqa: BLE001 - grab may already be gone
+            pass
+        super().destroy()
 
     def _reset_from_mode(self, mode: str) -> None:
         text = compose_text(self._parts, mode)
@@ -167,7 +174,14 @@ class EditClipTextDialog(ctk.CTkToplevel):
             command=self.destroy, **theme.secondary_button(),
         ).pack(side="right")
         self.bind("<Escape>", lambda _e: self.destroy())
-        _bring_to_front(self, master, modal=True)
+        _bring_to_front(self, master, modal=True, center_on=(720, 520))
+
+    def destroy(self) -> None:
+        try:
+            self.grab_release()
+        except Exception:  # noqa: BLE001 - grab may already be gone
+            pass
+        super().destroy()
 
     def _save(self) -> None:
         text = self._body.get("1.0", "end").strip()

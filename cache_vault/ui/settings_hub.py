@@ -18,7 +18,10 @@ from ..modules.registry import ModuleRegistry
 from ..modules.settings_schema import SettingsCategory, SettingsField, StatusRow
 from . import theme
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
+from .dialogs import _center_on_parent
 from .hotkey_recording import DialogHotkeyRecorder
+
+_WIDTH, _HEIGHT = 900, 700
 
 # diagnose_hotkey_spec kinds that must block saving.
 _BLOCKING_HOTKEY_KINDS = frozenset({"invalid", "duplicate", "conflict"})
@@ -63,7 +66,7 @@ class SettingsHub(ctk.CTkToplevel):
     ):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings Hub")
-        self.geometry("900x700")
+        self.geometry(f"{_WIDTH}x{_HEIGHT}")
         self.minsize(700, 500)
 
         self._settings = settings
@@ -186,6 +189,7 @@ class SettingsHub(ctk.CTkToplevel):
             try:
                 if not self.winfo_exists():
                     return
+                _center_on_parent(self, self.master, _WIDTH, _HEIGHT)
                 self.deiconify()
                 self.lift()
                 self.focus_force()
