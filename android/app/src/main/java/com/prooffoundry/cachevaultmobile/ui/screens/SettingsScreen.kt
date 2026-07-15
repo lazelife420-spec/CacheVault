@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,8 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.data.AppIdentity
 import com.prooffoundry.cachevaultmobile.data.BridgeStatus
-import com.prooffoundry.cachevaultmobile.data.UserMessages
 import com.prooffoundry.cachevaultmobile.ui.ConnectionState
+import com.prooffoundry.cachevaultmobile.ui.UpdateLauncher
 import com.prooffoundry.cachevaultmobile.ui.resolveConnectionState
 import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
 
@@ -116,9 +117,16 @@ fun SettingsScreen(
                 // represents. Only the action lives in this block.
                 OutlinedButton(
                     onClick = {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(UserMessages.TRUSTED_UPDATE_URL)),
-                        )
+                        val opened = UpdateLauncher.launchUpdate { url ->
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }
+                        if (!opened) {
+                            Toast.makeText(
+                                context,
+                                "Could not open the update page. Check your connection and try again.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {

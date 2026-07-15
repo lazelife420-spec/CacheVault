@@ -6,10 +6,13 @@ object UserMessages {
 
     /**
      * The only URL the app will ever open for an update — never a URL
-     * supplied by the PC or any other untrusted source.
+     * supplied by the PC or any other untrusted source. Points at the
+     * CacheVault companion download section on the established CacheVault
+     * landing page, since the companion is distributed as a direct APK
+     * download rather than through a Play Store listing.
      */
     const val TRUSTED_UPDATE_URL =
-        "https://play.google.com/store/apps/details?id=com.prooffoundry.cachevaultmobile"
+        "https://cache-vault-landing.pages.dev/#mobile-download"
 
     const val PC_UNREACHABLE =
         "Cannot reach your PC.\nMake sure your phone and PC are on the same Wi-Fi."

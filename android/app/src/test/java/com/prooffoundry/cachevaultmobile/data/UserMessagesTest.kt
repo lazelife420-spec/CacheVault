@@ -1,5 +1,6 @@
 package com.prooffoundry.cachevaultmobile.data
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,8 +65,13 @@ class UserMessagesTest {
     }
 
     @Test
-    fun trustedUpdateUrlIsHttpsAndPointsToThisApp() {
-        assertTrue(UserMessages.TRUSTED_UPDATE_URL.startsWith("https://"))
-        assertTrue(UserMessages.TRUSTED_UPDATE_URL.contains("com.prooffoundry.cachevaultmobile"))
+    fun trustedUpdateUrlIsHttpsOnTheCacheVaultLandingPage() {
+        val uri = java.net.URI(UserMessages.TRUSTED_UPDATE_URL)
+        assertEquals("https", uri.scheme)
+        // Exact host match — a lookalike domain merely containing this
+        // substring (e.g. "cache-vault-landing.pages.dev.evil.example")
+        // must not pass.
+        assertEquals("cache-vault-landing.pages.dev", uri.host)
+        assertEquals("mobile-download", uri.fragment)
     }
 }
