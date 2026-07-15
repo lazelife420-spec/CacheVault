@@ -44,7 +44,6 @@ from ..core.mobile.mobile_access_controller import MobileAccessController
 from ..core.vault import Vault
 from .clip_grid import ClipGrid
 from .clip_list import ClipList
-from .page_scaffold import LoadingState
 from .dialogs import (
     AboutDialog, EventLogDialog, ExportViewDialog, MoveToCollectionDialog,
     SafePickerDialog, SettingsDialog,
@@ -1594,41 +1593,18 @@ class CacheVaultApp(ctk.CTk):
             self._refresh_generation = 0
         self._refresh_generation += 1
 
-        active = self._filters.active
-        if active not in NAV_SCREEN_KEYS and active != FILTER_HOME and not self._locked():
-            self._show_loading_skeleton()
+        # Deliberately no destructive clear here (and none in
+        # _do_refresh_sync before the snapshot is ready): the previous
+        # refresh's content stays on screen, with a small non-blocking
+        # indicator (see PageHeader.set_refreshing), until fresh data has
+        # actually been fetched. Clearing the list up front -- even before
+        # the debounce timer fires -- was the direct cause of the reported
+        # "list goes blank, then the window hangs" behavior: the vault scan
+        # that used to run synchronously right after now runs off-thread,
+        # but the blank flash came from this method, not from that scan.
+        self._page_header.set_refreshing(True)
 
         self._refresh_job = self.after(50, self._do_refresh_sync)
-
-    def _show_loading_skeleton(self) -> None:
-        # Clear tracking variables and children immediately to avoid race conditions/TclErrors during debounced refresh
-        self._list.cancel_render()
-        for w in self._list.winfo_children():
-            if w != getattr(self._list, "_empty_container", None):
-                w.destroy()
-        self._list._rows.clear()
-        self._list._row_by_id.clear()
-        self._list._rail_by_id.clear()
-        self._list._selected_badge_by_id.clear()
-        self._list._action_bar_by_id.clear()
-        self._list._render_order.clear()
-        self._list._empty_container.pack_forget()
-
-        self._grid.cancel_render()
-        for w in self._grid.winfo_children():
-            if w != getattr(self._grid, "_empty_container", None):
-                w.destroy()
-        self._grid._row_by_id.clear()
-        self._grid._name_label_by_id.clear()
-        self._grid._render_order.clear()
-        self._grid._empty_container.pack_forget()
-
-        if self._view_mode == "grid":
-            ls = LoadingState(self._grid, mode="grid")
-            ls.pack(fill="both", expand=True, pady=20)
-        else:
-            ls = LoadingState(self._list, mode="list")
-            ls.pack(fill="both", expand=True, pady=20)
 
     def _do_refresh_sync(self) -> None:
         """Kicks off a refresh: DB reads happen on the background refresh
@@ -1715,7 +1691,12 @@ class CacheVaultApp(ctk.CTk):
                         if dedicated_reader:
                             reader.execute("ROLLBACK")
         except Exception as exc:  # noqa: BLE001
-            self._call_on_main(lambda: self._apply_refresh_failure(gen, exc))
+            # `except ... as exc` implicitly deletes `exc` when this block
+            # exits, but the lambda below only runs later, on the main
+            # thread -- capture it in a plain local first or the closure
+            # raises NameError instead of ever reaching _apply_refresh_failure.
+            failure = exc
+            self._call_on_main(lambda: self._apply_refresh_failure(gen, failure))
             return
         self._call_on_main(
             lambda: self._apply_refresh_snapshot(gen, active, query, counts, clips, total_clips)
@@ -1726,6 +1707,11 @@ class CacheVaultApp(ctk.CTk):
         if gen != self._refresh_generation or not self._alive():
             return  # superseded by a newer refresh, or the window is gone
         write_crash("refresh", exc)
+        # Data collection itself failed (e.g. the vault DB couldn't be
+        # read) -- existing list/grid content is untouched (nothing here
+        # destroys it), just flag it as stale rather than pretending it's
+        # current.
+        self._page_header.set_refreshing(False, error=True)
 
     def _apply_refresh_snapshot(
         self, gen: int, active: str, query, counts: dict, clips, total_clips,
@@ -1841,8 +1827,10 @@ class CacheVaultApp(ctk.CTk):
             self._control_strip.update_state(summary)
             if self._locked():
                 self._lock_screen.lift()
+            self._page_header.set_refreshing(False)
         except Exception as exc:  # noqa: BLE001
             write_crash("refresh", exc)
+            self._page_header.set_refreshing(False, error=True)
 
     def _render_locked_surface(self) -> None:
         self._selected_clip_id = None

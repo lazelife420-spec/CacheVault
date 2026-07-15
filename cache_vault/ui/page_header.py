@@ -53,7 +53,32 @@ class PageHeader(ctk.CTkFrame):
         # Status chips area
         self._status_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._status_frame.grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 8))
-        
+
+        # Small non-blocking indicator for an in-flight background refresh
+        # (or a failed one). Uses .place() rather than grid/pack so it's
+        # never touched by set_actions()/set_status_chips() destroying and
+        # rebuilding their own children -- otherwise a refresh landing
+        # mid-flight could destroy this widget out from under a still-
+        # pending set_refreshing() call. Deliberately not a full loading
+        # skeleton: existing page content stays visible and interactive
+        # while this shows.
+        self._refreshing_label = ctk.CTkLabel(
+            self,
+            text="",
+            text_color=brand.MUTED_FG,
+            font=theme.body_font(11),
+        )
+
+    def set_refreshing(self, active: bool, *, error: bool = False) -> None:
+        if not active and not error:
+            self._refreshing_label.place_forget()
+            return
+        self._refreshing_label.configure(
+            text="Refresh failed — showing previous results" if error else "Refreshing…",
+            text_color="#E6A23C" if error else brand.MUTED_FG,
+        )
+        self._refreshing_label.place(relx=1.0, rely=0.0, anchor="ne", x=-8, y=8)
+
     def set_content(self, title: str, subtitle: str = ""):
         self._title_label.configure(text=title)
         self._subtitle_label.configure(text=subtitle)

@@ -15,6 +15,8 @@ proves the method never got past the guard into real work.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from cache_vault.ui.shell import CacheVaultApp
 
 
@@ -32,6 +34,10 @@ def _app_stub(*, alive: bool = True, generation: int = 0):
     app._refresh_workers_in_flight = 0
     app._alive = lambda: alive
     app.vault = _MustNotTouch()
+    # The except-path in _apply_refresh_snapshot/_apply_refresh_failure
+    # flags the non-blocking header indicator; stub it out since these are
+    # bare object.__new__ stubs with no real Tk widgets.
+    app._page_header = SimpleNamespace(set_refreshing=lambda *a, **k: None)
     return app
 
 
