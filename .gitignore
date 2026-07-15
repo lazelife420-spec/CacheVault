@@ -18,6 +18,13 @@ android/local.properties
 android/.idea/
 android/*.iml
 
+# Signing material — must never be committed, wherever it might land
+*.jks
+*.keystore
+*.p12
+*.pfx
+android/keystore.properties
+
 
 # Generated review artifact (regenerate with tools/verify_assets.py)
 assets/cache-vault-contact-sheet.png
