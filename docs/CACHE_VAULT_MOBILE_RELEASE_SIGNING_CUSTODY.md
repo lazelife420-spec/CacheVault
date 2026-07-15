@@ -36,27 +36,43 @@ kept only for reference.
 
 ## Where it lives
 
-| Copy | Location | Encrypted |
-|---|---|---|
-| Primary | `C:\Users\KickA\CacheVaultSigning\cachevault-mobile-release.jks` | No (this machine's local filesystem is the working copy) |
-| Backup 1 | `C:\Users\KickA\CacheVaultSigning\backup-local\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric |
-| Backup 2 | `C:\Users\KickA\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric |
+| Copy | Location | Encrypted | Separate device |
+|---|---|---|---|
+| Primary | `C:\Users\KickA\CacheVaultSigning\cachevault-mobile-release.jks` | No (this machine's local filesystem is the working copy) | — |
+| Backup 1 | `C:\Users\KickA\CacheVaultSigning\backup-local\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | No — same machine |
+| Backup 2 | `C:\Users\KickA\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | No — same machine |
+| Backup 3 | Galaxy S23 (`R3CW40FY82W`), `/sdcard/Download/cachevault-signing-backup/cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | **Yes** — genuinely separate physical device |
 
-None of these three copies, and none of the password files alongside the
-primary keystore, are tracked in git. `.gitignore` covers `*.jks`,
-`*.keystore`, `*.p12`, `*.pfx`, and `android/keystore.properties` as
-defense-in-depth, on top of the keystore never having lived inside the repo
-tree in the first place.
+Password files live separately from the keystore, at
+`C:\Users\KickA\CacheVaultSigning-Password\.storepass` /
+`.keypass` — not inside the same folder as the `.jks` file or its backups.
 
-**Known limitation — read this before considering custody complete.**
-Both encrypted backups above are on this same physical machine, in
-different folders. That is not real disaster-recovery redundancy: if this
-machine's disk fails or is lost, both backups are lost with it. At least
-one encrypted backup (`*.jks.gpg`) should be moved to genuinely separate
-storage — a different physical device, an external drive kept elsewhere,
-or a separate cloud account — before this key custody can be considered
-adequate for a real public release. This step was not completed here
-because it requires access this environment doesn't have.
+None of these copies, and none of the password files, are tracked in git.
+`.gitignore` covers `*.jks`, `*.keystore`, `*.p12`, `*.pfx`, and
+`android/keystore.properties` as defense-in-depth, on top of the keystore
+never having lived inside the repo tree in the first place.
+
+**Backup 3 verification (2026-07-14):** pushed via `adb push`, pulled back
+and compared byte-for-byte identical (SHA-256 match against Backup 1), then
+test-decrypted from the pulled copy — decrypted output's SHA-256 matched
+the primary keystore's SHA-256 exactly. This is a real, verified,
+physically-separate encrypted copy, not just a claim.
+
+**Remaining limitation — read this before considering custody complete.**
+A phone is a reasonable second location but is itself a single device that
+can be lost, reset, or damaged — it should not be the *only* off-machine
+copy long-term. A more durable third location (a safety-deposit box, a
+different person's device, a dedicated offline drive) is still recommended
+before this is adequate for a real public release at scale.
+
+**Password-manager migration: still BLOCKED.** The password itself is
+still a plaintext file (relocated away from the keystore, but still on
+this same machine, still plaintext). No password-manager or encrypted
+credential-vault tool is available in this environment to move it into.
+This is a manual follow-up: move the contents of
+`C:\Users\KickA\CacheVaultSigning-Password\.storepass` into a real
+password manager, then delete the plaintext file. Do not treat this
+document's existence as evidence that step is done — it isn't.
 
 ## How signing is wired
 
@@ -78,7 +94,7 @@ environment variable for a single build invocation, e.g. (PowerShell):
 
 ```powershell
 $env:CACHEVAULT_RELEASE_KEYSTORE = "C:\Users\KickA\CacheVaultSigning\cachevault-mobile-release.jks"
-$env:CACHEVAULT_RELEASE_STORE_PASSWORD = Get-Content -Raw "C:\Users\KickA\CacheVaultSigning\.storepass"
+$env:CACHEVAULT_RELEASE_STORE_PASSWORD = Get-Content -Raw "C:\Users\KickA\CacheVaultSigning-Password\.storepass"
 $env:CACHEVAULT_RELEASE_KEY_ALIAS = "cachevault-mobile-release"
 .\gradlew.bat assembleRelease
 ```
@@ -101,14 +117,40 @@ working directory does.
    ```
 4. Restore the three environment variables and rebuild as shown above.
 
-## Verified output (v0.2.0 release-candidate build)
+## Verified output (v0.2.0 release-candidate, built from committed HEAD `2af90b1`)
 
 - Package: `com.prooffoundry.cachevaultmobile`
 - versionName / versionCode: `0.2.0` / `7`
 - Output file: `android/app/build/outputs/apk/release/app-release.apk` (AGP names it this way — without an `-unsigned` suffix — only once a real signing config is actually applied; the `output-metadata.json` filename should always be treated as the source of truth over any assumed default path)
 - File size: 12,887,895 bytes
-- APK SHA-256: `0f1cc6fdbd14f4503daaa67248102ce40c9341096971f496fc96926eeb79261f`
+- APK SHA-256: `fb6c5a3034b1d25be55db2da8842e17cfb48a0f40d8c479441faf389040524ad`
+  (an earlier build from the same source, before this doc's HEAD, hashed
+  `0f1cc6fd...` — the build is **not bit-for-bit reproducible** even from
+  identical source; the certificate identity is what stays constant, not
+  the file hash)
 - `apksigner verify --print-certs`: **Verifies** — v2 scheme, signer certificate SHA-256 `c2eb5c42a684326ceba1289e65e9690ed71daf770de64e2b83a42bce04026a2c` (matches the identity above)
-- Copied to `dist/release/v0.2.0/CacheVault-Mobile-v0.2.0-android.apk`, recorded in `dist/release/v0.2.0/SHA256SUMS.txt` (both untracked/gitignored, same as the existing Windows release pipeline)
+- Copied to `dist/release/v0.2.0/CacheVault-Mobile-v0.2.0-android.apk`, recorded in `dist/release/v0.2.0/SHA256SUMS.txt` alongside `CacheVault-v0.2.0-windows.zip` (both untracked/gitignored, same as the existing Windows release pipeline)
 
-Not yet done: physical-device install/upgrade test, landing-page publication, GitHub release, tag.
+## Installed-device compatibility (2026-07-14)
+
+The CacheVault Mobile build already installed on the test Galaxy S23
+(`R3CW40FY82W`) — `versionName=0.1.3-rc6`, `versionCode=6` — is signed with
+the **standard Android SDK shared debug certificate**
+(`CN=Android Debug`, SHA-256 `EE:12:24:93:B2:DC:00:DD:94:66:1E:11:58:E9:D7:CA:B5:6F:6D:1F:68:7A:84:A5:FD:05:B3:DD:6E:DA:C9:EF`),
+confirmed by pulling `base.apk` off the device and running
+`apksigner verify --verbose --print-certs` against it directly — not
+different from the new production certificate above. **An in-place
+upgrade from the currently-installed build to a production-signed v0.2.0
+APK will be rejected by Android** (application ID matches, but the
+signing certificate does not) and requires an uninstall first.
+
+The only local app data at risk is `PairingStore`
+(`EncryptedSharedPreferences`): host, port, device ID, token, PC label,
+last-seen timestamp, and the "always reconnect" / "keep connected in
+background" toggles. No clip content is cached on-device — the vault
+always loads live from the desktop bridge over the pairing connection.
+Uninstalling therefore only requires re-pairing afterward (a normal,
+already-tested flow); nothing more.
+
+Not yet done: uninstall/reinstall on the S23, landing-page publication,
+GitHub release, tag.
