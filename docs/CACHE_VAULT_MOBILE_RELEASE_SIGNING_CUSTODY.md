@@ -65,14 +65,17 @@ copy long-term. A more durable third location (a safety-deposit box, a
 different person's device, a dedicated offline drive) is still recommended
 before this is adequate for a real public release at scale.
 
-**Password-manager migration: still BLOCKED.** The password itself is
-still a plaintext file (relocated away from the keystore, but still on
-this same machine, still plaintext). No password-manager or encrypted
-credential-vault tool is available in this environment to move it into.
-This is a manual follow-up: move the contents of
-`C:\Users\KickA\CacheVaultSigning-Password\.storepass` into a real
-password manager, then delete the plaintext file. Do not treat this
-document's existence as evidence that step is done — it isn't.
+**Password-manager migration: complete (2026-07-16).** The store/key
+password is now stored as a Dashlane login entry named "CacheVault Mobile
+Production Signing." Save-and-retrieval was verified on 2026-07-16 (entry
+saved, Dashlane closed and reopened, entry retrieved and password
+confirmed correct before any plaintext was removed). The plaintext files
+that used to live at `C:\Users\KickA\CacheVaultSigning-Password\.storepass`
+and `.keypass` have been deleted; the directory is now empty and neither
+file was ever tracked in this repository. Recovery no longer depends on a
+plaintext file on this machine — see the Dashlane entry above for the
+password itself, and the "Recovery procedure" section below for how to
+use it with the keystore and backups.
 
 ## How signing is wired
 
