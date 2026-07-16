@@ -107,16 +107,19 @@ def apply_smart_folder_filter(folder_id: str, where: list[str], params: list) ->
         where.append("1 = 0")
 
 
-def count_folder(storage: VaultStorage, folder_id: str) -> int:
+def count_folder(storage: VaultStorage, folder_id: str, conn=None) -> int:
     where = ["deleted_at IS NULL"]
     params: list = []
     apply_smart_folder_filter(folder_id, where, params)
     sql = f"SELECT COUNT(*) FROM clips WHERE {' AND '.join(where)}"
-    return int(storage.conn.execute(sql, params).fetchone()[0])
+    return int((conn or storage.conn).execute(sql, params).fetchone()[0])
 
 
-def count_all(storage: VaultStorage) -> dict[str, int]:
-    return {filter_key(d["id"]): count_folder(storage, d["id"]) for d in SMART_FOLDER_DEFS}
+def count_all(storage: VaultStorage, conn=None) -> dict[str, int]:
+    return {
+        filter_key(d["id"]): count_folder(storage, d["id"], conn=conn)
+        for d in SMART_FOLDER_DEFS
+    }
 
 
 def folder_receipt(

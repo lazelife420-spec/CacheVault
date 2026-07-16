@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -87,6 +88,25 @@ class TestSettingsHub(unittest.TestCase):
         self.assertEqual(hub._present_job, "raise-job")
         hub.destroy()
 
+    def test_present_centers_hub_over_the_main_window(self):
+        """Before this, Settings Hub opened at a fixed geometry with no
+        +x+y offset -- left to the window manager, not centered over the
+        app. present()'s deferred raise must now center it over self.root."""
+        self.root.geometry("1200x800+100+100")
+        self.root.update_idletasks()
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        try:
+            hub.present()
+            deadline = time.time() + 2.0
+            geo = hub.geometry()
+            while time.time() < deadline and not geo.startswith("900x700"):
+                hub.update()
+                time.sleep(0.02)
+                geo = hub.geometry()
+            assert geo.startswith("900x700"), geo
+        finally:
+            hub.destroy()
+
     def test_destroy_clears_pending_present_and_notifies_once(self):
         """Verify closing cancels delayed raise work and clears the owner once."""
         on_close = MagicMock()
@@ -152,6 +172,84 @@ class TestSettingsHub(unittest.TestCase):
             buttons_by_text[label].cget("command")()
             mock.assert_called_once()
         hub.destroy()
+
+    def test_lan_ip_status_row_updates_after_background_resolution(self):
+        """The LAN IP status row must render instantly with a pending
+        placeholder, then update in place once the background lookup
+        finishes — it must never block the render call itself."""
+        from cache_vault.core import lan_ip as lan_ip_module
+        from cache_vault.modules import mobile_bridge as mobile_bridge_module
+
+        mobile_bridge_module._lan_resolver.reset()
+        release = threading.Event()
+
+        def controlled_lookup():
+            release.wait(timeout=5)
+            return ["192.168.50.50"]
+
+        try:
+            with patch.object(lan_ip_module, "list_lan_ipv4", controlled_lookup):
+                hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+                hub._select_category("mobile_bridge")
+                hub.update()
+
+                labels = {
+                    w.cget("text"): w
+                    for w in _find_all(hub._settings_scroll, ctk.CTkLabel)
+                }
+                self.assertIn(lan_ip_module.PENDING_TEXT, labels)
+                val_label = labels[lan_ip_module.PENDING_TEXT]
+
+                release.set()  # let the background lookup finish
+
+                deadline = time.time() + 3
+                while time.time() < deadline and val_label.cget("text") != "192.168.50.50":
+                    hub.update()
+                    time.sleep(0.05)
+
+                self.assertEqual(val_label.cget("text"), "192.168.50.50")
+                hub.destroy()
+        finally:
+            mobile_bridge_module._lan_resolver.reset()
+
+    def test_lan_ip_pending_poll_ignores_stale_category_after_switch(self):
+        """If the user switches away from Mobile Access before the
+        background lookup resolves, the scheduled poll must not touch the
+        (destroyed) old row widgets or apply the late result anywhere."""
+        from cache_vault.core import lan_ip as lan_ip_module
+        from cache_vault.modules import mobile_bridge as mobile_bridge_module
+
+        mobile_bridge_module._lan_resolver.reset()
+
+        def slow_lookup():
+            time.sleep(1.5)
+            return ["1.2.3.4"]
+
+        try:
+            with patch.object(lan_ip_module, "list_lan_ipv4", slow_lookup):
+                hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+                hub._select_category("mobile_bridge")
+                hub.update()
+
+                # Switch away before the 1s poll fires and before the
+                # background lookup returns.
+                hub._select_category("shortcuts")
+                hub.update()
+
+                # Pump the event loop well past when the stale poll(s) and
+                # the lookup itself would complete. Must not raise.
+                deadline = time.time() + 2.0
+                while time.time() < deadline:
+                    hub.update()
+                    time.sleep(0.05)
+
+                labels = [
+                    w.cget("text") for w in _find_all(hub._settings_scroll, ctk.CTkLabel)
+                ]
+                self.assertNotIn("1.2.3.4", labels)
+                hub.destroy()
+        finally:
+            mobile_bridge_module._lan_resolver.reset()
 
     def test_search_filtering(self):
         """Verify that search filters settings across categories."""

@@ -12,6 +12,8 @@ tkinter import, ``tk.Tk()`` construction, ``ttk.Label``, and
 
 from __future__ import annotations
 
+import time
+
 # Tokens that indicate a missing/broken Tcl/Tk runtime rather than a real
 # application error.  Any exception whose str() contains one of these tokens
 # is treated as "Tk unavailable" rather than a test failure.
@@ -97,3 +99,31 @@ def probe_tk_ui() -> tuple[bool, str]:
                 ctk_root.destroy()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def wait_for_refresh(app, timeout: float = 6.0) -> None:
+    """Pump the Tk loop until an async refresh started by ``refresh()`` /
+    ``_do_refresh_sync()`` has finished applying its snapshot.
+
+    ``refresh()`` debounces via ``self.after(50, self._do_refresh_sync)``,
+    and the DB work then happens on a worker thread and lands back on the
+    Tk thread via ``after(...)``; a bare ``app.update()`` right after
+    calling ``refresh()``/``_do_refresh_sync()`` is no longer enough to
+    observe the result. Checks ``_refresh_job`` (the pending debounce timer)
+    as well as ``_refresh_workers_in_flight`` -- checking only the latter
+    would race a call that hasn't reached ``_do_refresh_sync`` yet and
+    return immediately, before the counter is ever incremented. Raises
+    ``AssertionError`` if the refresh hasn't settled within ``timeout``
+    seconds, since a test that silently checked stale/empty state would be
+    worse than a loud failure.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        app.update()
+        if (
+            getattr(app, "_refresh_job", None) is None
+            and getattr(app, "_refresh_workers_in_flight", 0) == 0
+        ):
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"refresh did not settle within {timeout}s")

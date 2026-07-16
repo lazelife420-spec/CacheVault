@@ -11,11 +11,38 @@ android {
         applicationId = "com.prooffoundry.cachevaultmobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.1.3-rc6"
+        versionCode = 7
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    // Release signing identity is never checked in. It's sourced entirely
+    // from environment variables at build time; when they're absent (every
+    // dev machine and CI run except a deliberate release build), no release
+    // signingConfig is created and `assembleRelease` falls back to AGP's
+    // default unsigned output — it does not fail and does not silently sign
+    // with the debug key.
+    val releaseStoreFile = System.getenv("CACHEVAULT_RELEASE_KEYSTORE")
+    val releaseStorePassword = System.getenv("CACHEVAULT_RELEASE_STORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("CACHEVAULT_RELEASE_KEY_ALIAS")
+    val releaseSigningAvailable =
+        !releaseStoreFile.isNullOrBlank() &&
+            !releaseStorePassword.isNullOrBlank() &&
+            !releaseKeyAlias.isNullOrBlank()
+
+    if (releaseSigningAvailable) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                // PKCS12 keystores use one password for both the store and
+                // the key (see docs/CACHE_VAULT_MOBILE_RELEASE_SIGNING_CUSTODY.md).
+                keyPassword = releaseStorePassword
+            }
         }
     }
 
@@ -26,6 +53,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (releaseSigningAvailable) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

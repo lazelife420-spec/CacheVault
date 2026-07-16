@@ -1,3 +1,82 @@
+# Cache Vault v0.2.0
+
+**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault
+with a local-network Android companion. Same-Wi-Fi access only. No cloud
+account. No subscription.
+
+> `/proof` is unchanged unless separately approved. Nothing in this document
+> is a "stable" claim beyond what is explicitly stated below. This is a
+> release-candidate draft: no public artifacts have been built yet, and no
+> tag has been created.
+
+## What is new in v0.2.0
+
+This is a product-generation release, not an incremental patch.
+
+### Unified Desktop Shell
+- **Unified shell and page-template architecture** — Command Center and all
+  migrated pages share one page layout, with compact-width toolbar and
+  header corrections applied consistently.
+
+### Mobile Access, Made Authoritative
+- **Persistent, synchronized lifecycle** — enabling or disabling Mobile
+  Access now persists across a full desktop restart, and the toolbar,
+  Settings Hub, LAN listener, and mDNS discovery state all stay in sync.
+  No listener or discovery advertisement remains while disabled.
+- **Version/protocol compatibility handshake** — every Android pairing and
+  reconnect declares `app_version`, `build`, and `protocol`; the desktop
+  rejects an incompatible client outright with a structured HTTP `426`,
+  independent of token authentication, and never issues a token to a
+  rejected device.
+- **Mobile device identity display** — the desktop Mobile Access page shows
+  each paired device's model, app version, protocol, and compatibility
+  state (Compatible / Update required).
+- **Android Update-required UI** — an incompatible companion build now
+  shows an explicit "Update required" screen naming the live minimum
+  supported version, instead of a generic connection error.
+
+### Fixed
+- **Disabled-bridge status no longer hangs** — a phone that loses connection
+  because Mobile Access was turned off on the desktop now resolves to an
+  honest "Not connected" state, and any send attempt fails clearly, instead
+  of showing "Checking…"/"Loading…" indefinitely.
+- **"Check for update" destination fixed** — previously opened a dead
+  Google Play Store listing; now opens the CacheVault download page
+  directly, with an honest in-app message if the launch itself fails.
+
+### Security — Production Release Signing
+Every CacheVault Mobile build up to v0.1.3-rc6 was signed with the shared
+Android debug key used for internal testing. v0.2.0 is the first build
+signed with a dedicated, permanently-retained production release key.
+
+**This means a one-time manual upgrade step is required.** Android refuses
+to install an update whose signing certificate doesn't match the currently
+installed app's — even though the app ID is identical. If you have any
+earlier CacheVault Mobile build installed:
+1. Uninstall it.
+2. Install the v0.2.0 APK.
+3. Re-pair with CacheVault desktop.
+
+Nothing is lost beyond the saved pairing itself — no clip content is ever
+stored on the phone, it's always loaded live from the desktop over the
+pairing connection, so re-pairing fully restores normal use.
+
+### Compatibility
+- Mobile protocol range for this release: **protocol 1** only.
+- Minimum compatible mobile companion version: **0.1.0**.
+
+### Device Verification
+- Real Galaxy S23 pairing, phone-to-desktop clip transfer, desktop device
+  identity display, the Update-required UI, disabled-bridge send-blocking,
+  and re-enable/reconnect were all proven on physical hardware.
+- The installed-device signing mismatch above was confirmed directly: the
+  build installed on the test device was pulled and its certificate
+  verified against the new production certificate with `apksigner`.
+
+See `CHANGELOG.md` "Cache Vault v0.2.0" for the full itemized list.
+
+---
+
 # Cache Vault v0.1.9
 
 **Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault.

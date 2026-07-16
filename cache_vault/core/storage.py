@@ -13,6 +13,7 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 
@@ -199,6 +200,34 @@ class VaultStorage:
 
     def close(self) -> None:
         self.conn.close()
+
+    @contextmanager
+    def reader_connection(self):
+        """A short-lived, read-only connection for use off the main thread.
+
+        ``self.conn`` is shared with the UI/main thread (writes, event
+        recording); handing it to a background refresh worker would mean
+        two threads issuing statements on the same connection concurrently.
+        WAL mode (enabled in ``__init__``) lets a second, read-only
+        connection read the database concurrently with the writer without
+        blocking either side, so background snapshot reads always go
+        through this instead of ``self.conn``.
+
+        ``:memory:`` databases (tests) can't be reopened by a second
+        connection -- each one is a distinct, empty database -- so callers
+        get the shared connection back in that case. Tests using this are
+        expected to be single-threaded.
+        """
+        if str(self.db_path) == ":memory:":
+            yield self.conn
+            return
+        uri = self.db_path.resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     # --- row <-> Clip ------------------------------------------------------
     @staticmethod
@@ -521,19 +550,22 @@ class VaultStorage:
         return ids
 
     # --- reads / queries ---------------------------------------------------
-    def list_clips(self, query=None) -> list[Clip]:
-        """Return clips matching a :class:`~cache_vault.core.search.SearchQuery`.
-
-        ``query`` may be ``None`` (everything live), a ``SearchQuery``, or a
-        filter-name string for convenience.
-        """
+    @staticmethod
+    def _normalize_query(query):
         from .search import SearchQuery  # local import avoids a cycle
 
         if query is None:
-            query = SearchQuery()
-        elif isinstance(query, str):
-            query = SearchQuery(filter_name=query)
+            return SearchQuery()
+        if isinstance(query, str):
+            return SearchQuery(filter_name=query)
+        return query
 
+    def _build_where(self, query) -> tuple[list[str], list]:
+        """Shared WHERE-clause construction for ``list_clips``/``count_clips``.
+
+        Kept as one place so the row query and the count query can never
+        drift out of sync with each other.
+        """
         where: list[str] = []
         params: list = []
 
@@ -624,7 +656,7 @@ class VaultStorage:
             )
 
         # Date Added / First Saved
-        from .search import preset_bounds, sort_sql  # noqa: PLC0415
+        from .search import preset_bounds  # noqa: PLC0415
 
         added_start = query.date_added_start
         added_end = query.date_added_end
@@ -669,13 +701,51 @@ class VaultStorage:
             short = f"{query.text.lower()}%"
             params.extend([like, like, like, like, like, like, like, like, short])
 
+        return where, params
+
+    def list_clips(
+        self, query=None, *, limit: int | None = None, offset: int = 0, conn=None,
+    ) -> list[Clip]:
+        """Return clips matching a :class:`~cache_vault.core.search.SearchQuery`.
+
+        ``query`` may be ``None`` (everything live), a ``SearchQuery``, or a
+        filter-name string for convenience.
+
+        ``limit``/``offset`` apply paging in SQL rather than fetching every
+        matching row and slicing in Python -- with ~1,700 clips, the old
+        fetch-everything behavior meant every refresh materialized the full
+        vault into ``Clip`` objects just to keep the first 120. ``limit=None``
+        (the default) preserves the original everything-at-once behavior for
+        existing callers that rely on it (dashboard widgets, exports, etc.).
+
+        ``conn`` lets a caller supply a different connection (e.g. a
+        background-thread read-only connection from ``reader_connection()``)
+        instead of the shared ``self.conn``.
+        """
+        from .search import sort_sql  # noqa: PLC0415
+
+        query = self._normalize_query(query)
+        where, params = self._build_where(query)
+
         sql = "SELECT * FROM clips WHERE " + " AND ".join(where)
         sql += " ORDER BY " + sort_sql(query.sort)
-        rows = self.conn.execute(sql, params).fetchall()
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params = [*params, limit, offset]
+        rows = (conn or self.conn).execute(sql, params).fetchall()
         return [self._row_to_clip(r) for r in rows]
 
-    def count_images(self) -> int:
-        return self.conn.execute(
+    def count_clips(self, query=None, conn=None) -> int:
+        """Total rows matching ``query``, ignoring any paging -- the pair to
+        ``list_clips(..., limit=...)`` for "N clips" / "show M more" UI."""
+        query = self._normalize_query(query)
+        where, params = self._build_where(query)
+        sql = "SELECT COUNT(*) FROM clips WHERE " + " AND ".join(where)
+        row = (conn or self.conn).execute(sql, params).fetchone()
+        return int(row[0]) if row else 0
+
+    def count_images(self, conn=None) -> int:
+        return (conn or self.conn).execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
             "AND (classification = ? OR content_type = ?)",
             (models.CLASS_IMAGE, models.CONTENT_IMAGE),
@@ -689,8 +759,8 @@ class VaultStorage:
         except sqlite3.OperationalError:
             return False
 
-    def count_duplicate_groups(self) -> int:
-        row = self.conn.execute(
+    def count_duplicate_groups(self, conn=None) -> int:
+        row = (conn or self.conn).execute(
             "SELECT COUNT(*) FROM ("
             "SELECT content_hash FROM clips WHERE deleted_at IS NULL "
             "GROUP BY content_hash HAVING COUNT(*) > 1)"
@@ -705,10 +775,10 @@ class VaultStorage:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def counts(self) -> dict[str, int]:
+    def counts(self, conn=None) -> dict[str, int]:
         """Count of live clips per sidebar filter (for the badges)."""
         out: dict[str, int] = {}
-        c = self.conn
+        c = conn or self.conn
         out[FILTER_ALL] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL"
         ).fetchone()[0]
@@ -725,7 +795,7 @@ class VaultStorage:
         out[FILTER_SENSITIVE] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND is_sensitive = 1"
         ).fetchone()[0]
-        out[FILTER_DUPLICATES] = self.count_duplicate_groups()
+        out[FILTER_DUPLICATES] = self.count_duplicate_groups(conn=conn)
         out[FILTER_TODAY] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at >= ?",
             (_start_of_today_iso(),),
@@ -738,7 +808,7 @@ class VaultStorage:
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at < ?",
             (_start_of_week_iso(),),
         ).fetchone()[0]
-        out[FILTER_SCREENSHOTS] = self.count_images()
+        out[FILTER_SCREENSHOTS] = self.count_images(conn=conn)
         out[FILTER_EXPIRED] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL "
             "AND expires_at IS NOT NULL"

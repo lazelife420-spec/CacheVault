@@ -92,7 +92,14 @@ class ClipComposerDialog(ctk.CTkToplevel):
             command=self.destroy, **theme.secondary_button(),
         ).pack(side="right")
         self.bind("<Escape>", lambda _e: self.destroy())
-        _bring_to_front(self, master, modal=True)
+        _bring_to_front(self, master, modal=True, center_on=(760, 560))
+
+    def destroy(self) -> None:
+        try:
+            self.grab_release()
+        except Exception:  # noqa: BLE001 - grab may already be gone
+            pass
+        super().destroy()
 
     def _reset_from_mode(self, mode: str) -> None:
         text = compose_text(self._parts, mode)
@@ -138,6 +145,8 @@ class EditClipTextDialog(ctk.CTkToplevel):
         self.minsize(640, 460)
         self._on_save = on_save
         self._save_started = False
+        self._closing = False
+        self._master_ref = master
 
         ctk.CTkLabel(
             self,
@@ -167,7 +176,60 @@ class EditClipTextDialog(ctk.CTkToplevel):
             command=self.destroy, **theme.secondary_button(),
         ).pack(side="right")
         self.bind("<Escape>", lambda _e: self.destroy())
-        _bring_to_front(self, master, modal=True)
+        _bring_to_front(self, master, modal=True, center_on=(720, 520))
+
+    def destroy(self) -> None:
+        """Close the dialog without racing CustomTkinter's own pending
+        callbacks.
+
+        CTkToplevel's Windows dark-titlebar workaround
+        (_windows_set_titlebar_color, triggered internally off resizable())
+        records whatever had focus, does a withdraw/redraw dance, and
+        schedules self.after(10, that_widget.focus) to restore it -- a
+        callback CustomTkinter owns, not us. If the textbox it targets has
+        already been torn down by the time that fires, Tk raises
+        "bad window path name" from the after() dispatcher; observed in
+        practice as a brief Not-Responding flicker on this exact
+        save/close path, not just log noise. Instead of destroying
+        immediately: withdraw right away (the dialog disappears from the
+        user's perspective instantly), restore the parent's focus, and
+        defer the actual widget teardown long enough for CustomTkinter's
+        own ~20ms internal callback chain to either fire harmlessly against
+        the still-alive (merely hidden) window or find it already gone and
+        skip via its own guards.
+        """
+        if self._closing:
+            return
+        self._closing = True
+        try:
+            self.grab_release()
+        except Exception:  # noqa: BLE001 - grab may already be gone
+            pass
+        try:
+            if self.winfo_exists():
+                self.withdraw()
+        except Exception:  # noqa: BLE001 - window may already be gone
+            pass
+        try:
+            master = self._master_ref
+            if master is not None and master.winfo_exists():
+                master.focus_set()
+        except Exception:  # noqa: BLE001 - parent may be gone/closing too
+            pass
+        try:
+            if self.winfo_exists():
+                self.after(50, self._finalize_destroy)
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        self._finalize_destroy()
+
+    def _finalize_destroy(self) -> None:
+        try:
+            if self.winfo_exists():
+                super().destroy()
+        except Exception:  # noqa: BLE001 - already gone
+            pass
 
     def _save(self) -> None:
         text = self._body.get("1.0", "end").strip()

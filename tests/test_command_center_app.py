@@ -12,7 +12,7 @@ from cache_vault.core.command_center import (
     HotkeyAction,
 )
 from cache_vault.ui.filters import NAV_HOTKEY_ACTIONS
-from tests.tk_support import probe_tk_ui
+from tests.tk_support import probe_tk_ui, wait_for_refresh
 
 OK, REASON = probe_tk_ui()
 
@@ -213,10 +213,7 @@ class TestCommandCenterApp:
         try:
             app.withdraw()
             app._navigate_screen(NAV_HOTKEY_ACTIONS)
-            import time
-            app.update()
-            time.sleep(0.1)
-            app.update()
+            wait_for_refresh(app)
             btn = _find_button(app, "New Hotkey")
             assert btn is not None, "New Hotkey button not found on screen"
             cmd = btn.cget("command")

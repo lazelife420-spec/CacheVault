@@ -10,8 +10,13 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ... import brand
+from ...core.lan_ip import LanIpResolver
 from .. import ModuleManifest
 from ..settings_schema import SettingsCategory, SettingsField, StatusRow
+
+# Module-level so the cache and in-flight lookup persist across Settings Hub
+# opens/tab switches, not just within a single render pass.
+_lan_resolver = LanIpResolver()
 
 
 class MobileBridgeModule(ModuleManifest):
@@ -143,15 +148,13 @@ class MobileBridgeModule(ModuleManifest):
             level="info" if not enabled else "info",
         ))
 
-        # Recommended LAN IP.
-        def _lan_ip() -> str:
-            try:
-                from cache_vault.core.lan_ip import recommended_lan_ipv4
-                return recommended_lan_ipv4() or "Not detected"
-            except Exception:
-                return "Not detected"
-
-        rows.append(StatusRow("LAN IP", _lan_ip, level="info"))
+        # Recommended LAN IP. Never resolved synchronously on this call —
+        # see LanIpResolver: getaddrinfo has no timeout of its own and can
+        # hang far longer than any UI should block.
+        rows.append(StatusRow(
+            "LAN IP", _lan_resolver.status_text, level="info",
+            is_pending=_lan_resolver.is_pending,
+        ))
 
         # Last phone request.
         def _last_request() -> str:

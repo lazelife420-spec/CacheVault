@@ -4,6 +4,76 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.2.0
+
+`/proof` unchanged this release. Stable not claimed.
+
+This is a product-generation release: a unified desktop shell and page
+architecture, and the first authoritative Mobile Access lifecycle with a
+version/protocol compatibility handshake between desktop and the Android
+companion.
+
+### Added
+- **Unified shell and page layouts** — Command Center and all migrated pages
+  now share one page-template architecture, with compact-width toolbar and
+  header corrections.
+- **Authoritative Mobile Access lifecycle** — enable/disable state persists
+  across restarts and stays synchronized across the toolbar, Settings, the
+  LAN listener, and mDNS discovery; no listener or discovery advertisement
+  remains running while disabled.
+- **Companion version/protocol compatibility handshake** — every Android
+  pairing and reconnect declares `app_version`, `build`, and `protocol`;
+  an incompatible client is rejected outright with a structured HTTP `426`
+  (never a generic failure), independent of token authentication.
+- **Mobile device version/compatibility display** — the desktop Mobile
+  Access page lists each paired device's model, app version, protocol, and
+  compatibility state (Compatible / Update required).
+- **Android Update-required UI** — an incompatible companion build shows an
+  explicit "Update required" state with the live minimum supported version,
+  instead of a generic connection error.
+
+### Fixed
+- **Disabled-bridge status resolves to Not Connected** — a phone that loses
+  its connection because Mobile Access was turned off on the desktop now
+  resolves to an honest "Not connected" state (and a clear "could not send"
+  failure on any send attempt) instead of showing "Checking…"/"Loading…"
+  indefinitely.
+- **"Check for update" destination fixed** — the button previously opened a
+  Google Play Store listing that returns "Item not found"; it now opens the
+  CacheVault download page directly, and a failed launch now shows an
+  honest in-app message instead of doing nothing (or crashing).
+
+### Security
+- **CacheVault Mobile is now production-signed.** Every prior build,
+  through v0.1.3-rc6, was signed with the shared Android debug key used for
+  internal testing. v0.2.0 introduces a dedicated, permanently-retained
+  release signing key. See **Upgrading from a debug-signed install** below
+  — this is a one-time, unavoidable transition, not a defect.
+
+### Verified
+- Real Galaxy S23 pairing, phone-to-desktop clip transfer, disabled-bridge
+  send-blocking, the Update-required UI, and re-enable/reconnect were all
+  proven on physical hardware, not simulated.
+
+### Scope notes
+- Cache Vault remains a **local-network companion**: phone and desktop must
+  be on the **same Wi-Fi**. No cloud account. No subscription.
+- Mobile protocol range for this release: **protocol 1** only.
+  Minimum compatible mobile app version: **0.1.0**.
+
+### Upgrading from a debug-signed install
+Android will not install v0.2.0 over an existing CacheVault Mobile install
+signed with the old debug key (v0.1.3-rc6 or earlier) — the app ID matches
+but the signing certificate doesn't, which Android treats as a different
+app for update purposes. To upgrade:
+1. Uninstall the existing CacheVault Mobile app.
+2. Install the v0.2.0 APK.
+3. Re-pair with CacheVault desktop.
+
+No clip content is stored on the phone — everything loads live from the
+desktop over the pairing connection — so the only thing uninstalling loses
+is the saved pairing itself, which re-pairing immediately restores.
+
 ## Cache Vault v0.1.9
 
 `/proof` unchanged this release. Stable not claimed.
