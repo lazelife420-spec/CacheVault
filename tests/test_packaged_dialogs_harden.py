@@ -1,3 +1,4 @@
+import time
 from unittest.mock import Mock
 import pytest
 import customtkinter as ctk
@@ -75,6 +76,16 @@ def test_edit_clip_text_dialog(tk_root):
     tk_root.update_idletasks()
     assert on_save.call_count == 1
     assert on_save.call_args[0][0] == "Hello World"
+    # destroy() withdraws immediately but defers actual teardown ~50ms so
+    # CustomTkinter's own pending focus-restore callback (Windows
+    # dark-titlebar workaround) doesn't race a torn-down textbox -- so the
+    # window is hidden right away but winfo_exists() only goes false once
+    # that deferred finalize runs.
+    assert dialog.winfo_viewable() == 0
+    deadline = time.time() + 1.0
+    while time.time() < deadline and dialog.winfo_exists():
+        tk_root.update()
+        time.sleep(0.01)
     assert not dialog.winfo_exists()
 
 
