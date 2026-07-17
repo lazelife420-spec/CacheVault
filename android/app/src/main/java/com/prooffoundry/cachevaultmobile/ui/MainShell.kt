@@ -32,6 +32,7 @@ import com.prooffoundry.cachevaultmobile.ui.screens.VaultHomeScreen
 fun MainShell(
     vm: AppViewModel,
     onOpenClip: (String) -> Unit,
+    onOpenImage: (com.prooffoundry.cachevaultmobile.data.ClipSummary, List<com.prooffoundry.cachevaultmobile.data.ClipSummary>) -> Unit,
     onDisconnect: () -> Unit,
     onRePair: () -> Unit,
     onKeepConnectedChanged: (Boolean) -> Unit,
@@ -96,7 +97,7 @@ fun MainShell(
                 MainTab.IMAGES -> ScreenshotsScreen(
                     state = state,
                     onRefresh = vm::refreshAll,
-                    onOpenClip = onOpenClip,
+                    onOpenImage = onOpenImage,
                 )
                 MainTab.PROOF -> ProofScreen(
                     state = state,

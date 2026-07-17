@@ -43,25 +43,39 @@ object ImageFileHelper {
     }
 
     fun shareImage(context: Context, bytes: ByteArray, mimeType: String, clipId: String) {
-        val ext = when {
-            mimeType.contains("png", ignoreCase = true) -> "png"
-            mimeType.contains("jpeg", ignoreCase = true) ||
-                mimeType.contains("jpg", ignoreCase = true) -> "jpg"
-            else -> "img"
-        }
-        val file = File(context.cacheDir, "cv_share_$clipId.$ext")
-        file.writeBytes(bytes)
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            file,
-        )
+        val uri = writeCacheFile(context, bytes, mimeType, "cv_share_$clipId")
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(Intent.createChooser(intent, "Share image"))
+    }
+
+    /** Fallback for when CacheVault's own viewer isn't enough — hand the bytes to any app that can open images. */
+    fun openInOtherApp(context: Context, bytes: ByteArray, mimeType: String, clipId: String) {
+        val uri = writeCacheFile(context, bytes, mimeType, "cv_open_$clipId")
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Open image with"))
+    }
+
+    private fun writeCacheFile(context: Context, bytes: ByteArray, mimeType: String, baseName: String): Uri {
+        val ext = when {
+            mimeType.contains("png", ignoreCase = true) -> "png"
+            mimeType.contains("jpeg", ignoreCase = true) ||
+                mimeType.contains("jpg", ignoreCase = true) -> "jpg"
+            else -> "img"
+        }
+        val file = File(context.cacheDir, "$baseName.$ext")
+        file.writeBytes(bytes)
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
     }
 
     fun saveToPictures(context: Context, bytes: ByteArray, mimeType: String, name: String): Boolean {

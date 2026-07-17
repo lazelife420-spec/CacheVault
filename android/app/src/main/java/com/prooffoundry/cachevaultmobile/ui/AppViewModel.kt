@@ -76,6 +76,9 @@ data class AppUiState(
     val activeClipId: String? = null,
     val selectedClip: com.prooffoundry.cachevaultmobile.data.ClipSummary? = null,
     val imageAsset: ImageAssetState = ImageAssetState(),
+    val imageGallery: List<ClipSummary> = emptyList(),
+    val imageGalleryIndex: Int = 0,
+    val preloadedAssets: Map<String, ImageAssetState> = emptyMap(),
     val thumbnailBytes: Map<String, ByteArray> = emptyMap(),
     val pcFoundOffer: PcFoundOffer? = null,
     val showNoPcFound: Boolean = false,
@@ -262,6 +265,31 @@ class AppViewModel(
         }
         viewModelScope.launch {
             uiState = uiState.copy(loading = true)
+            // Try the already-known address directly first. It's a single HTTP
+            // round-trip to a host we've successfully connected to before, and
+            // far more reliable than mDNS/UDP broadcast discovery — which can be
+            // dropped by the AP, blocked by client isolation, or confused by
+            // extra network adapters on the phone or PC (VPNs, WSL/Hyper-V,
+            // etc.). Only fall back to discovery (for when the PC's IP actually
+            // changed) if the direct check fails.
+            val directStatus = runCatching {
+                withContext(Dispatchers.IO) { repository.verifyConnection(pairing) }
+            }.getOrNull()
+            if (directStatus != null) {
+                uiState = uiState.copy(
+                    pcFoundOffer = buildOffer(
+                        DiscoveredPc(
+                            pairing.pcLabel.ifBlank { directStatus.product },
+                            pairing.host,
+                            pairing.port,
+                        ),
+                        null,
+                    ),
+                    showNoPcFound = false,
+                    loading = false,
+                )
+                return@launch
+            }
             val pc = runCatching {
                 withContext(Dispatchers.IO) { repository.discoverPc() }
             }.getOrNull()
@@ -623,6 +651,9 @@ class AppViewModel(
                     selectedClip = clip,
                     loading = false,
                     imageAsset = ImageAssetState(),
+                    imageGallery = listOf(clip),
+                    imageGalleryIndex = 0,
+                    preloadedAssets = emptyMap(),
                 )
                 if (ClipKinds.isImageReference(clip) && clip.hasAsset) {
                     loadImageAsset(clip.id)
@@ -637,12 +668,89 @@ class AppViewModel(
         }
     }
 
+    /** Opens an image clip already known from the Images grid, with its full ordered gallery context. */
+    fun openImageInGallery(clip: ClipSummary, gallery: List<ClipSummary>) {
+        val index = gallery.indexOfFirst { it.id == clip.id }.takeIf { it >= 0 } ?: 0
+        uiState = uiState.copy(
+            loading = false,
+            activeClipId = clip.id,
+            selectedClip = clip,
+            detailError = null,
+            imageAsset = ImageAssetState(),
+            imageGallery = gallery,
+            imageGalleryIndex = index,
+            preloadedAssets = emptyMap(),
+        )
+        if (clip.hasAsset) {
+            loadImageAsset(clip.id)
+        }
+        preloadGalleryNeighbors(gallery, index)
+    }
+
+    /** Steps the full-screen viewer by [delta] images; clamps at the gallery's edges (no wrap). */
+    fun navigateGallery(delta: Int) {
+        navigateGalleryTo(ImageGallery.clampIndex(uiState.imageGalleryIndex, delta, uiState.imageGallery.size))
+    }
+
+    /**
+     * Jumps the full-screen viewer to an absolute gallery [index] — idempotent (a no-op if
+     * already there) so the Pager's own settle callback can call it directly without needing to
+     * track a stale previous-index closure across recompositions.
+     */
+    fun navigateGalleryTo(index: Int) {
+        val gallery = uiState.imageGallery
+        if (index !in gallery.indices || index == uiState.imageGalleryIndex) return
+        val clip = gallery[index]
+        val cached = uiState.preloadedAssets[clip.id]
+        uiState = uiState.copy(
+            imageGalleryIndex = index,
+            activeClipId = clip.id,
+            selectedClip = clip,
+            detailError = null,
+            imageAsset = cached ?: ImageAssetState(loading = clip.hasAsset),
+        )
+        if (cached?.bytes == null && clip.hasAsset) {
+            loadImageAsset(clip.id)
+        }
+        preloadGalleryNeighbors(gallery, index)
+    }
+
+    private fun preloadGalleryNeighbors(gallery: List<ClipSummary>, index: Int) {
+        val neighborIndices = ImageGallery.neighborIndices(index, gallery.size)
+        val neighborIds = neighborIndices.map { gallery[it].id }.toSet()
+        uiState = uiState.copy(
+            preloadedAssets = uiState.preloadedAssets.filterKeys { it in neighborIds },
+        )
+        neighborIndices.forEach { i ->
+            val clip = gallery[i]
+            if (!clip.hasAsset || uiState.preloadedAssets[clip.id]?.bytes != null) return@forEach
+            viewModelScope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) { repository.client().fetchImageAsset(clip.id) }
+                }.onSuccess { result ->
+                    uiState = uiState.copy(
+                        preloadedAssets = uiState.preloadedAssets + (
+                            clip.id to ImageAssetState(
+                                bytes = result.bytes,
+                                contentType = result.contentType,
+                            )
+                        ),
+                    )
+                }
+                // Silent on failure — navigating there triggers a normal load with a visible error state.
+            }
+        }
+    }
+
     fun closeClipDetail() {
         uiState = uiState.copy(
             activeClipId = null,
             selectedClip = null,
             imageAsset = ImageAssetState(),
             detailError = null,
+            imageGallery = emptyList(),
+            imageGalleryIndex = 0,
+            preloadedAssets = emptyMap(),
         )
     }
 
