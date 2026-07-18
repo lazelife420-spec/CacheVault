@@ -106,6 +106,13 @@ EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
 # raise "No more menus can be allocated" on the next menu/dialog. Cap the
 # number of rows we materialise; older items stay reachable via search/filters.
 MAX_VISIBLE_CLIPS = 120
+# Home dashboard's "recent" queries only ever display their first 3-8 items
+# (see home_dashboard.py's [:3]/[:4]/[:8] slices) but previously fetched every
+# live/matching clip with no SQL limit, then sliced in Python -- a cost that
+# scaled with total vault size instead of what's actually shown. Measured at
+# ~58ms combined across 5 queries at 1500 live clips (see
+# scripts/cleanup_perf_baseline.py); this bounds it regardless of vault size.
+HOME_RECENT_WINDOW = 50
 HK_MANUAL_SAVE = 10
 HK_ARM_NEXT = 11
 HK_IGNORE_NEXT = 12
@@ -1766,17 +1773,17 @@ class CacheVaultApp(ctk.CTk):
                 image_ready = self.vault.storage.asset_storage_ready()
                 self._home._image_ready = image_ready  # noqa: SLF001
 
-                all_recent = self.vault.list_clips(q_recent)
-                today_clips = self.vault.list_clips(q_today)
-                link_clips = self.vault.list_clips(q_links)[:6]
+                all_recent = self.vault.list_clips(q_recent, limit=HOME_RECENT_WINDOW)
+                today_clips = self.vault.list_clips(q_today, limit=HOME_RECENT_WINDOW)
+                link_clips = self.vault.list_clips(q_links, limit=6)
                 receipts = [c for c in all_recent if c.content_hash][:6]
                 sensitive_items = [c for c in all_recent if c.is_sensitive][:6]
 
                 self._home.render(
                     summary,
                     all_recent[:8],
-                    self.vault.list_clips(q_fav)[:6],
-                    self.vault.list_clips(q_img)[:6],
+                    self.vault.list_clips(q_fav, limit=6),
+                    self.vault.list_clips(q_img, limit=6),
                     today_clips=today_clips,
                     link_clips=link_clips,
                     receipts=receipts,

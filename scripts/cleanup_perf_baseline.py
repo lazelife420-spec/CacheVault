@@ -226,13 +226,24 @@ def main():
     from cache_vault.core.storage import (
         FILTER_TODAY, FILTER_LINKS, FILTER_FAVORITES, FILTER_SCREENSHOTS,
     )
-    def _home_queries():
+    def _home_queries_unbounded():
         vault.list_clips(SearchQuery())[:6]
         vault.list_clips(SearchQuery(filter_name=FILTER_TODAY))[:6]
         vault.list_clips(SearchQuery(filter_name=FILTER_LINKS))[:6]
         vault.list_clips(SearchQuery(filter_name=FILTER_FAVORITES))[:6]
         vault.list_clips(SearchQuery(filter_name=FILTER_SCREENSHOTS))[:6]
-    timed("Home dashboard 'recent slices' (5 unbounded list_clips calls)", _home_queries, conn=storage.conn)
+    timed("Home dashboard 'recent slices' BEFORE (unbounded, old behavior)",
+          _home_queries_unbounded, conn=storage.conn)
+
+    def _home_queries_bounded():
+        home_recent_window = 50  # cache_vault.ui.shell.HOME_RECENT_WINDOW
+        vault.list_clips(SearchQuery(), limit=home_recent_window)
+        vault.list_clips(SearchQuery(filter_name=FILTER_TODAY), limit=home_recent_window)
+        vault.list_clips(SearchQuery(filter_name=FILTER_LINKS), limit=6)
+        vault.list_clips(SearchQuery(filter_name=FILTER_FAVORITES), limit=6)
+        vault.list_clips(SearchQuery(filter_name=FILTER_SCREENSHOTS), limit=6)
+    timed("Home dashboard 'recent slices' AFTER (bounded, current code)",
+          _home_queries_bounded, conn=storage.conn)
 
     storage.close()
     print("\nDone.")

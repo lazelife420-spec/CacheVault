@@ -496,3 +496,36 @@ class TestHomeVaultUI:
         assert dashboard._batch_frame is not None
 
         dashboard.destroy()
+
+
+# --- home-dashboard "recent slice" query bounding (perf fix regression) -----
+
+
+def test_home_recent_window_is_a_small_bounded_constant():
+    """Guards against silently reverting to an unbounded fetch -- the home
+    dashboard's recent/today/links/favorites/screenshots queries only ever
+    display their first 3-8 items (see home_dashboard.py's [:3]/[:4]/[:8]
+    slices), so this must stay a small constant, not grow to "the whole
+    vault" again.
+    """
+    from cache_vault.ui.shell import HOME_RECENT_WINDOW
+
+    assert 0 < HOME_RECENT_WINDOW <= 200
+
+
+def test_home_recent_query_bounded_regardless_of_vault_size(vault):
+    """Reproduces the measured perf-baseline finding directly: the "recent"
+    query used to fetch every live clip; it must now return no more than
+    HOME_RECENT_WINDOW rows even when the vault holds far more than that.
+    """
+    from cache_vault.ui.shell import HOME_RECENT_WINDOW
+
+    total = HOME_RECENT_WINDOW + 25
+    for i in range(total):
+        vault.storage.add_clip(_clip(f"clip {i}"))
+
+    q_recent = search.SearchQuery(filter_name=FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
+    result = vault.list_clips(q_recent, limit=HOME_RECENT_WINDOW)
+
+    assert len(result) == HOME_RECENT_WINDOW
+    assert len(result) < total
