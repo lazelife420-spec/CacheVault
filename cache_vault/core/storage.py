@@ -115,6 +115,21 @@ CREATE TABLE IF NOT EXISTS clip_assets (
     height        INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_clip_assets_clip ON clip_assets(clip_id);
+
+CREATE TABLE IF NOT EXISTS clip_cleanup_decisions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    category       TEXT NOT NULL,
+    scope          TEXT NOT NULL,
+    fingerprint    TEXT NOT NULL,
+    clip_id        TEXT NOT NULL DEFAULT '',
+    decision       TEXT NOT NULL,
+    rule_version   INTEGER NOT NULL,
+    decided_at     TEXT NOT NULL,
+    scan_generation TEXT,
+    UNIQUE(category, scope, fingerprint, clip_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cleanup_decisions_lookup
+    ON clip_cleanup_decisions(category, scope, fingerprint);
 """
 
 
