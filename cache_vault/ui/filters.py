@@ -559,6 +559,12 @@ class FilterNav(ctk.CTkFrame):
         self._counts[NAV_FOUNDER] = self._status_badge # type: ignore
         self._labels_text[NAV_FOUNDER] = "Founder"
 
+        # Cleanup Suggestions has no sidebar row (reached only via the Home
+        # dashboard card's "Review suggestions" button), so it never gets a
+        # label from the FILTER_GROUPS loop below -- without this, the page
+        # heading falls back to the raw nav key ("nav_cleanup_suggestions").
+        self._labels_text[NAV_CLEANUP_SUGGESTIONS] = "Cleanup Suggestions"
+
         # 3. Independently Scrollable Center Panel
         self._scroll_frame = HoverScrollFrame(self, fg_color="transparent", corner_radius=0)
         self._scroll_frame.pack(fill="both", expand=True, side="top", padx=2, pady=4)
@@ -786,6 +792,11 @@ class FilterNav(ctk.CTkFrame):
                 self._counts[key].configure(text="")
                 continue
             if key == NAV_FOUNDER:
+                continue
+            if key == NAV_CLEANUP_SUGGESTIONS:
+                # No sidebar row/count badge exists for this key (reached
+                # only via the Home dashboard card) -- self._counts has no
+                # entry for it, same reason NAV_FOUNDER is skipped above.
                 continue
             n = counts.get(key, 0)
             self._counts[key].configure(text=str(n) if n else "")

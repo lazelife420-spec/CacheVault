@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import image_assets, models
+from . import cleanup_store, image_assets, models
 from .models import Clip
 from .storage import VaultStorage
 from .vault_macros import MacroStore
@@ -205,6 +205,8 @@ class ScanContext:
     macro_content_hashes: set[str]
     recent_cutoff_iso: str | None
     cancel_check: Callable[[], bool]
+    scan_generation: str
+    decisions: dict[tuple[str, str, str, str], "cleanup_store.CleanupDecision"]
 
     def protection_for(self, clip: Clip) -> ProtectionStatus:
         return evaluate_protection(
@@ -212,6 +214,36 @@ class ScanContext:
             conn=self.conn,
             macro_content_hashes=self.macro_content_hashes,
             recent_cutoff_iso=self.recent_cutoff_iso,
+        )
+
+    def is_item_suppressed(self, category: str, clip_id: str) -> bool:
+        """Should this clip be hidden from [category]'s results because of
+        a previously-recorded Keep / Keep forever / Ignore decision?
+
+        Item-scoped decisions are keyed by the clip's own id as both the
+        fingerprint and the clip_id column (see cleanup_screen.py's
+        _fingerprint_for) -- stable across rescans and restarts since a
+        clip's id never changes, and never accidentally shared with an
+        unrelated clip that merely has matching bytes/text/dimensions.
+        """
+        key = (category, cleanup_store.SCOPE_ITEM, clip_id, clip_id)
+        decision = self.decisions.get(key)
+        return cleanup_store.is_decision_suppressed(
+            decision, current_scan_generation=self.scan_generation,
+        )
+
+    def is_group_suppressed(self, category: str, fingerprint: str) -> bool:
+        """Group-scoped suppression, checked against the group's *final*
+        fingerprint (computed from its post-suppression membership) --
+        nothing in the current UI records a group-scope decision yet (see
+        cleanup_screen.py's _fingerprint_for), but the schema and this
+        pipeline both support it for a possible future "dismiss this whole
+        group" action.
+        """
+        key = (category, cleanup_store.SCOPE_GROUP, fingerprint, cleanup_store.GROUP_CLIP_ID_SENTINEL)
+        decision = self.decisions.get(key)
+        return cleanup_store.is_decision_suppressed(
+            decision, current_scan_generation=self.scan_generation,
         )
 
 
@@ -222,12 +254,21 @@ def build_scan_context(
     macro_store: MacroStore | None = None,
     recent_cutoff_iso: str | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    scan_generation: str | None = None,
 ) -> ScanContext:
     """[conn], if given, is used for every query instead of ``storage.conn``
     -- pass a dedicated read-only connection (``storage.reader_connection()``)
     when scanning from a background thread, since ``storage.conn`` may be
     concurrently written to by the main thread. Defaults to ``storage.conn``
     for callers that already know they're single-threaded (tests, CLI).
+
+    [scan_generation], if given, is used as-is rather than minting a fresh
+    one -- callers doing a "quiet" rescan immediately after a Keep/Keep
+    forever/Ignore decision reuse the scan that's currently on screen, so a
+    "keep" decision (scoped to the scan_generation it was recorded under)
+    still suppresses on that immediate refresh. A genuinely new user-
+    initiated scan always gets a fresh generation, which is what makes
+    "keep" (unlike "keep forever") stop suppressing on the next real scan.
     """
     cancel_check = cancel_check or (lambda: False)
     active_conn = conn or storage.conn
@@ -239,6 +280,8 @@ def build_scan_context(
         macro_content_hashes=_macro_content_hashes(macro_store),
         recent_cutoff_iso=recent_cutoff_iso,
         cancel_check=cancel_check,
+        scan_generation=scan_generation or models.new_id(),
+        decisions=cleanup_store.load_active_decisions(active_conn),
     )
 
 
@@ -313,6 +356,13 @@ class CleanupScanResult:
     missing_or_damaged: list[SuggestionItem] = field(default_factory=list)
     largest_assets: list[SuggestionItem] = field(default_factory=list)
     cancelled: bool = False
+    # Identifies the scan run that produced this result. A "keep" decision
+    # records the generation it was made under and only suppresses while
+    # that generation is reused (an immediate quiet rescan after the
+    # decision); a genuinely fresh scan mints a new generation, which is
+    # what makes "keep" (unlike "keep forever"/"ignored") stop suppressing
+    # on the next real scan. See build_scan_context / ScanContext.
+    scan_generation: str = ""
 
     @property
     def total_groups(self) -> int:
@@ -380,6 +430,8 @@ def find_duplicate_screenshot_groups(ctx: ScanContext) -> list[SuggestionGroup]:
             continue
         items = []
         for clip in clips:
+            if ctx.is_item_suppressed(CATEGORY_DUPLICATE_SCREENSHOT, clip.id):
+                continue
             row = ctx.asset_rows[clip.id]
             items.append(
                 SuggestionItem(
@@ -390,10 +442,18 @@ def find_duplicate_screenshot_groups(ctx: ScanContext) -> list[SuggestionGroup]:
                     asset_height=row["height"],
                 )
             )
+        # A group is only a "duplicate" once its unsuppressed membership is
+        # recomputed -- suppressing all-but-one copy leaves nothing left to
+        # call a duplicate, and the group must disappear rather than show a
+        # single lonely "copy".
+        if len(items) < 2:
+            continue
         items.sort(key=lambda it: _keeper_sort_key(it, ctx), reverse=True)
         keeper = items[0]
         member_ids = sorted(it.clip.id for it in items)
         fingerprint = models.content_hash(chash + "|" + ",".join(member_ids))
+        if ctx.is_group_suppressed(CATEGORY_DUPLICATE_SCREENSHOT, fingerprint):
+            continue
         groups.append(
             SuggestionGroup(
                 category=CATEGORY_DUPLICATE_SCREENSHOT,
@@ -442,13 +502,20 @@ def find_repeated_text_groups(ctx: ScanContext) -> list[SuggestionGroup]:
         items = [
             SuggestionItem(clip=clip, protection=ctx.protection_for(clip))
             for clip in clips
+            if not ctx.is_item_suppressed(CATEGORY_REPEATED_TEXT, clip.id)
         ]
+        # Same rule as duplicate screenshots: fewer than 2 unsuppressed
+        # copies left means it's no longer a "repeated" text clip.
+        if len(items) < 2:
+            continue
         # Recommend keeping the newest or a protected copy; never preselect
         # protected entries (handled by SuggestionGroup.preselectable_ids).
         items.sort(key=lambda it: (it.protection.protected, it.clip.created_at or ""), reverse=True)
         keeper = items[0]
         member_ids = sorted(it.clip.id for it in items)
         fingerprint = models.content_hash(norm + "|" + ",".join(member_ids))
+        if ctx.is_group_suppressed(CATEGORY_REPEATED_TEXT, fingerprint):
+            continue
         groups.append(
             SuggestionGroup(
                 category=CATEGORY_REPEATED_TEXT,
@@ -486,6 +553,8 @@ def find_tiny_images(
         if not w or not h:
             continue
         if w < max_px and h < max_px:
+            if ctx.is_item_suppressed(CATEGORY_TINY_IMAGE, clip.id):
+                continue
             items.append(
                 SuggestionItem(
                     clip=clip,
@@ -537,6 +606,8 @@ def find_missing_or_damaged_assets(ctx: ScanContext) -> list[SuggestionItem]:
         missing, zero_byte, undecodable = _validate_asset_file(row["storage_name"])
         if not (missing or zero_byte or undecodable):
             continue
+        if ctx.is_item_suppressed(CATEGORY_MISSING_ASSET, clip.id):
+            continue
         items.append(
             SuggestionItem(
                 clip=clip,
@@ -580,13 +651,23 @@ def deep_validate_asset(storage: VaultStorage, clip_id: str) -> dict:
 def find_largest_assets(
     ctx: ScanContext, *, limit: int = DEFAULT_LARGEST_ASSETS_LIMIT
 ) -> list[SuggestionItem]:
-    """Visibility only -- never a redundancy claim, never preselected."""
+    """Visibility only -- never a redundancy claim, never preselected.
+
+    The review dialog never offers Keep/Keep forever/Ignore actions for
+    this category (it has no selection controls at all -- see
+    cleanup_screen.py's ``can_select``), so no decision can be recorded
+    against it through the UI today. The suppression check below is kept
+    anyway for consistency with every other category and in case a
+    decision is ever recorded against it by another path.
+    """
     items: list[SuggestionItem] = []
     by_id = {c.id: c for c in ctx.live_clips}
     for clip_id, row in ctx.asset_rows.items():
         _check_cancel(ctx.cancel_check)
         clip = by_id.get(clip_id)
         if clip is None:
+            continue
+        if ctx.is_item_suppressed(CATEGORY_LARGEST_ASSET, clip.id):
             continue
         items.append(
             SuggestionItem(
@@ -613,14 +694,27 @@ def run_scan(
     largest_assets_limit: int = DEFAULT_LARGEST_ASSETS_LIMIT,
     tiny_image_max_px: int = TINY_IMAGE_MAX_PX,
     cancel_check: Callable[[], bool] | None = None,
+    scan_generation: str | None = None,
 ) -> CleanupScanResult:
     """Run all five detectors read-only. Checks cancellation between
     categories (and each detector checks between its own groups/items too).
     Never mutates the database or filesystem.
 
+    Every previously-recorded Keep / Keep forever / Ignore decision is
+    applied *before* groups, counts, and byte totals are computed -- a
+    suppressed candidate never contributes to a group's size, the
+    reviewable-item count, or redundant/represented bytes, and a group left
+    with fewer than 2 unsuppressed copies disappears entirely. See
+    ScanContext.is_item_suppressed / is_group_suppressed.
+
     [conn], if given, is used for every query instead of ``storage.conn`` --
     see ``build_scan_context`` for why a background-thread caller must pass
     a dedicated read-only connection here.
+
+    [scan_generation], if given, is reused as-is (see build_scan_context);
+    otherwise a fresh one is minted and returned on the result so the
+    caller can pass it back into ``record_decision`` for a "keep" made
+    against this exact scan.
     """
     cancel_check = cancel_check or (lambda: False)
     ctx = build_scan_context(
@@ -629,8 +723,9 @@ def run_scan(
         macro_store=macro_store,
         recent_cutoff_iso=recent_cutoff_iso,
         cancel_check=cancel_check,
+        scan_generation=scan_generation,
     )
-    result = CleanupScanResult(rule_version=RULE_VERSION)
+    result = CleanupScanResult(rule_version=RULE_VERSION, scan_generation=ctx.scan_generation)
     try:
         result.duplicate_screenshot_groups = find_duplicate_screenshot_groups(ctx)
         _check_cancel(cancel_check)

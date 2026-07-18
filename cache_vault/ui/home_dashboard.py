@@ -424,8 +424,33 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ctk.CTkLabel(header, text="Cleanup Suggestions", anchor="w",
                      font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
 
-        scanned = bool(cleanup_summary)
-        if scanned:
+        failed = bool(cleanup_summary.get("failed"))
+        scanned = bool(cleanup_summary) and not failed and "total_groups" in cleanup_summary
+        if failed:
+            # A failed scan must be visible, not silently indistinguishable
+            # from "no scan yet" -- the prior successful result (if any) is
+            # untouched in state and still shown in the review screen; this
+            # card only reports that the LAST attempt didn't complete.
+            ctk.CTkLabel(
+                frame, text="Scan failed", anchor="w", text_color=brand.WARNING_RED,
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).pack(fill="x", padx=12, pady=(0, 2))
+            error_text = cleanup_summary.get("error_message") or "The scan could not complete."
+            # Bounded so an unexpected exception message can't blow up the
+            # card layout or leak an unbounded traceback/path into the UI.
+            if len(error_text) > 160:
+                error_text = error_text[:157] + "..."
+            ctk.CTkLabel(
+                frame, text=error_text, anchor="w", text_color=brand.MUTED_FG,
+                font=theme.body_font(11), wraplength=340, justify="left",
+            ).pack(fill="x", padx=12, pady=(0, 2))
+            last_scan = cleanup_summary.get("last_scan_label", "")
+            if last_scan:
+                ctk.CTkLabel(
+                    frame, text=f"Attempted {last_scan}", anchor="w", text_color=brand.MUTED_FG,
+                    font=theme.body_font(10),
+                ).pack(fill="x", padx=12, pady=(0, 4))
+        elif scanned:
             group_count = cleanup_summary.get("total_groups", 0)
             item_count = cleanup_summary.get("total_reviewable_items", 0)
             bytes_identified = cleanup_summary.get("redundant_bytes_identified", 0)
@@ -456,7 +481,8 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         actions = ctk.CTkFrame(frame, fg_color="transparent")
         actions.pack(fill="x", padx=12, pady=(6, 10))
         if self._on_scan_cleanup:
-            ctk.CTkButton(actions, text="Scan vault", height=26, command=self._on_scan_cleanup,
+            scan_label = "Retry scan" if failed else "Scan vault"
+            ctk.CTkButton(actions, text=scan_label, height=26, command=self._on_scan_cleanup,
                           **theme.secondary_button()).pack(side="left", padx=(0, 6))
         if self._on_open_cleanup:
             ctk.CTkButton(actions, text="Review suggestions", height=26,

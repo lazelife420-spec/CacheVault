@@ -408,7 +408,19 @@ class CleanupConfirmDialog(ctk.CTkToplevel):
     """Shown before any mutation. States the exact effect, that items move
     to Recently Removed (not permanently deleted), and how many protected
     items were excluded.
+
+    Content-driven size, not a fixed geometry -- a fixed height clipped the
+    Cancel/Move buttons off-window under some conditions (confirmed at
+    125% Windows display scaling during GUI QA on draft PR #67), leaving
+    them technically present but not reliably clickable at their visible
+    position. The message body scrolls if it ever needs more room than the
+    screen allows; the action row is packed outside that scroll area so it
+    stays reachable regardless.
     """
+
+    _MIN_WIDTH = 420
+    _MIN_HEIGHT = 260
+    _WRAP_WIDTH = 380
 
     def __init__(
         self, master, *, selected_count: int, group_count: int,
@@ -416,14 +428,19 @@ class CleanupConfirmDialog(ctk.CTkToplevel):
     ):
         super().__init__(master)
         self.title("Move to Recently Removed")
-        self.geometry("420x300")
+        self.minsize(self._MIN_WIDTH, self._MIN_HEIGHT)
+        self.resizable(True, True)
 
-        body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=18, pady=18)
+        outer = ctk.CTkFrame(self, fg_color="transparent")
+        outer.pack(fill="both", expand=True, padx=18, pady=18)
+
+        scroll = ctk.CTkScrollableFrame(outer, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, pady=(0, 12))
 
         ctk.CTkLabel(
-            body, text=f"Move {selected_count} selected item(s) to Recently Removed",
-            font=ctk.CTkFont(size=14, weight="bold"), anchor="w", wraplength=380, justify="left",
+            scroll, text=f"Move {selected_count} selected item(s) to Recently Removed",
+            font=ctk.CTkFont(size=14, weight="bold"), anchor="w",
+            wraplength=self._WRAP_WIDTH, justify="left",
         ).pack(fill="x", pady=(0, 10))
 
         lines = [
@@ -436,21 +453,48 @@ class CleanupConfirmDialog(ctk.CTkToplevel):
             "Permanent deletion is not occurring.",
         ]
         for line in lines:
-            ctk.CTkLabel(body, text=line, anchor="w", font=theme.body_font(12),
-                         text_color=brand.MUTED_FG if line else None, wraplength=380, justify="left").pack(
+            ctk.CTkLabel(scroll, text=line, anchor="w", font=theme.body_font(12),
+                         text_color=brand.MUTED_FG if line else None,
+                         wraplength=self._WRAP_WIDTH, justify="left").pack(
                 fill="x", pady=1,
             )
 
-        btns = ctk.CTkFrame(body, fg_color="transparent")
-        btns.pack(fill="x", pady=(16, 0))
-        ctk.CTkButton(btns, text="Cancel", height=30, command=self.destroy,
-                      **theme.secondary_button()).pack(side="left")
+        # Packed into outer (not scroll) so it never scrolls out of reach.
+        btns = ctk.CTkFrame(outer, fg_color="transparent")
+        btns.pack(fill="x", side="bottom", pady=(4, 0))
+        cancel_btn = ctk.CTkButton(btns, text="Cancel", height=30, command=self.destroy,
+                                    **theme.secondary_button())
+        cancel_btn.pack(side="left")
 
         def _confirm():
             self.destroy()
             on_confirm()
 
-        ctk.CTkButton(btns, text=f"Move {selected_count} item(s)", height=30,
-                      command=_confirm, **theme.primary_button()).pack(side="right")
+        move_btn = ctk.CTkButton(btns, text=f"Move {selected_count} item(s)", height=30,
+                                  command=_confirm, **theme.primary_button())
+        move_btn.pack(side="right")
 
+        # Escape always cancels. Enter is bound to whichever button
+        # currently has keyboard focus (Tk's default button behavior) --
+        # not globally to the destructive action, so a stray Enter press
+        # can't accidentally confirm a mutation. Cancel gets initial focus
+        # for the same reason.
+        self.bind("<Escape>", lambda _e: self.destroy())
+        cancel_btn.focus_set()
+
+        self._size_to_content()
         _bring_to_front(self, master, modal=True)
+
+    def _size_to_content(self) -> None:
+        """Auto-size to the natural content request, clamped to the
+        screen's usable area -- never a fixed WxH that can clip content.
+        """
+        self.update_idletasks()
+        req_w = max(self.winfo_reqwidth(), self._MIN_WIDTH)
+        req_h = max(self.winfo_reqheight(), self._MIN_HEIGHT)
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        margin = 80
+        w = min(req_w, max(self._MIN_WIDTH, screen_w - margin))
+        h = min(req_h, max(self._MIN_HEIGHT, screen_h - margin))
+        self.geometry(f"{w}x{h}")

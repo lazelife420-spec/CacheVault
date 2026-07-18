@@ -32,6 +32,7 @@ Decision semantics
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 
 from . import models
@@ -45,7 +46,7 @@ DECISION_REMOVED = "removed"
 SCOPE_ITEM = "item"
 SCOPE_GROUP = "group"
 
-_GROUP_CLIP_ID_SENTINEL = ""  # not NULL -- see storage.py's UNIQUE constraint note
+GROUP_CLIP_ID_SENTINEL = ""  # not NULL -- see storage.py's UNIQUE constraint note
 
 
 @dataclass
@@ -74,7 +75,7 @@ def record_decision(
     """Persist (or overwrite) a decision. Upserts on the same natural key
     (category, scope, fingerprint, clip_id) a rescan/re-decision would use.
     """
-    cid = clip_id or _GROUP_CLIP_ID_SENTINEL
+    cid = clip_id or GROUP_CLIP_ID_SENTINEL
     storage.conn.execute(
         """
         INSERT INTO clip_cleanup_decisions (
@@ -100,7 +101,7 @@ def get_decision(
     fingerprint: str,
     clip_id: str | None = None,
 ) -> CleanupDecision | None:
-    cid = clip_id or _GROUP_CLIP_ID_SENTINEL
+    cid = clip_id or GROUP_CLIP_ID_SENTINEL
     row = storage.conn.execute(
         "SELECT * FROM clip_cleanup_decisions "
         "WHERE category = ? AND scope = ? AND fingerprint = ? AND clip_id = ?",
@@ -120,16 +121,9 @@ def get_decision(
     )
 
 
-def is_suppressed(
-    storage: VaultStorage,
-    *,
-    category: str,
-    scope: str,
-    fingerprint: str,
-    clip_id: str | None = None,
-    current_scan_generation: str | None = None,
-) -> bool:
-    """Should this item/group be hidden from the current scan result?
+def _decision_suppresses(decision: CleanupDecision, *, current_scan_generation: str | None) -> bool:
+    """Pure suppression rule, shared by the single-lookup and bulk-preload
+    paths so the two can never silently disagree.
 
     ``keep_forever`` always suppresses. ``ignored`` suppresses as long as
     the fingerprint still matches (membership/evidence unchanged -- the
@@ -139,11 +133,6 @@ def is_suppressed(
     ``removed`` never suppresses (it's a historical record, not a live
     filter -- the clip is already gone from live_clips by then anyway).
     """
-    decision = get_decision(
-        storage, category=category, scope=scope, fingerprint=fingerprint, clip_id=clip_id,
-    )
-    if decision is None:
-        return False
     if decision.decision == DECISION_KEEP_FOREVER:
         return True
     if decision.decision == DECISION_IGNORED:
@@ -155,6 +144,70 @@ def is_suppressed(
     return False  # DECISION_REMOVED or anything unrecognized -- not an active filter
 
 
+def is_suppressed(
+    storage: VaultStorage,
+    *,
+    category: str,
+    scope: str,
+    fingerprint: str,
+    clip_id: str | None = None,
+    current_scan_generation: str | None = None,
+) -> bool:
+    """Should this item/group be hidden from the current scan result?
+
+    Single-lookup convenience path for callers outside the scan pipeline
+    (e.g. a UI action re-checking one specific decision). The scan pipeline
+    itself uses ``load_active_decisions`` to avoid one query per candidate.
+    """
+    decision = get_decision(
+        storage, category=category, scope=scope, fingerprint=fingerprint, clip_id=clip_id,
+    )
+    if decision is None:
+        return False
+    return _decision_suppresses(decision, current_scan_generation=current_scan_generation)
+
+
+def load_active_decisions(
+    conn: sqlite3.Connection,
+) -> dict[tuple[str, str, str, str], CleanupDecision]:
+    """Bulk-load every stored decision, keyed by (category, scope,
+    fingerprint, clip_id) -- the exact natural key ``record_decision``
+    upserts on. One query, used by the scan pipeline so suppression can be
+    checked in-memory per candidate instead of one query per item.
+
+    Takes a raw connection (not a VaultStorage) so a background scan thread
+    can pass a dedicated read-only connection instead of the shared,
+    possibly-concurrently-written-to ``storage.conn`` -- mirrors
+    ``cleanup_suggestions._managed_asset_rows``'s same reasoning.
+    """
+    rows = conn.execute("SELECT * FROM clip_cleanup_decisions").fetchall()
+    out: dict[tuple[str, str, str, str], CleanupDecision] = {}
+    for row in rows:
+        key = (row["category"], row["scope"], row["fingerprint"], row["clip_id"])
+        out[key] = CleanupDecision(
+            category=row["category"],
+            scope=row["scope"],
+            fingerprint=row["fingerprint"],
+            clip_id=row["clip_id"],
+            decision=row["decision"],
+            rule_version=row["rule_version"],
+            decided_at=row["decided_at"],
+            scan_generation=row["scan_generation"],
+        )
+    return out
+
+
+def is_decision_suppressed(
+    decision: CleanupDecision | None, *, current_scan_generation: str | None = None,
+) -> bool:
+    """Same rule as ``is_suppressed``, applied to an already-fetched
+    decision (or ``None``) -- the bulk-preload counterpart.
+    """
+    if decision is None:
+        return False
+    return _decision_suppresses(decision, current_scan_generation=current_scan_generation)
+
+
 def clear_decision(
     storage: VaultStorage,
     *,
@@ -164,7 +217,7 @@ def clear_decision(
     clip_id: str | None = None,
 ) -> None:
     """Explicit un-keep-forever / un-ignore action."""
-    cid = clip_id or _GROUP_CLIP_ID_SENTINEL
+    cid = clip_id or GROUP_CLIP_ID_SENTINEL
     storage.conn.execute(
         "DELETE FROM clip_cleanup_decisions "
         "WHERE category = ? AND scope = ? AND fingerprint = ? AND clip_id = ?",

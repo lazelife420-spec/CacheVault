@@ -1609,8 +1609,15 @@ class CacheVaultApp(ctk.CTk):
         scans automatically.
         """
         state = getattr(self, "_cleanup_scan_state", None)
-        if not state or state.get("result") is None:
+        if not state or (state.get("result") is None and not state.get("failed")):
             return {}
+        if state.get("failed") and not state.get("scanning"):
+            return {
+                "status": "Scan failed",
+                "error_message": state.get("error_message") or "The scan could not complete.",
+                "last_scan_label": state.get("finished_at_label", ""),
+                "failed": True,
+            }
         result = state["result"]
         return {
             "total_groups": result.total_groups,
@@ -1622,13 +1629,22 @@ class CacheVaultApp(ctk.CTk):
             ),
         }
 
-    def _scan_cleanup_suggestions(self) -> None:
+    def _scan_cleanup_suggestions(self, *, reuse_generation: bool = False) -> None:
         """Background, cancellable scan for Vault Cleanup Suggestions --
         only ever runs when the user explicitly asks (Scan vault / Scan
         again), never automatically and never as part of the normal
         dashboard refresh. Uses a dedicated read-only connection (like the
         existing list-refresh worker) since this runs off the Tk thread
         while the main thread may be writing on the shared connection.
+
+        [reuse_generation], when True, reuses the previous scan's
+        scan_generation instead of minting a fresh one -- used only by the
+        quiet rescan immediately after a Keep/Keep forever/Ignore decision,
+        so a "keep" recorded against the scan currently on screen still
+        suppresses on that immediate refresh. A real user-initiated scan
+        (the Scan vault / Scan again button) always mints a fresh
+        generation, which is what makes "keep" (unlike "keep forever")
+        stop suppressing on the next real scan.
         """
         if not hasattr(self, "_cleanup_scan_state"):
             self._cleanup_scan_state = {"result": None, "scanning": False, "finished_at_label": ""}
@@ -1636,13 +1652,25 @@ class CacheVaultApp(ctk.CTk):
         if prior_cancel is not None:
             prior_cancel.set()  # cancel any still-running previous scan first
 
+        # A monotonic request id, independent of cleanup_suggestions'
+        # decision-suppression scan_generation: guards against a stale
+        # (cancelled or merely slow) worker's completion callback landing
+        # after a newer scan has already applied its result.
+        self._cleanup_scan_request_id = getattr(self, "_cleanup_scan_request_id", 0) + 1
+        my_request_id = self._cleanup_scan_request_id
+
         cancel_event = threading.Event()
         self._cleanup_scan_cancel_event = cancel_event
         self._cleanup_scan_state["scanning"] = True
+        self._cleanup_scan_state["failed"] = False
         self._refresh_cleanup_ui()
 
         vault = self.vault
         cutoff = self._recent_cleanup_cutoff_iso()
+        prior_result = self._cleanup_scan_state.get("result")
+        reuse_scan_generation = (
+            prior_result.scan_generation if (reuse_generation and prior_result is not None) else None
+        )
 
         def worker() -> None:
             try:
@@ -1658,9 +1686,13 @@ class CacheVaultApp(ctk.CTk):
                         macro_store=macro_store,
                         recent_cutoff_iso=cutoff,
                         cancel_check=cancel_event.is_set,
+                        scan_generation=reuse_scan_generation,
                     )
-            except Exception:  # noqa: BLE001
-                self._call_on_main(self._apply_cleanup_scan_failure)
+            except Exception as exc:  # noqa: BLE001
+                message = f"{type(exc).__name__}: {exc}"
+                self._call_on_main(
+                    lambda: self._apply_cleanup_scan_failure(my_request_id, message),
+                )
                 return
             try:
                 cleanup_receipts.record_scan_receipt(
@@ -1676,28 +1708,37 @@ class CacheVaultApp(ctk.CTk):
                 )
             except Exception:  # noqa: BLE001 -- a receipt failure must never hide the scan result
                 pass
-            self._call_on_main(lambda: self._apply_cleanup_scan_result(result))
+            self._call_on_main(lambda: self._apply_cleanup_scan_result(my_request_id, result))
 
         threading.Thread(target=worker, name="cleanup-scan", daemon=True).start()
 
     def _rescan_cleanup_suggestions_quiet(self) -> None:
         """Re-run the scan after a Keep/Ignore/Move decision so the review
-        screen reflects the new state, without any extra navigation.
+        screen reflects the new state, without any extra navigation. Reuses
+        the on-screen scan's generation -- see _scan_cleanup_suggestions.
         """
-        self._scan_cleanup_suggestions()
+        self._scan_cleanup_suggestions(reuse_generation=True)
 
-    def _apply_cleanup_scan_result(self, result) -> None:
+    def _apply_cleanup_scan_result(self, request_id: int, result) -> None:
         if not self._alive():
             return
+        if request_id != getattr(self, "_cleanup_scan_request_id", None):
+            return  # a newer scan has since started; this result is stale
         self._cleanup_scan_state["result"] = result
         self._cleanup_scan_state["scanning"] = False
+        self._cleanup_scan_state["failed"] = False
         self._cleanup_scan_state["finished_at_label"] = clip_metadata.format_captured_at(models.now_iso())
         self._refresh_cleanup_ui()
 
-    def _apply_cleanup_scan_failure(self) -> None:
+    def _apply_cleanup_scan_failure(self, request_id: int, error_message: str = "") -> None:
         if not self._alive():
             return
+        if request_id != getattr(self, "_cleanup_scan_request_id", None):
+            return  # a newer scan has since started; this failure is stale
         self._cleanup_scan_state["scanning"] = False
+        self._cleanup_scan_state["failed"] = True
+        self._cleanup_scan_state["error_message"] = error_message
+        self._cleanup_scan_state["finished_at_label"] = clip_metadata.format_captured_at(models.now_iso())
         self._refresh_cleanup_ui()
 
     def _refresh_cleanup_ui(self) -> None:
