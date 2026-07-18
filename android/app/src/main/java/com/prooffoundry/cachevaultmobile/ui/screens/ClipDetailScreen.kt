@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +65,7 @@ fun ClipDetailScreen(
     onShare: () -> Unit,
     onSave: () -> Unit,
     onViewAsset: () -> Unit,
+    onOpenFullScreen: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -206,7 +208,8 @@ fun ClipDetailScreen(
                             contentDescription = clip.preview,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 420.dp),
+                                .heightIn(max = 520.dp)
+                                .clickable(onClick = onOpenFullScreen),
                         )
                     }
                     imageAsset.error != null -> {
@@ -263,6 +266,14 @@ fun ClipDetailScreen(
                     }
                 }
                 isImage -> {
+                    if (bitmap != null) {
+                        Button(
+                            onClick = onOpenFullScreen,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.view_full_screen))
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),

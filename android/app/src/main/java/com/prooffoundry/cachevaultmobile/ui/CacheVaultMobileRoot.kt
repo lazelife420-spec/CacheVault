@@ -34,6 +34,7 @@ import com.prooffoundry.cachevaultmobile.data.PairingStore
 import com.prooffoundry.cachevaultmobile.ui.screens.ClipDetailScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.DiscoverPcScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.EasyConnectScreen
+import com.prooffoundry.cachevaultmobile.ui.screens.ImageViewerScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ManualSetupScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.PcFoundBottomSheet
 import com.prooffoundry.cachevaultmobile.ui.screens.QrScanScreen
@@ -52,6 +53,7 @@ object Routes {
     const val Settings = "settings"
     const val ConnectionDoctor = "connection_doctor"
     const val Detail = "detail"
+    const val ImageViewer = "image_viewer"
 }
 
 @Composable
@@ -193,6 +195,10 @@ fun CacheVaultMobileRoot(
                     vm.openClip(clipId)
                     nav.navigate(Routes.Detail)
                 },
+                onOpenImage = { clip, gallery ->
+                    vm.openImageInGallery(clip, gallery)
+                    nav.navigate(Routes.Detail)
+                },
                 onDisconnect = {
                     BackgroundConnectionService.stop(context)
                     vm.disconnect()
@@ -249,6 +255,24 @@ fun CacheVaultMobileRoot(
                 onShare = { clip?.let { vm.logShare(it.id) } },
                 onSave = { clip?.let { vm.logSave(it.id) } },
                 onViewAsset = { clip?.let { vm.logAssetOpen(it.id) } },
+                onOpenFullScreen = { nav.navigate(Routes.ImageViewer) },
+            )
+        }
+        composable(Routes.ImageViewer) {
+            val clip = vm.uiState.selectedClip
+            val activeClipId = vm.uiState.activeClipId
+            ImageViewerScreen(
+                gallery = vm.uiState.imageGallery,
+                currentIndex = vm.uiState.imageGalleryIndex,
+                currentAsset = vm.uiState.imageAsset,
+                neighborAssets = vm.uiState.preloadedAssets,
+                onIndexChanged = { newIndex -> vm.navigateGalleryTo(newIndex) },
+                onBack = { nav.popBackStack() },
+                onRetry = activeClipId?.let { clipId ->
+                    { vm.loadImageAsset(clipId) }
+                },
+                onShare = { clip?.let { vm.logShare(it.id) } },
+                onSave = { clip?.let { vm.logSave(it.id) } },
             )
         }
     }

@@ -73,8 +73,21 @@ class ClipListFormatterTest {
                 hasAsset = true,
             ),
         )
-        assertEquals("Screenshot", presentation.title)
+        assertTrue(presentation.title.startsWith("Screenshot"))
         assertTrue(presentation.preview.contains("37"))
+    }
+
+    @Test
+    fun imageTitlesAreDistinguishableAcrossDifferentTimes() {
+        val morning = clip(preview = "Screenshot (10x10)", hasAsset = true).copy(
+            createdAt = "2026-06-16T08:00:00+00:00",
+        )
+        val evening = morning.copy(createdAt = "2026-06-15T20:00:00+00:00")
+        val morningTitle = ClipListFormatter.imageTitle(morning)
+        val eveningTitle = ClipListFormatter.imageTitle(evening)
+        assertTrue(morningTitle.startsWith("Screenshot"))
+        assertTrue(eveningTitle.startsWith("Screenshot"))
+        assertFalse(morningTitle == eveningTitle)
     }
 
     @Test

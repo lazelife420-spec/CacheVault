@@ -118,7 +118,13 @@ object ClipListFormatter {
 
     private fun imagePresentation(clip: ClipSummary): CardPresentation {
         val subtitle = imageSubtitle(clip)
-        return CardPresentation("Screenshot", subtitle, dateLine(clip))
+        return CardPresentation(imageTitle(clip), subtitle, dateLine(clip))
+    }
+
+    /** "Screenshot" alone repeats identically across every image clip — append a time so items are distinguishable. */
+    fun imageTitle(clip: ClipSummary): String {
+        val time = formatRelativeWhen(clip.createdAt)
+        return if (time.isNotBlank() && time != "Never") "Screenshot · $time" else "Screenshot"
     }
 
     private fun titleFromLines(lines: List<String>): String? {

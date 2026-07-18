@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.ExperimentalMaterialApi
@@ -22,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.R
+import com.prooffoundry.cachevaultmobile.data.ClipSummary
 import com.prooffoundry.cachevaultmobile.ui.AppUiState
 import com.prooffoundry.cachevaultmobile.ui.VaultSections
 import com.prooffoundry.cachevaultmobile.ui.components.ScreenshotGridCard
@@ -32,7 +34,7 @@ import com.prooffoundry.cachevaultmobile.ui.theme.ProofTeal
 fun ScreenshotsScreen(
     state: AppUiState,
     onRefresh: () -> Unit,
-    onOpenClip: (String) -> Unit,
+    onOpenImage: (ClipSummary, List<ClipSummary>) -> Unit,
 ) {
     val shots = VaultSections.screenshotClips(state.allClips)
     val pullState = rememberPullRefreshState(state.loading, onRefresh)
@@ -86,6 +88,7 @@ fun ScreenshotsScreen(
                     )
                 }
                 else -> {
+                    val groups = VaultSections.groupScreenshotsByDate(shots)
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
@@ -93,12 +96,22 @@ fun ScreenshotsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(shots, key = { it.id }) { clip ->
-                            ScreenshotGridCard(
-                                clip = clip,
-                                onClick = { onOpenClip(clip.id) },
-                                thumbnailBytes = state.thumbnailBytes[clip.id],
-                            )
+                        groups.forEach { group ->
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "header:${group.label}") {
+                                Text(
+                                    group.label,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                                )
+                            }
+                            items(group.clips, key = { it.id }) { clip ->
+                                ScreenshotGridCard(
+                                    clip = clip,
+                                    onClick = { onOpenImage(clip, shots) },
+                                    thumbnailBytes = state.thumbnailBytes[clip.id],
+                                )
+                            }
                         }
                     }
                 }
