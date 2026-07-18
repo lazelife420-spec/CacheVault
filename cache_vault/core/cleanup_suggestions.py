@@ -67,6 +67,18 @@ DEFAULT_LARGEST_ASSETS_LIMIT = 50
 RECENT_PROTECTION_MINUTES = 15
 
 
+def format_bytes(n: int) -> str:
+    """Human-readable byte count for cleanup-suggestions UI copy. Shared so
+    the Home card and the review screen render identical strings.
+    """
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
 class ScanCancelled(Exception):
     """Raised by a detector when ``cancel_check`` reports a cancellation request."""
 
@@ -85,15 +97,19 @@ class ProtectionStatus:
     reasons: list[str] = field(default_factory=list)
 
 
-def _referenced_by_editable_copy(storage: VaultStorage, clip_id: str) -> bool:
+def _referenced_by_editable_copy(conn: sqlite3.Connection, clip_id: str) -> bool:
     """True if another feature (editable copies / HTML bundles) has a live
     reference to this clip. This is the one cross-feature reference the
     audit found to be a real, persisted, queryable relationship -- everything
     else (events, receipts, mobile API payloads, export manifests) is
     audit-only history, not a live "in use elsewhere" signal.
+
+    Takes a raw connection (not a VaultStorage) so a background scan thread
+    can pass a dedicated read-only connection instead of the shared,
+    possibly-concurrently-written-to ``storage.conn``.
     """
     try:
-        row = storage.conn.execute(
+        row = conn.execute(
             "SELECT 1 FROM editable_copies WHERE clip_id = ? LIMIT 1", (clip_id,)
         ).fetchone()
         return row is not None
@@ -126,7 +142,7 @@ def _macro_content_hashes(macro_store: MacroStore | None) -> set[str]:
 def evaluate_protection(
     clip: Clip,
     *,
-    storage: VaultStorage,
+    conn: sqlite3.Connection,
     macro_content_hashes: set[str],
     recent_cutoff_iso: str | None,
 ) -> ProtectionStatus:
@@ -149,7 +165,7 @@ def evaluate_protection(
         reasons.append(f'In collection "{clip.collection}"')
     if clip.content_hash and clip.content_hash in macro_content_hashes:
         reasons.append("Matches a saved macro/text-expansion (best-effort content match)")
-    if _referenced_by_editable_copy(storage, clip.id):
+    if _referenced_by_editable_copy(conn, clip.id):
         reasons.append("Referenced by an editable copy")
     if recent_cutoff_iso is not None:
         created = clip.created_at or ""
@@ -162,11 +178,11 @@ def evaluate_protection(
 # --- managed-asset boundary --------------------------------------------------
 
 
-def _managed_asset_rows(storage: VaultStorage) -> dict[str, sqlite3.Row]:
+def _managed_asset_rows(conn: sqlite3.Connection) -> dict[str, sqlite3.Row]:
     """All ``clip_assets`` rows keyed by clip_id -- the sole authority for
     "is this clip a managed image asset". One bulk query, not N+1 lookups.
     """
-    rows = storage.conn.execute(
+    rows = conn.execute(
         "SELECT clip_id, asset_id, mime_type, file_ext, size_bytes, sha256, "
         "storage_name, width, height FROM clip_assets"
     ).fetchall()
@@ -183,6 +199,7 @@ class ScanContext:
     """
 
     storage: VaultStorage
+    conn: sqlite3.Connection
     live_clips: list[Clip]
     asset_rows: dict[str, sqlite3.Row]
     macro_content_hashes: set[str]
@@ -192,7 +209,7 @@ class ScanContext:
     def protection_for(self, clip: Clip) -> ProtectionStatus:
         return evaluate_protection(
             clip,
-            storage=self.storage,
+            conn=self.conn,
             macro_content_hashes=self.macro_content_hashes,
             recent_cutoff_iso=self.recent_cutoff_iso,
         )
@@ -201,15 +218,24 @@ class ScanContext:
 def build_scan_context(
     storage: VaultStorage,
     *,
+    conn: sqlite3.Connection | None = None,
     macro_store: MacroStore | None = None,
     recent_cutoff_iso: str | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> ScanContext:
+    """[conn], if given, is used for every query instead of ``storage.conn``
+    -- pass a dedicated read-only connection (``storage.reader_connection()``)
+    when scanning from a background thread, since ``storage.conn`` may be
+    concurrently written to by the main thread. Defaults to ``storage.conn``
+    for callers that already know they're single-threaded (tests, CLI).
+    """
     cancel_check = cancel_check or (lambda: False)
+    active_conn = conn or storage.conn
     return ScanContext(
         storage=storage,
-        live_clips=storage.list_clips(),
-        asset_rows=_managed_asset_rows(storage),
+        conn=active_conn,
+        live_clips=storage.list_clips(conn=active_conn),
+        asset_rows=_managed_asset_rows(active_conn),
         macro_content_hashes=_macro_content_hashes(macro_store),
         recent_cutoff_iso=recent_cutoff_iso,
         cancel_check=cancel_check,
@@ -325,7 +351,7 @@ def _keeper_sort_key(item: SuggestionItem, ctx: ScanContext) -> tuple:
     clip = item.clip
     is_favorite = 1 if clip.is_pinned else 0
     in_collection = 1 if clip.collection else 0
-    referenced = 1 if _referenced_by_editable_copy(ctx.storage, clip.id) else 0
+    referenced = 1 if _referenced_by_editable_copy(ctx.conn, clip.id) else 0
     last_used = clip.last_used_at or clip.updated_at or clip.created_at or ""
     return (is_favorite, in_collection, referenced, last_used, clip.created_at or "")
 

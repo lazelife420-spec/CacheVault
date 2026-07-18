@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 from .. import brand
 from ..core import clip_metadata, models, storage as S
+from ..core.cleanup_suggestions import format_bytes as _format_bytes_summary
 from ..core.models import Clip
 from ..core.selection import analyze_selection
 from . import theme
@@ -64,12 +65,16 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         on_settings: Callable[[], None] | None = None,
         on_selection_change: Callable[[list[str]], None] | None = None,
         on_batch_action: Callable[[str, list[str]], None] | None = None,
+        on_open_cleanup: Callable[[], None] | None = None,
+        on_scan_cleanup: Callable[[], None] | None = None,
         image_assets_ready: bool = False,
         **kw,
     ):
         super().__init__(master, **kw)
         self._on_filter = on_filter
         self._on_open_receipts = on_open_receipts
+        self._on_open_cleanup = on_open_cleanup
+        self._on_scan_cleanup = on_scan_cleanup
         self._on_mobile_settings = on_mobile_settings
         self._on_pair_android = on_pair_android
         self._on_export = on_export
@@ -148,6 +153,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         link_clips: list[Clip] = None,
         receipts: list[Clip] = None,
         sensitive_items: list[Clip] = None,
+        cleanup_summary: dict | None = None,
     ) -> None:
         del favorites
         self._cards = {}
@@ -240,6 +246,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         # 2. What Needs Review
         self._pane_section_title(left_pane, "What Needs Review")
         self._render_needs_review(left_pane, summary)
+        self._render_cleanup_suggestions(left_pane, cleanup_summary or {})
 
         # 3. Sensitive / Expiring Items
         if sensitive_items:
@@ -400,6 +407,61 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             row.configure(cursor="hand2")
             lbl.configure(cursor="hand2")
             cnt.configure(cursor="hand2")
+
+    def _render_cleanup_suggestions(self, parent, cleanup_summary: dict) -> None:
+        """Home card for Vault Cleanup Suggestions. Never scans automatically
+        -- this only ever shows the result of the LAST scan the user ran
+        (cleanup_summary is empty until then), plus explicit Scan/Review
+        actions. Byte counts here are always "identified", never
+        "recoverable" -- moving to Recently Removed does not free disk space.
+        """
+        frame = ctk.CTkFrame(parent, fg_color=brand.SURFACE_BG, corner_radius=8,
+                             border_width=1, border_color=brand.VAULT_CARD_BORDER)
+        frame.pack(fill="x", pady=4)
+
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(header, text="Cleanup Suggestions", anchor="w",
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+
+        scanned = bool(cleanup_summary)
+        if scanned:
+            group_count = cleanup_summary.get("total_groups", 0)
+            item_count = cleanup_summary.get("total_reviewable_items", 0)
+            bytes_identified = cleanup_summary.get("redundant_bytes_identified", 0)
+            last_scan = cleanup_summary.get("last_scan_label", "")
+            status = cleanup_summary.get("status", "Idle")
+
+            for label, value in (
+                ("Suggestion groups", str(group_count)),
+                ("Reviewable items", str(item_count)),
+                ("Redundant bytes identified", _format_bytes_summary(bytes_identified)),
+                ("Last scan", last_scan or "—"),
+                ("Status", status),
+            ):
+                row = ctk.CTkFrame(frame, fg_color="transparent")
+                row.pack(fill="x", padx=12, pady=1)
+                row.grid_columnconfigure(0, weight=1)
+                ctk.CTkLabel(row, text=label, anchor="w", font=theme.body_font(11),
+                             text_color=brand.MUTED_FG).grid(row=0, column=0, sticky="w")
+                ctk.CTkLabel(row, text=value, anchor="e", font=theme.body_font(11)).grid(
+                    row=0, column=1, sticky="e",
+                )
+        else:
+            ctk.CTkLabel(
+                frame, text="No scan yet.", anchor="w", text_color=brand.MUTED_FG,
+                font=theme.body_font(11),
+            ).pack(fill="x", padx=12, pady=(0, 4))
+
+        actions = ctk.CTkFrame(frame, fg_color="transparent")
+        actions.pack(fill="x", padx=12, pady=(6, 10))
+        if self._on_scan_cleanup:
+            ctk.CTkButton(actions, text="Scan vault", height=26, command=self._on_scan_cleanup,
+                          **theme.secondary_button()).pack(side="left", padx=(0, 6))
+        if self._on_open_cleanup:
+            ctk.CTkButton(actions, text="Review suggestions", height=26,
+                          state="normal" if scanned else "disabled",
+                          command=self._on_open_cleanup, **theme.secondary_button()).pack(side="left")
 
     def _render_quick_actions(self, parent, summary: dict) -> None:
         frame = ctk.CTkFrame(parent, fg_color=brand.SURFACE_BG, corner_radius=8,

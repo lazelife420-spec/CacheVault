@@ -28,6 +28,7 @@ NAV_HOTKEY_ACTIONS = "nav_hotkey_actions"
 NAV_FOUNDER = "nav_founder"
 NAV_SETTINGS = "nav_settings"
 NAV_NEW_SAFE = "nav_new_safe"
+NAV_CLEANUP_SUGGESTIONS = "nav_cleanup_suggestions"
 
 NAV_DIALOG_ONLY = frozenset({NAV_QUICK_PASTE, NAV_FOUNDER, NAV_NEW_SAFE})
 NAV_SCREEN_KEYS = frozenset({
@@ -39,6 +40,7 @@ NAV_SCREEN_KEYS = frozenset({
     NAV_MOBILE_INBOX,
     NAV_VAULT_MACROS,
     NAV_HOTKEY_ACTIONS,
+    NAV_CLEANUP_SUGGESTIONS,
 })
 
 _NAV_ICONS: dict[str, str] = {

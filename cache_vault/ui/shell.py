@@ -23,7 +23,7 @@ import customtkinter as ctk
 from tkinter import filedialog
 
 from .. import brand
-from ..core import capture_debug, clip_accents, copy_clean, drag_export, models, multi_link, search, vault_lock
+from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, vault_lock
 from .. import feature_gate
 from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
@@ -62,6 +62,7 @@ from .filters import (
     NAV_EXPORTS,
     NAV_HOTKEY_ACTIONS,
     NAV_HTML_BUNDLES,
+    NAV_CLEANUP_SUGGESTIONS,
     NAV_MOBILE_ACCESS,
     NAV_MOBILE_INBOX,
     NAV_QUICK_PASTE,
@@ -651,6 +652,8 @@ class CacheVaultApp(ctk.CTk):
             on_settings=self._open_settings,
             on_selection_change=self._on_clip_selection_change,
             on_batch_action=self._on_home_batch_action,
+            on_open_cleanup=lambda: self._navigate_screen(NAV_CLEANUP_SUGGESTIONS),
+            on_scan_cleanup=self._scan_cleanup_suggestions,
             image_assets_ready=False,
             corner_radius=0,
         )
@@ -717,6 +720,11 @@ class CacheVaultApp(ctk.CTk):
                 "set_header_subtitle": lambda sub: self._page_header.set_content(self._page_header._title_label.cget("text"), sub),
                 "set_header_chips": self._page_header.set_status_chips,
                 "navigate_filter": self._navigate_filter,
+                "storage": lambda: self.vault.storage,
+                "events": lambda: self.vault.events,
+                "scan_cleanup_suggestions": self._scan_cleanup_suggestions,
+                "rescan_after_decision": self._rescan_cleanup_suggestions_quiet,
+                "open_receipts": lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
             },
             corner_radius=0,
         )
@@ -1588,6 +1596,126 @@ class CacheVaultApp(ctk.CTk):
         self._list.cancel_render()
         self._grid.cancel_render()
 
+    def _recent_cleanup_cutoff_iso(self) -> str:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            minutes=cleanup_suggestions.RECENT_PROTECTION_MINUTES,
+        )
+        return cutoff.isoformat()
+
+    def _cleanup_summary_dict(self) -> dict:
+        """What the Home dashboard's Cleanup Suggestions card renders.
+        Empty until the user has run at least one scan -- this app never
+        scans automatically.
+        """
+        state = getattr(self, "_cleanup_scan_state", None)
+        if not state or state.get("result") is None:
+            return {}
+        result = state["result"]
+        return {
+            "total_groups": result.total_groups,
+            "total_reviewable_items": result.total_reviewable_items,
+            "redundant_bytes_identified": result.redundant_bytes_identified,
+            "last_scan_label": state.get("finished_at_label", ""),
+            "status": "Scanning…" if state.get("scanning") else (
+                "Cancelled" if result.cancelled else "Idle"
+            ),
+        }
+
+    def _scan_cleanup_suggestions(self) -> None:
+        """Background, cancellable scan for Vault Cleanup Suggestions --
+        only ever runs when the user explicitly asks (Scan vault / Scan
+        again), never automatically and never as part of the normal
+        dashboard refresh. Uses a dedicated read-only connection (like the
+        existing list-refresh worker) since this runs off the Tk thread
+        while the main thread may be writing on the shared connection.
+        """
+        if not hasattr(self, "_cleanup_scan_state"):
+            self._cleanup_scan_state = {"result": None, "scanning": False, "finished_at_label": ""}
+        prior_cancel = getattr(self, "_cleanup_scan_cancel_event", None)
+        if prior_cancel is not None:
+            prior_cancel.set()  # cancel any still-running previous scan first
+
+        cancel_event = threading.Event()
+        self._cleanup_scan_cancel_event = cancel_event
+        self._cleanup_scan_state["scanning"] = True
+        self._refresh_cleanup_ui()
+
+        vault = self.vault
+        cutoff = self._recent_cleanup_cutoff_iso()
+
+        def worker() -> None:
+            try:
+                from ..core.vault_macros import MacroStore
+                macro_store = MacroStore()
+            except Exception:  # noqa: BLE001 -- macros are optional context, never fatal
+                macro_store = None
+            try:
+                with vault.storage.reader_connection() as reader:
+                    result = cleanup_suggestions.run_scan(
+                        vault.storage,
+                        conn=reader,
+                        macro_store=macro_store,
+                        recent_cutoff_iso=cutoff,
+                        cancel_check=cancel_event.is_set,
+                    )
+            except Exception:  # noqa: BLE001
+                self._call_on_main(self._apply_cleanup_scan_failure)
+                return
+            try:
+                cleanup_receipts.record_scan_receipt(
+                    vault.events,
+                    rule_version=cleanup_suggestions.RULE_VERSION,
+                    duplicate_group_count=len(result.duplicate_screenshot_groups),
+                    repeated_text_group_count=len(result.repeated_text_groups),
+                    tiny_image_count=len(result.tiny_images),
+                    missing_or_damaged_count=len(result.missing_or_damaged),
+                    largest_asset_count=len(result.largest_assets),
+                    redundant_bytes_identified=result.redundant_bytes_identified,
+                    cancelled=result.cancelled,
+                )
+            except Exception:  # noqa: BLE001 -- a receipt failure must never hide the scan result
+                pass
+            self._call_on_main(lambda: self._apply_cleanup_scan_result(result))
+
+        threading.Thread(target=worker, name="cleanup-scan", daemon=True).start()
+
+    def _rescan_cleanup_suggestions_quiet(self) -> None:
+        """Re-run the scan after a Keep/Ignore/Move decision so the review
+        screen reflects the new state, without any extra navigation.
+        """
+        self._scan_cleanup_suggestions()
+
+    def _apply_cleanup_scan_result(self, result) -> None:
+        if not self._alive():
+            return
+        self._cleanup_scan_state["result"] = result
+        self._cleanup_scan_state["scanning"] = False
+        self._cleanup_scan_state["finished_at_label"] = clip_metadata.format_captured_at(models.now_iso())
+        self._refresh_cleanup_ui()
+
+    def _apply_cleanup_scan_failure(self) -> None:
+        if not self._alive():
+            return
+        self._cleanup_scan_state["scanning"] = False
+        self._refresh_cleanup_ui()
+
+    def _refresh_cleanup_ui(self) -> None:
+        """Update whatever's currently showing that depends on the last
+        scan: the cleanup screen itself (if built/open), and the Home
+        dashboard card (via the normal debounced refresh, which threads
+        _cleanup_summary_dict() into the existing home render call).
+        """
+        screen_host = getattr(self, "_vault_screens", None)
+        if screen_host is not None:
+            frame = screen_host._screens.get(NAV_CLEANUP_SUGGESTIONS)
+            if frame is not None and hasattr(frame, "_cleanup_state"):
+                frame._cleanup_state["result"] = self._cleanup_scan_state.get("result")
+                frame._cleanup_state["scanning"] = self._cleanup_scan_state.get("scanning", False)
+                if screen_host._active == NAV_CLEANUP_SUGGESTIONS:
+                    frame._refresh()
+        self.refresh()
+
     def refresh(self) -> None:
         """Debounced refresh — collapses rapid-fire calls into one actual render."""
         if not self._alive():
@@ -1788,6 +1916,7 @@ class CacheVaultApp(ctk.CTk):
                     link_clips=link_clips,
                     receipts=receipts,
                     sensitive_items=sensitive_items,
+                    cleanup_summary=self._cleanup_summary_dict(),
                 )
                 if self._preview._clip is None:  # noqa: SLF001
                     self._preview.show_vault_control(
