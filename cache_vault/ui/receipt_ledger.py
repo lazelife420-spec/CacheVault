@@ -38,6 +38,8 @@ ACTION_LABELS: dict[str, str] = {
     "duplicate_review": "Duplicate Review",
     models.EVENT_DUPLICATE_REVIEW: "Duplicate Review",
     models.EVENT_USAGE_MERGED: "Usage Merged",
+    models.EVENT_CLEANUP_SCAN_COMPLETED: "Cleanup Scan",
+    models.EVENT_CLEANUP_APPLIED: "Cleanup Applied",
     models.EVENT_EDITABLE_COPY_CREATED: "Editable Copy Created",
     models.EVENT_EDITABLE_COPY_SAVED: "Editable Copy Saved",
     models.EVENT_EDITABLE_HTML_COPY_CREATED: "HTML Bundle Copy Created",
