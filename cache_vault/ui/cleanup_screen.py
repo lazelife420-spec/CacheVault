@@ -25,6 +25,7 @@ from ..core.cleanup_store import (
     DECISION_IGNORED, DECISION_KEEP, DECISION_KEEP_FOREVER, SCOPE_GROUP, SCOPE_ITEM, record_decision,
 )
 from . import theme
+from .dialogs import _bring_to_front
 
 _CATEGORY_LABELS = {
     cs.CATEGORY_DUPLICATE_SCREENSHOT: "Exact duplicate screenshots",
@@ -184,6 +185,7 @@ class CleanupReviewDialog(ctk.CTkToplevel):
         self._keepers: set[str] = set()
 
         self._build()
+        _bring_to_front(self, master, modal=True)
 
     # --- construction --------------------------------------------------
 
@@ -415,7 +417,6 @@ class CleanupConfirmDialog(ctk.CTkToplevel):
         super().__init__(master)
         self.title("Move to Recently Removed")
         self.geometry("420x300")
-        self.transient(master)
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=18, pady=18)
@@ -451,3 +452,5 @@ class CleanupConfirmDialog(ctk.CTkToplevel):
 
         ctk.CTkButton(btns, text=f"Move {selected_count} item(s)", height=30,
                       command=_confirm, **theme.primary_button()).pack(side="right")
+
+        _bring_to_front(self, master, modal=True)

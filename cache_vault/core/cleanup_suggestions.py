@@ -607,6 +607,7 @@ def find_largest_assets(
 def run_scan(
     storage: VaultStorage,
     *,
+    conn: sqlite3.Connection | None = None,
     macro_store: MacroStore | None = None,
     recent_cutoff_iso: str | None = None,
     largest_assets_limit: int = DEFAULT_LARGEST_ASSETS_LIMIT,
@@ -616,10 +617,15 @@ def run_scan(
     """Run all five detectors read-only. Checks cancellation between
     categories (and each detector checks between its own groups/items too).
     Never mutates the database or filesystem.
+
+    [conn], if given, is used for every query instead of ``storage.conn`` --
+    see ``build_scan_context`` for why a background-thread caller must pass
+    a dedicated read-only connection here.
     """
     cancel_check = cancel_check or (lambda: False)
     ctx = build_scan_context(
         storage,
+        conn=conn,
         macro_store=macro_store,
         recent_cutoff_iso=recent_cutoff_iso,
         cancel_check=cancel_check,
