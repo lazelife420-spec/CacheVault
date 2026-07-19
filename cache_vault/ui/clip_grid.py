@@ -177,7 +177,14 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 pass
             self._render_job = None
 
-    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, more_count: int = 0) -> None:
+    def render_batched(
+        self, clips: list[Clip], *, empty_message: str | None = None, more_count: int = 0,
+        on_complete: Callable[[], None] | None = None,
+    ) -> None:
+        """``on_complete``, if given, fires once every batch has actually
+        been built -- see ClipList.render_batched's docstring for why a
+        caller needing the complete rendered set can't just act right
+        after this call returns."""
         self.cancel_render()
         self._more_count = more_count
         for w in self._rows_frame.winfo_children():
@@ -238,21 +245,30 @@ class ClipGrid(ctk.CTkScrollableFrame):
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
+            if on_complete is not None:
+                on_complete()
             return
 
         batch_size = 20
-        self._render_next_batch(clips, 0, batch_size)
+        self._render_next_batch(clips, 0, batch_size, on_complete)
 
-    def _render_next_batch(self, clips: list[Clip], start_idx: int, batch_size: int) -> None:
+    def _render_next_batch(
+        self, clips: list[Clip], start_idx: int, batch_size: int,
+        on_complete: Callable[[], None] | None = None,
+    ) -> None:
         end_idx = min(start_idx + batch_size, len(clips))
         for i in range(start_idx, end_idx):
             self._build_row(clips[i])
 
         if end_idx < len(clips):
-            self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
+            self._render_job = self.after(
+                10, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete),
+            )
         else:
             self._render_job = None
             self._show_more_footer()
+            if on_complete is not None:
+                on_complete()
 
     def _build_row(self, clip: Clip) -> None:
         # Date grouping

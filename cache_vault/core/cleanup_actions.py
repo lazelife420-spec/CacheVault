@@ -21,6 +21,7 @@ from . import models
 from .cleanup_receipts import record_cleanup_receipt
 from .cleanup_store import record_removed
 from .events import EventLog
+from .selection import dedupe_preserve_order
 from .storage import VaultStorage
 
 
@@ -169,18 +170,29 @@ def apply_cleanup_selection(
     by_id = {c.id: c for c in ctx.live_clips}
     asset_bytes = {cid: int(row["size_bytes"] or 0) for cid, row in ctx.asset_rows.items()}
 
+    # Dedup first, across every selection combined, keeping first-seen
+    # order -- a clip_id repeated within one CleanupSelection or across
+    # two different ones must only ever be evaluated/moved once. Without
+    # this, a crafted or accidentally-doubled selection double-counts one
+    # clip in moved_count/bytes_moved/the receipt (issue #68, confirmed by
+    # a regression test asserting a duplicated id does not inflate any of
+    # selected/moved/receipt counts).
+    flattened = dedupe_preserve_order(
+        ((sel, clip_id) for sel in selections for clip_id in sel.clip_ids),
+        key=lambda pair: pair[1],
+    )
+
     to_move: list[tuple[CleanupSelection, str]] = []
-    for sel in selections:
-        for clip_id in sel.clip_ids:
-            clip = by_id.get(clip_id)
-            if clip is None:
-                result.skipped_missing.append(clip_id)
-                continue
-            protection = ctx.protection_for(clip)
-            if protection.protected or ctx.is_item_suppressed(sel.category, clip_id):
-                result.skipped_protected.append(clip_id)
-                continue
-            to_move.append((sel, clip_id))
+    for sel, clip_id in flattened:
+        clip = by_id.get(clip_id)
+        if clip is None:
+            result.skipped_missing.append(clip_id)
+            continue
+        protection = ctx.protection_for(clip)
+        if protection.protected or ctx.is_item_suppressed(sel.category, clip_id):
+            result.skipped_protected.append(clip_id)
+            continue
+        to_move.append((sel, clip_id))
 
     to_move = _protect_duplicate_group_keepers(ctx, to_move, result)
     if cancel_check():

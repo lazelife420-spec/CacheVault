@@ -244,6 +244,59 @@ class VaultStorage:
         finally:
             conn.close()
 
+    @contextmanager
+    def clip_id_snapshot(self, query=None, *, batch_size: int = 500):
+        """One read-transaction snapshot pairing an authoritative count
+        with deduplicated, batched id enumeration -- both computed
+        against the exact same view of the table, so a concurrent
+        insert/delete between count and iteration (or between batches)
+        cannot change what this snapshot sees. LIMIT/OFFSET paging alone,
+        across independently-executed statements, can otherwise skip or
+        duplicate rows if the matching set changes mid-enumeration; a
+        single BEGIN/ROLLBACK-bracketed transaction on one connection
+        eliminates that rather than trying to defend against it after
+        the fact.
+
+        Yields ``(count, batches)`` where ``batches`` is a generator of
+        id-list batches; both must be consumed inside the ``with`` block
+        -- the transaction (and, for a real on-disk db, the dedicated
+        reader connection) closes when the block exits.
+
+        Mirrors the existing dedicated-transaction pattern in
+        ``ui/shell.py``'s ``_collect_refresh_snapshot`` (pairing
+        ``list_clips``+``count_clips`` the same way): the ``:memory:``
+        fallback (tests) hands back the shared ``self.conn`` with no
+        explicit transaction, accepting the same "tiny consistency
+        window" that pattern already accepts for the same reason --
+        starting a real transaction on a connection also used
+        synchronously elsewhere in a single-threaded test isn't needed
+        for correctness there.
+        """
+        with self.reader_connection() as reader:
+            dedicated = reader is not self.conn
+            if dedicated:
+                reader.execute("BEGIN")
+            try:
+                count = self.count_clips(query, conn=reader)
+
+                def _batches():
+                    offset = 0
+                    while True:
+                        batch = self.list_clip_ids(
+                            query, limit=batch_size, offset=offset, conn=reader,
+                        )
+                        if not batch:
+                            return
+                        yield batch
+                        if len(batch) < batch_size:
+                            return
+                        offset += batch_size
+
+                yield count, _batches()
+            finally:
+                if dedicated:
+                    reader.execute("ROLLBACK")
+
     # --- row <-> Clip ------------------------------------------------------
     @staticmethod
     def _row_to_clip(row: sqlite3.Row) -> Clip:
@@ -758,6 +811,52 @@ class VaultStorage:
         sql = "SELECT COUNT(*) FROM clips WHERE " + " AND ".join(where)
         row = (conn or self.conn).execute(sql, params).fetchone()
         return int(row[0]) if row else 0
+
+    def list_clip_ids(
+        self, query=None, *, limit: int | None = None, offset: int = 0, conn=None,
+    ) -> list[str]:
+        """Same matching semantics as ``list_clips`` (same WHERE/ORDER BY
+        construction) but selects only ``id`` -- for "select all matching"
+        and similar selection-resolution code that needs identities, not
+        full ``Clip`` bodies (content, previews). Avoids materializing
+        content/thumbnail columns just to collect ids on a large vault.
+        """
+        from .search import sort_sql  # noqa: PLC0415
+
+        query = self._normalize_query(query)
+        where, params = self._build_where(query)
+
+        sql = "SELECT id FROM clips WHERE " + " AND ".join(where)
+        sql += " ORDER BY " + sort_sql(query.sort)
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params = [*params, limit, offset]
+        rows = (conn or self.conn).execute(sql, params).fetchall()
+        return [r[0] for r in rows]
+
+    def iter_clip_ids(self, query=None, *, batch_size: int = 500, conn=None):
+        """Yield matching clip ids in bounded batches (id-only, ordered by
+        the query's own sort) -- for actions over a "select all matching"
+        selection that must never pull the full id list (let alone clip
+        bodies) into memory at once on a large vault.
+
+        Uses ``list_clip_ids``'s own LIMIT/OFFSET paging per batch. A
+        mutation interleaved between batches (e.g. this same action
+        soft-deleting rows as it goes) can only ever shift *later* batches,
+        never re-emit or corrupt ids already yielded -- callers performing
+        a destructive action across many batches should still re-derive
+        protection state per item at execution time regardless, same as
+        the existing cleanup mutation path (see cleanup_actions.py).
+        """
+        offset = 0
+        while True:
+            batch = self.list_clip_ids(query, limit=batch_size, offset=offset, conn=conn)
+            if not batch:
+                return
+            yield batch
+            if len(batch) < batch_size:
+                return
+            offset += batch_size
 
     def count_images(self, conn=None) -> int:
         return (conn or self.conn).execute(

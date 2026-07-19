@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -76,6 +77,102 @@ def test_protected_item_never_moved_even_if_selected(storage, assets_home):
     reloaded = {c.id: c for c in storage.list_clips(None)}
     assert fav.id in reloaded
     assert reloaded[fav.id].deleted_at is None
+
+
+def test_duplicate_clip_ids_do_not_inflate_moved_or_receipt_counts(storage, assets_home, tmp_path, monkeypatch):
+    """Issue #68 regression: a selection containing the same clip_id more
+    than once -- whether repeated within one CleanupSelection.clip_ids or
+    split across two different selections -- must move/count/receipt that
+    clip exactly once, not once per occurrence.
+
+    Behaviorally proves the production mutation path actually calls the
+    real shared core.selection.dedupe_preserve_order symbol (a spy that
+    wraps the real implementation, so the logic under test is unchanged)
+    rather than asserting on source text, which breaks under any
+    harmless refactor (renaming a local, reformatting, moving the call)
+    without the underlying behavior changing at all.
+    """
+    from cache_vault.core import cleanup_actions, selection as selection_module
+
+    calls = []
+    real = selection_module.dedupe_preserve_order
+
+    def spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(cleanup_actions, "dedupe_preserve_order", spy)
+
+    a = _add_text_clip(storage, content="dup a")
+    b = _add_text_clip(storage, content="dup b")
+
+    # a.id appears 3 times across two selections; b.id appears once.
+    sel1 = CleanupSelection(
+        category="repeated_text", scope="group", fingerprint="fp-dup-1",
+        clip_ids=[a.id, a.id, b.id],
+    )
+    sel2 = CleanupSelection(
+        category="repeated_text", scope="group", fingerprint="fp-dup-2",
+        clip_ids=[a.id],
+    )
+
+    result = apply_cleanup_selection(
+        storage, _events(storage), selections=[sel1, sel2], rule_version=1,
+    )
+
+    assert len(calls) == 1  # dedup runs exactly once, up front -- not per-item
+
+    # moved_clip_ids/moved_count must list a.id exactly once, not 3 times.
+    assert sorted(result.moved_clip_ids) == sorted([a.id, b.id])
+    assert result.moved_count == 2
+    assert result.skipped_protected == []
+    assert result.skipped_missing == []
+
+    reloaded = {c.id: c for c in storage.list_clips(None)}
+    assert a.id not in reloaded
+    assert b.id not in reloaded
+
+    # The written receipt must reflect the deduplicated counts too --
+    # moved_count and the item list, not the raw (duplicated) input size.
+    assert result.receipt_path is not None
+    receipt = json.loads(Path(result.receipt_path).read_text())
+    assert receipt["moved_count"] == 2
+    assert len(receipt["items"]) == 2
+    assert sorted(item["clip_id"] for item in receipt["items"]) == sorted([a.id, b.id])
+
+
+def test_duplicate_clip_ids_dont_double_count_bytes_moved(storage, assets_home):
+    """The same duplicate-id defense must also protect bytes_moved -- an
+    id repeated in the input must not double-add its asset size."""
+    buf = BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, format="PNG")
+    data = buf.getvalue()
+    chash = models.bytes_hash(data)
+    clip = Clip(
+        content_hash=chash, content_type=models.CONTENT_IMAGE,
+        content="[Screenshot PNG]", preview="Screenshot",
+        classification=models.CLASS_IMAGE, size_bytes=len(data),
+        created_at=_NOT_RECENT_IISO, last_used_at=_NOT_RECENT_IISO,
+    )
+    storage.add_clip(clip)
+    record = image_assets.ClipAssetRecord(
+        asset_id=models.new_id(), clip_id=clip.id, mime_type="image/png",
+        file_ext="png", size_bytes=len(data), sha256=chash,
+        created_at=clip.created_at, original_name=None,
+        storage_name=image_assets.make_storage_name(clip.id, "png"),
+        width=8, height=8,
+    )
+    storage.save_clip_asset(record, data)
+
+    sel = CleanupSelection(
+        category="exact_duplicate_screenshot", scope="item", fingerprint="fp-bytes",
+        clip_ids=[clip.id, clip.id, clip.id],
+    )
+    result = apply_cleanup_selection(
+        storage, _events(storage), selections=[sel], rule_version=1,
+    )
+    assert result.moved_count == 1
+    assert result.bytes_moved == len(data)  # not 3x
 
 
 def test_missing_clip_id_reported_not_crashed(storage, assets_home):

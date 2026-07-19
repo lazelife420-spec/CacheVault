@@ -23,7 +23,7 @@ import customtkinter as ctk
 from tkinter import filedialog
 
 from .. import brand
-from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, vault_lock
+from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, selection, vault_lock
 from .. import feature_gate
 from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
@@ -269,6 +269,23 @@ class CacheVaultApp(ctk.CTk):
         self._selected_clip_id: str | None = None
         self._selected_clip_ids: list[str] = []
         self._visible_clip_ids: list[str] = []
+        # "Select all matching" scope (Ctrl+Shift+A) -- an immutable query
+        # descriptor, never a materialized id list. Kept separate from the
+        # existing visible-selection tracking above (_selected_clip_ids /
+        # ClipList._selected_ids), which is unchanged. See core/selection.py.
+        # Exactly one of {visible, matching} is authoritative at a time --
+        # see _exit_matching_selection_if_manual, called from every real
+        # selection-changing callback so a manual click/ctrl-click/
+        # shift-click/right-click-collapse always makes visible selection
+        # authoritative again rather than leaving a stale "All N matching"
+        # banner showing while _selected_clip_ids has silently diverged.
+        self._selection_scope = selection.SelectionScope(self.vault.storage)
+        # Suppresses that exit-on-change logic for exactly the one
+        # deliberate view.select_all() call _keyboard_select_all_matching
+        # makes to cosmetically paint the rendered subset of a *new*
+        # matching selection -- without this, that call would immediately
+        # cancel the very selection it's painting.
+        self._suppress_matching_exit_on_selection_change = False
         self._sort_key = models.SORT_NEWEST_ADDED
         self._date_added_preset: str | None = None
         self._date_used_preset: str | None = None
@@ -459,6 +476,7 @@ class CacheVaultApp(ctk.CTk):
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
             "<Control-a>": lambda e: self._keyboard_select_all(e),
             "<Control-A>": lambda e: self._keyboard_select_all(e),
+            "<Control-Shift-A>": lambda e: self._keyboard_select_all_matching(e),
             "<Delete>": lambda e: self._keyboard_remove_selected(e),
             "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
             "<Menu>": lambda e: self._keyboard_open_context_menu(e),
@@ -913,6 +931,8 @@ class CacheVaultApp(ctk.CTk):
         self._grid.clear_selection()
         self._selected_clip_ids = []
         self._selected_clip_id = None
+        self._selection_scope.clear()
+        self._set_selection_notice(None)
         self._home.set_selected(None)
         self._update_selected_action_strip(None)
         # Clear the inspector so navigation cannot leave a stale clip from the
@@ -934,6 +954,68 @@ class CacheVaultApp(ctk.CTk):
             return "break"
         view.select_all()
         return "break"
+
+    def _keyboard_select_all_matching(self, event=None):
+        """Ctrl+Shift+A: select every clip matching the current nav/search/
+        filter/sort context -- not just the up-to-120 rendered rows. Stores
+        an immutable query descriptor (see core/selection.py) and shows the
+        resolved count; does not materialize a widget or an id per match.
+        Rendered rows are given the existing visual "selected" treatment
+        via view.select_all() (they're a subset of the matching set, so
+        this is honest, not a fake full-set render) -- unloaded matches
+        never become widgets.
+        """
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        active = self._filters.active
+        general_clips = active not in NAV_SCREEN_KEYS and active != FILTER_HOME
+        if not general_clips:
+            return "break"
+        view = self._grid if self._view_mode == "grid" else self._list
+        try:
+            if not view.winfo_ismapped():
+                return "break"
+        except Exception:  # noqa: BLE001
+            return "break"
+        query = self._build_query()
+        matching = self._selection_scope.activate_matching(active, query)
+        self._paint_matching_selection_visuals(view)
+        self._set_selection_notice(f"All {matching.resolved_count} matching items selected")
+        return "break"
+
+    def _paint_matching_selection_visuals(self, view) -> None:
+        """Gives every currently-rendered row the existing visual
+        "selected" treatment for the active matching selection (a true
+        subset, never a fake full-set render -- unloaded matches never
+        become widgets). Used both right after Ctrl+Shift+A activates a
+        matching selection, and after a same-context refresh re-renders
+        rows while matching mode is still active (see
+        _apply_refresh_snapshot) -- a refresh that didn't change the
+        matching context must keep showing every rendered row as
+        selected, not silently drop back to a single highlighted row.
+        Suppressed via _suppress_matching_exit_on_selection_change so
+        this call doesn't trip _exit_matching_selection_if_manual and
+        cancel the very selection it's painting. When invoked as a
+        render_batched on_complete callback, a newer refresh may have
+        cleared matching mode (or completed and replaced this render) by
+        the time the callback actually fires -- guarded so a stale
+        callback can't resurrect a selection that's genuinely gone.
+        """
+        if self._selection_scope.mode != "matching" or not self._visible_clip_ids:
+            return
+        self._suppress_matching_exit_on_selection_change = True
+        try:
+            view.select_all()
+        finally:
+            self._suppress_matching_exit_on_selection_change = False
+
+    def _set_selection_notice(self, text: str | None) -> None:
+        """Surfaces (or clears) the "All N matching items selected"
+        banner. Non-destructive to the rest of the header (same .place()
+        pattern as the existing refreshing indicator)."""
+        header = getattr(self, "_page_header", None)
+        if header is not None and hasattr(header, "set_selection_notice"):
+            header.set_selection_notice(text)
 
     def _selected_text_clips(self) -> list[models.Clip]:
         clips: list[models.Clip] = []
@@ -963,7 +1045,29 @@ class CacheVaultApp(ctk.CTk):
             on_save_macro=self._save_generated_macro,
         )
 
+    def _block_if_matching_active(self, action_label: str) -> bool:
+        """Guards every legacy action that reads ``_selected_clip_ids``
+        directly (copy/export/move-to-safe/remove and their keyboard
+        shortcuts) against silently acting on only the up-to-120 visible
+        ids while a "select all matching" selection is active and its
+        banner is still showing "All N matching items selected". None of
+        these actions are matching-aware yet (that's later commits'
+        scope) -- for now they refuse to run against a matching
+        selection rather than quietly mutate/export a mismatched subset.
+        Returns True (and shows an explanatory toast) if the caller must
+        abort; False if it's safe to proceed normally.
+        """
+        if self._selection_scope.mode == "none":
+            return False
+        self._show_toast(
+            f"{action_label} isn't available yet for \"select all matching\" -- "
+            "click an item first to select a specific set."
+        )
+        return True
+
     def _bulk_copy(self) -> None:
+        if self._block_if_matching_active("Copy"):
+            return
         batch_actions.bulk_copy(self)
 
     def _copy_generated_text(self, text: str, toast: str) -> None:
@@ -998,12 +1102,18 @@ class CacheVaultApp(ctk.CTk):
         self._send_to_macro_safe(clip.id)
 
     def _bulk_export_proof(self) -> None:
+        if self._block_if_matching_active("Export"):
+            return
         batch_actions.bulk_export_proof(self)
 
     def _bulk_move_to_safe(self) -> None:
+        if self._block_if_matching_active("Move to Safe"):
+            return
         batch_actions.bulk_move_to_safe(self)
 
     def _bulk_remove(self) -> None:
+        if self._block_if_matching_active("Remove"):
+            return
         batch_actions.bulk_remove(self)
 
     def _keyboard_focus_is_text_input(self, event=None) -> bool:
@@ -1057,6 +1167,8 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_duplicate_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Duplicate"):
+            return "break"
         clip = self._selected_clip()
         if clip is not None:
             self._duplicate_as_editable_clip(clip.id)
@@ -1084,6 +1196,8 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_copy_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Copy"):
+            return "break"
         if len(self._selected_clip_ids) > 1:
             self._bulk_copy()
             return "break"
@@ -1095,14 +1209,25 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_copy_clean_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Copy"):
+            return "break"
         clip = self._selected_clip()
         if clip is not None:
             self._copy_clean(clip.id, copy_clean.COPY_PLAIN_TEXT)
         return "break"
 
     def _keyboard_remove_selected(self, event=None):
+        """Delete: routes only to the existing safe soft-remove path
+        (Recently Removed), never to permanent deletion. While a
+        matching selection is active this refuses to run rather than
+        silently soft-removing only the up-to-120 rendered/visible ids
+        while the "All N matching" banner is still showing a larger
+        claimed set -- see _block_if_matching_active.
+        """
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Remove"):
+            return "break"
         if len(self._selected_clip_ids) > 1:
             self._bulk_remove()
             return "break"
@@ -1812,6 +1937,15 @@ class CacheVaultApp(ctk.CTk):
         active = self._filters.active
         general_clips = active not in NAV_SCREEN_KEYS and active != FILTER_HOME
         query = self._build_query() if general_clips else None
+        # Single choke point for matching-selection invalidation: every
+        # context change that matters (search text, type/date filter,
+        # sort, collection, nav tab, active-vs-Recently-Removed state)
+        # flows through _build_query()+refresh() to get here, so checking
+        # once, right here, covers all of them without hooking each
+        # individual setter separately. Never silently reinterprets an old
+        # matching selection against a new view.
+        if self._selection_scope.invalidate_if_stale(active, query):
+            self._set_selection_notice(None)
         gen = self._refresh_generation
         self._refresh_workers_in_flight += 1
         self._refresh_request_queue.put((gen, active, query))
@@ -1972,30 +2106,68 @@ class CacheVaultApp(ctk.CTk):
                 more_count = total_clips - len(clips)
                 self._page_header.set_content(self._filters.active_label, f"{total_clips} clips")
                 self._visible_clip_ids = [c.id for c in clips]
-                self._selected_clip_ids = [
-                    cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
-                ]
-                if self._selected_clip_id not in self._visible_clip_ids:
-                    self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
                 empty_msg = self._empty_message(active, clips, query)
-                if self._view_mode == "grid":
-                    self._grid.set_selected(self._selected_clip_id)
-                    self._grid.render_batched(
-                        clips, empty_message=empty_msg, more_count=more_count,
-                    )
-                    self._grid.set_selected(self._selected_clip_id)
+                view = self._grid if self._view_mode == "grid" else self._list
+
+                if self._selection_scope.mode == "matching":
+                    # invalidate_if_stale already ran earlier in this same
+                    # refresh cycle (_do_refresh_sync) -- reaching here
+                    # still in "matching" mode means the context genuinely
+                    # didn't change, so every re-rendered row must keep
+                    # showing as selected, not collapse to one highlighted
+                    # row the way the else branch below does for plain
+                    # visible selection.
+                    #
+                    # Painting must wait for on_complete, not run right
+                    # after render_batched() returns: rendering is chunked
+                    # across after(10, ...) ticks (15/20 rows per tick), so
+                    # calling select_all() immediately would only see
+                    # whichever rows the first tick had already built,
+                    # painting a partial subset instead of every rendered
+                    # row. on_complete fires once the very last batch has
+                    # actually been constructed. _paint_matching_selection_
+                    # visuals's select_all() call then fires the normal
+                    # on_selection_change callback, which already updates
+                    # _selected_clip_ids/the bulk action strip/the preview
+                    # -- nothing further to do here.
+                    on_complete = lambda v=view: self._paint_matching_selection_visuals(v)  # noqa: E731
+                    if self._view_mode == "grid":
+                        self._grid.render_batched(
+                            clips, empty_message=empty_msg, more_count=more_count,
+                            on_complete=on_complete,
+                        )
+                    else:
+                        self._list.render_batched(
+                            clips,
+                            empty_message=empty_msg,
+                            group_by=self._group_by_for_view(active, query),
+                            more_count=more_count,
+                            on_complete=on_complete,
+                        )
                 else:
-                    self._list.set_selected(self._selected_clip_id)
-                    self._list.render_batched(
-                        clips,
-                        empty_message=empty_msg,
-                        group_by=self._group_by_for_view(active, query),
-                        more_count=more_count,
-                    )
-                    self._list.set_selected(self._selected_clip_id)
-                clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
-                self._update_selected_action_strip(clip)
-                self._preview.show(clip)
+                    self._selected_clip_ids = [
+                        cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
+                    ]
+                    if self._selected_clip_id not in self._visible_clip_ids:
+                        self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
+                    if self._view_mode == "grid":
+                        self._grid.set_selected(self._selected_clip_id)
+                        self._grid.render_batched(
+                            clips, empty_message=empty_msg, more_count=more_count,
+                        )
+                        self._grid.set_selected(self._selected_clip_id)
+                    else:
+                        self._list.set_selected(self._selected_clip_id)
+                        self._list.render_batched(
+                            clips,
+                            empty_message=empty_msg,
+                            group_by=self._group_by_for_view(active, query),
+                            more_count=more_count,
+                        )
+                        self._list.set_selected(self._selected_clip_id)
+                    clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
+                    self._update_selected_action_strip(clip)
+                    self._preview.show(clip)
                 clip_count = total_clips
 
             summary["shown"] = clip_count
@@ -2535,17 +2707,46 @@ class CacheVaultApp(ctk.CTk):
         if self._search_var.get():
             self._search_var.set("")
             self.focus_set()
+            # Search text is part of the matching-selection signature; the
+            # next refresh() this triggers would invalidate it anyway, but
+            # clear it (and its banner) immediately rather than leaving a
+            # stale "All N matching" notice on screen until that refresh
+            # actually lands.
+            self._selection_scope.clear()
+            self._set_selection_notice(None)
             return
 
-        # 4. Clear selection (single or multi) without re-rendering the list.
-        if self._selected_clip_ids or self._selected_clip_id:
+        # 4. Clear selection (single, multi, or matching) without
+        # re-rendering the list.
+        if self._selected_clip_ids or self._selected_clip_id or self._selection_scope.mode != "none":
             self._clear_selection()
             self._preview.show(None)
             return
 
+    def _exit_matching_selection_if_manual(self) -> None:
+        """Enforces "exactly one active selection mode": any real manual
+        selection action (plain click, Ctrl-click, Shift-click, a
+        right-click that collapses to a single item, Ctrl+A) must make
+        visible selection authoritative again, clearing a stale matching
+        selection and its banner rather than leaving both "active" at
+        once. The one deliberate exception -- painting the rendered
+        subset of a brand-new matching selection -- brackets its own
+        view.select_all() call with _suppress_matching_exit_on_selection_change
+        so it doesn't immediately cancel itself; merely re-rendering
+        existing rows (e.g. after a same-context refresh) never calls
+        this at all, since that path doesn't go through the view's
+        on_select/on_selection_change callbacks.
+        """
+        if self._suppress_matching_exit_on_selection_change:
+            return
+        if self._selection_scope.mode != "none":
+            self._selection_scope.clear()
+            self._set_selection_notice(None)
+
     def _on_clip_select(self, clip) -> None:
         if not self._guard_unlocked():
             return
+        self._exit_matching_selection_if_manual()
         self._selected_clip_id = getattr(clip, "id", None)
         self._selected_clip_ids = [self._selected_clip_id] if self._selected_clip_id else []
         self._list.set_selected(self._selected_clip_id)
@@ -2568,6 +2769,7 @@ class CacheVaultApp(ctk.CTk):
         """
         if not self._guard_unlocked():
             return
+        self._exit_matching_selection_if_manual()
         self._selected_clip_ids = list(ids)
         primary_id = ids[-1] if ids else None
         self._selected_clip_id = primary_id

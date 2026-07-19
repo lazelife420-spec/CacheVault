@@ -1256,6 +1256,15 @@ class Vault:
     def count_clips(self, query=None, conn=None) -> int:
         return self.storage.count_clips(query, conn=conn)
 
+    def list_clip_ids(self, query=None, *, limit: int | None = None, offset: int = 0, conn=None):
+        return self.storage.list_clip_ids(query, limit=limit, offset=offset, conn=conn)
+
+    def iter_clip_ids(self, query=None, *, batch_size: int = 500, conn=None):
+        return self.storage.iter_clip_ids(query, batch_size=batch_size, conn=conn)
+
+    def clip_id_snapshot(self, query=None, *, batch_size: int = 500):
+        return self.storage.clip_id_snapshot(query, batch_size=batch_size)
+
     def counts(self, conn=None):
         out = self.storage.counts(conn=conn)
         from .smart_folders import count_all
