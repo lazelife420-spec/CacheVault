@@ -482,6 +482,33 @@ def test_default_scan_never_rehashes(storage, assets_home, monkeypatch):
     assert calls == []
 
 
+def test_editable_copy_lookup_is_a_single_bulk_query_not_n_plus_one(storage, assets_home):
+    """Regression for a real finding from independent review of draft PR
+    #67: evaluate_protection/_keeper_sort_key each used to query
+    editable_copies once per candidate item (measured at 1230 of 1233 total
+    scan statements on a ~1855-clip fixture). run_scan() must issue exactly
+    one query for it (_editable_copy_clip_ids), regardless of how many
+    duplicate-screenshot items are being keeper-sorted.
+    """
+    data = _tiny_png()
+    for _ in range(5):  # several items -> keeper sort runs _keeper_sort_key per item
+        _add_image_clip(storage, data=data, width=4, height=4)
+
+    queries = []
+
+    def on_sql(stmt: str) -> None:
+        if "editable_copies" in stmt:
+            queries.append(stmt)
+
+    storage.conn.set_trace_callback(on_sql)
+    try:
+        cs.run_scan(storage)
+    finally:
+        storage.conn.set_trace_callback(None)
+
+    assert len(queries) == 1, f"expected exactly 1 editable_copies query, got {len(queries)}"
+
+
 # --- Category E: largest managed assets ---------------------------------------
 
 

@@ -11,6 +11,7 @@ in the scan/display pipeline ever consulted a saved decision.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -27,6 +28,11 @@ from cache_vault.core.cleanup_store import (
 )
 from cache_vault.core.models import Clip
 from cache_vault.core.storage import VaultStorage
+
+# Older than cleanup_suggestions.RECENT_PROTECTION_MINUTES (15) so clips
+# built here aren't caught by apply_cleanup_selection's mutation-time
+# recency re-check (these tests are about suppression, not recency).
+_NOT_RECENT_ISO = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
 
 @pytest.fixture
@@ -50,6 +56,7 @@ def _add_image_clip(storage: VaultStorage, *, data: bytes, width=100, height=100
         content_hash=chash, content_type=models.CONTENT_IMAGE,
         content="[Screenshot PNG]", preview="Screenshot",
         classification=models.CLASS_IMAGE, source_app="test.exe", is_pinned=is_pinned,
+        created_at=_NOT_RECENT_ISO, last_used_at=_NOT_RECENT_ISO,
     )
     storage.add_clip(clip)
     record = image_assets.ClipAssetRecord(

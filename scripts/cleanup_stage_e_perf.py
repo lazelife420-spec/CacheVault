@@ -24,6 +24,7 @@ import os
 import sqlite3
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -48,6 +49,15 @@ from cache_vault.core.storage import VaultStorage  # noqa: E402
 
 TMP_ROOT = Path(os.environ.get("TEMP", "/tmp")) / "cachevault_cleanup_stage_e"
 DB_PATH = TMP_ROOT / "cache_vault.db"
+
+# Older than cleanup_suggestions.RECENT_PROTECTION_MINUTES (15) -- a
+# realistic long-lived vault isn't everything captured in the last 15
+# minutes, and apply_cleanup_selection now re-checks recency fresh at
+# mutation time (see cache_vault/core/cleanup_actions.py), so an
+# un-backdated fixture would have every clip skipped as "recently
+# captured" the moment the MUTATION + RECEIPT section below tries to move
+# anything.
+_OLD_TIMESTAMP = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
 N_TEXT = 1200
 N_TEXT_DUP_GROUPS = 40          # each group has 3 identical-text copies
@@ -95,6 +105,7 @@ def _add_image_clip(storage, *, data, width, height, is_pinned=False, collection
         source_app="test.exe",
         is_pinned=is_pinned,
         collection=collection,
+        created_at=_OLD_TIMESTAMP,
     )
     storage.add_clip(clip)
     record = image_assets.ClipAssetRecord(
@@ -128,6 +139,7 @@ def build_fixture():
             classification=models.CLASS_PLAIN,
             is_pinned=(i < N_FAVORITES),
             collection=collections[i % N_COLLECTIONS] if i % 3 == 0 else None,
+            created_at=_OLD_TIMESTAMP,
         )
         storage.add_clip(clip)
     for g in range(N_TEXT_DUP_GROUPS):
@@ -139,6 +151,7 @@ def build_fixture():
                 content=body,
                 preview=body[:40],
                 classification=models.CLASS_PLAIN,
+                created_at=_OLD_TIMESTAMP,
             )
             storage.add_clip(clip)
     print(f"  text clips (incl. {N_TEXT_DUP_GROUPS} repeated-text groups) "
@@ -260,8 +273,20 @@ def main():
 
     # --- decision persistence across rescans ------------------------------------
     print("=" * 100)
-    print("DECISION PERSISTENCE ACROSS RESCANS")
+    print("DECISION PERSISTENCE ACROSS RESCANS -- SCAN-ENGINE MECHANISM ONLY")
     print("=" * 100)
+    print("Note: this section calls cleanup_store.record_decision()/is_suppressed()")
+    print("directly at the SCOPE_GROUP level to prove the scan engine's own group-")
+    print("suppression and fingerprint self-invalidation mechanism is correct. It does")
+    print("NOT go through CleanupReviewDialog and is NOT, by itself, proof of what the")
+    print("shipped 'Ignore suggestion' button records. That end-to-end proof --")
+    print("clicking Ignore in the real dialog on a grouped category writes a")
+    print("SCOPE_GROUP decision keyed to this exact fingerprint, and a membership")
+    print("change makes it reappear -- lives in tests/test_cleanup_screen.py's")
+    print("test_ignore_suggestion_is_group_scoped_and_suppresses_whole_group_unchanged")
+    print("and test_ignore_group_reappears_fully_after_membership_changes (added when")
+    print("the UI was fixed to actually use group scope for grouped-category Ignore --")
+    print("previously it did not, a real gap found by independent review of draft PR #67).\n")
     target_group = result1.duplicate_screenshot_groups[0]
     record_decision(
         storage, category=cs.CATEGORY_DUPLICATE_SCREENSHOT, scope=SCOPE_GROUP,
@@ -272,7 +297,8 @@ def main():
         fingerprint=target_group.fingerprint,
     )
     assert suppressed is True
-    print(f"PASS: group {target_group.fingerprint[:12]}... suppressed after 'Ignore', as expected.")
+    print(f"PASS (engine-level): group {target_group.fingerprint[:12]}... suppressed "
+          f"after a direct SCOPE_GROUP record_decision() call, as expected.")
 
     # Add a 4th identical copy -> membership changes -> fingerprint changes ->
     # the ignore on the OLD fingerprint must no longer apply to the new group.
@@ -295,8 +321,9 @@ def main():
         fingerprint=changed_group.fingerprint,
     )
     assert still_suppressed is False, "a changed group must NOT inherit the old fingerprint's suppression"
-    print("PASS: adding a 4th copy changes the group fingerprint; the new group is "
-          "NOT suppressed by the old 'Ignore' decision (self-invalidating fingerprint, as designed).\n")
+    print("PASS (engine-level): adding a 4th copy changes the group fingerprint; the "
+          "new group is NOT suppressed by the old 'Ignore' decision (self-invalidating "
+          "fingerprint, as designed).\n")
 
     # --- mutation + receipt ------------------------------------------------------
     print("=" * 100)

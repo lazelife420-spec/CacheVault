@@ -41,6 +41,48 @@ class CleanupSelection:
     clip_ids: list[str]
 
 
+def _protect_duplicate_group_keepers(
+    ctx, to_move: list[tuple[CleanupSelection, str]], result: CleanupApplyResult,
+) -> list[tuple[CleanupSelection, str]]:
+    """Defense-in-depth: never let a mutation remove every live copy of a
+    duplicate-screenshot group, even from a selection that didn't come
+    through the review dialog's UI (whose disabled keeper checkbox is the
+    *only* thing preventing this today -- confirmed by independent review
+    of draft PR #67 to have no mutation-layer backstop).
+
+    Recomputes current, live group membership and keeper order fresh (the
+    exact same ``find_duplicate_screenshot_groups`` the scan engine uses,
+    against this mutation's own freshly-built ``ctx``) rather than trusting
+    anything about which items the caller labeled as a "group". If every
+    member of a real duplicate group is present in [to_move], the
+    recommended keeper is pulled out and reported as skipped/protected so
+    at least one copy always survives; every other selected item in that
+    group still moves normally.
+    """
+    from .cleanup_suggestions import CATEGORY_DUPLICATE_SCREENSHOT, find_duplicate_screenshot_groups
+
+    if not any(sel.category == CATEGORY_DUPLICATE_SCREENSHOT for sel, _ in to_move):
+        return to_move
+
+    moving_ids = {clip_id for _sel, clip_id in to_move}
+    protected_keeper_ids: set[str] = set()
+    for group in find_duplicate_screenshot_groups(ctx):
+        member_ids = {it.clip.id for it in group.items}
+        if member_ids and member_ids <= moving_ids and group.recommended_keeper_id is not None:
+            protected_keeper_ids.add(group.recommended_keeper_id)
+
+    if not protected_keeper_ids:
+        return to_move
+
+    kept: list[tuple[CleanupSelection, str]] = []
+    for sel, clip_id in to_move:
+        if sel.category == CATEGORY_DUPLICATE_SCREENSHOT and clip_id in protected_keeper_ids:
+            result.skipped_protected.append(clip_id)
+            continue
+        kept.append((sel, clip_id))
+    return kept
+
+
 @dataclass
 class CleanupApplyResult:
     moved_clip_ids: list[str] = field(default_factory=list)
@@ -68,6 +110,23 @@ def apply_cleanup_selection(
     Recently Removed, record a historical "removed" decision for each, and
     write a cleanup receipt.
 
+    Every protection is re-derived fresh, right here, immediately before
+    mutating -- never trusted from the scan snapshot the review screen was
+    built from. This includes the "recently captured/used" window: a prior
+    version of this function called ``build_scan_context`` with no
+    ``recent_cutoff_iso``, so a clip that became recently-used *after* the
+    scan but *before* the user confirmed the move (a real, if narrow, race
+    -- e.g. re-copying the item in another window while the confirm dialog
+    is open) was not re-checked and could be moved anyway. Confirmed live
+    during independent review of draft PR #67; fixed by computing the same
+    cutoff the scan engine uses, fresh, at call time. Also re-checks any
+    "keep forever" decision recorded against the clip since the scan (e.g.
+    the user marked it protected in one window while an older, now-stale
+    selection from another window still names it) -- a "keep" (the
+    temporary, current-scan-only decision) deliberately does NOT block a
+    move here, since the fresh scan_generation this mutation loads decisions
+    under will never match an older "keep"'s recorded generation.
+
     Cancellation is only honored *before* the mutating transaction starts
     (see module docstring on cache_vault/core/cleanup_suggestions.py's
     ScanCancelled) -- once the loop of UPDATEs begins, it either commits in
@@ -77,12 +136,17 @@ def apply_cleanup_selection(
     # Local import: cleanup_suggestions doesn't import this module, so this
     # avoids a needless import-time coupling for callers that only ever
     # scan and never mutate.
-    from .cleanup_suggestions import build_scan_context
+    from datetime import datetime, timedelta, timezone
+
+    from .cleanup_suggestions import RECENT_PROTECTION_MINUTES, build_scan_context
 
     cancel_check = cancel_check or (lambda: False)
     result = CleanupApplyResult()
 
-    ctx = build_scan_context(storage)
+    mutation_cutoff_iso = (
+        datetime.now(timezone.utc) - timedelta(minutes=RECENT_PROTECTION_MINUTES)
+    ).isoformat()
+    ctx = build_scan_context(storage, recent_cutoff_iso=mutation_cutoff_iso)
     by_id = {c.id: c for c in ctx.live_clips}
     asset_bytes = {cid: int(row["size_bytes"] or 0) for cid, row in ctx.asset_rows.items()}
 
@@ -94,11 +158,12 @@ def apply_cleanup_selection(
                 result.skipped_missing.append(clip_id)
                 continue
             protection = ctx.protection_for(clip)
-            if protection.protected:
+            if protection.protected or ctx.is_item_suppressed(sel.category, clip_id):
                 result.skipped_protected.append(clip_id)
                 continue
             to_move.append((sel, clip_id))
 
+    to_move = _protect_duplicate_group_keepers(ctx, to_move, result)
     if cancel_check():
         result.cancelled = True
         return result

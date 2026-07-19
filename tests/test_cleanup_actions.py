@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -13,6 +14,14 @@ from cache_vault.core import image_assets, models
 from cache_vault.core.cleanup_actions import CleanupSelection, apply_cleanup_selection
 from cache_vault.core.events import EventLog
 from cache_vault.core.models import Clip
+
+# Older than cleanup_suggestions.RECENT_PROTECTION_MINUTES (15) so clips
+# built for mutation tests aren't accidentally caught by the "recently
+# captured/used" protection apply_cleanup_selection now re-checks at
+# mutation time (see cache_vault/core/cleanup_actions.py). Scan-time
+# recency behavior itself is covered separately in
+# tests/test_cleanup_suggestions.py.
+_NOT_RECENT_IISO = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
 
 @pytest.fixture
@@ -25,13 +34,15 @@ def _events(storage):
     return EventLog(storage)
 
 
-def _add_text_clip(storage, *, content, is_pinned=False):
+def _add_text_clip(storage, *, content, is_pinned=False, created_at=_NOT_RECENT_IISO):
     clip = Clip(
         content_hash=models.content_hash(content),
         content_type=models.CONTENT_TEXT,
         content=content,
         preview=content[:50],
         is_pinned=is_pinned,
+        created_at=created_at,
+        last_used_at=created_at,
     )
     storage.add_clip(clip)
     return clip
@@ -175,8 +186,10 @@ def test_receipt_written_with_zero_disk_reclaimed(storage, assets_home):
 
 def test_receipt_never_includes_full_clip_content(storage, assets_home):
     sensitive_text = "sk-super-secret-api-key-do-not-leak-this-value"
-    a = Clip(content_hash=models.content_hash(sensitive_text), content=sensitive_text, preview="secret")
-    b = Clip(content_hash=models.content_hash(sensitive_text), content=sensitive_text, preview="secret")
+    a = Clip(content_hash=models.content_hash(sensitive_text), content=sensitive_text, preview="secret",
+             created_at=_NOT_RECENT_IISO, last_used_at=_NOT_RECENT_IISO)
+    b = Clip(content_hash=models.content_hash(sensitive_text), content=sensitive_text, preview="secret",
+             created_at=_NOT_RECENT_IISO, last_used_at=_NOT_RECENT_IISO)
     storage.add_clip(a)
     storage.add_clip(b)
     sel = CleanupSelection(
@@ -219,7 +232,8 @@ def test_apply_never_touches_asset_file_bytes(storage, assets_home):
     Image.new("RGB", (4, 4), (1, 2, 3)).save(buf, format="PNG")
     data = buf.getvalue()
     chash = models.bytes_hash(data)
-    clip = Clip(content_hash=chash, content_type=models.CONTENT_IMAGE, classification=models.CLASS_IMAGE)
+    clip = Clip(content_hash=chash, content_type=models.CONTENT_IMAGE, classification=models.CLASS_IMAGE,
+                created_at=_NOT_RECENT_IISO, last_used_at=_NOT_RECENT_IISO)
     storage.add_clip(clip)
     record = image_assets.ClipAssetRecord(
         asset_id=models.new_id(), clip_id=clip.id, mime_type="image/png", file_ext="png",
@@ -239,3 +253,130 @@ def test_apply_never_touches_asset_file_bytes(storage, assets_home):
     assert asset_path.is_file()
     assert asset_path.read_bytes() == before
     assert result.bytes_moved == len(data)
+
+
+# --- mutation-time protection revalidation (TOCTOU) ----------------------------
+
+
+def test_item_marked_recently_used_after_scan_is_excluded_at_mutation_time(storage, assets_home):
+    """Time-of-check/time-of-use regression for a real finding from
+    independent review of draft PR #67: a clip unprotected when the review
+    screen was populated, but touched again (re-copied, edited, etc.)
+    before the user confirms the move, must not be silently moved anyway.
+    """
+    clip = _add_text_clip(storage, content="will become recently used")
+    # Simulate "scan saw it as unprotected" by not doing anything special --
+    # _NOT_RECENT_IISO already makes it eligible. Now simulate the race:
+    # something touches the clip *after* that point but *before* the
+    # mutation call, exactly like re-copying it in another window while the
+    # confirm dialog is still open.
+    storage.conn.execute(
+        "UPDATE clips SET last_used_at = ? WHERE id = ?", (models.now_iso(), clip.id),
+    )
+    storage.conn.commit()
+
+    sel = CleanupSelection(
+        category="repeated_text", scope="group", fingerprint="fp-toctou", clip_ids=[clip.id],
+    )
+    result = apply_cleanup_selection(storage, _events(storage), selections=[sel], rule_version=1)
+
+    assert result.moved_clip_ids == []
+    assert result.skipped_protected == [clip.id]
+    reloaded = {c.id: c for c in storage.list_clips(None)}
+    assert clip.id in reloaded
+    assert reloaded[clip.id].deleted_at is None
+
+
+def test_keep_forever_recorded_after_scan_is_excluded_at_mutation_time(storage, assets_home):
+    """A "keep forever" decision recorded in another window after the
+    review screen was populated must still block the move, even though the
+    stale selection still names the clip.
+    """
+    clip = _add_text_clip(storage, content="will be kept forever mid-flight")
+    cs_store.record_decision(
+        storage, category="repeated_text", scope=cs_store.SCOPE_ITEM, fingerprint=clip.id,
+        clip_id=clip.id, decision=cs_store.DECISION_KEEP_FOREVER, rule_version=1,
+    )
+
+    sel = CleanupSelection(
+        category="repeated_text", scope="group", fingerprint="fp-kf-toctou", clip_ids=[clip.id],
+    )
+    result = apply_cleanup_selection(storage, _events(storage), selections=[sel], rule_version=1)
+
+    assert result.moved_clip_ids == []
+    assert result.skipped_protected == [clip.id]
+
+
+# --- keeper defense-in-depth at the mutation layer ------------------------------
+
+
+def _add_image_clip(storage, *, data, width=100, height=100):
+    chash = models.bytes_hash(data)
+    clip = Clip(
+        content_hash=chash, content_type=models.CONTENT_IMAGE, classification=models.CLASS_IMAGE,
+        content="[Screenshot PNG]", preview="Screenshot",
+        created_at=_NOT_RECENT_IISO, last_used_at=_NOT_RECENT_IISO,
+    )
+    storage.add_clip(clip)
+    record = image_assets.ClipAssetRecord(
+        asset_id=models.new_id(), clip_id=clip.id, mime_type="image/png", file_ext="png",
+        size_bytes=len(data), sha256=chash, created_at=clip.created_at, original_name=None,
+        storage_name=image_assets.make_storage_name(clip.id, "png"), width=width, height=height,
+    )
+    storage.save_clip_asset(record, data)
+    return clip
+
+
+def test_selecting_every_duplicate_copy_still_leaves_one_keeper(storage, assets_home):
+    """Bypasses the UI entirely: calls apply_cleanup_selection directly
+    with a crafted selection naming EVERY live copy of a duplicate group
+    (something the review dialog's disabled keeper checkbox would never
+    produce, but nothing at the mutation layer previously guarded against
+    -- a real gap confirmed by independent review of draft PR #67).
+    """
+    buf = BytesIO()
+    Image.new("RGB", (100, 100), (5, 6, 7)).save(buf, format="PNG")
+    data = buf.getvalue()
+    a = _add_image_clip(storage, data=data)
+    b = _add_image_clip(storage, data=data)
+    c = _add_image_clip(storage, data=data)
+
+    sel = CleanupSelection(
+        category="exact_duplicate_screenshot", scope="group", fingerprint="fp-all-copies",
+        clip_ids=[a.id, b.id, c.id],
+    )
+    result = apply_cleanup_selection(storage, _events(storage), selections=[sel], rule_version=1)
+
+    assert result.moved_count == 2
+    assert len(result.skipped_protected) == 1
+    kept_id = result.skipped_protected[0]
+    assert kept_id in {a.id, b.id, c.id}
+
+    reloaded = {c2.id: c2 for c2 in storage.list_clips(None)}
+    assert kept_id in reloaded
+    assert reloaded[kept_id].deleted_at is None
+    # The other two really did move.
+    for cid in {a.id, b.id, c.id} - {kept_id}:
+        assert cid not in reloaded
+
+
+def test_keeper_defense_does_not_affect_partial_group_selections(storage, assets_home):
+    """A selection that leaves at least one copy unselected must move
+    normally -- the keeper guard only engages when a selection would
+    remove every live copy.
+    """
+    buf = BytesIO()
+    Image.new("RGB", (100, 100), (9, 9, 9)).save(buf, format="PNG")
+    data = buf.getvalue()
+    a = _add_image_clip(storage, data=data)
+    b = _add_image_clip(storage, data=data)
+    c = _add_image_clip(storage, data=data)
+
+    sel = CleanupSelection(
+        category="exact_duplicate_screenshot", scope="group", fingerprint="fp-partial",
+        clip_ids=[a.id, b.id],  # c.id deliberately left out
+    )
+    result = apply_cleanup_selection(storage, _events(storage), selections=[sel], rule_version=1)
+
+    assert result.moved_count == 2
+    assert result.skipped_protected == []

@@ -97,26 +97,35 @@ class ProtectionStatus:
     reasons: list[str] = field(default_factory=list)
 
 
-def _referenced_by_editable_copy(conn: sqlite3.Connection, clip_id: str) -> bool:
-    """True if another feature (editable copies / HTML bundles) has a live
-    reference to this clip. This is the one cross-feature reference the
-    audit found to be a real, persisted, queryable relationship -- everything
-    else (events, receipts, mobile API payloads, export manifests) is
-    audit-only history, not a live "in use elsewhere" signal.
+def _editable_copy_clip_ids(conn: sqlite3.Connection) -> set[str]:
+    """Every clip id that has a live editable-copy reference -- one bulk
+    query, not one per candidate item.
+
+    This is the one cross-feature reference the audit found to be a real,
+    persisted, queryable relationship -- everything else (events, receipts,
+    mobile API payloads, export manifests) is audit-only history, not a
+    live "in use elsewhere" signal.
+
+    Measured impact of the per-item version this replaced: 1230 of 1233
+    total SQL statements in a full scan against a ~1855-clip fixture came
+    from this single check (found during independent review of draft PR
+    #67) -- both ``evaluate_protection`` (once per candidate item) and
+    ``_keeper_sort_key`` (again, once per item, during every duplicate-
+    screenshot-group sort) queried it individually. Bulk-loading it here,
+    alongside ``_managed_asset_rows`` and ``cleanup_store.load_active_decisions``,
+    brings scan cost back to O(1) queries regardless of vault size.
 
     Takes a raw connection (not a VaultStorage) so a background scan thread
     can pass a dedicated read-only connection instead of the shared,
     possibly-concurrently-written-to ``storage.conn``.
     """
     try:
-        row = conn.execute(
-            "SELECT 1 FROM editable_copies WHERE clip_id = ? LIMIT 1", (clip_id,)
-        ).fetchone()
-        return row is not None
+        rows = conn.execute("SELECT DISTINCT clip_id FROM editable_copies").fetchall()
+        return {row["clip_id"] for row in rows}
     except sqlite3.OperationalError:
         # Table doesn't exist yet (feature never used on this vault) --
         # nothing to protect against.
-        return False
+        return set()
 
 
 def _macro_content_hashes(macro_store: MacroStore | None) -> set[str]:
@@ -142,11 +151,14 @@ def _macro_content_hashes(macro_store: MacroStore | None) -> set[str]:
 def evaluate_protection(
     clip: Clip,
     *,
-    conn: sqlite3.Connection,
+    editable_copy_clip_ids: set[str],
     macro_content_hashes: set[str],
     recent_cutoff_iso: str | None,
 ) -> ProtectionStatus:
     """Determine whether [clip] must be protected from cleanup suggestions.
+
+    [editable_copy_clip_ids] is bulk-preloaded once per scan (see
+    ``_editable_copy_clip_ids``) rather than queried per clip here.
 
     Deliberately does NOT implement a "has notes" rule -- CacheVault has no
     notes feature (confirmed by audit), so that rule cannot be truthfully
@@ -165,7 +177,7 @@ def evaluate_protection(
         reasons.append(f'In collection "{clip.collection}"')
     if clip.content_hash and clip.content_hash in macro_content_hashes:
         reasons.append("Matches a saved macro/text-expansion (best-effort content match)")
-    if _referenced_by_editable_copy(conn, clip.id):
+    if clip.id in editable_copy_clip_ids:
         reasons.append("Referenced by an editable copy")
     if recent_cutoff_iso is not None:
         created = clip.created_at or ""
@@ -203,6 +215,7 @@ class ScanContext:
     live_clips: list[Clip]
     asset_rows: dict[str, sqlite3.Row]
     macro_content_hashes: set[str]
+    editable_copy_clip_ids: set[str]
     recent_cutoff_iso: str | None
     cancel_check: Callable[[], bool]
     scan_generation: str
@@ -211,7 +224,7 @@ class ScanContext:
     def protection_for(self, clip: Clip) -> ProtectionStatus:
         return evaluate_protection(
             clip,
-            conn=self.conn,
+            editable_copy_clip_ids=self.editable_copy_clip_ids,
             macro_content_hashes=self.macro_content_hashes,
             recent_cutoff_iso=self.recent_cutoff_iso,
         )
@@ -278,6 +291,7 @@ def build_scan_context(
         live_clips=storage.list_clips(conn=active_conn),
         asset_rows=_managed_asset_rows(active_conn),
         macro_content_hashes=_macro_content_hashes(macro_store),
+        editable_copy_clip_ids=_editable_copy_clip_ids(active_conn),
         recent_cutoff_iso=recent_cutoff_iso,
         cancel_check=cancel_check,
         scan_generation=scan_generation or models.new_id(),
@@ -401,7 +415,7 @@ def _keeper_sort_key(item: SuggestionItem, ctx: ScanContext) -> tuple:
     clip = item.clip
     is_favorite = 1 if clip.is_pinned else 0
     in_collection = 1 if clip.collection else 0
-    referenced = 1 if _referenced_by_editable_copy(ctx.conn, clip.id) else 0
+    referenced = 1 if clip.id in ctx.editable_copy_clip_ids else 0
     last_used = clip.last_used_at or clip.updated_at or clip.created_at or ""
     return (is_favorite, in_collection, referenced, last_used, clip.created_at or "")
 

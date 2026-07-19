@@ -22,7 +22,8 @@ from .. import brand
 from ..core import cleanup_suggestions as cs
 from ..core.cleanup_actions import CleanupSelection, apply_cleanup_selection
 from ..core.cleanup_store import (
-    DECISION_IGNORED, DECISION_KEEP, DECISION_KEEP_FOREVER, SCOPE_GROUP, SCOPE_ITEM, record_decision,
+    DECISION_IGNORED, DECISION_KEEP, DECISION_KEEP_FOREVER, SCOPE_GROUP, SCOPE_ITEM,
+    clear_decision, load_active_decisions, record_decision,
 )
 from . import theme
 from .dialogs import _bring_to_front
@@ -87,6 +88,11 @@ def render_cleanup_screen(frame: ctk.CTkScrollableFrame) -> None:
         **theme.primary_button(),
     )
     scan_btn.pack(side="left")
+    ctk.CTkButton(
+        top_row, text="Show ignored suggestions", height=30,
+        command=lambda: IgnoredSuggestionsDialog(frame, callbacks=callbacks),
+        **theme.secondary_button(),
+    ).pack(side="left", padx=(8, 0))
 
     if result is None:
         ctk.CTkLabel(
@@ -183,6 +189,7 @@ class CleanupReviewDialog(ctk.CTkToplevel):
         self._vars: dict[str, ctk.BooleanVar] = {}  # clip_id -> selection var
         self._protected: set[str] = set()
         self._keepers: set[str] = set()
+        self._clip_to_group: dict[str, cs.SuggestionGroup] = {}  # grouped categories only
 
         self._build()
         _bring_to_front(self, master, modal=True)
@@ -252,6 +259,7 @@ class CleanupReviewDialog(ctk.CTkToplevel):
         if group.recommended_keeper_id:
             self._keepers.add(group.recommended_keeper_id)
         for item in group.items:
+            self._clip_to_group[item.clip.id] = group
             self._render_item_row(self._scroll, item, indent=1, group=group)
 
     def _render_item_row(self, parent, item: cs.SuggestionItem, *, indent: int, group=None) -> None:
@@ -334,28 +342,56 @@ class CleanupReviewDialog(ctk.CTkToplevel):
     # --- actions -----------------------------------------------------------
 
     def _fingerprint_for(self, clip_id: str) -> tuple[str, str]:
-        """Returns (scope, fingerprint) for a given selected clip id.
+        """Returns (scope, fingerprint) for a per-item decision (Keep,
+        Keep forever, and Move's historical "removed" record) -- always
+        item-scoped, deliberately: the checkboxes in this dialog select
+        individual clips, and "keep forever" in particular is documented
+        as item-level, persistent protection of that one clip, not a
+        property of whatever group it happens to be in right now.
 
-        Always item-scoped, deliberately: the checkboxes in this dialog
-        select individual clips, not "the group" as a whole, so Keep /
-        Keep forever / Ignore / Move all record a per-item decision keyed
-        to that clip's own id -- not the group's fingerprint. (The scan
-        engine's group-level fingerprints, which do encode full membership,
-        remain available in cleanup_store.SCOPE_GROUP for a possible future
-        "dismiss this whole group" action; nothing in this dialog uses that
-        scope today.)
+        "Ignore suggestion" is handled separately in _decide_selected for
+        the two grouped categories -- see _group_fingerprints_for_selection.
         """
         return SCOPE_ITEM, clip_id
+
+    def _group_fingerprints_for_selection(self, selected: list[str]) -> set[str]:
+        """The distinct group fingerprints touched by [selected] -- the
+        scan engine's own stable fingerprint (category + rule version are
+        applied separately when recording; this is the membership/evidence
+        hash), never reconstructed here from just the clicked clip.
+        """
+        fingerprints: set[str] = set()
+        for clip_id in selected:
+            group = self._clip_to_group.get(clip_id)
+            if group is not None:
+                fingerprints.add(group.fingerprint)
+        return fingerprints
 
     def _decide_selected(self, decision: str) -> None:
         storage = self._callbacks["storage"]()
         selected = self._selected_ids()
-        for clip_id in selected:
-            scope, fingerprint = self._fingerprint_for(clip_id)
-            record_decision(
-                storage, category=self._category, scope=scope, fingerprint=fingerprint,
-                clip_id=clip_id, decision=decision, rule_version=cs.RULE_VERSION,
-            )
+
+        if decision == DECISION_IGNORED and self._is_grouped:
+            # "Ignore suggestion" dismisses the whole duplicate/repeated-
+            # text GROUP finding, not just the clicked copies -- group-
+            # scoped, keyed to the scan engine's exact fingerprint (which
+            # already encodes full membership), so it self-invalidates the
+            # moment that membership changes (see cleanup_suggestions.py's
+            # find_duplicate_screenshot_groups / find_repeated_text_groups).
+            # Keep / Keep forever stay item-scoped below -- those protect a
+            # specific clip, not "this suggestion".
+            for fingerprint in self._group_fingerprints_for_selection(selected):
+                record_decision(
+                    storage, category=self._category, scope=SCOPE_GROUP, fingerprint=fingerprint,
+                    clip_id=None, decision=decision, rule_version=cs.RULE_VERSION,
+                )
+        else:
+            for clip_id in selected:
+                scope, fingerprint = self._fingerprint_for(clip_id)
+                record_decision(
+                    storage, category=self._category, scope=scope, fingerprint=fingerprint,
+                    clip_id=clip_id, decision=decision, rule_version=cs.RULE_VERSION,
+                )
         self.destroy()
         rescan = self._callbacks.get("rescan_after_decision")
         if rescan:
@@ -489,6 +525,131 @@ class CleanupConfirmDialog(ctk.CTkToplevel):
         """Auto-size to the natural content request, clamped to the
         screen's usable area -- never a fixed WxH that can clip content.
         """
+        self.update_idletasks()
+        req_w = max(self.winfo_reqwidth(), self._MIN_WIDTH)
+        req_h = max(self.winfo_reqheight(), self._MIN_HEIGHT)
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        margin = 80
+        w = min(req_w, max(self._MIN_WIDTH, screen_w - margin))
+        h = min(req_h, max(self._MIN_HEIGHT, screen_h - margin))
+        self.geometry(f"{w}x{h}")
+
+
+class IgnoredSuggestionsDialog(ctk.CTkToplevel):
+    """Discoverable undo surface for "Ignore suggestion": lists every
+    currently-active Ignored decision (item- and group-scoped, across all
+    five categories) with a "Stop ignoring" button per row.
+
+    Without this, an Ignore decision was durable but unreachable from the
+    product UI -- confirmed as a real gap by independent review of draft
+    PR #67 (``cleanup_store.clear_decision`` existed but nothing ever
+    called it). Content-driven size, matching CleanupConfirmDialog, since
+    the row count is unbounded.
+    """
+
+    _MIN_WIDTH = 520
+    _MIN_HEIGHT = 320
+
+    def __init__(self, master, *, callbacks: dict):
+        super().__init__(master)
+        self.title("Ignored Suggestions")
+        self.minsize(self._MIN_WIDTH, self._MIN_HEIGHT)
+        self.resizable(True, True)
+        self._callbacks = callbacks
+
+        outer = ctk.CTkFrame(self, fg_color="transparent")
+        outer.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(
+            outer, text="Ignored Suggestions", font=ctk.CTkFont(size=14, weight="bold"), anchor="w",
+        ).pack(fill="x", pady=(0, 4))
+        ctk.CTkLabel(
+            outer,
+            text="Suggestions you've told CacheVault to stop showing. Stop ignoring one to let it "
+                 "reappear the next time you scan.",
+            anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11), wraplength=460, justify="left",
+        ).pack(fill="x", pady=(0, 10))
+
+        self._scroll = ctk.CTkScrollableFrame(outer, fg_color="transparent")
+        self._scroll.pack(fill="both", expand=True, pady=(0, 12))
+
+        btns = ctk.CTkFrame(outer, fg_color="transparent")
+        btns.pack(fill="x", side="bottom")
+        ctk.CTkButton(btns, text="Close", height=30, command=self.destroy,
+                      **theme.secondary_button()).pack(side="right")
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self._render_rows()
+        self._size_to_content()
+        _bring_to_front(self, master, modal=True)
+
+    def _render_rows(self) -> None:
+        for w in self._scroll.winfo_children():
+            w.destroy()
+
+        storage = self._callbacks["storage"]()
+        decisions = load_active_decisions(storage.conn)
+        ignored = [d for d in decisions.values() if d.decision == DECISION_IGNORED]
+        ignored.sort(key=lambda d: d.decided_at, reverse=True)
+
+        if not ignored:
+            ctk.CTkLabel(
+                self._scroll, text="Nothing is currently ignored.",
+                text_color=brand.MUTED_FG, font=theme.body_font(12),
+            ).pack(fill="x", pady=20)
+            return
+
+        for decision in ignored:
+            row = ctk.CTkFrame(self._scroll, fg_color=brand.SURFACE_BG, corner_radius=6)
+            row.pack(fill="x", pady=3)
+
+            category_label = _CATEGORY_LABELS.get(decision.category, decision.category)
+            scope_label = "Whole group" if decision.scope == SCOPE_GROUP else "Single item"
+            detail = self._describe(decision)
+            text = f"{category_label} — {scope_label} — ignored {decision.decided_at}"
+            if detail:
+                text += f"\n{detail}"
+
+            ctk.CTkLabel(
+                row, text=text, anchor="w", justify="left", font=theme.body_font(11),
+            ).pack(side="left", fill="x", expand=True, padx=10, pady=8)
+
+            ctk.CTkButton(
+                row, text="Stop ignoring", height=26, width=110,
+                command=lambda d=decision: self._stop_ignoring(d),
+                **theme.secondary_button(),
+            ).pack(side="right", padx=10, pady=8)
+
+    def _describe(self, decision) -> str:
+        """Best-effort human-readable detail -- never fails the row render
+        if the referenced clip is gone or the store lookup errors.
+        """
+        if decision.scope != SCOPE_ITEM:
+            return f"Group fingerprint {decision.fingerprint[:12]}…"
+        try:
+            storage = self._callbacks["storage"]()
+            clip = storage.get_clip(decision.clip_id)
+        except Exception:  # noqa: BLE001 -- this is display-only, never fatal
+            clip = None
+        if clip is None:
+            return "(clip no longer in the vault)"
+        return clip.preview or (clip.content or "")[:60] or "(no preview)"
+
+    def _stop_ignoring(self, decision) -> None:
+        storage = self._callbacks["storage"]()
+        clip_id = decision.clip_id or None
+        clear_decision(
+            storage, category=decision.category, scope=decision.scope,
+            fingerprint=decision.fingerprint, clip_id=clip_id,
+        )
+        self._render_rows()
+        self._size_to_content()
+        rescan = self._callbacks.get("rescan_after_decision")
+        if rescan:
+            rescan()
+
+    def _size_to_content(self) -> None:
         self.update_idletasks()
         req_w = max(self.winfo_reqwidth(), self._MIN_WIDTH)
         req_h = max(self.winfo_reqheight(), self._MIN_HEIGHT)
