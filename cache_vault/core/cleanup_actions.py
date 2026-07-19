@@ -45,38 +45,57 @@ def _protect_duplicate_group_keepers(
     ctx, to_move: list[tuple[CleanupSelection, str]], result: CleanupApplyResult,
 ) -> list[tuple[CleanupSelection, str]]:
     """Defense-in-depth: never let a mutation remove every live copy of a
-    duplicate-screenshot group, even from a selection that didn't come
-    through the review dialog's UI (whose disabled keeper checkbox is the
-    *only* thing preventing this today -- confirmed by independent review
-    of draft PR #67 to have no mutation-layer backstop).
+    duplicate-screenshot OR repeated-text group, even from a selection that
+    didn't come through the review dialog's UI (whose disabled keeper
+    checkbox is the *only* thing preventing this today -- confirmed by
+    independent review of draft PR #67 to have no mutation-layer backstop).
+
+    Both grouped categories share the identical recommended_keeper_id /
+    disabled-checkbox design, so both need the same guard -- an earlier
+    version of this function covered duplicate screenshots only, leaving
+    repeated-text groups exposed to the exact same "wipe every copy" gap
+    (caught live by a follow-up narrow re-review: a crafted selection
+    naming all 3 members of a repeated_text group moved all 3, zero
+    survivors, skipped_protected empty).
 
     Recomputes current, live group membership and keeper order fresh (the
-    exact same ``find_duplicate_screenshot_groups`` the scan engine uses,
-    against this mutation's own freshly-built ``ctx``) rather than trusting
-    anything about which items the caller labeled as a "group". If every
-    member of a real duplicate group is present in [to_move], the
-    recommended keeper is pulled out and reported as skipped/protected so
-    at least one copy always survives; every other selected item in that
-    group still moves normally.
+    exact same find_duplicate_screenshot_groups / find_repeated_text_groups
+    the scan engine uses, against this mutation's own freshly-built [ctx])
+    rather than trusting anything about which items the caller labeled as
+    a "group". If every member of a real group is present in [to_move],
+    the recommended keeper is pulled out and reported as skipped/protected
+    so at least one copy always survives; every other selected item in
+    that group still moves normally.
     """
-    from .cleanup_suggestions import CATEGORY_DUPLICATE_SCREENSHOT, find_duplicate_screenshot_groups
+    from .cleanup_suggestions import (
+        CATEGORY_DUPLICATE_SCREENSHOT,
+        CATEGORY_REPEATED_TEXT,
+        find_duplicate_screenshot_groups,
+        find_repeated_text_groups,
+    )
 
-    if not any(sel.category == CATEGORY_DUPLICATE_SCREENSHOT for sel, _ in to_move):
+    grouped_finders = {
+        CATEGORY_DUPLICATE_SCREENSHOT: find_duplicate_screenshot_groups,
+        CATEGORY_REPEATED_TEXT: find_repeated_text_groups,
+    }
+    categories_in_play = {sel.category for sel, _ in to_move} & grouped_finders.keys()
+    if not categories_in_play:
         return to_move
 
     moving_ids = {clip_id for _sel, clip_id in to_move}
     protected_keeper_ids: set[str] = set()
-    for group in find_duplicate_screenshot_groups(ctx):
-        member_ids = {it.clip.id for it in group.items}
-        if member_ids and member_ids <= moving_ids and group.recommended_keeper_id is not None:
-            protected_keeper_ids.add(group.recommended_keeper_id)
+    for category in categories_in_play:
+        for group in grouped_finders[category](ctx):
+            member_ids = {it.clip.id for it in group.items}
+            if member_ids and member_ids <= moving_ids and group.recommended_keeper_id is not None:
+                protected_keeper_ids.add(group.recommended_keeper_id)
 
     if not protected_keeper_ids:
         return to_move
 
     kept: list[tuple[CleanupSelection, str]] = []
     for sel, clip_id in to_move:
-        if sel.category == CATEGORY_DUPLICATE_SCREENSHOT and clip_id in protected_keeper_ids:
+        if sel.category in grouped_finders and clip_id in protected_keeper_ids:
             result.skipped_protected.append(clip_id)
             continue
         kept.append((sel, clip_id))

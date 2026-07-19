@@ -380,3 +380,35 @@ def test_keeper_defense_does_not_affect_partial_group_selections(storage, assets
 
     assert result.moved_count == 2
     assert result.skipped_protected == []
+
+
+def test_selecting_every_repeated_text_copy_still_leaves_one_keeper(storage, assets_home):
+    """Mirrors test_selecting_every_duplicate_copy_still_leaves_one_keeper
+    for the OTHER grouped category: an earlier version of the keeper guard
+    covered exact_duplicate_screenshot only, leaving repeated_text groups
+    (which share the identical recommended_keeper_id / disabled-checkbox
+    design) exposed to the same "wipe every copy" gap -- caught live by a
+    follow-up narrow re-review of draft PR #67 (a crafted all-3-selected
+    call moved all 3, zero survivors, skipped_protected empty).
+    """
+    body = "repeated body for the keeper defense test" * 3
+    a = _add_text_clip(storage, content=body)
+    b = _add_text_clip(storage, content=body)
+    c = _add_text_clip(storage, content=body)
+
+    sel = CleanupSelection(
+        category="repeated_text", scope="group", fingerprint="fp-all-text-copies",
+        clip_ids=[a.id, b.id, c.id],
+    )
+    result = apply_cleanup_selection(storage, _events(storage), selections=[sel], rule_version=1)
+
+    assert result.moved_count == 2
+    assert len(result.skipped_protected) == 1
+    kept_id = result.skipped_protected[0]
+    assert kept_id in {a.id, b.id, c.id}
+
+    reloaded = {c2.id: c2 for c2 in storage.list_clips(None)}
+    assert kept_id in reloaded
+    assert reloaded[kept_id].deleted_at is None
+    for cid in {a.id, b.id, c.id} - {kept_id}:
+        assert cid not in reloaded

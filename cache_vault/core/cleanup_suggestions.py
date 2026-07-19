@@ -247,11 +247,12 @@ class ScanContext:
 
     def is_group_suppressed(self, category: str, fingerprint: str) -> bool:
         """Group-scoped suppression, checked against the group's *final*
-        fingerprint (computed from its post-suppression membership) --
-        nothing in the current UI records a group-scope decision yet (see
-        cleanup_screen.py's _fingerprint_for), but the schema and this
-        pipeline both support it for a possible future "dismiss this whole
-        group" action.
+        fingerprint (computed from its post-suppression membership). The
+        review dialog's "Ignore suggestion" action records exactly this
+        scope for the two grouped categories (see cleanup_screen.py's
+        _group_fingerprints_for_selection / _decide_selected) -- Keep and
+        Keep forever remain item-scoped (see _fingerprint_for), since those
+        protect a specific clip rather than dismissing the suggestion.
         """
         key = (category, cleanup_store.SCOPE_GROUP, fingerprint, cleanup_store.GROUP_CLIP_ID_SENTINEL)
         decision = self.decisions.get(key)
