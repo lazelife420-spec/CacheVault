@@ -103,6 +103,7 @@ class VaultScreenHost(ctk.CTkFrame):
             "nav_mobile_inbox": self._build_mobile_inbox,
             "nav_vault_macros": self._build_vault_macros,
             "nav_hotkey_actions": self._build_hotkey_actions,
+            "nav_cleanup_suggestions": self._build_cleanup_suggestions,
         }
         for key, builder in builders.items():
             frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -462,6 +463,10 @@ class VaultScreenHost(ctk.CTkFrame):
         filt.configure(command=lambda _v: reload())
         search.bind("<KeyRelease>", lambda _e: reload())
         parent._refresh = reload  # type: ignore[attr-defined]
+
+    def _build_cleanup_suggestions(self, parent: ctk.CTkScrollableFrame) -> None:
+        from . import cleanup_screen
+        cleanup_screen.build_cleanup_suggestions_screen(parent, self._callbacks)
 
     def _build_hotkey_actions(self, parent: ctk.CTkScrollableFrame) -> None:
         from ..core.command_center import (
