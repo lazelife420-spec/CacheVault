@@ -407,6 +407,17 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._repaint_selection()
         self._notify_selection_change()
 
+    def set_selected_ids(self, ids) -> None:
+        """Set the concrete multi-selection directly to an arbitrary
+        (already-computed) set of rendered ids -- e.g. for "Invert
+        visible selection". Mirrors ClipList.set_selected_ids."""
+        kept = {cid for cid in ids if cid in self._row_by_id}
+        self._selected_ids = kept
+        self._selected_id = next((cid for cid in reversed(self._render_order) if cid in kept), None)
+        self._anchor_id = self._selected_id
+        self._repaint_selection()
+        self._notify_selection_change()
+
     def clear_selection(self) -> None:
         """Deselect everything (Esc) and repaint all rows."""
         self._selected_ids = set()

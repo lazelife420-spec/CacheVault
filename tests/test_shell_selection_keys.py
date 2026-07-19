@@ -257,6 +257,33 @@ def test_escape_clears_matching_selection(tmp_path):
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
+def test_ctrl_a_in_text_entry_preserves_normal_text_selection(tmp_path):
+    """Plain Ctrl+A while focus is in a text-entry widget must not be
+    hijacked into "select all visible clips" -- _keyboard_select_all
+    must return None (letting Tk's/the widget's own default Ctrl+A
+    text-select-all binding run normally), not "break" (which would
+    swallow the event), and must not touch clip selection state at all."""
+    vault = _vault_with_clips(tmp_path, 20)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        assert app._selected_clip_ids == []
+
+        entry = tk.Entry(app)
+        entry.insert(0, "some typed text")
+        result = app._keyboard_select_all(SimpleNamespace(widget=entry))
+
+        assert result is None  # not "break" -- event must propagate to the widget
+        assert app._selected_clip_ids == []  # clip selection untouched
+        assert app._selection_scope.mode == "none"
+        entry.destroy()
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
 def test_ctrl_shift_a_ignored_while_focus_in_text_entry(tmp_path):
     """Delete/Ctrl+A/Ctrl+Shift+A must not fire while the user is typing
     in a text field -- normal text-editing behavior (e.g. native text

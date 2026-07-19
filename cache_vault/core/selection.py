@@ -51,6 +51,32 @@ def dedupe_preserve_order(
     return out
 
 
+@dataclass(frozen=True)
+class BulkMutationResult:
+    """The return contract for atomic bulk-mutation primitives
+    (storage.restore_many/soft_delete_many): either every eligible id in
+    ``succeeded`` was durably committed together, or the whole call
+    raised and nothing was committed at all -- there is no third,
+    partial-success state this object can represent, by construction
+    (see those methods' docstrings). ``skipped`` lists ids that were
+    valid inputs but ineligible at mutation time (already in the target
+    state, or no longer existing) -- distinguishing "skipped, harmlessly"
+    from "succeeded" so a caller can report an honest count, not just a
+    single ambiguous total.
+    """
+
+    succeeded: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()
+
+    @property
+    def succeeded_count(self) -> int:
+        return len(self.succeeded)
+
+    @property
+    def skipped_count(self) -> int:
+        return len(self.skipped)
+
+
 def query_signature(nav_key: str, query: Any | None) -> tuple:
     """A stable, hashable fingerprint of everything that defines "the
     current matching set" for a view: nav/view key, filter name (which

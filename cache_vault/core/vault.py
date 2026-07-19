@@ -835,10 +835,37 @@ class Vault:
         self.storage.soft_delete(clip_id)
         self.events.record(models.EVENT_DELETED, clip_id, {"action": "remove_from_history"})
 
+    def remove_from_history_many(self, clip_ids):
+        """Bulk move-to-Recently-Removed -- atomic (see
+        storage.soft_delete_many: one transaction, full rollback on any
+        exception, no partial-success return). Events are recorded only
+        after storage.soft_delete_many has already returned successfully
+        (i.e. only after a real commit) -- a raised exception there means
+        this loop never runs and zero events are recorded, so the
+        Stamped Receipts ledger can never show a bulk move that didn't
+        actually commit. One event per clip in the returned
+        BulkMutationResult.succeeded, matching remove_from_history()'s
+        per-clip event granularity."""
+        result = self.storage.soft_delete_many(clip_ids)
+        for cid in result.succeeded:
+            self.events.record(models.EVENT_DELETED, cid, {"action": "remove_from_history"})
+        return result
+
     def restore(self, clip_id: str) -> None:
         """Restore a clip from Recently Removed back into history."""
         self.storage.restore(clip_id)
         self.events.record(models.EVENT_RESTORED, clip_id)
+
+    def restore_many(self, clip_ids):
+        """Bulk restore -- atomic (see storage.restore_many). Events are
+        recorded only after a real, successful commit -- same rationale
+        as remove_from_history_many. One event per clip in the returned
+        BulkMutationResult.succeeded, matching restore()'s per-clip
+        event granularity."""
+        result = self.storage.restore_many(clip_ids)
+        for cid in result.succeeded:
+            self.events.record(models.EVENT_RESTORED, cid)
+        return result
 
     def permanently_remove(self, clip_id: str) -> None:
         """Hard-delete a clip's Cache Vault entry. Never touches real files."""

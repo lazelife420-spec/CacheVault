@@ -1116,6 +1116,300 @@ class CacheVaultApp(ctk.CTk):
             return
         batch_actions.bulk_remove(self)
 
+    # --- Commit 2: additional visible-mode bulk selection commands ---------
+    # (Copy/Export/Move-to-Recently-Removed already existed above; these
+    # fill in the rest of core/menu_context.py's command_matrix.)
+
+    def _bulk_toggle_favorite(self, favorite: bool) -> None:
+        label = "Favorite" if favorite else "Remove Favorite"
+        if self._block_if_matching_active(label):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        for cid in ids:
+            self.vault.set_favorite(cid, favorite)
+        self.refresh()
+        verb = "Favorited" if favorite else "Removed favorite mark from"
+        self._show_toast(f"{verb} {len(ids)} clip(s).")
+
+    def _run_atomic_bulk_mutation(self, fn, ids, *, action_label: str):
+        """Calls an atomic bulk-mutation primitive (vault.restore_many /
+        vault.remove_from_history_many) and turns a raised exception into
+        a visible error toast instead of letting a caller compute a
+        success count from a call that never actually committed. Because
+        those primitives are atomic (storage.restore_many/
+        soft_delete_many: one transaction, full rollback on any
+        exception), there is no partial-success state to report here --
+        either this returns the committed BulkMutationResult, or it
+        returns None and nothing in the database changed.
+        """
+        try:
+            return fn(ids)
+        except Exception as exc:  # noqa: BLE001
+            write_crash(f"bulk_{action_label.lower().replace(' ', '_')}", exc)
+            self._show_toast(f"{action_label} failed -- no clips were changed.")
+            return None
+
+    def _bulk_restore(self) -> None:
+        if self._block_if_matching_active("Restore"):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        result = self._run_atomic_bulk_mutation(self.vault.restore_many, ids, action_label="Restore")
+        if result is None:
+            return
+        self._clear_selection()
+        self.refresh()
+        self._show_toast(f"Restored {result.succeeded_count} clip(s).")
+
+    def _bulk_add_to_collection(self) -> None:
+        if self._block_if_matching_active("Add to Collection"):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        existing = [c["name"] for c in self.vault.list_collections()]
+
+        def save(name: str) -> None:
+            for cid in ids:
+                self.vault.set_collection(cid, name)
+            self.refresh()
+            self._show_toast(f"Added {len(ids)} clip(s) to '{name}'.")
+
+        MoveToCollectionDialog(self, None, existing, on_save=save)
+
+    def _current_collection_name(self) -> str | None:
+        from ..core.storage import COLLECTION_PREFIX
+
+        active = self._filters.active
+        if isinstance(active, str) and active.startswith(COLLECTION_PREFIX):
+            return active[len(COLLECTION_PREFIX):]
+        return None
+
+    def _bulk_remove_from_collection(self) -> None:
+        """Clears only the current single-assignment collection label
+        (clips.collection) from selected clips that actually belong to
+        it -- never removes the clip itself, never touches favorites or
+        any other metadata. See clear_collection() in clip_context.py
+        for the sidebar/whole-collection equivalent."""
+        name = self._current_collection_name()
+        if name is None:
+            return
+        if self._block_if_matching_active("Remove from Collection"):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        count = 0
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is not None and clip.collection == name:
+                self.vault.set_collection(cid, None)
+                count += 1
+        self.refresh()
+        self._show_toast(f"Removed {count} clip(s) from '{name}'. Clips remain in the vault.")
+
+    def _invert_visible_selection(self) -> None:
+        """Selects every currently-rendered (visible) row that is NOT
+        currently selected, and deselects the ones that are. Exits
+        matching mode first via the normal manual-selection path (this
+        is an explicit visible-only command, not a matching one)."""
+        if not self._guard_unlocked():
+            return
+        view = self._grid if self._view_mode == "grid" else self._list
+        inverted = set(self._visible_clip_ids) - set(self._selected_clip_ids)
+        view.set_selected_ids(inverted)
+
+    # --- Commit 2: matching-wide selection commands -------------------------
+    # Every one of these re-validates the matching context (signature +
+    # fresh count) immediately before doing anything, and resolves ids
+    # through a single read snapshot (core/selection.py's
+    # clip_id_snapshot via SelectionResolution.iter_ids) rather than ever
+    # touching _selected_clip_ids -- see this commit's core invariant: a
+    # matching-selection command must never look like it targets every
+    # matching record while actually acting on only the rendered subset.
+
+    def _resolve_matching_or_abort(self, *, confirm_title: str | None = None, confirm_detail: str = ""):
+        """Shared preamble for every matching-wide command: resolve
+        (validating the signature and re-counting fresh), abort visibly
+        if stale, and optionally confirm with the caller showing the
+        exact resolved count. Returns the SelectionResolution to consume
+        via .iter_ids()/.resolve_all_ids(), or None if the caller should
+        stop (stale, empty, or the user declined the confirmation).
+        """
+        active = self._filters.active
+        query = self._build_query()
+        resolution = self._selection_scope.resolve(active, query)
+        if resolution.mode != "matching":
+            self._show_toast("No matching selection is active.")
+            return None
+        if resolution.stale:
+            self._show_toast(
+                "The matching selection is out of date (search, filter, or "
+                "view changed) -- select all matching again to continue."
+            )
+            return None
+        if resolution.count == 0:
+            self._show_toast("No matching items to act on.")
+            return None
+        if confirm_title is not None:
+            from tkinter import messagebox
+
+            ok = messagebox.askyesno(
+                confirm_title,
+                f"{confirm_title} {resolution.count} matching item(s)?{confirm_detail}",
+                parent=self,
+            )
+            if not ok:
+                return None
+        return resolution
+
+    def _matching_export(self) -> None:
+        if not self._guard_unlocked():
+            return
+        if not self._require_founder("proof_pack_export"):
+            return
+        resolution = self._resolve_matching_or_abort()
+        if resolution is None:
+            return
+        ids = resolution.resolve_all_ids()
+        if not ids:
+            self._show_toast("No matching items to export.")
+            return
+        from ..core.exports import export_zip_basename
+        from tkinter import filedialog
+
+        dest = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export proof zip",
+            defaultextension=".zip",
+            initialfile=export_zip_basename(),
+            filetypes=[("Zip archive", "*.zip")],
+        )
+        if not dest:
+            return
+        # Re-derive protection/existence is handled by export_proof_zip
+        # itself per-id (missing/invalid ids are simply skipped there,
+        # same as the existing visible-mode bulk export path).
+        self.vault.export_proof_zip(ids, dest, mode="auto")
+        self.refresh()
+        self._show_toast(f"Exported proof for {len(ids)} matching clips.")
+
+    def _matching_move_to_recently_removed(self) -> None:
+        if not self._guard_unlocked():
+            return
+        resolution = self._resolve_matching_or_abort(
+            confirm_title="Move to Recently Removed",
+            confirm_detail=" They can be restored from Recently Removed. "
+                            "This does not delete any files from your computer.",
+        )
+        if resolution is None:
+            return
+        ids = resolution.resolve_all_ids()
+        result = self._run_atomic_bulk_mutation(
+            self.vault.remove_from_history_many, ids, action_label="Move to Recently Removed",
+        )
+        if result is None:
+            return
+        self._clear_selection()
+        self.refresh()
+        self._show_toast(f"Moved {result.succeeded_count} matching clip(s) to Recently Removed.")
+
+    def _matching_restore(self) -> None:
+        if not self._guard_unlocked():
+            return
+        resolution = self._resolve_matching_or_abort(confirm_title="Restore")
+        if resolution is None:
+            return
+        ids = resolution.resolve_all_ids()
+        result = self._run_atomic_bulk_mutation(self.vault.restore_many, ids, action_label="Restore")
+        if result is None:
+            return
+        self._clear_selection()
+        self.refresh()
+        self._show_toast(f"Restored {result.succeeded_count} matching clip(s).")
+
+    def _matching_toggle_favorite(self, favorite: bool) -> None:
+        if not self._guard_unlocked():
+            return
+        resolution = self._resolve_matching_or_abort()
+        if resolution is None:
+            return
+        changed = 0
+        for cid in resolution.resolve_all_ids():
+            self.vault.set_favorite(cid, favorite)
+            changed += 1
+        self.refresh()
+        verb = "Favorited" if favorite else "Removed favorite mark from"
+        self._show_toast(f"{verb} {changed} matching clip(s).")
+
+    # --- Commit 2: single dispatch point for context-menu selection commands
+
+    def _dispatch_selection_command(self, key: str, ctx) -> None:
+        """The one place every selection-wide context-menu command (see
+        core/menu_context.py's command_matrix) is dispatched from --
+        commands never independently guess selection state or mode.
+        """
+        if key == "select_all_visible":
+            self._keyboard_select_all()
+            return
+        if key == "select_all_matching":
+            self._keyboard_select_all_matching()
+            return
+        if key == "deselect_all":
+            self._clear_selection()
+            return
+        if key == "invert_visible":
+            self._invert_visible_selection()
+            return
+
+        if ctx.selection_mode == "matching":
+            matching_dispatch = {
+                "export_selected": self._matching_export,
+                "favorite_selected": lambda: self._matching_toggle_favorite(True),
+                "unfavorite_selected": lambda: self._matching_toggle_favorite(False),
+                "remove_favorite_marks": lambda: self._matching_toggle_favorite(False),
+                "move_to_recently_removed": self._matching_move_to_recently_removed,
+                "restore": self._matching_restore,
+            }
+            handler = matching_dispatch.get(key)
+            if handler is not None:
+                handler()
+            return
+
+        visible_dispatch = {
+            "copy_selected": self._bulk_copy,
+            "export_selected": self._bulk_export_proof,
+            "favorite_selected": lambda: self._bulk_toggle_favorite(True),
+            "unfavorite_selected": lambda: self._bulk_toggle_favorite(False),
+            "remove_favorite_marks": lambda: self._bulk_toggle_favorite(False),
+            "add_to_collection": self._bulk_add_to_collection,
+            "remove_from_collection": self._bulk_remove_from_collection,
+            "move_to_recently_removed": self._bulk_remove,
+            "restore": self._bulk_restore,
+        }
+        handler = visible_dispatch.get(key)
+        if handler is not None:
+            handler()
+
     def _keyboard_focus_is_text_input(self, event=None) -> bool:
         widget = getattr(event, "widget", None)
         if widget is None:
@@ -1148,6 +1442,32 @@ class CacheVaultApp(ctk.CTk):
         if self._visible_clip_ids:
             self._select_visible_clip_by_id(self._visible_clip_ids[0 if first else -1])
         return "break"
+
+    def _open_item(self, clip_id: str) -> None:
+        """Item-target "Open": the same type-based primary action as
+        Enter-on-selected (_keyboard_primary_action), but for an
+        explicit clip_id -- used by the matching-mode context menu's
+        "Open", which must always act on the clicked clip, never the
+        whole matching selection."""
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        if clip.classification == models.CLASS_LINK:
+            self._open_clip_link(clip.id)
+        elif clip.content_type != models.CONTENT_IMAGE:
+            self._edit_clip_text(clip.id)
+        else:
+            self._copy_again(clip.id)
+
+    def _preview_item(self, clip_id: str) -> None:
+        """Item-target "Preview": shows the clicked clip in the inspector
+        panel without changing _selected_clip_ids/_selected_clip_id --
+        previewing must not itself act as a selection command."""
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
+        self._preview.show(clip)
 
     def _keyboard_primary_action(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():

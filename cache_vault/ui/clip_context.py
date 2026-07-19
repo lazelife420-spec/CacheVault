@@ -7,8 +7,71 @@ import customtkinter as ctk
 
 from ..core import models, copy_clean, storage as S
 from ..core.contextmenu import clip_menu_items
+from ..core.menu_context import MenuInvocationContext, classify_view_kind, command_matrix
 from ..core.selection import analyze_selection
 from . import tooltip
+
+# Selection-wide commands with a real matching-wide (snapshot + revalidate)
+# implementation in this commit -- see shell.py's _dispatch_selection_command
+# and its matching_dispatch table. Anything else stays visible-only;
+# command_matrix() disables (never silently narrows) it while matching
+# mode is active. select_all_visible/select_all_matching/deselect_all/
+# invert_visible are handled directly by the dispatcher, not through this
+# matching-wide/visible-only split, so they're intentionally absent here.
+_MATCHING_WIDE_SUPPORTED = frozenset({
+    "export_selected",
+    "favorite_selected",
+    "unfavorite_selected",
+    "remove_favorite_marks",
+    "move_to_recently_removed",
+    "restore",
+})
+
+
+def build_invocation_context(window, clip) -> MenuInvocationContext:
+    """The single authoritative snapshot of "what's selected, in which
+    mode, in which view" that every context-menu command reads from --
+    no command re-derives this for itself. Built fresh at right-click
+    time; a command that actually mutates must still re-resolve through
+    SelectionScope.resolve() immediately before doing so (this context is
+    for menu *construction* -- labels, enabled state, dispatch routing --
+    not a cached authorization to mutate).
+    """
+    active = window._filters.active
+    query = window._build_query() if hasattr(window, "_build_query") else None
+    view_kind = classify_view_kind(active, query)
+    scope = window._selection_scope
+    visible_ids = tuple(window._selected_clip_ids)
+    mode = scope.mode
+    matching = scope.matching
+    return MenuInvocationContext(
+        clicked_clip_id=clip.id,
+        nav_key=active,
+        view_kind=view_kind,
+        was_selected_before_click=clip.id in visible_ids,
+        selection_mode=mode if mode in ("matching",) else ("visible" if visible_ids else "none"),
+        visible_selected_ids=visible_ids,
+        matching_signature=matching.signature if matching else None,
+        matching_count=matching.resolved_count if matching else None,
+    )
+
+
+def _append_selection_menu_section(window, menu, ctx: MenuInvocationContext) -> None:
+    """Appends the universal selection-wide command section (Select All
+    Visible/Matching, Deselect All, Invert Visible, then the view-kind-
+    appropriate commands from command_matrix) to any clip context menu --
+    single-item, visible-bulk, or matching-wide alike. The single place
+    this section is built, so every menu surface stays consistent.
+    """
+    commands = command_matrix(ctx, matching_wide_supported=_MATCHING_WIDE_SUPPORTED)
+    menu.add_separator()
+    for command in commands:
+        label = command.label if command.enabled else f"{command.label} ({command.reason})"
+        menu.add_command(
+            label=label,
+            state=("normal" if command.enabled else "disabled"),
+            command=(lambda k=command.key: window._dispatch_selection_command(k, ctx)) if command.enabled else None,
+        )
 
 
 def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
@@ -20,9 +83,21 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
             tooltip.after_menu_close()
         return
 
+    ctx = build_invocation_context(window, clip)
+
+    if ctx.is_matching and ctx.was_selected_before_click:
+        # Right-click landed on one of the visibly-highlighted matching
+        # rows: preserve matching mode, open the matching-aware menu --
+        # never silently reinterpret this as "just the rendered ids".
+        try:
+            open_matching_clip_menu(window, ctx, x_root, y_root)
+        finally:
+            tooltip.after_menu_close()
+        return
+
     if len(window._selected_clip_ids) > 1 and clip.id in window._selected_clip_ids:
         try:
-            open_bulk_clip_menu(window, list(window._selected_clip_ids), x_root, y_root)
+            open_bulk_clip_menu(window, list(window._selected_clip_ids), x_root, y_root, ctx=ctx)
         finally:
             tooltip.after_menu_close()
         return
@@ -157,10 +232,11 @@ def open_clip_menu(window, clip, x_root: int, y_root: int) -> None:
         {"surface": "clip", "classification": clip.classification},
     )
 
+    _append_selection_menu_section(window, menu, ctx)
     popup_menu(window, menu, x_root, y_root)
 
 
-def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> None:
+def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int, *, ctx: MenuInvocationContext | None = None) -> None:
     # Compatibility: self._bulk_copy self._bulk_export_proof self._bulk_move_to_safe self._bulk_remove {n}
     clips = []
     for cid in ids:
@@ -266,6 +342,14 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int) -> Non
         {"surface": "clip_bulk", "count": len(clips)},
     )
 
+    # ctx is None for callers outside the main clip list/grid (e.g. the
+    # Home dashboard's own bulk menu, which uses a separate selection
+    # mechanism -- see home_dashboard.py's _selected_ids, not
+    # window._selected_clip_ids/_selection_scope at all). Only append the
+    # shared selection-command section when there's a real invocation
+    # context to drive it.
+    if ctx is not None:
+        _append_selection_menu_section(window, menu, ctx)
     popup_menu(window, menu, x_root, y_root)
 
 
@@ -336,6 +420,76 @@ def add_menu_items(window, menu, items, dispatch: dict, clip_id: str) -> None:
             state=("normal" if item.enabled else "disabled"),
             command=command,
         )
+
+
+def _append_item_target_commands(window, menu, clip) -> None:
+    """Open + Preview/Details -- always the CLICKED clip, never the
+    active selection (see this commit's item-target-vs-selection-target
+    split). Exactly one command per distinct action: this app has no
+    dedicated properties/evidence dialog yet, so "Preview" is not
+    duplicated under a second "Properties / Show Evidence" label that
+    would invoke the identical callback -- a menu must never expose two
+    commands for one underlying action. Extracted so it's directly
+    testable without invoking tk_popup (see
+    tests/test_clip_context_menu.py's no-duplicate-command test).
+    """
+    if clip is None:
+        return
+    menu.add_command(label="Open (clicked item)", command=lambda: window._open_item(clip.id))
+    menu.add_command(label="Preview / Details (clicked item)", command=lambda: window._preview_item(clip.id))
+
+
+def open_matching_clip_menu(window, ctx: MenuInvocationContext, x_root: int, y_root: int) -> None:
+    """Menu for a right-click landing on one of the visibly-highlighted
+    rows of an active "select all matching" selection.
+
+    Item-target commands (Open/Preview) act on the CLICKED clip only --
+    never the whole matching set (see this module's docstring / this
+    commit's core invariant). Everything else is the shared selection
+    section from _append_selection_menu_section, which routes through
+    core/menu_context.py's command_matrix + shell.py's
+    _dispatch_selection_command: every selection-wide command here
+    either resolves the full matching selection through the Commit 1
+    resolver at execution time, or is shown disabled with an honest
+    reason -- never operates on window._selected_clip_ids alone.
+    """
+    tooltip.before_menu_open()
+    if window._locked():
+        try:
+            open_locked_menu(window, x_root, y_root)
+        finally:
+            tooltip.after_menu_close()
+        return
+
+    clip = window.vault.storage.get_clip(ctx.clicked_clip_id)
+    menu = tk.Menu(
+        window,
+        tearoff=0,
+        bg="#1c1c1e" if ctk.get_appearance_mode() == "Dark" else "#f2f2f7",
+        fg="#ffffff" if ctk.get_appearance_mode() == "Dark" else "#000000",
+        activebackground="#008080",
+        activeforeground="#ffffff",
+        font=("Segoe UI", 10),
+    )
+
+    count = ctx.matching_count or 0
+    menu.add_command(
+        label=f"{count} matching item(s) selected",
+        state="disabled",
+        font=("Segoe UI", 10, "bold"),
+    )
+    menu.add_separator()
+
+    _append_item_target_commands(window, menu, clip)
+
+    window.vault.events.record(
+        copy_clean.EVENT_ITEM_CONTEXT_ACTION_USED,
+        None,
+        {"surface": "clip_matching", "count": count},
+    )
+
+    _append_selection_menu_section(window, menu, ctx)
+    popup_menu(window, menu, x_root, y_root)
 
 
 def open_locked_menu(window, x_root: int, y_root: int) -> None:

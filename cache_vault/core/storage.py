@@ -471,6 +471,51 @@ class VaultStorage:
         )
         self.conn.commit()
 
+    def soft_delete_many(self, clip_ids):
+        """Bulk move-to-Recently-Removed. Atomic contract: dedupe/
+        validate the input first (issue #68's shared helper), perform
+        every UPDATE inside one transaction, and roll back ALL of them
+        -- not just the ones after the failure point -- if anything
+        raises partway through. There is no partial-success return: this
+        method either returns a BulkMutationResult describing a fully
+        committed batch, or raises and leaves the database exactly as it
+        was before the call (verified in
+        tests/test_bulk_vault_actions.py's injected-failure tests).
+        Callers therefore never receive a misleading "N moved" count for
+        a batch that only partially applied.
+
+        Ids that no longer exist or are already soft-deleted are
+        reported in ``.skipped``, not silently dropped -- a matching-
+        wide move resolves ids from a snapshot that may be moments stale
+        relative to the mutation (e.g. the user restored one from
+        another window in between); that's an honest, expected skip, not
+        a failure. Only touches clips.deleted_at -- never clip_assets or
+        any file on disk (see hard_delete for the one path that does).
+        """
+        from .selection import BulkMutationResult, dedupe_preserve_order
+
+        ids = dedupe_preserve_order(clip_ids)
+        if not ids:
+            return BulkMutationResult()
+        moved: list[str] = []
+        skipped: list[str] = []
+        now = models.now_iso()
+        try:
+            for cid in ids:
+                row = self.conn.execute(
+                    "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
+                ).fetchone()
+                if row is None or row[0] is not None:
+                    skipped.append(cid)
+                    continue
+                self.conn.execute("UPDATE clips SET deleted_at = ? WHERE id = ?", (now, cid))
+                moved.append(cid)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return BulkMutationResult(succeeded=tuple(moved), skipped=tuple(skipped))
+
     def restore(self, clip_id: str) -> None:
         """Bring a soft-deleted clip back into history."""
         self.conn.execute(
@@ -478,6 +523,38 @@ class VaultStorage:
         )
         self._touch(clip_id)
         self.conn.commit()
+
+    def restore_many(self, clip_ids):
+        """Bulk restore. Atomic contract -- see soft_delete_many's
+        docstring for the full rationale (dedupe/validate first, one
+        transaction, rollback everything on any exception, no partial-
+        success return). Ids that no longer exist or are already active
+        are reported in ``.skipped``, not silently dropped. Never
+        touches clip_assets or any file on disk.
+        """
+        from .selection import BulkMutationResult, dedupe_preserve_order
+
+        ids = dedupe_preserve_order(clip_ids)
+        if not ids:
+            return BulkMutationResult()
+        restored: list[str] = []
+        skipped: list[str] = []
+        try:
+            for cid in ids:
+                row = self.conn.execute(
+                    "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
+                ).fetchone()
+                if row is None or row[0] is None:
+                    skipped.append(cid)
+                    continue
+                self.conn.execute("UPDATE clips SET deleted_at = NULL WHERE id = ?", (cid,))
+                self._touch(cid)
+                restored.append(cid)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return BulkMutationResult(succeeded=tuple(restored), skipped=tuple(skipped))
 
     def hard_delete(self, clip_id: str) -> None:
         from . import image_assets
