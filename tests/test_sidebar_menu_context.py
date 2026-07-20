@@ -399,3 +399,121 @@ def test_sidebar_command_matrix_contains_menu_command_instances():
     ctx = _ctx(S.FILTER_ALL, active_key=S.FILTER_ALL, item_count=10)
     matrix = sidebar_command_matrix(ctx)
     assert all(isinstance(c, MenuCommand) for c in matrix)
+
+# --- Matching-selection ownership ----------------------------------------------
+
+
+def test_matching_all_clips_selection_does_not_belong_to_images():
+    q_all = SearchQuery(filter_name=S.FILTER_ALL)
+    m_all = _matching(S.FILTER_ALL, q_all, resolved_count=10)
+    ctx = _ctx(
+        S.FILTER_SCREENSHOTS,
+        active_key=S.FILTER_SCREENSHOTS,
+        matching=m_all,
+        item_count=0,
+    )
+    assert ctx.matching_descriptor is None
+
+
+def test_matching_images_selection_does_not_belong_to_all_clips():
+    q_img = SearchQuery(filter_name=S.FILTER_SCREENSHOTS)
+    m_img = _matching(S.FILTER_SCREENSHOTS, q_img, resolved_count=7)
+    ctx = _ctx(
+        S.FILTER_ALL,
+        active_key=S.FILTER_ALL,
+        matching=m_img,
+        item_count=20,
+    )
+    assert ctx.matching_descriptor is None
+
+
+def test_matching_collection_a_does_not_belong_to_collection_b():
+    q_a = SearchQuery(
+        filter_name=f"{S.COLLECTION_PREFIX}A", collection="A",
+    )
+    m_a = _matching(f"{S.COLLECTION_PREFIX}A", q_a, resolved_count=5)
+    ctx = _ctx(
+        f"{S.COLLECTION_PREFIX}B",
+        active_key=f"{S.COLLECTION_PREFIX}B",
+        collection_name="B",
+        matching=m_a,
+        item_count=5,
+    )
+    assert ctx.matching_descriptor is None
+
+
+def test_matching_active_vault_does_not_belong_to_recently_removed():
+    q_all = SearchQuery(filter_name=S.FILTER_ALL)
+    m_all = _matching(S.FILTER_ALL, q_all, resolved_count=10)
+    ctx = _ctx(
+        S.FILTER_RECENTLY_REMOVED,
+        active_key=S.FILTER_RECENTLY_REMOVED,
+        matching=m_all,
+        item_count=0,
+    )
+    assert ctx.matching_descriptor is None
+
+
+def test_matching_recently_removed_does_not_belong_to_favorites():
+    q_rr = SearchQuery(filter_name=S.FILTER_RECENTLY_REMOVED)
+    m_rr = _matching(S.FILTER_RECENTLY_REMOVED, q_rr, resolved_count=3)
+    ctx = _ctx(
+        S.FILTER_FAVORITES,
+        active_key=S.FILTER_FAVORITES,
+        matching=m_rr,
+        item_count=0,
+    )
+    assert ctx.matching_descriptor is None
+
+
+def test_search_text_in_matching_excludes_it_from_sidebar_target():
+    q = SearchQuery(filter_name=S.FILTER_ALL, text="hello")
+    m = _matching(S.FILTER_ALL, q, resolved_count=4)
+    ctx = _ctx(
+        S.FILTER_ALL,
+        active_key=S.FILTER_ALL,
+        matching=m,
+        item_count=4,
+    )
+    assert ctx.matching_descriptor is None
+
+
+def test_owning_matching_descriptor_is_retained_for_active_target():
+    q_fav = SearchQuery(filter_name=S.FILTER_FAVORITES)
+    m_fav = _matching(S.FILTER_FAVORITES, q_fav, resolved_count=5)
+    ctx = _ctx(
+        S.FILTER_FAVORITES,
+        active_key=S.FILTER_FAVORITES,
+        matching=m_fav,
+        item_count=5,
+    )
+    assert ctx.matching_descriptor is not None
+    assert ctx.selection_count == 5
+
+
+def test_visible_only_commands_absent_for_inactive_rows():
+    ctx = _ctx(S.FILTER_SCREENSHOTS, active_key=S.FILTER_ALL, item_count=10)
+    keys = _keys(sidebar_command_matrix(ctx))
+    assert CMD_SELECT_ALL_VISIBLE not in keys
+    assert CMD_SELECT_ALL_MATCHING not in keys
+    assert CMD_EXPORT_CURRENT_VIEW not in keys
+
+
+# --- Menu-opening purity (logical layer) ---------------------------------------
+
+
+def test_command_matrix_construction_does_not_mutate_state():
+    # The pure matrix should produce the same output twice and never modify
+    # the provided context.
+    ctx = _ctx(
+        S.FILTER_FAVORITES,
+        active_key=S.FILTER_FAVORITES,
+        item_count=12,
+        visible_selected_ids=("a", "b"),
+    )
+    m1 = sidebar_command_matrix(ctx)
+    m2 = sidebar_command_matrix(ctx)
+    assert m1 == m2
+    assert ctx.item_count == 12
+    assert ctx.visible_selected_ids == ("a", "b")
+

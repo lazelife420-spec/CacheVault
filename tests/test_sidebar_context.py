@@ -1018,3 +1018,37 @@ def test_menu_opening_for_all_row_types_causes_no_mutation(tmp_path):
         app.destroy()
 
 
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_menu_opening_does_not_scan_or_record(tmp_path):
+    """Opening a sidebar menu must not perform scans, emit events, or write receipts."""
+    vault = _vault_with_clips(tmp_path, 3)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        with mock.patch.object(app, "_scan_cleanup_suggestions") as scan, \
+             mock.patch.object(app.vault.events, "record") as record:
+            for target_key in (
+                S.FILTER_HOME,
+                S.FILTER_ALL,
+                S.FILTER_SCREENSHOTS,
+                S.FILTER_FAVORITES,
+                S.FILTER_RECENTLY_REMOVED,
+                "nav_cleanup_suggestions",
+            ):
+                ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+                    app, target_key,
+                )
+                sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+            sidebar_context.open_collection_sidebar_menu(app, "Work", 0, 0)
+            sidebar_context.open_nav_row_menu(app, NAV_QUICK_PASTE, 0, 0)
+
+        scan.assert_not_called()
+        record.assert_not_called()
+    finally:
+        app.destroy()
+
+
