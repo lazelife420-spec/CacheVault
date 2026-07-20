@@ -3524,6 +3524,7 @@ class CacheVaultApp(ctk.CTk):
             smc.CMD_SHOW_IGNORED,
             smc.CMD_RESTORE_ALL,
             smc.CMD_RENAME_COLLECTION,
+            smc.CMD_EMPTY_COLLECTION,
         ):
             self._show_toast("Sidebar context changed; command aborted.")
             return
@@ -3683,6 +3684,63 @@ class CacheVaultApp(ctk.CTk):
             raise exc
         self.refresh()
         self._show_toast(f"Renamed collection to '{new_name}'.")
+
+    def _sidebar_empty_collection(self, ctx: Any) -> None:
+        from tkinter import messagebox
+        from ..core import storage as S
+
+        name = getattr(ctx, "collection_name", None)
+        if not name:
+            return
+
+        # Re-resolve current membership at execution time, not the count
+        # frozen in the menu label. The command is collection-wide and must
+        # not depend on any visible/matching selection.
+        ids = self._resolve_sidebar_target_ids(ctx, prefer_selection=False)
+        if not ids:
+            self._show_toast(f"Collection '{name}' is already empty. No clips were changed.")
+            return
+
+        count = len(ids)
+        plural = "s" if count != 1 else ""
+        msg = (
+            f"Empty collection '{name}'?\n\n"
+            f"This will remove the collection label from {count} clip{plural}.\n\n"
+            "Clips will remain in your vault.\n"
+            "Only the collection label will be removed.\n\n"
+            "No clips, files, or favorites will be deleted."
+        )
+        ok = messagebox.askyesno(
+            "Empty collection",
+            msg,
+            parent=self,
+        )
+        if not ok:
+            return
+
+        result = self.vault.empty_collection(name, ids)
+        removed = result.succeeded_count
+        skipped = result.skipped_count
+
+        if removed == 0:
+            self._show_toast(f"Collection '{name}' is already empty. No clips were changed.")
+        elif skipped:
+            self._show_toast(
+                f"Emptied collection '{name}': removed labels from {removed} clip"
+                f"{'s' if removed != 1 else ''} ({skipped} already removed). "
+                "Clips remain in your vault."
+            )
+        else:
+            self._show_toast(
+                f"Emptied collection '{name}': removed labels from {removed} clip"
+                f"{'s' if removed != 1 else ''}. Clips remain in your vault."
+            )
+
+        if ctx.is_target_active:
+            self._selection_scope.clear()
+            self._navigate_filter(S.FILTER_ALL)
+        else:
+            self.refresh()
 
     def _sidebar_export_collection(self, ctx: Any) -> None:
         if not ctx.is_target_active or ctx.target_query is None:

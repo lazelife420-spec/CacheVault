@@ -556,6 +556,62 @@ class VaultStorage:
             raise
         return BulkMutationResult(succeeded=tuple(restored), skipped=tuple(skipped))
 
+    def clear_collection(self, collection: str, clip_ids: list[str] | None = None):
+        """Atomically clear the collection label from every clip currently
+        assigned to ``collection``.
+
+        If ``clip_ids`` is provided, the method still validates that each
+        id is currently a live member of ``collection`` before clearing it;
+        ids that no longer exist or no longer belong to the collection are
+        reported in ``.skipped``. This lets callers pass an execution-time
+        snapshot of ids while still getting the atomic contract: every
+        eligible update is committed together in one transaction, or none
+        of them are.
+
+        Only touches ``clips.collection`` -- never ``clip_assets``, external
+        files, ``deleted_at``, ``is_pinned``, ``is_kept``, or content fields.
+        """
+        from .selection import BulkMutationResult, dedupe_preserve_order
+
+        collection = (collection or "").strip()
+        if not collection:
+            return BulkMutationResult()
+
+        if clip_ids is None:
+            # Resolve all current members from the database for the
+            # headless/bulk path.
+            rows = self.conn.execute(
+                "SELECT id FROM clips WHERE deleted_at IS NULL AND collection = ?",
+                (collection,),
+            ).fetchall()
+            clip_ids = [r[0] for r in rows]
+
+        ids = dedupe_preserve_order(clip_ids)
+        if not ids:
+            return BulkMutationResult()
+
+        cleared: list[str] = []
+        skipped: list[str] = []
+        try:
+            for cid in ids:
+                row = self.conn.execute(
+                    "SELECT collection, deleted_at FROM clips WHERE id = ?",
+                    (cid,),
+                ).fetchone()
+                if row is None or row["deleted_at"] is not None or row["collection"] != collection:
+                    skipped.append(cid)
+                    continue
+                self.conn.execute(
+                    "UPDATE clips SET collection = NULL WHERE id = ?",
+                    (cid,),
+                )
+                cleared.append(cid)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return BulkMutationResult(succeeded=tuple(cleared), skipped=tuple(skipped))
+
     def hard_delete(self, clip_id: str) -> None:
         from . import image_assets
         row = self.get_asset_record(clip_id)

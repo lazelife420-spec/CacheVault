@@ -862,6 +862,75 @@ def test_collection_stale_rename_aborts_if_collection_ceased(tmp_path):
         app.destroy()
 
 
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_collection_rename_collision_with_existing_name_merges_explicitly(tmp_path):
+    """Renaming a collection to a name that already exists merges the two
+    collections and does not delete any clips. This is the explicit collision
+    behavior: no data loss, no container-table operation."""
+    vault = _vault_with_clips(tmp_path, 6)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[2:5]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Work")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        with mock.patch("tkinter.simpledialog.askstring", return_value="Personal"):
+            app._dispatch_sidebar_command("rename_collection", ctx)
+        _settle(app)
+
+        # All five targeted clips now share the same collection name.
+        personal_ids = {
+            c.id for c in vault.storage.list_clips(S.COLLECTION_PREFIX + "Personal")
+        }
+        assert personal_ids == {clips[0].id, clips[1].id, clips[2].id, clips[3].id, clips[4].id}
+        assert vault.storage.list_clips(S.COLLECTION_PREFIX + "Work") == []
+        assert vault.count_clips(None) == 6  # No clips deleted.
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_collection_rename_preserves_favorites_and_pinned_state(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    clips = vault.storage.list_clips(None)
+    for c in clips:
+        vault.storage.set_collection(c.id, "Work")
+        vault.storage.set_pinned(c.id, True)
+        vault.set_favorite(c.id, True)
+    content_before = {c.id: c.content for c in vault.storage.list_clips(None)}
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Work")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        with mock.patch("tkinter.simpledialog.askstring", return_value="Work2"):
+            app._dispatch_sidebar_command("rename_collection", ctx)
+        _settle(app)
+
+        for c in vault.storage.list_clips(S.COLLECTION_PREFIX + "Work2"):
+            assert c.collection == "Work2"
+            assert c.is_pinned is True  # Favorites are stored in is_pinned.
+            assert c.content == content_before[c.id]
+            assert c.deleted_at is None
+            assert app.vault.is_favorite(c.id) is True
+    finally:
+        app.destroy()
+
+
 # --- Cleanup Suggestions callback reuse ----------------------------------------
 
 
@@ -1048,6 +1117,336 @@ def test_menu_opening_does_not_scan_or_record(tmp_path):
 
         scan.assert_not_called()
         record.assert_not_called()
+    finally:
+        app.destroy()
+
+
+# --- Empty Collection command -------------------------------------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_menu_opening_causes_no_mutation(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.storage.set_collection(c.id, "Work")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        before_counts = {
+            "all": vault.count_clips(None),
+            "work": vault.count_clips(f"{S.COLLECTION_PREFIX}Work"),
+            "pinned": sum(c.is_pinned for c in vault.storage.list_clips(None)),
+        }
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert vault.count_clips(None) == before_counts["all"]
+        assert vault.count_clips(f"{S.COLLECTION_PREFIX}Work") == before_counts["work"]
+        assert sum(c.is_pinned for c in vault.storage.list_clips(None)) == before_counts["pinned"]
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_inactive_collection_a_does_not_target_active_collection_b(tmp_path):
+    vault = _vault_with_clips(tmp_path, 4)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[2:]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Personal")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            app._dispatch_sidebar_command("empty_collection", ctx)
+        _settle(app)
+
+        assert {c.id for c in vault.storage.list_clips("col:Personal")} == {clips[2].id, clips[3].id}
+        assert {c.id for c in vault.storage.list_clips("col:Work")} == set()
+        assert vault.count_clips(None) == 4
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_confirmation_uses_refreshed_membership_count(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    clips = vault.storage.list_clips(None)
+    for c in clips:
+        vault.storage.set_collection(c.id, "Work")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Work")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+
+        # Remove one member before the command runs.
+        vault.storage.set_collection(clips[0].id, None)
+
+        with mock.patch("tkinter.messagebox.askyesno") as ask:
+            ask.return_value = True
+            app._dispatch_sidebar_command("empty_collection", ctx)
+
+        ask.assert_called_once()
+        msg = ask.call_args[0][1]
+        # Confirmation must show the refreshed count (4), not the original 5.
+        assert "4" in msg
+        assert "5" not in msg
+        assert vault.count_clips("col:Work") == 0
+        assert vault.count_clips(None) == 5
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_added_membership_after_menu_creation_is_removed(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:3]:
+        vault.storage.set_collection(c.id, "Work")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+
+        # Two more clips join Work before the command is invoked.
+        for c in clips[3:]:
+            vault.storage.set_collection(c.id, "Work")
+
+        with mock.patch("tkinter.messagebox.askyesno") as ask:
+            ask.return_value = True
+            app._dispatch_sidebar_command("empty_collection", ctx)
+
+        ask.assert_called_once()
+        msg = ask.call_args[0][1]
+        assert "5" in msg
+        assert vault.count_clips("col:Work") == 0
+        assert vault.count_clips(None) == 5
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_renamed_collection_aborts_safely(tmp_path):
+    vault = _vault_with_clips(tmp_path, 4)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[2:]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+
+        # Rename Work to Work2 before invoking the command.
+        vault.storage.conn.execute(
+            "UPDATE clips SET collection = ? WHERE collection = ?",
+            ("Work2", "Work"),
+        )
+        vault.storage.conn.commit()
+
+        with mock.patch.object(app, "_show_toast") as toast:
+            app._dispatch_sidebar_command("empty_collection", ctx)
+
+        toast.assert_called_once()
+        msg = toast.call_args[0][0]
+        assert "empty" in msg.lower() or "no clips" in msg.lower()
+        # Personal collection must be untouched.
+        assert {c.id for c in vault.storage.list_clips("col:Personal")} == {clips[2].id, clips[3].id}
+        assert {c.id for c in vault.storage.list_clips("col:Work2")} == {clips[0].id, clips[1].id}
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_preserves_favorite_pinned_and_other_metadata(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    clips = vault.storage.list_clips(None)
+    for c in clips:
+        vault.storage.set_collection(c.id, "Work")
+        vault.set_favorite(c.id, True)
+    content_before = {c.id: c.content for c in vault.storage.list_clips(None)}
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            app._dispatch_sidebar_command("empty_collection", ctx)
+        _settle(app)
+
+        for c in vault.storage.list_clips(None):
+            assert c.collection is None
+            assert c.is_pinned is True
+            assert c.content == content_before[c.id]
+            assert c.deleted_at is None
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_does_not_depend_on_visible_selection(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[2:]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Personal")
+        _settle(app)
+
+        # An unrelated visible selection in the active Personal view.
+        app._selected_clip_ids = [clips[2].id, clips[3].id]
+        before_selection = list(app._selected_clip_ids)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            app._dispatch_sidebar_command("empty_collection", ctx)
+        _settle(app)
+
+        # Work is emptied, selection is untouched, Personal still active.
+        assert app._filters.active == f"{S.COLLECTION_PREFIX}Personal"
+        assert app._selected_clip_ids == before_selection
+        assert vault.count_clips("col:Work") == 0
+        assert vault.count_clips("col:Personal") == 3
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_active_collection_navigates_to_all_clips(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    clips = vault.storage.list_clips(None)
+    for c in clips:
+        vault.storage.set_collection(c.id, "Work")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Work")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            app._dispatch_sidebar_command("empty_collection", ctx)
+        _settle(app)
+
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.count_clips("col:Work") == 0
+        assert vault.count_clips(None) == 3
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_empty_membership_produces_no_receipt_and_no_event(tmp_path):
+    vault = _vault_with_clips(tmp_path, 2)
+    clips = vault.storage.list_clips(None)
+    for c in clips:
+        vault.storage.set_collection(c.id, "Work")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        # Empty Work before the command runs.
+        for c in clips:
+            vault.storage.set_collection(c.id, None)
+
+        before_events = len(app.vault.events.recent())
+        with mock.patch("tkinter.messagebox.askyesno") as ask, \
+             mock.patch.object(app.vault.events, "record") as record:
+            app._dispatch_sidebar_command(
+                "empty_collection",
+                sidebar_context.build_sidebar_invocation_context_for_window(
+                    app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+                ),
+            )
+
+        # No confirmation dialog because membership is zero.
+        ask.assert_not_called()
+        record.assert_not_called()
+        assert len(app.vault.events.recent()) == before_events
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_collection_successful_receipt_reports_zero_deletions(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    clips = vault.storage.list_clips(None)
+    for c in clips:
+        vault.storage.set_collection(c.id, "Work")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True), \
+             mock.patch("cache_vault.core.collection_receipts.write_file_receipt") as receipt:
+            app._dispatch_sidebar_command("empty_collection", ctx)
+
+        receipt.assert_called_once()
+        payload = receipt.call_args[0][1]
+        assert payload["collection_name"] == "Work"
+        assert payload["membership_removed"] == 3
+        assert payload["clips_deleted"] == 0
+        assert payload["assets_deleted"] == 0
+        assert payload["disk_bytes_reclaimed"] == 0
     finally:
         app.destroy()
 

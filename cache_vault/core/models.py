@@ -95,6 +95,7 @@ EVENT_ASSET_DRAG_MISSING_FILE = "asset_drag_missing_file"
 EVENT_ASSET_DRAG_FALLBACK_USED = "asset_drag_fallback_used"
 EVENT_CLEANUP_SCAN_COMPLETED = "cleanup_scan_completed"
 EVENT_CLEANUP_APPLIED = "cleanup_applied"
+EVENT_EMPTIED_COLLECTION = "emptied_collection"
 
 # Capture modes stored on each clip.
 CAPTURE_AUTO = "auto"
@@ -128,6 +129,7 @@ ACTION_SAFE_CREATED = "safe_created"
 ACTION_MOBILE_SENT_TO_PC = "mobile_sent_to_pc"
 ACTION_MOBILE_INBOX_RECEIVED = "mobile_inbox_received"
 ACTION_CLEANUP_APPLIED = "cleanup_applied"
+ACTION_EMPTY_COLLECTION = "empty_collection"
 
 PREVIEW_MAX_CHARS = 200
 

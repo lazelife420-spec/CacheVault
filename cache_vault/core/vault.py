@@ -878,6 +878,30 @@ class Vault:
         self.events.record(models.EVENT_MOVED_COLLECTION, clip_id,
                            {"collection": (collection or "").strip() or None})
 
+    def empty_collection(self, collection_name: str, clip_ids: list[str] | None = None):
+        """Clear the collection label from every live clip currently in
+        ``collection_name`` -- atomic, one transaction, no files touched.
+
+        The optional ``clip_ids`` should be an execution-time snapshot of
+        current members; the storage layer still re-validates membership
+        inside the transaction. A receipt is recorded only after the
+        storage call returns successfully and at least one clip was
+        actually cleared, so a raised exception or an empty/zeroed
+        collection produces no misleading receipt.
+        """
+        from .collection_receipts import record_empty_collection_receipt
+
+        result = self.storage.clear_collection(collection_name, clip_ids)
+        if result.succeeded_count:
+            record_empty_collection_receipt(
+                self.events,
+                collection_name=collection_name,
+                membership_removed=result.succeeded_count,
+                skipped_count=result.skipped_count,
+                clip_ids=list(result.succeeded),
+            )
+        return result
+
     def list_collections(self) -> list[dict]:
         return self.storage.list_collections()
 

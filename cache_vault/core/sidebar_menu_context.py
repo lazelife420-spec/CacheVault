@@ -43,6 +43,7 @@ CMD_PROPERTIES = "properties"
 CMD_REMOVE_FAVORITE_MARKS = "remove_favorite_marks"
 CMD_RENAME_COLLECTION = "rename_collection"
 CMD_EXPORT_COLLECTION = "export_collection"
+CMD_EMPTY_COLLECTION = "empty_collection"
 CMD_RESTORE_SELECTED = "restore_selected"
 CMD_RESTORE_ALL = "restore_all"
 CMD_SCAN_AGAIN = "scan_again"
@@ -335,6 +336,7 @@ def _collection_matrix(ctx: SidebarInvocationContext) -> list[MenuCommand]:
     out: list[MenuCommand] = [
         _enabled(CMD_OPEN, "Open collection"),
         _enabled(CMD_RENAME_COLLECTION, "Rename collection"),
+        _enabled(CMD_EMPTY_COLLECTION, "Empty collection"),
     ]
     active = ctx.is_target_active
     label = f"'{ctx.collection_name}'" if ctx.collection_name else "collection"

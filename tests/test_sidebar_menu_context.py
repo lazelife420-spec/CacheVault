@@ -12,6 +12,7 @@ from cache_vault.core import storage as S
 from cache_vault.core.menu_context import MenuCommand
 from cache_vault.core.search import SearchQuery
 from cache_vault.core.sidebar_menu_context import (
+    CMD_EMPTY_COLLECTION,
     CMD_EXPORT_COLLECTION,
     CMD_EXPORT_CURRENT_VIEW,
     CMD_EXPORT_SELECTED,
@@ -311,15 +312,17 @@ def test_collection_menu_has_only_allowed_commands():
     assert CMD_PROPERTIES in keys
 
 
-def test_collection_menu_forbids_empty_and_delete():
+def test_collection_menu_has_empty_and_forbids_delete():
     ctx = _ctx(
         f"{S.COLLECTION_PREFIX}Work",
         active_key=f"{S.COLLECTION_PREFIX}Work",
         collection_name="Work",
         item_count=8,
     )
+    keys = _keys(sidebar_command_matrix(ctx))
     labels = " ".join(_labels(sidebar_command_matrix(ctx)).values()).lower()
-    assert "empty collection" not in labels
+    assert CMD_EMPTY_COLLECTION in keys
+    assert "empty collection" in labels
     assert "delete collection" not in labels
 
 
@@ -516,4 +519,33 @@ def test_command_matrix_construction_does_not_mutate_state():
     assert m1 == m2
     assert ctx.item_count == 12
     assert ctx.visible_selected_ids == ("a", "b")
+
+
+def test_empty_collection_command_appears_for_collection_rows():
+    ctx = _ctx(
+        f"{S.COLLECTION_PREFIX}Work",
+        active_key=S.FILTER_ALL,
+        collection_name="Work",
+        item_count=5,
+    )
+    keys = _keys(sidebar_command_matrix(ctx))
+    assert CMD_EMPTY_COLLECTION in keys
+
+
+def test_empty_collection_command_is_absent_for_non_collection_rows():
+    for key in (S.FILTER_ALL, S.FILTER_FAVORITES, S.FILTER_SCREENSHOTS, S.FILTER_HOME):
+        ctx = _ctx(key, active_key=key, item_count=3)
+        keys = _keys(sidebar_command_matrix(ctx))
+        assert CMD_EMPTY_COLLECTION not in keys
+
+
+def test_no_delete_collection_command_in_matrix():
+    ctx = _ctx(
+        f"{S.COLLECTION_PREFIX}Work",
+        active_key=S.FILTER_ALL,
+        collection_name="Work",
+        item_count=5,
+    )
+    labels = " ".join(c.label.lower() for c in sidebar_command_matrix(ctx))
+    assert "delete collection" not in labels
 

@@ -9,6 +9,7 @@ import customtkinter as ctk
 from ..core import storage as S
 from ..core.sidebar_menu_context import (
     CMD_DESELECT_ALL,
+    CMD_EMPTY_COLLECTION,
     CMD_EXPORT_COLLECTION,
     CMD_EXPORT_CURRENT_VIEW,
     CMD_EXPORT_SELECTED,
