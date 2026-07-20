@@ -711,30 +711,13 @@ def clear_collection(window, name: str) -> None:
 
 
 def open_collection_sidebar_menu(window, name: str, x_root: int, y_root: int) -> None:
-    """Right-click context menu on a COLLECTIONS sidebar row."""
-    tooltip.before_menu_open()
-    if window._locked():
-        try:
-            open_locked_menu(window, x_root, y_root)
-        finally:
-            tooltip.after_menu_close()
-        return
+    """Right-click context menu on a COLLECTIONS sidebar row.
 
-    menu = tk.Menu(window, tearoff=0)
-    menu.add_command(
-        label=f"View '{name}' Clips",
-        command=lambda: window._navigate_filter(f"col:{name}"),
-    )
-    menu.add_separator()
-    menu.add_command(
-        label="Rename Collection…",
-        command=lambda: rename_collection(window, name),
-    )
-    menu.add_command(
-        label="Remove All from Collection",
-        command=lambda: clear_collection(window, name),
-    )
-    popup_menu(window, menu, x_root, y_root)
+    Delegated to the unified sidebar context menu (Commit 3) so collection
+    row menus share the same inactive-row safety and command matrix.
+    """
+    from . import sidebar_context
+    sidebar_context.open_collection_sidebar_menu(window, name, x_root, y_root)
 
 
 def open_safe_menu(window, safe: dict, x_root: int, y_root: int) -> None:

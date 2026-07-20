@@ -24,6 +24,7 @@ from tkinter import filedialog
 
 from .. import brand
 from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, selection, vault_lock
+from ..core import sidebar_menu_context as smc
 from .. import feature_gate
 from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
@@ -3504,6 +3505,301 @@ class CacheVaultApp(ctk.CTk):
 
     def _open_sidebar_nav_menu(self, nav_key: str, x_root: int, y_root: int) -> None:
         sidebar_context.open_nav_row_menu(self, nav_key, x_root, y_root)
+
+    # --- Sidebar context-menu dispatch -----------------------------------
+    def _dispatch_sidebar_command(self, key: str, ctx: Any) -> None:
+        """Execute a sidebar context-menu command, re-validating live state first."""
+        if not self._guard_unlocked():
+            return
+        # Rebuild context from current app state for every command so stale
+        # captured contexts cannot silently act on the wrong view.
+        current_ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            self, ctx.target_key, getattr(ctx, "collection_name", None),
+        )
+        if not current_ctx.is_target_active and key not in (
+            smc.CMD_OPEN,
+            smc.CMD_SCAN_CLEANUP_SUGGESTIONS,
+            smc.CMD_SCAN_AGAIN,
+            smc.CMD_REVIEW_SUGGESTIONS,
+            smc.CMD_SHOW_IGNORED,
+            smc.CMD_RESTORE_ALL,
+        ):
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        handler = getattr(self, f"_sidebar_{key}", None)
+        if handler is None:
+            return
+        handler(current_ctx)
+
+    def _sidebar_open(self, ctx: Any) -> None:
+        from ..core import storage as S
+        target = ctx.target_key
+        if target == NAV_CLEANUP_SUGGESTIONS:
+            self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+        elif getattr(ctx, "collection_name", None) is not None:
+            self._navigate_filter(f"{S.COLLECTION_PREFIX}{ctx.collection_name}")
+        elif target.startswith("nav_"):
+            self._navigate_screen(target)
+        else:
+            self._navigate_filter(target)
+
+    def _sidebar_refresh(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self.refresh()
+
+    def _sidebar_scan_cleanup_suggestions(self, ctx: Any) -> None:
+        self._scan_cleanup_suggestions()
+
+    def _sidebar_select_all_visible(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        if not self._visible_clip_ids:
+            return
+        view = self._grid if self._view_mode == "grid" else self._list
+        try:
+            if not view.winfo_ismapped():
+                return
+        except Exception:  # noqa: BLE001
+            return
+        self._selection_scope.clear()
+        view.select_all()
+
+    def _sidebar_select_all_matching(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        query = ctx.target_query
+        view = self._grid if self._view_mode == "grid" else self._list
+        try:
+            if not view.winfo_ismapped():
+                return
+        except Exception:  # noqa: BLE001
+            return
+        matching = self._selection_scope.activate_matching(ctx.target_key, query)
+        self._paint_matching_selection_visuals(view)
+        self._set_selection_notice(f"All {matching.resolved_count} matching items selected")
+
+    def _sidebar_deselect_all(self, ctx: Any) -> None:
+        self._selection_scope.clear()
+        view = self._grid if self._view_mode == "grid" else self._list
+        getattr(view, "deselect_all", lambda: None)()
+
+    def _sidebar_export_current_view(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        collection = self._collection_name_for(ctx.target_key)
+        self._export_for_query(ctx.target_query, collection_name=collection)
+
+    def _sidebar_export_selected(self, ctx: Any) -> None:
+        if not ctx.is_target_active or not ctx.visible_selected_ids:
+            self._show_toast("No selection to export.")
+            return
+        self._export_clip_ids(list(ctx.visible_selected_ids))
+
+    def _sidebar_scan_image_duplicates(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self._scan_cleanup_suggestions()
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_review_tiny_images(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self._scan_cleanup_suggestions()
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_review_largest_images(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self._scan_cleanup_suggestions()
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_remove_favorite_marks(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        ids = self._resolve_sidebar_target_ids(ctx, prefer_selection=True)
+        if not ids:
+            self._show_toast("No favorite marks to remove.")
+            return
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Remove Favorite Marks",
+            f"Remove favorite marks from {len(ids)} clip{'s' if len(ids) != 1 else ''}?\n\n"
+            "Clips and collections are not affected.",
+            parent=self,
+        )
+        if not ok:
+            return
+        succeeded = 0
+        skipped = 0
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is None:
+                skipped += 1
+                continue
+            if clip.is_pinned:
+                self.vault.set_favorite(cid, False)
+                succeeded += 1
+            else:
+                skipped += 1
+        if skipped:
+            self._show_toast(f"Removed favorite marks from {succeeded} clips ({skipped} already removed).")
+        else:
+            self._show_toast(f"Removed favorite marks from {succeeded} clip{'s' if succeeded != 1 else ''}.")
+        self.refresh()
+
+    def _sidebar_rename_collection(self, ctx: Any) -> None:
+        from tkinter import simpledialog
+        name = getattr(ctx, "collection_name", None)
+        if not name:
+            return
+        new_name = simpledialog.askstring("Rename Collection", "New name:", initialvalue=name, parent=self)
+        if not new_name or new_name.strip() == name:
+            return
+        new_name = new_name.strip()
+        try:
+            self.vault.storage.conn.execute(
+                "UPDATE clips SET collection = ? WHERE collection = ?",
+                (new_name, name),
+            )
+            self.vault.storage.conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            self.vault.storage.conn.rollback()
+            raise exc
+        self.refresh()
+        self._show_toast(f"Renamed collection to '{new_name}'.")
+
+    def _sidebar_export_collection(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        collection = ctx.collection_name
+        self._export_for_query(ctx.target_query, collection_name=collection)
+
+    def _sidebar_restore_selected(self, ctx: Any) -> None:
+        if not ctx.is_target_active or not ctx.visible_selected_ids:
+            self._show_toast("No selection to restore.")
+            return
+        ids = list(dict.fromkeys(ctx.visible_selected_ids))
+        result = self.vault.storage.restore_many(ids)
+        for cid in result.succeeded:
+            self.vault.events.record(models.EVENT_RESTORED, cid)
+        total = len(result.succeeded)
+        skipped = len(result.skipped)
+        if skipped:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''} ({skipped} already active or missing).")
+        else:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''}.")
+        self._selection_scope.clear()
+        self.refresh()
+
+    def _sidebar_restore_all(self, ctx: Any) -> None:
+        if ctx.target_query is None:
+            return
+        ids = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (count, batches):
+            for batch in batches:
+                ids.extend(batch)
+        if not ids:
+            self._show_toast("No removed items to restore.")
+            return
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Restore All",
+            f"Restore all {len(ids)} removed item{'s' if len(ids) != 1 else ''}?",
+            parent=self,
+        )
+        if not ok:
+            return
+        result = self.vault.storage.restore_many(ids)
+        for cid in result.succeeded:
+            self.vault.events.record(models.EVENT_RESTORED, cid)
+        total = len(result.succeeded)
+        skipped = len(result.skipped)
+        if skipped:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''} ({skipped} skipped).")
+        else:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''}.")
+        self._selection_scope.clear()
+        self.refresh()
+
+    def _sidebar_review_suggestions(self, ctx: Any) -> None:
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_show_ignored(self, ctx: Any) -> None:
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_scan_again(self, ctx: Any) -> None:
+        self._scan_cleanup_suggestions()
+
+    def _sidebar_properties(self, ctx: Any) -> None:
+        label = self._filters.active_label if ctx.is_target_active else ctx.target_key
+        self._show_toast(f"{label}: {ctx.item_count} items")
+
+    # --- Helpers for sidebar commands ------------------------------------
+    def _resolve_sidebar_target_ids(self, ctx: Any, *, prefer_selection: bool = False) -> list[str]:
+        """Resolve the unique IDs a sidebar command should act on.
+
+        If ``prefer_selection`` is True and a visible/matching selection
+        exists, use it. Otherwise use all IDs matching the target query.
+        """
+        if prefer_selection and ctx.has_selection:
+            if ctx.matching_descriptor is not None:
+                resolution = self._selection_scope.resolve(
+                    ctx.target_key,
+                    ctx.target_query,
+                    visible_ids=list(ctx.visible_selected_ids),
+                )
+                if resolution.stale:
+                    return []
+                ids = []
+                for batch in resolution.iter_ids():
+                    ids.extend(batch)
+                return list(dict.fromkeys(ids))
+            return list(dict.fromkeys(ctx.visible_selected_ids))
+        if ctx.target_query is None:
+            return []
+        ids = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (count, batches):
+            for batch in batches:
+                ids.extend(batch)
+        return list(dict.fromkeys(ids))
+
+    def _export_for_query(self, query, *, collection_name: str | None = None) -> None:
+        """Export every clip matching ``query`` via the same dialog used
+        by the active-view export command.
+        """
+        if not self._require_founder("exports_advanced"):
+            return
+        clips = self.vault.list_clips(query)
+        if not clips:
+            return
+        from ..ui.dialogs import ExportViewDialog
+        ExportViewDialog(self, len(clips),
+                         on_export=lambda kind, incl: self._do_export_view(
+                             clips, collection_name, kind, incl))
+
+    def _export_clip_ids(self, clip_ids: list[str]) -> None:
+        """Export the provided clip ids via the existing export dialog."""
+        if not self._require_founder("exports_advanced"):
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in clip_ids]
+        clips = [c for c in clips if c is not None]
+        if not clips:
+            return
+        from ..ui.dialogs import ExportViewDialog
+        collection = self._collection_name_for(self._filters.active)
+        ExportViewDialog(self, len(clips),
+                         on_export=lambda kind, incl: self._do_export_view(
+                             clips, collection, kind, incl))
 
     def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
         clip_context.open_receipt_menu(self, row, x_root, y_root)
