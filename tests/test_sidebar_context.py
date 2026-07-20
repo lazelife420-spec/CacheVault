@@ -14,6 +14,7 @@ from unittest import mock
 import pytest
 
 from cache_vault.core import storage as S
+from cache_vault.core.search import SearchQuery
 from cache_vault.core.settings import Settings
 from cache_vault.core.storage import VaultStorage
 from cache_vault.core.vault import Vault
@@ -475,3 +476,545 @@ def test_stale_captured_context_aborts_restore(tmp_path):
         assert vault.count_clips(S.FILTER_RECENTLY_REMOVED) == 0
     finally:
         app.destroy()
+
+# --- Home refresh semantics ----------------------------------------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_home_refresh_when_inactive_does_not_refresh_active_view(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_HOME,
+        )
+        with mock.patch.object(app, "refresh") as refresh, \
+             mock.patch.object(app, "_show_toast") as toast:
+            app._dispatch_sidebar_command("refresh", ctx)
+
+        refresh.assert_not_called()
+        assert app._filters.active == S.FILTER_ALL
+        toast.assert_called_once()
+        assert "aborted" in toast.call_args[0][0].lower()
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_home_refresh_when_active_refreshes_dashboard_without_navigation(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_HOME)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_HOME,
+        )
+        with mock.patch.object(app, "refresh") as refresh, \
+             mock.patch.object(app, "_navigate_filter") as nav_filter, \
+             mock.patch.object(app, "_navigate_screen") as nav_screen:
+            app._dispatch_sidebar_command("refresh", ctx)
+
+        refresh.assert_called_once()
+        nav_filter.assert_not_called()
+        nav_screen.assert_not_called()
+        assert app._filters.active == S.FILTER_HOME
+    finally:
+        app.destroy()
+
+
+# --- Execution-time counts / refreshed set safety ------------------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_remove_favorite_marks_uses_refreshed_matching_set(tmp_path):
+    """The favorite set can change between menu open and command invoke.
+    The confirmation and the mutation must use the execution-time set,
+    not the count frozen in the menu label.
+    """
+    vault = _vault_with_clips(tmp_path, 4)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:3]:
+        vault.set_favorite(c.id, True)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_FAVORITES)
+        _settle(app)
+
+        query = SearchQuery(filter_name=S.FILTER_FAVORITES)
+        app._selection_scope.activate_matching(S.FILTER_FAVORITES, query)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_FAVORITES,
+        )
+        assert ctx.selection_count == 3
+
+        # One favorite is removed before the command runs.
+        vault.set_favorite(clips[0].id, False)
+
+        with mock.patch("tkinter.messagebox.askyesno") as ask:
+            ask.return_value = True
+            app._dispatch_sidebar_command("remove_favorite_marks", ctx)
+
+        ask.assert_called_once()
+        msg = ask.call_args[0][1]
+        # Confirmation must show the refreshed matching count (2), not 3.
+        assert "2" in msg
+        assert "3" not in msg
+        assert vault.count_clips(S.FILTER_FAVORITES) == 0
+        assert vault.count_clips(None) == 4
+        for c in vault.storage.list_clips(None):
+            assert c.is_pinned is False
+            assert c.deleted_at is None
+            assert c.collection is None or c.collection == ""
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_remove_favorite_marks_reports_exact_affected_and_skipped(tmp_path):
+    vault = _vault_with_clips(tmp_path, 4)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.set_favorite(c.id, True)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_FAVORITES)
+        _settle(app)
+
+        # Select three clips; only the first two are favorites.
+        app._selected_clip_ids = [c.id for c in clips[:3]]
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_FAVORITES,
+        )
+
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True), \
+             mock.patch.object(app, "_show_toast") as toast:
+            app._dispatch_sidebar_command("remove_favorite_marks", ctx)
+
+        toast.assert_called_once()
+        msg = toast.call_args[0][0]
+        assert "2" in msg
+        assert "1" in msg
+        assert "already removed" in msg
+        assert sum(c.is_pinned for c in vault.storage.list_clips(None)) == 0
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_restore_all_uses_refreshed_removed_set(tmp_path):
+    vault = _vault_with_clips(tmp_path, 4)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.remove_from_history(c.id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_RECENTLY_REMOVED,
+        )
+        assert ctx.item_count == 2
+
+        # Another clip is removed before the command runs.
+        vault.remove_from_history(clips[2].id)
+
+        with mock.patch("tkinter.messagebox.askyesno") as ask:
+            ask.return_value = True
+            app._dispatch_sidebar_command("restore_all", ctx)
+
+        ask.assert_called_once()
+        msg = ask.call_args[0][1]
+        # Confirmation must reflect the execution-time count (3), not 2.
+        assert "3" in msg
+        assert vault.count_clips(None) == 4
+        assert vault.count_clips(S.FILTER_RECENTLY_REMOVED) == 0
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_restore_all_reports_exact_succeeded_and_skipped(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    clips = vault.storage.list_clips(None)
+    vault.remove_from_history(clips[0].id)
+    vault.remove_from_history(clips[1].id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+
+        # Restore one before the command so the snapshot sees one already-active
+        # clip and one removed clip.
+        vault.storage.restore(clips[0].id)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_RECENTLY_REMOVED,
+        )
+
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True), \
+             mock.patch.object(app, "_show_toast") as toast:
+            app._dispatch_sidebar_command("restore_all", ctx)
+
+        toast.assert_called_once()
+        msg = toast.call_args[0][0]
+        assert vault.count_clips(None) == 3
+        assert vault.count_clips(S.FILTER_RECENTLY_REMOVED) == 0
+    finally:
+        app.destroy()
+
+
+# --- Inactive-row targeting: favorites and recently removed ---------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_favorites_remove_marks_while_all_clips_active_aborts(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    clips = vault.storage.list_clips(None)
+    vault.set_favorite(clips[0].id, True)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_FAVORITES,
+        )
+
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            app._dispatch_sidebar_command("remove_favorite_marks", ctx)
+
+        # No mutation of the unrelated All Clips selection/view.
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.storage.get_clip(clips[0].id).is_pinned is True
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_recently_removed_restore_all_while_all_clips_active_targets_removed(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    clips = vault.storage.list_clips(None)
+    vault.remove_from_history(clips[0].id)
+    vault.remove_from_history(clips[1].id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        # Arbitrary unrelated selection in All Clips.
+        app._selected_clip_ids = [clips[2].id]
+        before_selection = list(app._selected_clip_ids)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_RECENTLY_REMOVED,
+        )
+
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            app._dispatch_sidebar_command("restore_all", ctx)
+
+        # Active view and selection untouched; removed clips restored.
+        assert app._filters.active == S.FILTER_ALL
+        assert app._selected_clip_ids == before_selection
+        assert vault.count_clips(None) == 5
+        assert vault.count_clips(S.FILTER_RECENTLY_REMOVED) == 0
+    finally:
+        app.destroy()
+
+
+# --- Collection targeting while another collection is active --------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_collection_rename_while_b_active_targets_a_not_b(tmp_path):
+    vault = _vault_with_clips(tmp_path, 4)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[2:]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Personal")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+
+        with mock.patch("tkinter.simpledialog.askstring", return_value="Work2"):
+            app._dispatch_sidebar_command("rename_collection", ctx)
+
+        assert app._filters.active == f"{S.COLLECTION_PREFIX}Personal"
+        work2_ids = {
+            c.id for c in vault.storage.list_clips(
+                S.COLLECTION_PREFIX + "Work2",
+            )
+        }
+        personal_ids = {
+            c.id for c in vault.storage.list_clips(
+                S.COLLECTION_PREFIX + "Personal",
+            )
+        }
+        assert work2_ids == {clips[0].id, clips[1].id}
+        assert personal_ids == {clips[2].id, clips[3].id}
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_collection_export_query_while_b_active_targets_a(tmp_path):
+    vault = _vault_with_clips(tmp_path, 6)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:3]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[3:]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Personal")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+
+        # The context/query count reflects Collection A, not the active B view.
+        assert ctx.item_count == 3
+        matrix = sidebar_context.sidebar_command_matrix(ctx)
+        labels = {c.key: c.label for c in matrix}
+        assert "3" in labels[sidebar_context.CMD_PROPERTIES]
+
+        # Export is disabled for an inactive collection, and an explicit dispatch aborts.
+        with mock.patch.object(app, "_show_toast") as toast:
+            app._dispatch_sidebar_command("export_collection", ctx)
+        toast.assert_called_once()
+        assert "aborted" in toast.call_args[0][0].lower()
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_collection_stale_rename_aborts_if_collection_ceased(tmp_path):
+    vault = _vault_with_clips(tmp_path, 4)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:2]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[2:]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Personal")
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
+        )
+
+        # Rename/cease Work before the menu command is invoked.
+        vault.storage.conn.execute(
+            "UPDATE clips SET collection = ? WHERE collection = ?",
+            ("Merged", "Work"),
+        )
+        vault.storage.conn.commit()
+
+        with mock.patch("tkinter.simpledialog.askstring") as ask, \
+             mock.patch.object(app, "_show_toast") as toast:
+            app._dispatch_sidebar_command("rename_collection", ctx)
+
+        ask.assert_not_called()
+        toast.assert_called_once()
+        assert "aborted" in toast.call_args[0][0].lower()
+        # Personal must remain untouched.
+        personal_ids = {
+            c.id for c in vault.storage.list_clips(
+                S.COLLECTION_PREFIX + "Personal",
+            )
+        }
+        assert personal_ids == {clips[2].id, clips[3].id}
+    finally:
+        app.destroy()
+
+
+# --- Cleanup Suggestions callback reuse ----------------------------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_cleanup_suggestions_images_commands_reuse_controllers(tmp_path):
+    vault = _vault_with_clips(tmp_path, 3)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_SCREENSHOTS)
+        _settle(app)
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_SCREENSHOTS,
+        )
+
+        with mock.patch.object(app, "_scan_cleanup_suggestions") as scan, \
+             mock.patch.object(app, "_navigate_screen") as nav:
+            app._dispatch_sidebar_command("scan_image_duplicates", ctx)
+            app._dispatch_sidebar_command("review_tiny_images", ctx)
+            app._dispatch_sidebar_command("review_largest_images", ctx)
+
+            assert scan.call_count == 3
+            assert all(call.args == ("nav_cleanup_suggestions",) for call in nav.call_args_list)
+
+            # scan_again, review_suggestions and show_ignored route through the same
+            # two existing controllers; no detector logic is duplicated in the sidebar.
+            nav_cleanup_ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+                app, "nav_cleanup_suggestions",
+            )
+            scan.reset_mock()
+            nav.reset_mock()
+            app._dispatch_sidebar_command("scan_again", nav_cleanup_ctx)
+            scan.assert_called_once()
+            nav.assert_not_called()
+
+            nav.reset_mock()
+            app._dispatch_sidebar_command("review_suggestions", nav_cleanup_ctx)
+            app._dispatch_sidebar_command("show_ignored", nav_cleanup_ctx)
+            assert all(call.args == ("nav_cleanup_suggestions",) for call in nav.call_args_list)
+    finally:
+        app.destroy()
+
+
+# --- Matching-selection ownership ----------------------------------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_matching_selection_ownership_across_rows(tmp_path):
+    vault = _vault_with_clips(tmp_path, 8)
+    clips = vault.storage.list_clips(None)
+    for c in clips[:3]:
+        vault.storage.set_collection(c.id, "Work")
+    for c in clips[3:6]:
+        vault.storage.set_collection(c.id, "Personal")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+
+        # Activate matching on All Clips.
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app._selection_scope.activate_matching(
+            S.FILTER_ALL, SearchQuery(filter_name=S.FILTER_ALL),
+        )
+
+        # A matching All Clips selection must not be reused by Images.
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_SCREENSHOTS,
+        )
+        assert ctx.matching_descriptor is None
+
+        # A matching Collection A selection must not be reused by Collection B.
+        app._navigate_filter(f"{S.COLLECTION_PREFIX}Work")
+        _settle(app)
+        app._selection_scope.activate_matching(
+            f"{S.COLLECTION_PREFIX}Work",
+            SearchQuery(
+                filter_name=f"{S.COLLECTION_PREFIX}Work", collection="Work",
+            ),
+        )
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, f"{S.COLLECTION_PREFIX}Personal", collection_name="Personal",
+        )
+        assert ctx.matching_descriptor is None
+
+        # A matching Active Vault selection must not be reused by Recently Removed.
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app._selection_scope.activate_matching(
+            S.FILTER_ALL, SearchQuery(filter_name=S.FILTER_ALL),
+        )
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_RECENTLY_REMOVED,
+        )
+        assert ctx.matching_descriptor is None
+    finally:
+        app.destroy()
+
+
+# --- Menu-opening purity -------------------------------------------------------
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_menu_opening_for_all_row_types_causes_no_mutation(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    clips = vault.storage.list_clips(None)
+    vault.set_favorite(clips[0].id, True)
+    vault.remove_from_history(clips[1].id)
+    vault.storage.set_collection(clips[2].id, "Work")
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+
+        before_active = app._filters.active
+        before_selected = list(app._selected_clip_ids)
+        before_counts = {
+            "all": vault.count_clips(S.FILTER_ALL),
+            "images": vault.count_clips(S.FILTER_SCREENSHOTS),
+            "favorites": vault.count_clips(S.FILTER_FAVORITES),
+            "removed": vault.count_clips(S.FILTER_RECENTLY_REMOVED),
+            "work": vault.count_clips(f"{S.COLLECTION_PREFIX}Work"),
+        }
+
+        with mock.patch("cache_vault.ui.sidebar_context.popup_menu"):
+            for target_key in (
+                S.FILTER_HOME,
+                S.FILTER_ALL,
+                S.FILTER_SCREENSHOTS,
+                S.FILTER_FAVORITES,
+                S.FILTER_RECENTLY_REMOVED,
+                "nav_cleanup_suggestions",
+            ):
+                ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+                    app, target_key,
+                )
+                sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+            sidebar_context.open_collection_sidebar_menu(app, "Work", 0, 0)
+            sidebar_context.open_nav_row_menu(app, NAV_QUICK_PASTE, 0, 0)
+
+        assert app._filters.active == before_active
+        assert app._selected_clip_ids == before_selected
+        assert vault.count_clips(S.FILTER_ALL) == before_counts["all"]
+        assert vault.count_clips(S.FILTER_SCREENSHOTS) == before_counts["images"]
+        assert vault.count_clips(S.FILTER_FAVORITES) == before_counts["favorites"]
+        assert vault.count_clips(S.FILTER_RECENTLY_REMOVED) == before_counts["removed"]
+        assert vault.count_clips(f"{S.COLLECTION_PREFIX}Work") == before_counts["work"]
+    finally:
+        app.destroy()
+
+

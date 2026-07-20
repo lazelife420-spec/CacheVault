@@ -3523,6 +3523,7 @@ class CacheVaultApp(ctk.CTk):
             smc.CMD_REVIEW_SUGGESTIONS,
             smc.CMD_SHOW_IGNORED,
             smc.CMD_RESTORE_ALL,
+            smc.CMD_RENAME_COLLECTION,
         ):
             self._show_toast("Sidebar context changed; command aborted.")
             return
@@ -3660,6 +3661,12 @@ class CacheVaultApp(ctk.CTk):
         from tkinter import simpledialog
         name = getattr(ctx, "collection_name", None)
         if not name:
+            return
+        # Re-resolve the collection at execution time. If the target collection
+        # no longer exists (renamed or deleted before invocation), abort
+        # rather than silently updating zero rows on the wrong set.
+        if ctx.target_query is None or self.vault.count_clips(ctx.target_query) == 0:
+            self._show_toast("Collection no longer exists or is empty; rename aborted.")
             return
         new_name = simpledialog.askstring("Rename Collection", "New name:", initialvalue=name, parent=self)
         if not new_name or new_name.strip() == name:
