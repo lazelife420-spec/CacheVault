@@ -16,6 +16,10 @@ through the real UI.
 
 from __future__ import annotations
 
+import json
+import os
+from unittest import mock
+
 import pytest
 
 from cache_vault.core.models import Clip
@@ -508,3 +512,228 @@ def test_vault_empty_collection_injected_failure_produces_no_receipt(storage):
     assert len(after_events) == 0
     work_clips = {c.id for c in storage.list_clips("col:Work")}
     assert work_clips == set(ids)
+
+
+# --- Empty Collection: managed-asset, external-file, and Recently Removed ---
+# safety proofs (corrective commit -- see commit 4 checkpoint review). These
+# close three invariants that were previously only asserted in docstrings/
+# comments ("never clip_assets, external files... " in storage.clear_collection)
+# rather than proven against a real fixture.
+
+
+@pytest.fixture
+def assets_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    return tmp_path
+
+
+def test_empty_collection_never_touches_managed_asset_file(assets_home):
+    """A clip with a real clip_assets row and on-disk screenshot file must
+    come through Empty Collection with both completely untouched --
+    clear_collection only ever writes ``clips.collection`` (see its
+    docstring); this proves that claim against a real asset instead of
+    trusting the comment.
+    """
+    from cache_vault.core import image_assets, models
+
+    data = b"\x89PNG\r\n\x1a\n" + b"0123456789abcdef" * 4
+    chash = models.bytes_hash(data)
+
+    v = _vault()
+    try:
+        clip = Clip(
+            content_hash=chash, content_type=models.CONTENT_IMAGE,
+            classification=models.CLASS_IMAGE, content="[Screenshot PNG]", preview="Screenshot",
+        )
+        v.storage.add_clip(clip)
+        record = image_assets.ClipAssetRecord(
+            asset_id=models.new_id(), clip_id=clip.id, mime_type="image/png", file_ext="png",
+            size_bytes=len(data), sha256=chash, created_at=clip.created_at, original_name=None,
+            storage_name=image_assets.make_storage_name(clip.id, "png"), width=4, height=4,
+        )
+        v.storage.save_clip_asset(record, data)
+        v.set_collection(clip.id, "Collection A")
+
+        asset_path = image_assets.assets_dir() / record.storage_name
+        sha_before = models.bytes_hash(asset_path.read_bytes())
+        size_before = asset_path.stat().st_size
+        mtime_before = asset_path.stat().st_mtime_ns
+        row_before = v.storage.get_asset_record(clip.id)
+
+        with mock.patch("os.remove", wraps=os.remove) as os_remove, \
+             mock.patch("os.unlink", wraps=os.unlink) as os_unlink, \
+             mock.patch("cache_vault.core.image_assets.delete_asset_file") as delete_asset_file, \
+             mock.patch("cache_vault.core.image_assets.write_asset_file") as write_asset_file, \
+             mock.patch("cache_vault.core.collection_receipts.write_file_receipt") as receipt:
+            result = v.empty_collection("Collection A", [clip.id])
+
+        # Filesystem spy: the real production path never calls any function
+        # capable of deleting or rewriting the asset file.
+        os_remove.assert_not_called()
+        os_unlink.assert_not_called()
+        delete_asset_file.assert_not_called()
+        write_asset_file.assert_not_called()
+
+        assert result.succeeded_count == 1
+        reloaded = v.storage.get_clip(clip.id)
+        assert reloaded.deleted_at is None  # clip remains active
+        assert reloaded.collection is None  # label cleared
+
+        row_after = v.storage.get_asset_record(clip.id)
+        assert row_after == row_before  # asset DB row byte-for-byte unchanged
+
+        # Byte-level proof on the managed file itself.
+        assert asset_path.is_file()
+        assert models.bytes_hash(asset_path.read_bytes()) == sha_before
+        assert asset_path.stat().st_size == size_before
+        assert asset_path.stat().st_mtime_ns == mtime_before
+
+        receipt.assert_called_once()
+        payload = receipt.call_args[0][1]
+        assert payload["assets_deleted"] == 0
+        assert payload["disk_bytes_reclaimed"] == 0
+    finally:
+        v.close()
+
+
+def test_empty_collection_never_touches_external_path_only_file(tmp_path, assets_home):
+    """A path-only clip (classification=CLASS_PATH) merely references a
+    file the vault never owns -- content is the path string itself, no
+    clip_assets row. Empty Collection must clear only the DB label; the
+    external file must never be removed, rewritten, or moved.
+    """
+    from cache_vault.core import models
+
+    external_dir = tmp_path / "outside_vault"
+    external_dir.mkdir()
+    external_file = external_dir / "external-doc.txt"
+    external_file.write_text("external content that must never change", encoding="utf-8")
+
+    sha_before = models.bytes_hash(external_file.read_bytes())
+    size_before = external_file.stat().st_size
+    mtime_before = external_file.stat().st_mtime_ns
+
+    v = _vault()
+    try:
+        clip = Clip(content=str(external_file), preview=str(external_file), classification=models.CLASS_PATH)
+        v.storage.add_clip(clip)
+        v.set_collection(clip.id, "Collection A")
+        assert v.storage.has_clip_asset(clip.id) is False
+
+        with mock.patch("os.remove", wraps=os.remove) as os_remove, \
+             mock.patch("os.unlink", wraps=os.unlink) as os_unlink, \
+             mock.patch("cache_vault.core.image_assets.delete_asset_file") as delete_asset_file, \
+             mock.patch("cache_vault.core.image_assets.write_asset_file") as write_asset_file, \
+             mock.patch("cache_vault.core.collection_receipts.write_file_receipt") as receipt:
+            result = v.empty_collection("Collection A", [clip.id])
+
+        # Filesystem spy: nothing in the real path ever opens the external
+        # file for mutation, moves it, or deletes it.
+        os_remove.assert_not_called()
+        os_unlink.assert_not_called()
+        delete_asset_file.assert_not_called()
+        write_asset_file.assert_not_called()
+
+        assert result.succeeded_count == 1
+        reloaded = v.storage.get_clip(clip.id)
+        assert reloaded.collection is None  # label cleared
+        assert reloaded.deleted_at is None  # clip remains active
+        assert reloaded.content == str(external_file)  # path itself unchanged
+
+        # Byte-level proof on the external file itself.
+        assert external_file.is_file()
+        assert models.bytes_hash(external_file.read_bytes()) == sha_before
+        assert external_file.stat().st_size == size_before
+        assert external_file.stat().st_mtime_ns == mtime_before
+
+        receipt.assert_called_once()
+        payload = receipt.call_args[0][1]
+        assert payload["assets_deleted"] == 0
+        assert payload["disk_bytes_reclaimed"] == 0
+        assert payload["clips_deleted"] == 0
+    finally:
+        v.close()
+
+
+def test_empty_collection_excludes_recently_removed_memberships():
+    """Recently Removed is intentionally out of scope for Empty Collection:
+    a collection label describes active-vault organization, and a
+    soft-deleted clip's stale label is not a live membership. This is
+    enforced by clear_collection's own ``deleted_at IS NOT NULL`` re-check
+    inside the mutation loop (defense-in-depth against a stale/racy id
+    list, not just a query-layer filter callers must remember to apply).
+    This test proves that behavior end-to-end through the real
+    Vault.empty_collection path, including when the removed clip's id is
+    explicitly passed in -- simulating exactly the stale snapshot a racy
+    caller could produce.
+    """
+    from cache_vault.core import models
+    from cache_vault.core import storage as S
+
+    v = _vault()
+    try:
+        active_clip, removed_clip = (v.capture(f"note {i}", force=True) for i in range(2))
+        v.set_collection(active_clip.id, "Collection A")
+        v.set_collection(removed_clip.id, "Collection A")
+        v.storage.soft_delete(removed_clip.id)
+
+        removed_before = v.storage.get_clip(removed_clip.id)
+        assert removed_before.deleted_at is not None
+        assert removed_before.collection == "Collection A"
+        recently_removed_before = v.count_clips(S.FILTER_RECENTLY_REMOVED)
+
+        with mock.patch("cache_vault.core.collection_receipts.write_file_receipt") as receipt:
+            result = v.empty_collection("Collection A", [active_clip.id, removed_clip.id])
+
+        assert set(result.succeeded) == {active_clip.id}
+        assert set(result.skipped) == {removed_clip.id}
+
+        active_after = v.storage.get_clip(active_clip.id)
+        assert active_after.collection is None  # active membership cleared
+
+        removed_after = v.storage.get_clip(removed_clip.id)
+        assert removed_after.deleted_at == removed_before.deleted_at  # still soft-deleted, same timestamp
+        assert removed_after.collection == "Collection A"  # label untouched
+        assert v.count_clips(S.FILTER_RECENTLY_REMOVED) == recently_removed_before  # no restore, no further removal
+
+        receipt.assert_called_once()
+        payload = receipt.call_args[0][1]
+        assert payload["membership_removed"] == 1
+        assert payload["skipped_count"] == 1
+    finally:
+        v.close()
+
+
+def test_empty_collection_receipt_excludes_full_clip_content():
+    """The receipt/event body carries only ids and counts -- never the
+    clip's actual clipboard text -- since receipts are written to disk
+    and read back by the receipt ledger UI.
+    """
+    from cache_vault.core import models
+
+    secret_text = "SENSITIVE-CLIPBOARD-MARKER-93f1b2"
+    v = _vault()
+    try:
+        clip = v.capture(secret_text, force=True)
+        v.set_collection(clip.id, "Collection A")
+
+        with mock.patch("cache_vault.core.collection_receipts.write_file_receipt") as receipt:
+            result = v.empty_collection("Collection A", [clip.id])
+
+        assert result.succeeded_count == 1
+        receipt.assert_called_once()
+        payload = receipt.call_args[0][1]
+        serialized = json.dumps(payload)
+        assert secret_text not in serialized
+        assert payload["action"] == models.ACTION_EMPTY_COLLECTION
+        assert payload["collection_name"] == "Collection A"
+        assert payload["clip_ids"] == [clip.id]  # bounded to ids only, no content
+
+        emptied = [
+            e for e in v.events.recent()
+            if e.get("event_type") == models.EVENT_EMPTIED_COLLECTION
+        ]
+        assert len(emptied) == 1
+        assert secret_text not in json.dumps(emptied[0]["details"])
+    finally:
+        v.close()
