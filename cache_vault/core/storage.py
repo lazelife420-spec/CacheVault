@@ -621,6 +621,46 @@ class VaultStorage:
         self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
         self.conn.commit()
 
+    def hard_delete_many(self, clip_ids: list[str]):
+        """Bulk hard-delete of ``clips``/``clip_assets`` rows only -- never
+        touches an asset file itself. Callers that own files on disk (see
+        ``cache_vault.core.permanent_delete``) must stage/purge them
+        separately around this call, since a real filesystem move and a
+        SQLite commit cannot be made a single atomic operation.
+
+        Atomic contract, same as ``soft_delete_many``/``clear_collection``:
+        dedupe first, one transaction, roll back ALL of it on any failure.
+        Each id is independently re-validated as still soft-deleted
+        (``deleted_at IS NOT NULL``) right before its DELETE -- defense in
+        depth against a stale snapshot (e.g. the id was restored by
+        another window between the caller's preflight check and this
+        call), not just relying on the caller to have pre-filtered.
+        """
+        from .selection import BulkMutationResult, dedupe_preserve_order
+
+        ids = dedupe_preserve_order(clip_ids)
+        if not ids:
+            return BulkMutationResult()
+
+        deleted: list[str] = []
+        skipped: list[str] = []
+        try:
+            for cid in ids:
+                row = self.conn.execute(
+                    "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
+                ).fetchone()
+                if row is None or row["deleted_at"] is None:
+                    skipped.append(cid)
+                    continue
+                self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (cid,))
+                self.conn.execute("DELETE FROM clips WHERE id = ?", (cid,))
+                deleted.append(cid)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return BulkMutationResult(succeeded=tuple(deleted), skipped=tuple(skipped))
+
     # --- image assets --------------------------------------------------------
     def has_clip_asset(self, clip_id: str) -> bool:
         row = self.conn.execute(

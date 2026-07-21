@@ -46,6 +46,8 @@ CMD_EXPORT_COLLECTION = "export_collection"
 CMD_EMPTY_COLLECTION = "empty_collection"
 CMD_RESTORE_SELECTED = "restore_selected"
 CMD_RESTORE_ALL = "restore_all"
+CMD_PERMANENTLY_DELETE_SELECTED = "permanently_delete_selected"
+CMD_PERMANENTLY_DELETE_ALL = "permanently_delete_all"
 CMD_SCAN_AGAIN = "scan_again"
 CMD_REVIEW_SUGGESTIONS = "review_suggestions"
 CMD_SHOW_IGNORED = "show_ignored"
@@ -387,6 +389,26 @@ def _recently_removed_matrix(ctx: SidebarInvocationContext) -> list[MenuCommand]
         out.append(_enabled(CMD_RESTORE_ALL, _label_count("Restore all", ctx.item_count, " items")))
     else:
         out.append(_disabled("no removed items", CMD_RESTORE_ALL, "Restore all"))
+
+    if active and ctx.has_selection:
+        out.append(_enabled(
+            CMD_PERMANENTLY_DELETE_SELECTED,
+            f"Permanently delete selected ({ctx.selection_count})",
+        ))
+    else:
+        out.append(_disabled(
+            "no selection", CMD_PERMANENTLY_DELETE_SELECTED, "Permanently delete selected",
+        ))
+
+    if ctx.item_count:
+        out.append(_enabled(
+            CMD_PERMANENTLY_DELETE_ALL, "Permanently delete all items in Recently Removed",
+        ))
+    else:
+        out.append(_disabled(
+            "no removed items", CMD_PERMANENTLY_DELETE_ALL,
+            "Permanently delete all items in Recently Removed",
+        ))
 
     out.append(_enabled(CMD_PROPERTIES, _properties_label(ctx)))
     return out

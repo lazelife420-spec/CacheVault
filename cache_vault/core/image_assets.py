@@ -122,6 +122,49 @@ def make_storage_name(clip_id: str, ext: str = "png") -> str:
     return f"{clip_id}.{ext.lstrip('.')}"
 
 
+def deletion_quarantine_dir() -> Path:
+    """App-owned staging area for permanent deletion, on the same volume
+    as ``assets_dir()`` so moves into/out of it can use an atomic rename
+    (``os.replace``) rather than a copy+delete.
+    """
+    path = assets_dir().parent / "deletion_quarantine"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def resolve_managed_path(storage_name: str) -> Path | None:
+    """Resolve ``storage_name`` to its canonical on-disk path and confirm
+    it is genuinely inside ``assets_dir()`` -- returns ``None`` (never a
+    path) for anything that isn't a safe, unambiguous managed-asset file.
+
+    Guards against:
+    - path traversal in ``storage_name`` itself (``..``, path separators)
+    - a symlink/reparse point placed inside the assets dir whose real
+      target resolves outside it (``Path.resolve()`` follows the link,
+      so the containment check below catches this automatically)
+    - any other resolution failure (permission errors, broken links)
+
+    This must be the only way permanent-deletion code touches a path on
+    disk -- never build a path from ``storage_name`` directly.
+    """
+    if not storage_name:
+        return None
+    raw = Path(storage_name)
+    if raw.is_absolute() or ".." in raw.parts or len(raw.parts) != 1:
+        return None
+    root = assets_dir().resolve()
+    candidate = assets_dir() / storage_name
+    try:
+        resolved = candidate.resolve(strict=False)
+    except OSError:
+        return None
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return None
+    return resolved
+
+
 def _slugify(value: str) -> str:
     """Make a filesystem-safe lowercase slug from a value.
 

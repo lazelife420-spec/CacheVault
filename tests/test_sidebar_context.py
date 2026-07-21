@@ -369,21 +369,37 @@ def test_restore_all_deduplicates_and_skips_already_active(tmp_path):
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
-def test_recently_removed_menu_has_no_permanent_delete(tmp_path):
+def test_recently_removed_menu_permanent_delete_present_elsewhere_absent(tmp_path):
+    """Commit 5 added Permanently delete selected/all to the Recently
+    Removed sidebar menu specifically -- this replaces the earlier
+    placeholder that asserted the commands didn't exist yet. The menu
+    labels must use the exact required destructive phrasing, and no
+    other row type may ever show either command.
+    """
     vault = _vault_with_clips(tmp_path, 3)
+    for c in vault.storage.list_clips(None):
+        vault.storage.soft_delete(c.id)
     app = _make_app(vault)
     try:
         app.withdraw()
         app._navigate_filter(S.FILTER_ALL)
         _settle(app)
 
-        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+        removed_ctx = sidebar_context.build_sidebar_invocation_context_for_window(
             app, S.FILTER_RECENTLY_REMOVED,
         )
-        matrix = sidebar_context.sidebar_command_matrix(ctx)
-        labels = " ".join(c.label.lower() for c in matrix)
-        assert "permanently delete" not in labels
-        assert "empty recently removed" not in labels
+        removed_matrix = sidebar_context.sidebar_command_matrix(removed_ctx)
+        removed_labels = {c.key: c.label for c in removed_matrix}
+        assert removed_labels["permanently_delete_all"] == "Permanently delete all items in Recently Removed"
+        assert "permanently_delete_selected" in removed_labels
+        assert "empty recently removed" not in " ".join(removed_labels.values()).lower()
+
+        all_clips_ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+        all_clips_keys = {c.key for c in sidebar_context.sidebar_command_matrix(all_clips_ctx)}
+        assert "permanently_delete_selected" not in all_clips_keys
+        assert "permanently_delete_all" not in all_clips_keys
     finally:
         app.destroy()
 

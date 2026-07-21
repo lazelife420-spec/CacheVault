@@ -1117,6 +1117,40 @@ class CacheVaultApp(ctk.CTk):
             return
         batch_actions.bulk_remove(self)
 
+    def _bulk_permanently_delete(self, ids: list[str]) -> None:
+        """Recently Removed item/bulk menu only -- ``clip_menu_items``
+        only offers this command when every targeted clip was already
+        soft-deleted at menu-build time. The deletion plan re-validates
+        ``deleted_at`` for each id again right here at execution time
+        regardless, so a clip restored in the meantime is skipped, not
+        deleted (same staleness contract as the sidebar's equivalent
+        commands).
+        """
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+        from ..core import permanent_delete as pd
+
+        ids = dedupe_preserve_order(ids)
+        if not ids:
+            return
+
+        plan = pd.build_deletion_plan(self.vault.storage, ids)
+
+        def _run() -> None:
+            result = self.vault.permanently_delete_many(ids, confirmation_mode="selected")
+            self._report_permanent_delete_result(result)
+
+        from .dialogs import PermanentDeleteSelectedDialog
+        PermanentDeleteSelectedDialog(
+            self,
+            eligible_count=len(plan.eligible_ids),
+            skipped_count=len(plan.skipped),
+            asset_count=plan.asset_count,
+            bytes_scheduled=plan.planned_bytes,
+            on_confirm=_run,
+        )
+
     # --- Commit 2: additional visible-mode bulk selection commands ---------
     # (Copy/Export/Move-to-Recently-Removed already existed above; these
     # fill in the rest of core/menu_context.py's command_matrix.)
@@ -3525,6 +3559,7 @@ class CacheVaultApp(ctk.CTk):
             smc.CMD_RESTORE_ALL,
             smc.CMD_RENAME_COLLECTION,
             smc.CMD_EMPTY_COLLECTION,
+            smc.CMD_PERMANENTLY_DELETE_ALL,
         ):
             self._show_toast("Sidebar context changed; command aborted.")
             return
@@ -3793,6 +3828,89 @@ class CacheVaultApp(ctk.CTk):
             self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''} ({skipped} skipped).")
         else:
             self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''}.")
+        self._selection_scope.clear()
+        self.refresh()
+
+    def _sidebar_permanently_delete_selected(self, ctx: Any) -> None:
+        """Recently Removed only -- guarded by the dispatch allowlist not
+        exempting this key, so a stale/inactive context aborts before we
+        even get here (mirrors ``_sidebar_restore_selected``).
+        """
+        from ..core import permanent_delete as pd
+
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        ids = self._resolve_sidebar_target_ids(ctx, prefer_selection=True)
+        if not ids:
+            self._show_toast("No selection to permanently delete.")
+            return
+
+        plan = pd.build_deletion_plan(self.vault.storage, ids)
+
+        def _run() -> None:
+            result = self.vault.permanently_delete_many(ids, confirmation_mode="selected")
+            self._report_permanent_delete_result(result)
+
+        from .dialogs import PermanentDeleteSelectedDialog
+        PermanentDeleteSelectedDialog(
+            self,
+            eligible_count=len(plan.eligible_ids),
+            skipped_count=len(plan.skipped),
+            asset_count=plan.asset_count,
+            bytes_scheduled=plan.planned_bytes,
+            on_confirm=_run,
+        )
+
+    def _sidebar_permanently_delete_all(self, ctx: Any) -> None:
+        from ..core import permanent_delete as pd
+
+        if ctx.target_query is None:
+            return
+        ids = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (count, batches):
+            for batch in batches:
+                ids.extend(batch)
+        if not ids:
+            self._show_toast("No removed items to permanently delete.")
+            return
+
+        plan = pd.build_deletion_plan(self.vault.storage, ids)
+
+        def _run() -> None:
+            result = self.vault.permanently_delete_many(ids, confirmation_mode="delete_all")
+            self._report_permanent_delete_result(result)
+
+        from .dialogs import PermanentDeleteAllDialog
+        PermanentDeleteAllDialog(
+            self,
+            total_count=len(ids),
+            eligible_count=len(plan.eligible_ids),
+            skipped_count=len(plan.skipped),
+            asset_count=plan.asset_count,
+            bytes_scheduled=plan.planned_bytes,
+            on_confirm=_run,
+        )
+
+    def _report_permanent_delete_result(self, result: Any) -> None:
+        deleted = len(result.deleted_ids)
+        skipped = len(result.skipped)
+        deferred = result.managed_files_deferred
+        if deleted == 0:
+            self._show_toast("Nothing was eligible to permanently delete.")
+        elif deferred:
+            self._show_toast(
+                f"Permanently deleted {deleted} item{'s' if deleted != 1 else ''} "
+                f"({skipped} skipped); {deferred} asset file(s) could not be purged "
+                "and are queued for retry."
+            )
+        elif skipped:
+            self._show_toast(
+                f"Permanently deleted {deleted} item{'s' if deleted != 1 else ''} "
+                f"({skipped} skipped)."
+            )
+        else:
+            self._show_toast(f"Permanently deleted {deleted} item{'s' if deleted != 1 else ''}.")
         self._selection_scope.clear()
         self.refresh()
 

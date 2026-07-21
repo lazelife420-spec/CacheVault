@@ -23,6 +23,7 @@ ACTION_LABELS: dict[str, str] = {
     models.EVENT_MOVED_COLLECTION: "Moved to Collection",
     models.EVENT_RESTORED: "Restored",
     models.EVENT_PERMANENTLY_REMOVED: "Permanently Removed",
+    models.EVENT_PERMANENT_DELETE_BATCH: "Permanently Deleted (Recently Removed)",
     models.EVENT_KEPT: "Marked Keep",
     models.EVENT_EXPIRED: "Expired",
     models.EVENT_DELETED: "Deleted",
@@ -168,9 +169,11 @@ def _infer_content_type(clip, details: dict) -> str:
 
 def _infer_result(action: str, details: dict) -> str:
     raw = details.get("result")
-    if raw in ("ok", "success", "denied", "error"):
-        return {"ok": "Success", "success": "Success", "denied": "Denied",
-                "error": "Error"}[raw]
+    if raw in ("ok", "success", "denied", "error", "complete", "partial"):
+        return {
+            "ok": "Success", "success": "Success", "complete": "Success",
+            "denied": "Denied", "error": "Error", "partial": "Partial",
+        }[raw]
     if action in (models.EVENT_DELETED, models.EVENT_EXPIRED,
                   models.EVENT_PERMANENTLY_REMOVED):
         return "Success"

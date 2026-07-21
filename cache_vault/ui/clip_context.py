@@ -280,9 +280,10 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int, *, ctx
         "copy_text_links": window._bulk_copy_text_links,
         "save_screenshots": window._bulk_save_images,
         "remove": window._bulk_remove,
+        "permanently_remove_selected": lambda: window._bulk_permanently_delete(ids),
     }
 
-    primary_keys = []
+    primary_keys = ["permanently_remove_selected"]
     if summary.text_count or summary.link_count:
         primary_keys.append(
             "combine" if summary.selection_class in ("text_only", "link_only") else "copy_text_links"

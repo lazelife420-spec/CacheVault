@@ -902,6 +902,83 @@ class Vault:
             )
         return result
 
+    def permanently_delete_many(self, clip_ids: list[str], *, confirmation_mode: str):
+        """Guarded, staged permanent deletion from Recently Removed.
+
+        Orchestrates the three-stage pipeline in
+        ``cache_vault.core.permanent_delete``: build a read-only plan,
+        stage managed asset files into quarantine (atomic rename, all-or-
+        nothing), commit the database transaction, then purge the staged
+        files. ``confirmation_mode`` is ``"selected"`` or ``"delete_all"``
+        and is recorded on the receipt for audit purposes only.
+
+        A raised exception here means the database transaction itself
+        failed: every staged file has already been moved back to its
+        original location before the exception propagates, and no
+        receipt/event is recorded -- matching this codebase's existing
+        bulk-mutation contract (``clear_collection``, ``soft_delete_many``):
+        the call raises and nothing changed.
+
+        A clip that was restored (deleted_at cleared) by something else
+        between staging and the database commit is not deleted -- its
+        file is moved back out of quarantine and it's reported in
+        ``.skipped``, never in ``.deleted_ids``.
+        """
+        from . import permanent_delete as pd
+
+        plan = pd.build_deletion_plan(self.storage, clip_ids)
+        if not plan.eligible_ids:
+            return pd.PermanentDeleteResult(
+                requested_ids=plan.requested_ids, eligible_ids=(), deleted_ids=(),
+                skipped=plan.skipped, failed={}, managed_assets_deleted=0,
+                managed_files_deferred=0, disk_bytes_reclaimed=0, complete=True,
+            )
+
+        staging = pd.stage_managed_files(plan)
+        if not staging.ok:
+            return pd.PermanentDeleteResult(
+                requested_ids=plan.requested_ids, eligible_ids=plan.eligible_ids, deleted_ids=(),
+                skipped=plan.skipped, failed=staging.failed, managed_assets_deleted=0,
+                managed_files_deferred=0, disk_bytes_reclaimed=0, complete=False,
+            )
+
+        try:
+            db_result = self.storage.hard_delete_many(list(plan.eligible_ids))
+        except Exception:
+            pd.unstage_files(staging, list(staging.staged.keys()))
+            raise
+
+        deleted_ids = db_result.succeeded
+        raced_skips = db_result.skipped
+        if raced_skips:
+            pd.unstage_files(staging, list(raced_skips))
+
+        skipped = dict(plan.skipped)
+        for cid in raced_skips:
+            skipped[cid] = "restored_before_commit"
+
+        purge = pd.purge_staged_files(staging, list(deleted_ids))
+        disk_bytes_reclaimed = sum(purge.purged.values())
+
+        result = pd.PermanentDeleteResult(
+            requested_ids=plan.requested_ids,
+            eligible_ids=plan.eligible_ids,
+            deleted_ids=deleted_ids,
+            skipped=skipped,
+            failed=purge.deferred,
+            managed_assets_deleted=len(purge.purged),
+            managed_files_deferred=len(purge.deferred),
+            disk_bytes_reclaimed=disk_bytes_reclaimed,
+            complete=not purge.deferred,
+        )
+
+        if deleted_ids:
+            pd.record_permanent_delete_receipt(
+                self.events, plan=plan, result=result, confirmation_mode=confirmation_mode,
+            )
+
+        return result
+
     def list_collections(self) -> list[dict]:
         return self.storage.list_collections()
 

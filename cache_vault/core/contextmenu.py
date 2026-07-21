@@ -73,6 +73,16 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
     """
     if isinstance(clip_or_clips, list) and len(clip_or_clips) > 1:
         clips = clip_or_clips
+
+        # Recently Removed only: every targeted clip must already be
+        # soft-deleted, or this branch does not apply at all -- an active-
+        # vault multi-selection (even a mixed one) never sees a permanent-
+        # delete option, only the ordinary soft "Delete Selected" below.
+        if all(c.deleted_at is not None for c in clips):
+            return [
+                MenuItem("permanently_remove_selected", "Permanently delete selected"),
+            ]
+
         from .selection import analyze_selection
         summary = analyze_selection(clips)
 

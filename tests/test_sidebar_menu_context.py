@@ -17,6 +17,8 @@ from cache_vault.core.sidebar_menu_context import (
     CMD_EXPORT_CURRENT_VIEW,
     CMD_EXPORT_SELECTED,
     CMD_OPEN,
+    CMD_PERMANENTLY_DELETE_ALL,
+    CMD_PERMANENTLY_DELETE_SELECTED,
     CMD_PROPERTIES,
     CMD_REFRESH,
     CMD_REMOVE_FAVORITE_MARKS,
@@ -357,11 +359,40 @@ def test_recently_removed_menu_exposes_restore_not_delete():
     assert "Restore all 18 items" == labels[CMD_RESTORE_ALL]
 
 
-def test_recently_removed_menu_no_permanent_delete():
-    ctx = _ctx(S.FILTER_RECENTLY_REMOVED, active_key=S.FILTER_RECENTLY_REMOVED, item_count=5)
-    labels = " ".join(_labels(sidebar_command_matrix(ctx)).values()).lower()
-    assert "permanently delete" not in labels
-    assert "empty recently removed" not in labels
+def test_recently_removed_menu_permanent_delete_uses_exact_required_labels():
+    """Commit 5: Permanently delete selected/all must appear in the
+    Recently Removed sidebar menu with the exact destructive labels the
+    product spec mandates -- and never under a softer synonym like
+    Empty/Clear/Clean/Remove all, which this test keeps guarding against
+    (this replaces the earlier placeholder that asserted the commands
+    didn't exist yet, before Commit 5 added them).
+    """
+    ctx = _ctx(
+        S.FILTER_RECENTLY_REMOVED, active_key=S.FILTER_RECENTLY_REMOVED, item_count=5,
+        visible_selected_ids=("a", "b"),
+    )
+    labels = _labels(sidebar_command_matrix(ctx))
+    assert labels[CMD_PERMANENTLY_DELETE_ALL] == "Permanently delete all items in Recently Removed"
+    assert labels[CMD_PERMANENTLY_DELETE_SELECTED].startswith("Permanently delete selected")
+
+    joined = " ".join(labels.values()).lower()
+    for banned in ("empty recently removed", "clear recently removed", "clean recently removed", "remove all items"):
+        assert banned not in joined
+
+
+def test_permanently_delete_commands_absent_outside_recently_removed():
+    for key, active_key, kwargs in (
+        (S.FILTER_ALL, S.FILTER_ALL, {}),
+        (S.FILTER_FAVORITES, S.FILTER_FAVORITES, {}),
+        (S.FILTER_SCREENSHOTS, S.FILTER_SCREENSHOTS, {}),
+        (S.FILTER_HOME, S.FILTER_HOME, {}),
+        (f"{S.COLLECTION_PREFIX}Work", S.FILTER_ALL, {"collection_name": "Work"}),
+        ("nav_cleanup_suggestions", "nav_cleanup_suggestions", {}),
+    ):
+        ctx = _ctx(key, active_key=active_key, item_count=5, **kwargs)
+        keys = _keys(sidebar_command_matrix(ctx))
+        assert CMD_PERMANENTLY_DELETE_SELECTED not in keys
+        assert CMD_PERMANENTLY_DELETE_ALL not in keys
 
 
 # --- Cleanup Suggestions menu --------------------------------------------------
