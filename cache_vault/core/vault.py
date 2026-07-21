@@ -867,10 +867,24 @@ class Vault:
             self.events.record(models.EVENT_RESTORED, cid)
         return result
 
-    def permanently_remove(self, clip_id: str) -> None:
-        """Hard-delete a clip's Cache Vault entry. Never touches real files."""
-        self.events.record(models.EVENT_PERMANENTLY_REMOVED, clip_id)
-        self.storage.hard_delete(clip_id)
+    def permanently_remove(self, clip_id: str):
+        """Compatibility wrapper: single-item permanent deletion runs
+        through the exact same staged pipeline as bulk/Delete All (see
+        ``permanently_delete_many``) -- managed-root containment checks,
+        quarantine staging, database-failure rollback, partial-purge
+        reporting, and the same receipt/privacy contract all apply here
+        too. There is only ever one CacheVault-managed asset file per
+        clip (a ``clip_assets`` row under the managed assets root), and
+        only that file may ever be removed; an external original a
+        path-only clip merely references is never touched, by this
+        method or any other permanent-deletion path.
+
+        Returns the same ``PermanentDeleteResult`` bulk callers get,
+        instead of ``None`` -- existing callers that ignored the return
+        value are unaffected; UI callers that want Complete/Partial
+        reporting can now read it.
+        """
+        return self.permanently_delete_many([clip_id], confirmation_mode="selected")
 
     def set_collection(self, clip_id: str, collection: str | None) -> None:
         """Move a clip into a named collection (or None to remove it)."""
@@ -959,6 +973,8 @@ class Vault:
 
         purge = pd.purge_staged_files(staging, list(deleted_ids))
         disk_bytes_reclaimed = sum(purge.purged.values())
+        if purge.deferred:
+            pd.record_deferred_entries(plan, staging, purge.deferred)
 
         result = pd.PermanentDeleteResult(
             requested_ids=plan.requested_ids,
@@ -978,6 +994,17 @@ class Vault:
             )
 
         return result
+
+    def retry_deferred_permanent_deletions(self):
+        """Bounded maintenance operation: retry every file still stuck
+        in the permanent-deletion quarantine after a prior partial
+        purge, including one from a previous process (see the durable
+        journal in ``cache_vault.core.permanent_delete``). Safe to call
+        at any time -- e.g. on startup, or from an explicit maintenance
+        action -- with no pending entries, it's a fast no-op.
+        """
+        from . import permanent_delete as pd
+        return pd.retry_deferred_permanent_deletions(self.events)
 
     def list_collections(self) -> list[dict]:
         return self.storage.list_collections()

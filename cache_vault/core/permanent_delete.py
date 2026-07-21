@@ -29,22 +29,46 @@ three explicit stages instead:
    Bytes are only counted as reclaimed for files that were actually
    removed; a file that fails to purge is left in quarantine for retry
    and reported as deferred, not silently dropped and not rolled back
-   (the database change already committed and stays committed).
+   (the database change already committed and stays committed). A file
+   left deferred also gets a durable journal entry (see below) -- the
+   in-memory ``StagingResult`` that names it does not survive process
+   exit, so without a journal "preserved for retry" would only be an
+   orphaned file with no record of where it came from.
 
 External/path-only files (``classification == CLASS_PATH``, no
 ``clip_assets`` row) never enter a plan at all -- this module only ever
 looks at ``clip_assets`` rows resolved through
 ``image_assets.resolve_managed_path``, so there is no code path here that
 can read, open, or touch a file the vault doesn't manage.
+
+Every user-facing permanent-deletion trigger in the UI (single item,
+visible multi-selection, sidebar selected, sidebar Delete All) funnels
+through this same pipeline via ``Vault.permanently_delete_many`` -- there
+is exactly one permanent-deletion safety architecture, not one per
+surface. ``Vault.permanently_remove`` is a thin compatibility wrapper
+around it for one id (see vault.py); it does not have its own logic.
+
+Durable recovery: ``record_deferred_entries`` persists metadata for every
+deferred file to a JSON journal (``deletion_quarantine/journal.json``,
+written atomically via ``safe_io.atomic_write_text``) immediately after a
+purge that leaves anything behind. ``retry_deferred_permanent_deletions``
+is a bounded maintenance operation -- callable any time, including after
+a full process restart -- that reads only this journal, revalidates each
+entry's quarantine-path containment before touching it, retries the
+unlink, and records a separate recovery receipt/event. It never looks at
+an external path; every entry it can ever see was, by construction, a
+managed file this module itself staged.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import models
+from . import safe_io
 from .editable_copies import write_file_receipt
 from .selection import dedupe_preserve_order
 
@@ -75,6 +99,13 @@ class StagingResult:
 class PurgeResult:
     purged: dict[str, int] = field(default_factory=dict)      # clip_id -> bytes reclaimed
     deferred: dict[str, str] = field(default_factory=dict)    # clip_id -> reason, left in quarantine
+
+
+@dataclass(frozen=True)
+class RecoveryResult:
+    recovered_clip_ids: tuple[str, ...]
+    still_deferred_clip_ids: tuple[str, ...]
+    disk_bytes_reclaimed: int
 
 
 @dataclass(frozen=True)
@@ -288,3 +319,141 @@ def record_permanent_delete_receipt(
     }
     write_file_receipt(models.ACTION_PERMANENT_DELETE_BATCH, body)
     events.record(models.EVENT_PERMANENT_DELETE_BATCH, None, body)
+
+
+# --- Durable quarantine journal: survives a process restart -----------------
+
+
+def deferred_journal_path() -> Path:
+    from . import image_assets
+    return image_assets.deletion_quarantine_dir() / "journal.json"
+
+
+def read_deferred_journal() -> list[dict]:
+    """Every currently-pending deferred-purge entry. Safe to call at any
+    time, including right after startup with no prior in-memory state --
+    this is the *only* source of truth for what's still stuck in
+    quarantine, which is the whole point of persisting it.
+    """
+    path = deferred_journal_path()
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    entries = data.get("entries")
+    return entries if isinstance(entries, list) else []
+
+
+def _write_deferred_journal(entries: list[dict]) -> None:
+    safe_io.atomic_write_text(
+        deferred_journal_path(), json.dumps({"entries": entries}, indent=2),
+    )
+
+
+def record_deferred_entries(
+    plan: DeletionPlan, staging: StagingResult, deferred: dict[str, str],
+) -> None:
+    """Persist durable metadata for every file that just failed final
+    purge, so ``retry_deferred_permanent_deletions`` can find and retry
+    it later -- including after the process that staged it has exited.
+    Only ids, bounded identifiers, sizes, and hashes are recorded; never
+    clipboard content.
+    """
+    if not deferred:
+        return
+    entries = read_deferred_journal()
+    now = models.now_iso()
+    for cid, reason in deferred.items():
+        asset = plan.asset_rows.get(cid)
+        entries.append({
+            "entry_id": models.new_id(),
+            "clip_id": cid,
+            "asset_id": getattr(asset, "asset_id", None),
+            "quarantine_path": str(staging.staged[cid]),
+            "original_path": str(staging.originals[cid]),
+            "size_bytes": getattr(asset, "size_bytes", None),
+            "sha256": getattr(asset, "sha256", None),
+            "reason": reason,
+            "created_at": now,
+            "retry_status": "pending",
+        })
+    _write_deferred_journal(entries)
+
+
+def retry_deferred_permanent_deletions(events) -> RecoveryResult:
+    """Bounded maintenance operation: re-attempt final purge for every
+    journal entry. Reads only this module's own quarantine metadata,
+    revalidates each quarantine path is still safely contained inside
+    the managed quarantine root before touching it (the same containment
+    discipline as the original staging pass -- never trust a path just
+    because a journal file says so), retries the unlink, and records a
+    separate bounded recovery receipt/event only when something was
+    actually recovered. An entry that fails again keeps its pending
+    status and stays in the journal for the next retry; an entry whose
+    file is already gone (recovered some other way) is dropped without
+    being counted as reclaimed twice. Never touches anything outside the
+    quarantine root -- there is no external-path concept here at all.
+    """
+    from . import image_assets
+
+    entries = read_deferred_journal()
+    if not entries:
+        return RecoveryResult(recovered_clip_ids=(), still_deferred_clip_ids=(), disk_bytes_reclaimed=0)
+
+    quarantine_root = image_assets.deletion_quarantine_dir().resolve()
+    remaining: list[dict] = []
+    recovered: list[dict] = []
+    bytes_reclaimed = 0
+
+    for entry in entries:
+        raw_path = entry.get("quarantine_path") or ""
+        try:
+            resolved = Path(raw_path).resolve(strict=False)
+            resolved.relative_to(quarantine_root)
+        except (OSError, ValueError):
+            entry["retry_status"] = "pending"
+            entry["reason"] = "quarantine path no longer resolves safely"
+            remaining.append(entry)
+            continue
+
+        if not resolved.is_file():
+            # Already gone -- nothing left to reclaim, don't double-count it.
+            continue
+
+        try:
+            size = resolved.stat().st_size
+            resolved.unlink()
+        except OSError as exc:
+            entry["retry_status"] = "pending"
+            entry["reason"] = str(exc)
+            remaining.append(entry)
+            continue
+
+        bytes_reclaimed += size
+        recovered.append(entry)
+
+    _write_deferred_journal(remaining)
+
+    if recovered:
+        _record_recovery_receipt(events, recovered, bytes_reclaimed)
+
+    return RecoveryResult(
+        recovered_clip_ids=tuple(e["clip_id"] for e in recovered),
+        still_deferred_clip_ids=tuple(e["clip_id"] for e in remaining),
+        disk_bytes_reclaimed=bytes_reclaimed,
+    )
+
+
+def _record_recovery_receipt(events, recovered: list[dict], bytes_reclaimed: int) -> None:
+    bounded_ids = [e["clip_id"] for e in recovered][:1000]
+    body = {
+        "action": models.ACTION_PERMANENT_DELETE_RECOVERY,
+        "timestamp": models.now_iso(),
+        "recovered_count": len(recovered),
+        "clip_ids": bounded_ids,
+        "disk_bytes_reclaimed": bytes_reclaimed,
+    }
+    write_file_receipt(models.ACTION_PERMANENT_DELETE_RECOVERY, body)
+    events.record(models.EVENT_PERMANENT_DELETE_RECOVERY, None, body)

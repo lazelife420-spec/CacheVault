@@ -613,6 +613,20 @@ class VaultStorage:
         return BulkMutationResult(succeeded=tuple(cleared), skipped=tuple(skipped))
 
     def hard_delete(self, clip_id: str) -> None:
+        """Low-level, single-id, unstaged permanent delete: deletes the
+        DB rows and unlinks the managed asset file directly, with no
+        quarantine/rollback safety net.
+
+        Not called by any production/UI code path -- every user-facing
+        permanent deletion (single item, bulk, Delete All) goes through
+        the staged pipeline instead (``hard_delete_many`` for the atomic
+        bulk DB step, orchestrated by
+        ``Vault.permanently_delete_many``/``permanently_remove`` via
+        ``cache_vault.core.permanent_delete``), which adds managed-root
+        containment checks, staging, and partial-purge recovery this
+        method does not have. Kept as a low-level primitive for direct
+        unit testing of the DB+file cleanup itself.
+        """
         from . import image_assets
         row = self.get_asset_record(clip_id)
         if row is not None:

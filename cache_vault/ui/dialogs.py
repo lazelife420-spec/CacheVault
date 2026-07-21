@@ -1302,6 +1302,19 @@ class EventLogDialog(ctk.CTkToplevel):
                 self._show_load_error()
 
 
+def _permanent_delete_action_label(eligible_count: int) -> str:
+    """The one honest label for a permanent-delete confirmation, shared
+    by every trigger (single-item menu/preview button, bulk item menu,
+    sidebar selected) so there's exactly one wording scheme regardless
+    of how many items are involved -- never "Permanently Remove" for
+    one item and a differently-worded "Permanently delete selected" for
+    several.
+    """
+    if eligible_count == 1:
+        return "Permanently delete this item"
+    return f"Permanently delete {eligible_count} selected items"
+
+
 def _permanent_delete_body_text(*, eligible_count: int, skipped_count: int,
                                  asset_count: int, bytes_scheduled: int) -> str:
     from ..core.cleanup_suggestions import format_bytes
@@ -1330,7 +1343,8 @@ class PermanentDeleteSelectedDialog(ctk.CTkToplevel):
     def __init__(self, master, *, eligible_count: int, skipped_count: int,
                  asset_count: int, bytes_scheduled: int, on_confirm: Callable[[], None]):
         super().__init__(master)
-        self.title("Permanently delete selected")
+        action_label = _permanent_delete_action_label(eligible_count)
+        self.title(action_label)
         self.geometry("460x320")
         self.resizable(False, False)
         self._on_confirm = on_confirm
@@ -1338,10 +1352,9 @@ class PermanentDeleteSelectedDialog(ctk.CTkToplevel):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=18, pady=18)
 
-        count_word = "item" if eligible_count == 1 else "items"
         ctk.CTkLabel(
             body,
-            text=f"Permanently delete {eligible_count} {count_word}?\n\n" + _permanent_delete_body_text(
+            text=f"{action_label}?\n\n" + _permanent_delete_body_text(
                 eligible_count=eligible_count, skipped_count=skipped_count,
                 asset_count=asset_count, bytes_scheduled=bytes_scheduled,
             ),
@@ -1352,7 +1365,7 @@ class PermanentDeleteSelectedDialog(ctk.CTkToplevel):
         btns.pack(fill="x", side="bottom")
         ctk.CTkButton(btns, text="Cancel", height=32, command=self._cancel,
                       **theme.secondary_button()).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(btns, text="Permanently delete selected", height=32,
+        ctk.CTkButton(btns, text=action_label, height=32,
                       command=self._confirm, **theme.primary_button()).pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self._cancel)

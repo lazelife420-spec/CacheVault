@@ -24,6 +24,7 @@ ACTION_LABELS: dict[str, str] = {
     models.EVENT_RESTORED: "Restored",
     models.EVENT_PERMANENTLY_REMOVED: "Permanently Removed",
     models.EVENT_PERMANENT_DELETE_BATCH: "Permanently Deleted (Recently Removed)",
+    models.EVENT_PERMANENT_DELETE_RECOVERY: "Quarantine Recovery",
     models.EVENT_KEPT: "Marked Keep",
     models.EVENT_EXPIRED: "Expired",
     models.EVENT_DELETED: "Deleted",

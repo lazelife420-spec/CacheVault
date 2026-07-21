@@ -50,6 +50,7 @@ EVENT_MOVED_COLLECTION = "moved_to_collection"
 EVENT_RESTORED = "restored"
 EVENT_PERMANENTLY_REMOVED = "permanently_removed"
 EVENT_PERMANENT_DELETE_BATCH = "permanently_deleted_batch"
+EVENT_PERMANENT_DELETE_RECOVERY = "permanent_delete_recovery"
 EVENT_EXPORTED = "exported"
 EVENT_KEPT = "kept"
 EVENT_EXPIRED = "expired"
@@ -132,6 +133,7 @@ ACTION_MOBILE_INBOX_RECEIVED = "mobile_inbox_received"
 ACTION_CLEANUP_APPLIED = "cleanup_applied"
 ACTION_EMPTY_COLLECTION = "empty_collection"
 ACTION_PERMANENT_DELETE_BATCH = "permanent_delete_recently_removed"
+ACTION_PERMANENT_DELETE_RECOVERY = "permanent_delete_recovery"
 
 PREVIEW_MAX_CHARS = 200
 

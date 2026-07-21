@@ -12,6 +12,7 @@ tests/test_sidebar_context.py and tests/test_sidebar_menu_context.py.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from unittest import mock
@@ -674,3 +675,335 @@ def test_permanently_delete_many_existing_restore_operations_unaffected(assets_h
         assert reloaded.deleted_at is None
     finally:
         v.close()
+
+
+# --- Corrective commit: unify permanent deletion, quarantine recovery ---------
+# Closes the bypass a prior checkpoint review found: the single-item
+# "Permanently Remove" path used to call storage.hard_delete directly,
+# skipping every safety guarantee the staged pipeline provides.
+
+
+def test_no_production_caller_of_storage_hard_delete_directly():
+    """Source/call-graph regression: nothing under cache_vault/ may call
+    ``.hard_delete(`` (the unstaged, single-id primitive) except the
+    method's own definition in storage.py and the bulk atomic
+    ``hard_delete_many`` name (which contains the substring but is a
+    different, safe method). Every real permanent-deletion caller must
+    go through ``hard_delete_many``/``permanently_delete_many`` instead.
+    """
+    root = Path(__file__).parents[1] / "cache_vault"
+    import re
+    offenders = []
+    call_re = re.compile(r"\.hard_delete\(")
+    for path in root.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if call_re.search(line):
+                # storage.py's own `def hard_delete(self, clip_id):` is the
+                # definition, not a call -- everything else matching is a
+                # real caller and must not exist.
+                if path.name == "storage.py" and line.strip().startswith("def hard_delete("):
+                    continue
+                offenders.append(f"{path.relative_to(root.parent)}:{lineno}: {line.strip()}")
+    assert offenders == [], f"direct storage.hard_delete callers found: {offenders}"
+
+
+def test_permanently_remove_docstring_describes_managed_vs_external():
+    """The stale docstring the checkpoint review flagged ("Never touches
+    real files") must be gone, replaced with an accurate description:
+    managed CacheVault assets may be removed, external originals never
+    are.
+    """
+    src = (Path(__file__).parents[1] / "cache_vault" / "core" / "vault.py").read_text(encoding="utf-8")
+    start = src.index("def permanently_remove(")
+    end = src.index("\n    def ", start + 1)
+    body = src[start:end]
+    assert "Never touches real files" not in body
+    assert "managed" in body.lower()
+    assert "external" in body.lower()
+
+
+def test_permanently_remove_is_compatibility_wrapper_routing_through_pipeline(assets_home):
+    """Vault.permanently_remove(clip_id) must behave identically to
+    permanently_delete_many([clip_id], confirmation_mode="selected") --
+    same staging, same receipt, same result type -- not a separate
+    unstaged implementation.
+    """
+    v = _vault()
+    try:
+        clip = v.capture("legacy single-item wrapper", force=True)
+        record, data = _add_managed_asset(v.storage, clip.id)
+        v.storage.soft_delete(clip.id)
+
+        result = v.permanently_remove(clip.id)
+
+        assert result.deleted_ids == (clip.id,)
+        assert result.managed_assets_deleted == 1
+        assert result.disk_bytes_reclaimed == len(data)
+        assert v.storage.get_clip(clip.id) is None
+        assert v.storage.get_asset_record(clip.id) is None
+
+        events = [
+            e for e in v.events.recent()
+            if e.get("event_type") == models.EVENT_PERMANENT_DELETE_BATCH
+        ]
+        assert len(events) == 1
+        assert events[0]["details"]["confirmation_mode"] == "selected"
+        # The old single-item-only event must never fire from the new path.
+        legacy_events = [
+            e for e in v.events.recent()
+            if e.get("event_type") == models.EVENT_PERMANENTLY_REMOVED
+        ]
+        assert legacy_events == []
+    finally:
+        v.close()
+
+
+def test_permanently_remove_external_path_only_file_byte_identical(tmp_path, assets_home):
+    """The single-item compatibility wrapper must give a path-only clip
+    the exact same external-file protection as the bulk pipeline.
+    """
+    external_dir = tmp_path / "outside_vault"
+    external_dir.mkdir()
+    external = external_dir / "doc.txt"
+    external.write_text("must never change", encoding="utf-8")
+    sha_before = models.bytes_hash(external.read_bytes())
+
+    v = _vault()
+    try:
+        clip = Clip(content=str(external), classification=models.CLASS_PATH)
+        v.storage.add_clip(clip)
+        v.storage.soft_delete(clip.id)
+
+        result = v.permanently_remove(clip.id)
+
+        assert result.deleted_ids == (clip.id,)
+        assert external.is_file()
+        assert models.bytes_hash(external.read_bytes()) == sha_before
+    finally:
+        v.close()
+
+
+def test_permanently_remove_unsafe_managed_path_is_rejected(assets_home):
+    """A clip whose asset row resolves outside the managed root must be
+    excluded from deletion by the single-item wrapper too -- it's the
+    same build_deletion_plan underneath, not a separate check.
+    """
+    v = _vault()
+    try:
+        clip = v.capture("unsafe path clip", force=True)
+        v.storage.soft_delete(clip.id)
+        data = b"unsafe"
+        chash = models.bytes_hash(data)
+        record = image_assets.ClipAssetRecord(
+            asset_id=models.new_id(), clip_id=clip.id, mime_type="image/png", file_ext="png",
+            size_bytes=len(data), sha256=chash, created_at=models.now_iso(), original_name=None,
+            storage_name="../escape.png", width=1, height=1,
+        )
+        v.storage.conn.execute(
+            """INSERT INTO clip_assets (
+                asset_id, clip_id, mime_type, file_ext, size_bytes, sha256,
+                created_at, original_name, storage_name, width, height
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (record.asset_id, record.clip_id, record.mime_type, record.file_ext,
+             record.size_bytes, record.sha256, record.created_at,
+             record.original_name, record.storage_name, record.width, record.height),
+        )
+        v.storage.conn.commit()
+
+        result = v.permanently_remove(clip.id)
+
+        assert result.deleted_ids == ()
+        assert result.skipped[clip.id] == "unsafe_asset_path"
+        assert v.storage.get_clip(clip.id) is not None  # untouched, still soft-deleted
+    finally:
+        v.close()
+
+
+def test_permanently_remove_database_failure_restores_staged_file(assets_home):
+    storage = VaultStorage(":memory:")
+    v = Vault(storage=storage, settings=Settings(capture_paused=True))
+    try:
+        clip = v.capture("db failure single", force=True)
+        record, data = _add_managed_asset(storage, clip.id)
+        storage.soft_delete(clip.id)
+        original_path = image_assets.assets_dir() / record.storage_name
+
+        with mock.patch.object(storage, "hard_delete_many", side_effect=RuntimeError("injected")):
+            with pytest.raises(RuntimeError, match="injected"):
+                v.permanently_remove(clip.id)
+
+        assert original_path.is_file()
+        assert original_path.read_bytes() == data
+        reloaded = storage.get_clip(clip.id)
+        assert reloaded is not None
+        assert reloaded.deleted_at is not None
+    finally:
+        v.close()
+
+
+def test_permanently_remove_partial_purge_reports_partial(assets_home):
+    v = _vault()
+    try:
+        clip = v.capture("single item partial purge", force=True)
+        _record, data = _add_managed_asset(v.storage, clip.id)
+        v.storage.soft_delete(clip.id)
+
+        with mock.patch.object(Path, "unlink", side_effect=OSError("simulated purge failure")):
+            result = v.permanently_remove(clip.id)
+
+        assert result.deleted_ids == (clip.id,)  # DB record still deleted
+        assert not result.complete
+        assert result.managed_files_deferred == 1
+        assert result.disk_bytes_reclaimed == 0  # never claimed as reclaimed
+
+        events = [
+            e for e in v.events.recent()
+            if e.get("event_type") == models.EVENT_PERMANENT_DELETE_BATCH
+        ]
+        assert events[0]["details"]["result"] == "partial"
+    finally:
+        v.close()
+
+
+# --- Durable quarantine journal: survives a process restart -------------------
+
+
+def test_retry_deferred_permanent_deletions_with_no_entries_is_noop(assets_home):
+    v = _vault()
+    try:
+        recovery = v.retry_deferred_permanent_deletions()
+        assert recovery.recovered_clip_ids == ()
+        assert recovery.still_deferred_clip_ids == ()
+        assert recovery.disk_bytes_reclaimed == 0
+        assert v.events.recent() == []
+    finally:
+        v.close()
+
+
+def test_deferred_journal_entry_has_no_full_content(assets_home):
+    """Journal entries carry only bounded identifiers/metadata -- never
+    clipboard content -- per the same privacy contract as every other
+    receipt in this codebase.
+    """
+    v = _vault()
+    try:
+        clip = v.capture("SECRET-MARKER-TEXT-abc123", force=True)
+        _record, _data = _add_managed_asset(v.storage, clip.id)
+        v.storage.soft_delete(clip.id)
+
+        with mock.patch.object(Path, "unlink", side_effect=OSError("simulated purge failure")):
+            v.permanently_delete_many([clip.id], confirmation_mode="selected")
+
+        journal = pd.read_deferred_journal()
+        assert len(journal) == 1
+        entry = journal[0]
+        assert entry["clip_id"] == clip.id
+        assert set(entry.keys()) == {
+            "entry_id", "clip_id", "asset_id", "quarantine_path", "original_path",
+            "size_bytes", "sha256", "reason", "created_at", "retry_status",
+        }
+        serialized = json.dumps(entry)
+        assert "SECRET-MARKER-TEXT-abc123" not in serialized
+    finally:
+        v.close()
+
+
+def test_retry_deferred_permanent_deletions_rejects_unsafe_journal_path(assets_home, tmp_path):
+    """Even a journal entry itself must not be trusted blindly -- if its
+    quarantine_path somehow doesn't resolve inside the managed
+    quarantine root, retry must refuse to touch it rather than deleting
+    an arbitrary path a corrupted/tampered journal file names.
+    """
+    outside = tmp_path / "outside_quarantine.png"
+    outside.write_bytes(b"must not be touched")
+
+    pd._write_deferred_journal([{
+        "entry_id": models.new_id(), "clip_id": "ghost-clip", "asset_id": "ghost-asset",
+        "quarantine_path": str(outside), "original_path": str(outside),
+        "size_bytes": 20, "sha256": "deadbeef", "reason": "test fixture",
+        "created_at": models.now_iso(), "retry_status": "pending",
+    }])
+
+    events_stub = _vault()
+    try:
+        recovery = pd.retry_deferred_permanent_deletions(events_stub.events)
+        assert recovery.recovered_clip_ids == ()
+        assert recovery.still_deferred_clip_ids == ("ghost-clip",)
+        assert outside.is_file()  # never touched
+        assert outside.read_bytes() == b"must not be touched"
+    finally:
+        events_stub.close()
+
+
+def test_permanently_delete_many_restart_recovers_deferred_purge(tmp_path, monkeypatch):
+    """The full restart proof: a deferred purge from one Vault instance
+    is discovered and successfully retried by a brand-new instance
+    against the same isolated profile, with bytes reported exactly once
+    and no external file ever touched.
+    """
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    db_path = tmp_path / "vault.db"
+    external_dir = tmp_path / "outside_vault"
+    external_dir.mkdir()
+    external = external_dir / "unrelated.txt"
+    external.write_text("external content, never touched", encoding="utf-8")
+    external_sha_before = models.bytes_hash(external.read_bytes())
+
+    storage1 = VaultStorage(db_path)
+    v1 = Vault(storage=storage1, settings=Settings(capture_paused=True))
+    clip = v1.capture("will be recovered after restart", force=True)
+    record, data = _add_managed_asset(v1.storage, clip.id)
+    v1.storage.soft_delete(clip.id)
+
+    with mock.patch.object(Path, "unlink", side_effect=OSError("simulated purge failure")):
+        result = v1.permanently_delete_many([clip.id], confirmation_mode="selected")
+
+    # 1 & 2: purge failure simulated, DB record deleted, receipt partial.
+    assert result.deleted_ids == (clip.id,)
+    assert not result.complete
+    events1 = [
+        e for e in v1.events.recent()
+        if e.get("event_type") == models.EVENT_PERMANENT_DELETE_BATCH
+    ]
+    assert events1[0]["details"]["result"] == "partial"
+
+    quarantine_path = Path(pd.read_deferred_journal()[0]["quarantine_path"])
+    assert quarantine_path.is_file()
+
+    # 3: close the first instance.
+    v1.close()
+
+    # 4: open a brand-new instance against the same isolated profile.
+    storage2 = VaultStorage(db_path)
+    v2 = Vault(storage=storage2, settings=Settings(capture_paused=True))
+
+    # 5: discover the deferred entry via the durable journal alone.
+    journal = pd.read_deferred_journal()
+    assert len(journal) == 1
+    assert journal[0]["clip_id"] == clip.id
+
+    # 6: retry successfully (Path.unlink is no longer mocked here).
+    recovery = v2.retry_deferred_permanent_deletions()
+    assert recovery.recovered_clip_ids == (clip.id,)
+
+    # 7: quarantined file is gone.
+    assert not quarantine_path.exists()
+
+    # 8: recovered bytes reported exactly once.
+    assert recovery.disk_bytes_reclaimed == len(data)
+    recovery_events = [
+        e for e in v2.events.recent()
+        if e.get("event_type") == models.EVENT_PERMANENT_DELETE_RECOVERY
+    ]
+    assert len(recovery_events) == 1
+    assert recovery_events[0]["details"]["disk_bytes_reclaimed"] == len(data)
+    assert pd.read_deferred_journal() == []  # journal entry consumed, not left to double-count
+
+    # 9: external file never touched, at any point in the whole flow.
+    assert external.is_file()
+    assert models.bytes_hash(external.read_bytes()) == external_sha_before
+
+    v2.close()

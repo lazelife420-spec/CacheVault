@@ -227,6 +227,176 @@ def test_matching_selection_from_all_clips_cannot_be_reused_for_recently_removed
         app.destroy()
 
 
+# --- Single-item path: corrective commit unified it into the same pipeline ----
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_single_item_menu_invokes_staged_pipeline(tmp_path):
+    """window._permanently_remove (wired from both the single-item
+    context menu and the preview-pane danger-zone button) must go
+    through the shared confirmation dialog and Vault.permanently_delete_many
+    -- not a direct, unstaged hard_delete call.
+    """
+    vault = _vault_with_clips(tmp_path, 1)
+    clip = vault.storage.list_clips(None)[0]
+    vault.storage.soft_delete(clip.id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+
+        with mock.patch.object(vault.storage, "hard_delete") as legacy_hard_delete, \
+             _auto_confirm("cache_vault.ui.dialogs.PermanentDeleteSelectedDialog"):
+            app._permanently_remove(clip.id)
+        _settle(app)
+
+        legacy_hard_delete.assert_not_called()  # never the old unstaged path
+        assert vault.storage.get_clip(clip.id) is None
+
+        events = [
+            e for e in vault.events.recent()
+            if e.get("event_type") == "permanently_deleted_batch"
+        ]
+        assert len(events) == 1
+        assert events[0]["details"]["confirmation_mode"] == "selected"
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_single_item_cancellation_changes_nothing(tmp_path):
+    vault = _vault_with_clips(tmp_path, 1)
+    clip = vault.storage.list_clips(None)[0]
+    vault.storage.soft_delete(clip.id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+
+        def _factory(*args, **kwargs):
+            return mock.MagicMock()  # constructs the dialog but never calls on_confirm
+
+        with mock.patch("cache_vault.ui.dialogs.PermanentDeleteSelectedDialog", side_effect=_factory):
+            app._permanently_remove(clip.id)
+        _settle(app)
+
+        reloaded = vault.storage.get_clip(clip.id)
+        assert reloaded is not None
+        assert reloaded.deleted_at is not None  # still soft-deleted, nothing changed
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_single_item_managed_file_staged_and_purged_safely(tmp_path):
+    from cache_vault.core import image_assets, models as core_models
+
+    vault = _vault_with_clips(tmp_path, 1)
+    clip = vault.storage.list_clips(None)[0]
+    data = b"\x89PNG single-item-managed-asset-bytes"
+    chash = core_models.bytes_hash(data)
+    record = image_assets.ClipAssetRecord(
+        asset_id=core_models.new_id(), clip_id=clip.id, mime_type="image/png", file_ext="png",
+        size_bytes=len(data), sha256=chash, created_at=clip.created_at, original_name=None,
+        storage_name=image_assets.make_storage_name(clip.id, "png"), width=1, height=1,
+    )
+    vault.storage.save_clip_asset(record, data)
+    vault.storage.soft_delete(clip.id)
+    asset_path = image_assets.assets_dir() / record.storage_name
+    assert asset_path.is_file()
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+
+        with _auto_confirm("cache_vault.ui.dialogs.PermanentDeleteSelectedDialog"):
+            app._permanently_remove(clip.id)
+        _settle(app)
+
+        assert vault.storage.get_clip(clip.id) is None
+        assert not asset_path.exists()
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_single_item_external_path_only_file_stays_byte_identical(tmp_path):
+    from cache_vault.core.models import Clip as _Clip, CLASS_PATH, bytes_hash
+
+    vault = _vault_with_clips(tmp_path, 0)
+    external_dir = tmp_path / "outside_vault"
+    external_dir.mkdir()
+    external = external_dir / "doc.txt"
+    external.write_text("must never change", encoding="utf-8")
+    sha_before = bytes_hash(external.read_bytes())
+
+    clip = _Clip(content=str(external), classification=CLASS_PATH)
+    vault.storage.add_clip(clip)
+    vault.storage.soft_delete(clip.id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+
+        with _auto_confirm("cache_vault.ui.dialogs.PermanentDeleteSelectedDialog"):
+            app._permanently_remove(clip.id)
+        _settle(app)
+
+        assert vault.storage.get_clip(clip.id) is None
+        assert external.is_file()
+        assert bytes_hash(external.read_bytes()) == sha_before
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_single_item_partial_purge_reports_partial_not_success(tmp_path):
+    from cache_vault.core import image_assets, models as core_models
+
+    vault = _vault_with_clips(tmp_path, 1)
+    clip = vault.storage.list_clips(None)[0]
+    data = b"partial-purge-single-item-bytes"
+    chash = core_models.bytes_hash(data)
+    record = image_assets.ClipAssetRecord(
+        asset_id=core_models.new_id(), clip_id=clip.id, mime_type="image/png", file_ext="png",
+        size_bytes=len(data), sha256=chash, created_at=clip.created_at, original_name=None,
+        storage_name=image_assets.make_storage_name(clip.id, "png"), width=1, height=1,
+    )
+    vault.storage.save_clip_asset(record, data)
+    vault.storage.soft_delete(clip.id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+
+        with mock.patch("pathlib.Path.unlink", side_effect=OSError("simulated")), \
+             _auto_confirm("cache_vault.ui.dialogs.PermanentDeleteSelectedDialog"):
+            app._permanently_remove(clip.id)
+        _settle(app)
+
+        events = [
+            e for e in vault.events.recent()
+            if e.get("event_type") == "permanently_deleted_batch"
+        ]
+        assert len(events) == 1
+        assert events[0]["details"]["result"] == "partial"
+
+        from cache_vault.ui.receipt_ledger import _infer_result
+        assert _infer_result(events[0]["details"]["action"], events[0]["details"]) == "Partial"
+    finally:
+        app.destroy()
+
+
 # --- Keyboard Delete stays soft-remove only ------------------------------------
 
 

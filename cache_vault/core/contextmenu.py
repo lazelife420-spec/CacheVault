@@ -79,8 +79,9 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
         # vault multi-selection (even a mixed one) never sees a permanent-
         # delete option, only the ordinary soft "Delete Selected" below.
         if all(c.deleted_at is not None for c in clips):
+            count = len(clips)
             return [
-                MenuItem("permanently_remove_selected", "Permanently delete selected"),
+                MenuItem("permanently_remove_selected", f"Permanently delete {count} selected items"),
             ]
 
         from .selection import analyze_selection
@@ -132,7 +133,7 @@ def clip_menu_items(clip_or_clips: Clip | list[Clip]) -> list[MenuItem]:
         return [
             MenuItem("copy_again", "Copy Again"),
             MenuItem("restore", "Restore", separator_before=True),
-            MenuItem("permanently_remove", "Permanently Remove"),
+            MenuItem("permanently_remove", "Permanently delete this item"),
         ]
 
     primary_children = [

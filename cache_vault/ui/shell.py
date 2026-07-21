@@ -1117,6 +1117,37 @@ class CacheVaultApp(ctk.CTk):
             return
         batch_actions.bulk_remove(self)
 
+    def _confirm_and_permanently_delete(self, ids: list[str], *, on_done=None) -> None:
+        """The one shared entry point behind every single-confirmation
+        permanent-deletion trigger -- single-item menu, preview-pane
+        danger-zone button, and bulk item/context menu all call this,
+        so there is exactly one permanent-deletion safety architecture
+        (one dialog, one plan builder, one pipeline) regardless of how
+        many ids are involved. The sidebar's "selected" command also
+        calls this; only Delete All needs its own two-step dialog and
+        stays separate (see ``_sidebar_permanently_delete_all``), though
+        it still ends at the same ``Vault.permanently_delete_many``.
+        """
+        from ..core import permanent_delete as pd
+        from .dialogs import PermanentDeleteSelectedDialog
+
+        plan = pd.build_deletion_plan(self.vault.storage, ids)
+
+        def _run() -> None:
+            result = self.vault.permanently_delete_many(ids, confirmation_mode="selected")
+            self._report_permanent_delete_result(result)
+            if on_done is not None:
+                on_done()
+
+        PermanentDeleteSelectedDialog(
+            self,
+            eligible_count=len(plan.eligible_ids),
+            skipped_count=len(plan.skipped),
+            asset_count=plan.asset_count,
+            bytes_scheduled=plan.planned_bytes,
+            on_confirm=_run,
+        )
+
     def _bulk_permanently_delete(self, ids: list[str]) -> None:
         """Recently Removed item/bulk menu only -- ``clip_menu_items``
         only offers this command when every targeted clip was already
@@ -1129,27 +1160,11 @@ class CacheVaultApp(ctk.CTk):
         if not self._guard_unlocked():
             return
         from ..core.selection import dedupe_preserve_order
-        from ..core import permanent_delete as pd
 
         ids = dedupe_preserve_order(ids)
         if not ids:
             return
-
-        plan = pd.build_deletion_plan(self.vault.storage, ids)
-
-        def _run() -> None:
-            result = self.vault.permanently_delete_many(ids, confirmation_mode="selected")
-            self._report_permanent_delete_result(result)
-
-        from .dialogs import PermanentDeleteSelectedDialog
-        PermanentDeleteSelectedDialog(
-            self,
-            eligible_count=len(plan.eligible_ids),
-            skipped_count=len(plan.skipped),
-            asset_count=plan.asset_count,
-            bytes_scheduled=plan.planned_bytes,
-            on_confirm=_run,
-        )
+        self._confirm_and_permanently_delete(ids)
 
     # --- Commit 2: additional visible-mode bulk selection commands ---------
     # (Copy/Export/Move-to-Recently-Removed already existed above; these
@@ -3836,8 +3851,6 @@ class CacheVaultApp(ctk.CTk):
         exempting this key, so a stale/inactive context aborts before we
         even get here (mirrors ``_sidebar_restore_selected``).
         """
-        from ..core import permanent_delete as pd
-
         if not ctx.is_target_active:
             self._show_toast("Sidebar context changed; command aborted.")
             return
@@ -3845,22 +3858,7 @@ class CacheVaultApp(ctk.CTk):
         if not ids:
             self._show_toast("No selection to permanently delete.")
             return
-
-        plan = pd.build_deletion_plan(self.vault.storage, ids)
-
-        def _run() -> None:
-            result = self.vault.permanently_delete_many(ids, confirmation_mode="selected")
-            self._report_permanent_delete_result(result)
-
-        from .dialogs import PermanentDeleteSelectedDialog
-        PermanentDeleteSelectedDialog(
-            self,
-            eligible_count=len(plan.eligible_ids),
-            skipped_count=len(plan.skipped),
-            asset_count=plan.asset_count,
-            bytes_scheduled=plan.planned_bytes,
-            on_confirm=_run,
-        )
+        self._confirm_and_permanently_delete(ids)
 
     def _sidebar_permanently_delete_all(self, ctx: Any) -> None:
         from ..core import permanent_delete as pd
@@ -4261,18 +4259,18 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(self.vault.storage.get_clip(clip_id))
 
     def _permanently_remove(self, clip_id: str) -> None:
-        from tkinter import messagebox
-        ok = messagebox.askyesno(
-            "Permanently Remove",
-            "Permanently remove this clip from Cache Vault? This cannot be "
-            "undone. It does not delete any files from your computer.",
-            parent=self,
-        )
-        if not ok:
+        """Recently Removed only -- routes through the exact same staged
+        pipeline as bulk/Delete All (``_confirm_and_permanently_delete``
+        -> ``Vault.permanently_delete_many``), never a direct
+        ``hard_delete`` call. See cache_vault/core/permanent_delete.py
+        for the full managed-root containment, quarantine-staging, and
+        rollback contract this now inherits -- there is exactly one
+        permanent-deletion safety architecture, not a separate one for
+        single items.
+        """
+        if not self._guard_unlocked():
             return
-        self.vault.permanently_remove(clip_id)
-        self.refresh()
-        self._preview.show(None)
+        self._confirm_and_permanently_delete([clip_id], on_done=lambda: self._preview.show(None))
 
     def _send_to_macro_safe(self, clip_id: str) -> None:
         if not self._guard_unlocked():
