@@ -1114,8 +1114,7 @@ def test_menu_opening_does_not_scan_or_record(tmp_path):
         _settle(app)
 
         with mock.patch.object(app, "_scan_cleanup_suggestions") as scan, \
-             mock.patch.object(app.vault.events, "record") as record, \
-             mock.patch("cache_vault.ui.sidebar_context.popup_menu"):
+             mock.patch.object(app.vault.events, "record") as record:
             for target_key in (
                 S.FILTER_HOME,
                 S.FILTER_ALL,
@@ -1163,8 +1162,7 @@ def test_empty_collection_menu_opening_causes_no_mutation(tmp_path):
         ctx = sidebar_context.build_sidebar_invocation_context_for_window(
             app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
         )
-        with mock.patch("cache_vault.ui.sidebar_context.popup_menu"):
-            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+        sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
 
         assert vault.count_clips(None) == before_counts["all"]
         assert vault.count_clips(f"{S.COLLECTION_PREFIX}Work") == before_counts["work"]

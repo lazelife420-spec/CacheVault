@@ -414,10 +414,8 @@ def test_keyboard_delete_in_recently_removed_never_permanently_deletes(tmp_path)
         app._selected_clip_ids = [clip.id]
         app._selected_clip_id = clip.id
 
-        with mock.patch.object(app.vault, "permanently_delete_many") as perm_delete, \
-             mock.patch("tkinter.messagebox.askyesno", return_value=True):
+        with mock.patch.object(app.vault, "permanently_delete_many") as perm_delete:
             app._keyboard_remove_selected()
-        _settle(app)
 
         perm_delete.assert_not_called()
         # The clip is already soft-deleted; Delete on an already-removed
