@@ -1105,7 +1105,10 @@ def test_menu_opening_for_all_row_types_causes_no_mutation(tmp_path):
 
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_menu_opening_does_not_scan_or_record(tmp_path):
-    """Opening a sidebar menu must not perform scans, emit events, or write receipts."""
+    """Opening a sidebar menu must not perform scans, emit events, or write receipts.
+    The real menu specification is built by sidebar_context; only the popup_menu call
+    (which enters tk_popup()) is intercepted.
+    """
     vault = _vault_with_clips(tmp_path, 3)
     app = _make_app(vault)
     try:
@@ -1114,7 +1117,8 @@ def test_menu_opening_does_not_scan_or_record(tmp_path):
         _settle(app)
 
         with mock.patch.object(app, "_scan_cleanup_suggestions") as scan, \
-             mock.patch.object(app.vault.events, "record") as record:
+             mock.patch.object(app.vault.events, "record") as record, \
+             mock.patch("cache_vault.ui.sidebar_context.popup_menu") as popup:
             for target_key in (
                 S.FILTER_HOME,
                 S.FILTER_ALL,
@@ -1131,8 +1135,18 @@ def test_menu_opening_does_not_scan_or_record(tmp_path):
             sidebar_context.open_collection_sidebar_menu(app, "Work", 0, 0)
             sidebar_context.open_nav_row_menu(app, NAV_QUICK_PASTE, 0, 0)
 
+        # Opening must never scan or record.
         scan.assert_not_called()
         record.assert_not_called()
+        # popup_menu must have been requested once per menu open (8 calls total:
+        # 6 nav rows + 1 collection + 1 quick-paste).
+        assert popup.call_count == 8, f"Expected 8 popup calls, got {popup.call_count}"
+        # Each call must pass window as first arg and integer coordinates.
+        for call in popup.call_args_list:
+            args = call.args
+            assert args[0] is app, "popup_menu first arg must be the app window"
+            assert isinstance(args[2], int) and isinstance(args[3], int), \
+                "popup_menu x_root/y_root must be integers"
     finally:
         app.destroy()
 
@@ -1142,6 +1156,10 @@ def test_menu_opening_does_not_scan_or_record(tmp_path):
 
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_empty_collection_menu_opening_causes_no_mutation(tmp_path):
+    """Building the context menu for a Collection sidebar row must not mutate
+    the vault, selection, navigation, or pinned states. The real menu is built
+    by sidebar_context; only popup_menu (which enters tk_popup()) is intercepted.
+    """
     vault = _vault_with_clips(tmp_path, 3)
     clips = vault.storage.list_clips(None)
     for c in clips[:2]:
@@ -1158,15 +1176,28 @@ def test_empty_collection_menu_opening_causes_no_mutation(tmp_path):
             "work": vault.count_clips(f"{S.COLLECTION_PREFIX}Work"),
             "pinned": sum(c.is_pinned for c in vault.storage.list_clips(None)),
         }
+        before_active = app._filters.active
 
         ctx = sidebar_context.build_sidebar_invocation_context_for_window(
             app, f"{S.COLLECTION_PREFIX}Work", collection_name="Work",
         )
-        sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+        with mock.patch("cache_vault.ui.sidebar_context.popup_menu") as popup:
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
 
+        # Vault state must be completely untouched.
         assert vault.count_clips(None) == before_counts["all"]
         assert vault.count_clips(f"{S.COLLECTION_PREFIX}Work") == before_counts["work"]
         assert sum(c.is_pinned for c in vault.storage.list_clips(None)) == before_counts["pinned"]
+        # Navigation must be untouched.
+        assert app._filters.active == before_active
+        # Context must have targeted the correct Collection row.
+        assert ctx.target_key == f"{S.COLLECTION_PREFIX}Work"
+        assert ctx.collection_name == "Work"
+        # Popup boundary: called exactly once.
+        popup.assert_called_once()
+        # First positional arg must be the app window.
+        popup_args = popup.call_args.args
+        assert popup_args[0] is app, "popup_menu first arg must be the app window"
     finally:
         app.destroy()
 

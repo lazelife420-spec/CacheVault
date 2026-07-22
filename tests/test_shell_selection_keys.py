@@ -14,6 +14,7 @@ import tkinter as tk
 from types import SimpleNamespace
 
 import pytest
+from unittest import mock
 
 from cache_vault.core import models
 from cache_vault.core import search
@@ -476,11 +477,17 @@ def test_right_click_collapsing_to_one_item_exits_matching_mode(tmp_path):
         target_clip = vault.storage.get_clip(target_id)
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
 
-        app._list._context(event, target_clip)
+        with mock.patch.object(app._list, "_on_context") as on_context:
+            app._list._context(event, target_clip)
 
+        # Mode must have transitioned: matching → none.
         assert app._selection_scope.mode == "none"
+        # Collapsed to exactly the right-clicked clip.
         assert app._selected_clip_ids == [target_id]
+        # Selection notice banner must be hidden.
         assert app._page_header._selection_notice_label.place_info() == {}
+        # Popup boundary: callback called exactly once with (clip, x_root, y_root).
+        on_context.assert_called_once_with(target_clip, 10, 20)
     finally:
         app.destroy()
 
@@ -504,9 +511,15 @@ def test_right_click_preserving_existing_multiselect_keeps_matching_mode(tmp_pat
         target_clip = vault.storage.get_clip(target_id)
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
 
-        app._list._context(event, target_clip)
+        with mock.patch.object(app._list, "_on_context") as on_context:
+            app._list._context(event, target_clip)
 
+        # Mode must be preserved: matching stays matching.
         assert app._selection_scope.mode == "matching"
+        # Matching descriptor must still be set (not cleared by the right-click).
+        assert app._selection_scope._matching is not None
+        # Popup boundary: callback called exactly once with (clip, x_root, y_root).
+        on_context.assert_called_once_with(target_clip, 10, 20)
     finally:
         app.destroy()
 
