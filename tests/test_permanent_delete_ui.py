@@ -402,6 +402,20 @@ def test_single_item_partial_purge_reports_partial_not_success(tmp_path):
 
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_keyboard_delete_in_recently_removed_never_permanently_deletes(tmp_path):
+    """Delete in Recently Removed must route only to the soft-remove path.
+
+    Phase diagnosis confirmed that ``_keyboard_remove_selected()`` calls
+    ``_remove_from_history()`` which opens a ``messagebox.askyesno`` modal
+    dialog when no mock is in place — that modal was the sole source of the
+    180 s timeout. Mocking it at the Tk boundary proves the handler's routing
+    without opening a native dialog.
+
+    Invariants (all must hold simultaneously):
+    - ``permanently_delete_many`` is never called.
+    - The handler returns the sentinel ``'break'``, not ``None`` / dialog open.
+    - The clip remains in the vault (not hard-deleted).
+    - ``deleted_at`` is still set (clip stays soft-deleted).
+    """
     vault = _vault_with_clips(tmp_path, 1)
     clip = vault.storage.list_clips(None)[0]
     vault.storage.soft_delete(clip.id)
@@ -414,15 +428,21 @@ def test_keyboard_delete_in_recently_removed_never_permanently_deletes(tmp_path)
         app._selected_clip_ids = [clip.id]
         app._selected_clip_id = clip.id
 
-        with mock.patch.object(app.vault, "permanently_delete_many") as perm_delete:
-            app._keyboard_remove_selected()
+        with mock.patch.object(app.vault, "permanently_delete_many") as perm_delete, \
+             mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            result = app._keyboard_remove_selected()
+        _settle(app)
 
+        # Routing invariants.
         perm_delete.assert_not_called()
+        # Handler must return 'break' (keyboard event consumed), never None
+        # (which would indicate it fell through to another handler path).
+        assert result == "break", f"Expected 'break', got {result!r}"
         # The clip is already soft-deleted; Delete on an already-removed
         # item must stay a harmless no-op-ish soft path, never escalate.
         reloaded = vault.storage.get_clip(clip.id)
-        assert reloaded is not None
-        assert reloaded.deleted_at is not None
+        assert reloaded is not None, "Clip was hard-deleted — permanent deletion occurred"
+        assert reloaded.deleted_at is not None, "Clip lost its soft-delete state"
     finally:
         app.destroy()
 
