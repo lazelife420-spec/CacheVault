@@ -12,6 +12,16 @@ dispatch to (_matching_export, _matching_move_to_recently_removed, etc.)
 directly -- which is the real business logic under test; the menu is
 just a thin dispatch layer on top of it.
 
+Right-click *routing* tests (selection state after a right-click event)
+call _context() on the list/grid widget.  _context() normally routes to
+_on_context, which is the bound method captured at widget construction
+time; following that path reaches tk_popup() which blocks in a modal
+grab loop.  Those tests therefore patch _on_context *on the widget
+instance* -- the object that actually holds the captured callback -- so
+the test stops at the routing boundary, asserts selection state, and
+verifies the callback was invoked with the correct arguments, without
+ever executing native popup code.
+
 Pure-logic view-classification/command-matrix coverage lives in
 tests/test_menu_context.py.
 """
@@ -62,6 +72,16 @@ def _settle(app):
     wait_for_refresh(app)
 
 
+def _teardown(app):
+    """Destroy the app.  Named _teardown so call sites are explicit about
+    the intent; the actual teardown strategy may be refined here without
+    touching every finally block across the file."""
+    try:
+        app.destroy()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # --- build_invocation_context ------------------------------------------
 
 
@@ -82,7 +102,7 @@ def test_invocation_context_none_mode_when_nothing_selected(tmp_path):
         assert ctx.clicked_clip_id == clip.id
         assert ctx.view_kind == "active"
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -104,7 +124,7 @@ def test_invocation_context_matching_mode_carries_true_count(tmp_path):
         assert ctx.matching_count == total
         assert ctx.matching_count != len(ctx.visible_selected_ids)  # true count, not the visible cap
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -123,7 +143,7 @@ def test_invocation_context_view_kind_recently_removed(tmp_path):
 
         assert ctx.view_kind == "recently_removed"
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Right-click routing (list) -----------------------------------------
@@ -141,12 +161,17 @@ def test_right_click_unselected_item_selects_only_it_list(tmp_path):
         target_clip = vault.storage.get_clip(target_id)
 
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
-        app._list._context(event, target_clip)
+        # Patch _on_context on the widget instance to stop at the callback
+        # boundary -- the widget captured the bound method at construction
+        # time, so patching the app attribute alone would not intercept it.
+        with mock.patch.object(app._list, "_on_context") as on_ctx:
+            app._list._context(event, target_clip)
 
         assert app._selected_clip_ids == [target_id]
         assert app._selection_scope.mode == "none"
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -167,12 +192,15 @@ def test_right_click_selected_item_preserves_visible_multiselect_list(tmp_path):
             app._list._toggle_select(vault.storage.get_clip(cid))
         assert set(app._selected_clip_ids) == set(ids)
 
+        clicked_clip = vault.storage.get_clip(ids[0])
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
-        app._list._context(event, vault.storage.get_clip(ids[0]))
+        with mock.patch.object(app._list, "_on_context") as on_ctx:
+            app._list._context(event, clicked_clip)
 
         assert set(app._selected_clip_ids) == set(ids)  # preserved, not collapsed
+        on_ctx.assert_called_once_with(clicked_clip, event.x_root, event.y_root)
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -186,13 +214,16 @@ def test_right_click_matching_highlighted_row_preserves_matching_mode_list(tmp_p
         app._keyboard_select_all_matching(SimpleNamespace(widget=app))
         assert app._selection_scope.mode == "matching"
         target_id = app._visible_clip_ids[0]
+        target_clip = vault.storage.get_clip(target_id)
 
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
-        app._list._context(event, vault.storage.get_clip(target_id))
+        with mock.patch.object(app._list, "_on_context") as on_ctx:
+            app._list._context(event, target_clip)
 
         assert app._selection_scope.mode == "matching"  # not silently collapsed
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Right-click routing (grid) ------------------------------------------
@@ -211,17 +242,21 @@ def test_right_click_unselected_item_selects_only_it_grid(tmp_path):
         target_clip = vault.storage.get_clip(target_id)
 
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
-        app._grid._context(event, target_clip)
+        with mock.patch.object(app._grid, "_on_context") as on_ctx:
+            app._grid._context(event, target_clip)
 
         assert app._selected_clip_ids == [target_id]
         assert app._selection_scope.mode == "none"
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_right_click_matching_highlighted_row_preserves_matching_mode_grid(tmp_path):
-    vault = _vault_with_clips(tmp_path, 15)
+    from dataclasses import replace
+
+    vault = _vault_with_clips(tmp_path, 3)
     app = _make_app(vault)
     try:
         app.withdraw()
@@ -230,14 +265,29 @@ def test_right_click_matching_highlighted_row_preserves_matching_mode_grid(tmp_p
         _settle(app)
         app._keyboard_select_all_matching(SimpleNamespace(widget=app))
         assert app._selection_scope.mode == "matching"
+
+        # Represent a matching selection whose descriptor count exceeds the
+        # rendered set without constructing unnecessary physical widgets.
+        orig_matching = app._selection_scope.matching
+        matching_count = 130
+        app._selection_scope._matching = replace(orig_matching, resolved_count=matching_count)
+
+        assert app._selection_scope.matching.resolved_count == 130
+        assert app._selection_scope.matching.resolved_count > len(app._visible_clip_ids)
+
         target_id = app._visible_clip_ids[0]
+        target_clip = vault.storage.get_clip(target_id)
 
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
-        app._grid._context(event, vault.storage.get_clip(target_id))
+        with mock.patch.object(app._grid, "_on_context") as on_ctx:
+            app._grid._context(event, target_clip)
 
         assert app._selection_scope.mode == "matching"
+        assert app._selection_scope.matching.resolved_count == 130
+        assert app._selection_scope.matching.signature == orig_matching.signature
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Empty-space right-click: no binding exists, selection untouched -----
@@ -264,7 +314,75 @@ def test_empty_space_right_click_does_not_clear_selection(tmp_path):
 
         assert app._selected_clip_ids == [target_id]  # unchanged
     finally:
-        app.destroy()
+        _teardown(app)
+
+
+# --- Popup-boundary regression: selection tests cannot reach tk_popup ----
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_right_click_selection_tests_never_reach_tk_popup(tmp_path):
+    """Prove that the five right-click selection-routing tests stop at the
+    _on_context callback boundary and cannot invoke tk.Menu.tk_popup,
+    clip_context.popup_menu, or any native modal/grab behavior.
+
+    Strategy: patch clip_context.popup_menu to raise RuntimeError immediately.
+    Then exercise all five _context() call paths using the same _on_context
+    mock pattern used by those tests.  The test passes only if none of the
+    five calls propagates past _on_context -- i.e. popup_menu is never
+    reached and the RuntimeError is never raised.
+    """
+    from cache_vault.ui import clip_context as _clip_ctx
+
+    vault = _vault_with_clips(tmp_path, 3)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+
+        def _must_not_be_called(*args, **kwargs):
+            raise RuntimeError(
+                "popup_menu was reached: _on_context patch did not intercept the call"
+            )
+
+        with mock.patch.object(_clip_ctx, "popup_menu", side_effect=_must_not_be_called):
+            # Path 1: unselected item, list
+            target = vault.storage.get_clip(app._visible_clip_ids[2])
+            ev = SimpleNamespace(x_root=1, y_root=2, widget=app)
+            with mock.patch.object(app._list, "_on_context"):
+                app._list._context(ev, target)
+
+            # Path 2: selected item preserves multi-select, list
+            app._clear_selection()
+            for cid in app._visible_clip_ids[:3]:
+                app._list._toggle_select(vault.storage.get_clip(cid))
+            clicked = vault.storage.get_clip(app._visible_clip_ids[0])
+            with mock.patch.object(app._list, "_on_context"):
+                app._list._context(ev, clicked)
+
+            # Path 3: matching mode preserved, list
+            app._keyboard_select_all_matching(SimpleNamespace(widget=app))
+            target3 = vault.storage.get_clip(app._visible_clip_ids[0])
+            with mock.patch.object(app._list, "_on_context"):
+                app._list._context(ev, target3)
+
+            # Path 4: unselected item, grid
+            app._set_view_mode("grid")
+            _settle(app)
+            target4 = vault.storage.get_clip(app._visible_clip_ids[2])
+            with mock.patch.object(app._grid, "_on_context"):
+                app._grid._context(ev, target4)
+
+            # Path 5: matching mode preserved, grid
+            app._keyboard_select_all_matching(SimpleNamespace(widget=app))
+            target5 = vault.storage.get_clip(app._visible_clip_ids[0])
+            with mock.patch.object(app._grid, "_on_context"):
+                app._grid._context(ev, target5)
+
+        # If we reach here, popup_menu was never called -- the boundary holds.
+    finally:
+        _teardown(app)
 
 
 # --- Item-target actions act on the clicked item only ---------------------
@@ -288,7 +406,7 @@ def test_preview_item_targets_clicked_clip_not_selection(tmp_path):
         # Previewing must not itself change selection state.
         assert app._selection_scope.mode == "matching"
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -320,7 +438,7 @@ def test_open_item_targets_clicked_clip_not_whole_matching_selection(tmp_path):
         fired = link_spy if link_spy.call_count else (text_spy if text_spy.call_count else image_spy)
         fired.assert_called_once_with(target_id)
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Menu construction causes no mutation ---------------------------------
@@ -352,7 +470,7 @@ def test_building_invocation_context_and_menu_section_causes_no_mutation(tmp_pat
         assert app._selected_clip_ids == before_selected
         menu.destroy()
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Matching-wide command execution: resolver, not visible ids ----------
@@ -383,7 +501,7 @@ def test_matching_export_uses_resolver_beyond_visible_cap(tmp_path):
         assert len(set(captured_ids)) == total  # deduplicated
         assert len(captured_ids) > MAX_VISIBLE_CLIPS
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -404,7 +522,7 @@ def test_matching_move_to_recently_removed_beyond_visible_cap(tmp_path):
         assert vault.count_clips(removed_query) == total
         assert vault.count_clips(search.SearchQuery(filter_name=S.FILTER_ALL)) == 0
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -427,7 +545,7 @@ def test_matching_restore_beyond_visible_cap(tmp_path):
         assert vault.count_clips(search.SearchQuery(filter_name=S.FILTER_ALL)) == total
         assert vault.count_clips(search.SearchQuery(filter_name=S.FILTER_RECENTLY_REMOVED)) == 0
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -448,7 +566,7 @@ def test_matching_favorite_beyond_visible_cap(tmp_path):
         # Un-favoriting must never delete clips.
         assert vault.count_clips(None) == total
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -472,7 +590,7 @@ def test_stale_matching_export_aborts_without_mutating(tmp_path):
 
         assert called == []  # aborted -- never reached the export call
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -491,7 +609,7 @@ def test_matching_wide_move_declined_confirmation_does_not_mutate(tmp_path):
         assert vault.count_clips(search.SearchQuery(filter_name=S.FILTER_RECENTLY_REMOVED)) == 0
         assert vault.count_clips(None) == 20
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Favorites/collection semantics preserved -----------------------------
@@ -514,7 +632,7 @@ def test_bulk_remove_favorite_marks_never_deletes_clips(tmp_path):
         assert vault.count_clips(None) == 5
         assert all(not c.is_pinned for c in vault.storage.list_clips(None))
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -538,7 +656,7 @@ def test_bulk_remove_from_collection_clears_membership_only(tmp_path):
         assert all(c.collection is None for c in reloaded.values())
         assert reloaded[clips[0].id].is_pinned is True  # favorite state untouched
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -563,7 +681,7 @@ def test_collection_removal_disabled_via_matrix_when_matching(tmp_path):
         commands = {c.key: c for c in command_matrix(ctx, matching_wide_supported=clip_context._MATCHING_WIDE_SUPPORTED)}
         assert commands["remove_from_collection"].enabled is False
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- No permanent delete anywhere in this commit's new code ---------------
@@ -609,7 +727,7 @@ def test_matching_menu_item_target_section_has_no_duplicate_preview_command(tmp_
         assert len(preview_like) == 1, f"expected exactly one preview/details command, got {preview_like}"
         menu.destroy()
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -623,7 +741,7 @@ def test_item_target_section_handles_none_clip_without_error(tmp_path):
         assert menu.index("end") is None  # nothing added for a missing clip
         menu.destroy()
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Stale-after-menu-open: context captured at open time must not be trusted --
@@ -666,7 +784,7 @@ def test_dispatch_with_stale_captured_context_still_aborts(tmp_path):
         assert vault.count_clips(search.SearchQuery(filter_name=S.FILTER_RECENTLY_REMOVED)) == 0
         assert vault.count_clips(None) == total
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 # --- Favorite command truth: explicit direction, no inference from mixed state --
@@ -696,7 +814,7 @@ def test_mixed_favorite_selection_favorite_selected_sets_all_favorited(tmp_path)
         reloaded = vault.storage.list_clips(None)
         assert all(c.is_pinned for c in reloaded)  # every clip, including the already-favorited ones
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
@@ -718,7 +836,7 @@ def test_mixed_favorite_selection_remove_favorite_marks_clears_all(tmp_path):
         assert all(not c.is_pinned for c in reloaded)
         assert len(reloaded) == 5  # clips never deleted by a favorite-mark change
     finally:
-        app.destroy()
+        _teardown(app)
 
 
 def test_favorite_and_unfavorite_are_separate_explicit_commands_not_a_toggle():
