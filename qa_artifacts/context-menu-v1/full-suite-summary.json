@@ -1,0 +1,23 @@
+{
+  "collected_total": 1385,
+  "executed_unique": 1273,
+  "missing": 112,
+  "duplicates": 0,
+  "extra": 0,
+  "passed": 1272,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 1,
+  "collected_test_files": 114,
+  "xml_files_processed": 110,
+  "malformed_xmls": 0,
+  "invariant_satisfied": true,
+  "complete_run_satisfied": false,
+  "skips_detail": [
+    {
+      "node_id": "tests/test_settings_hub.py::TestSettingsHub::test_excluded_apps_preserved_across_category_switch",
+      "file": "tests/test_settings_hub.py",
+      "reason": "Tk/CTk runtime unavailable: Can't find a usable init.tcl in the following directories: \n    {C:\\Python313\\tcl\\tcl8.6}\n\nC:/Python313/tcl/tcl8.6/init.tcl: couldn't read file \"C:/Python313/tcl/tcl8.6/init.tcl\": No error\ncouldn't read file \"C:/Python313/tcl/tcl8.6/init.tcl\": No error\n    while executing\n\"source C:/Python313/tcl/tcl8.6/init.tcl\"\n    (\"uplevel\" body line 1)\n    invoked from within\n\"uplevel #0 [list source $tclfile]\"\n\n\nThis probably means that Tcl wasn't installed properly."
+    }
+  ]
+}
