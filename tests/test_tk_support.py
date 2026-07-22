@@ -157,3 +157,132 @@ def test_probe_cache_only_clean_results(monkeypatch):
         assert r1 == r2 == (True, "")
         # Child process spawned exactly ONCE due to caching
         mock_popen.assert_called_once()
+
+
+def test_probe_cache_unavailable_twice_launches_one_child():
+    """Recognized unavailable result is cached; 2 calls launch 1 child."""
+    _probe_cached.cache_clear()
+    payload = json.dumps({"status": "unavailable", "reason": "init.tcl missing"})
+    mock_proc = mock.Mock()
+    mock_proc.communicate.return_value = (payload, "")
+    mock_proc.returncode = 0
+
+    with mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+        r1 = probe_tk_ui()
+        r2 = probe_tk_ui()
+        assert r1 == r2 == (False, "init.tcl missing")
+        mock_popen.assert_called_once()
+
+
+def test_probe_timeout_retry_launches_two_children():
+    """Timeout exception is NOT cached; retry launches a second child process."""
+    _probe_cached.cache_clear()
+    mock_timeout = mock.Mock()
+    mock_timeout.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["python"], timeout=10.0),
+        ("out", "err"),
+    ]
+
+    with mock.patch("subprocess.Popen", return_value=mock_timeout) as p1:
+        with pytest.raises(TkProbeTimeout):
+            probe_tk_ui()
+        assert p1.call_count == 1
+
+    mock_avail = mock.Mock()
+    mock_avail.communicate.return_value = (json.dumps({"status": "available", "reason": ""}), "")
+    mock_avail.returncode = 0
+
+    with mock.patch("subprocess.Popen", return_value=mock_avail) as p2:
+        r = probe_tk_ui()
+        assert r == (True, "")
+        assert p2.call_count == 1
+
+
+def test_probe_crash_retry_launches_two_children():
+    """Crash exception is NOT cached; retry launches a second child process."""
+    _probe_cached.cache_clear()
+    mock_crash = mock.Mock()
+    mock_crash.communicate.return_value = ("INVALID_JSON", "")
+    mock_crash.returncode = 0
+
+    with mock.patch("subprocess.Popen", return_value=mock_crash) as p1:
+        with pytest.raises(TkProbeCrash):
+            probe_tk_ui()
+        assert p1.call_count == 1
+
+    mock_avail = mock.Mock()
+    mock_avail.communicate.return_value = (json.dumps({"status": "available", "reason": ""}), "")
+    mock_avail.returncode = 0
+
+    with mock.patch("subprocess.Popen", return_value=mock_avail) as p2:
+        r = probe_tk_ui()
+        assert r == (True, "")
+        assert p2.call_count == 1
+
+
+def test_probe_defect_retry_launches_two_children():
+    """Defect exception is NOT cached; retry launches a second child process."""
+    _probe_cached.cache_clear()
+    mock_defect = mock.Mock()
+    mock_defect.communicate.return_value = (json.dumps({"status": "defect", "reason": "AttributeError in CTk"}), "")
+    mock_defect.returncode = 0
+
+    with mock.patch("subprocess.Popen", return_value=mock_defect) as p1:
+        with pytest.raises(TkProbeCrash):
+            probe_tk_ui()
+        assert p1.call_count == 1
+
+    mock_avail = mock.Mock()
+    mock_avail.communicate.return_value = (json.dumps({"status": "available", "reason": ""}), "")
+    mock_avail.returncode = 0
+
+    with mock.patch("subprocess.Popen", return_value=mock_avail) as p2:
+        r = probe_tk_ui()
+        assert r == (True, "")
+        assert p2.call_count == 1
+
+
+def test_probe_timeout_crash_defect_never_return_unavailable():
+    """Timeout, crash, and defect exceptions NEVER return (False, reason)."""
+    _probe_cached.cache_clear()
+    m_timeout = mock.Mock()
+    m_timeout.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["python"], timeout=10.0),
+        ("", ""),
+    ]
+    with mock.patch("subprocess.Popen", return_value=m_timeout):
+        with pytest.raises(TkProbeTimeout):
+            res = probe_tk_ui()
+            assert not isinstance(res, tuple)
+
+    _probe_cached.cache_clear()
+    m_crash = mock.Mock()
+    m_crash.communicate.return_value = ("", "Fatal error")
+    m_crash.returncode = 1
+    with mock.patch("subprocess.Popen", return_value=m_crash):
+        with pytest.raises(TkProbeCrash):
+            res = probe_tk_ui()
+            assert not isinstance(res, tuple)
+
+    _probe_cached.cache_clear()
+    m_defect = mock.Mock()
+    m_defect.communicate.return_value = (json.dumps({"status": "defect", "reason": "Widget flaw"}), "")
+    m_defect.returncode = 0
+    with mock.patch("subprocess.Popen", return_value=m_defect):
+        with pytest.raises(TkProbeCrash):
+            res = probe_tk_ui()
+            assert not isinstance(res, tuple)
+
+
+def test_probe_exceptions_cannot_cause_skip_outcome():
+    """Verify exceptions raised by probe_tk_ui prevent pytest skipif from evaluating to True."""
+    _probe_cached.cache_clear()
+    m_defect = mock.Mock()
+    m_defect.communicate.return_value = (json.dumps({"status": "defect", "reason": "Widget flaw"}), "")
+    m_defect.returncode = 0
+
+    with mock.patch("subprocess.Popen", return_value=m_defect):
+        # Evaluating skip condition raises TkProbeCrash directly, causing test ERROR/FAIL instead of SKIP
+        with pytest.raises(TkProbeCrash):
+            _ = not probe_tk_ui()[0]
+
