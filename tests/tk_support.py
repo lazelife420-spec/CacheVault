@@ -29,6 +29,7 @@ _TCL_UNAVAILABLE_TOKENS = (
     # Python 3.13 / windows-2025 runner: Tcl library not found at Tk() construction
     "tcl_findLibrary",
     "invalid command name",
+    "CreateDesktop",
 )
 
 
