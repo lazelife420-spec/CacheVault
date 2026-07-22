@@ -1336,6 +1336,9 @@ def test_empty_collection_renamed_collection_aborts_safely(tmp_path):
         assert {c.id for c in vault.storage.list_clips("col:Personal")} == {clips[2].id, clips[3].id}
         assert {c.id for c in vault.storage.list_clips("col:Work2")} == {clips[0].id, clips[1].id}
     finally:
+        # Drain pending after() callbacks from _dispatch_sidebar_command before
+        # teardown to prevent cross-test Tk contamination.
+        _settle(app)
         app.destroy()
 
 
