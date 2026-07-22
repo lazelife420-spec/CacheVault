@@ -15,6 +15,7 @@ from unittest import mock
 
 import pytest
 
+from cache_vault.core import models
 from cache_vault.core import storage as S
 from cache_vault.core.models import Clip
 from cache_vault.core.settings import Settings
@@ -428,21 +429,47 @@ def test_keyboard_delete_in_recently_removed_never_permanently_deletes(tmp_path)
         app._selected_clip_ids = [clip.id]
         app._selected_clip_id = clip.id
 
-        with mock.patch.object(app.vault, "permanently_delete_many") as perm_delete, \
-             mock.patch("tkinter.messagebox.askyesno", return_value=True):
+        with mock.patch.object(app.vault, "permanently_delete_many") as perm_delete_many, \
+             mock.patch.object(app.vault, "permanently_remove") as perm_remove, \
+             mock.patch.object(app.vault.storage, "hard_delete") as hard_delete, \
+             mock.patch.object(app.vault.storage, "hard_delete_many") as hard_delete_many, \
+             mock.patch("tkinter.messagebox.askyesno", return_value=True) as ask_yes_no:
             result = app._keyboard_remove_selected()
         _settle(app)
 
-        # Routing invariants.
-        perm_delete.assert_not_called()
-        # Handler must return 'break' (keyboard event consumed), never None
-        # (which would indicate it fell through to another handler path).
+        # 1. Confirmation dependency intercepted; askyesno called once with expected title/message/parent.
+        ask_yes_no.assert_called_once()
+        ask_args, ask_kwargs = ask_yes_no.call_args
+        assert ask_args[0] == "Remove from History"
+        assert "Remove this clip from Cache Vault history?" in ask_args[1]
+        assert ask_kwargs.get("parent") is app
+
+        # 2. Handler returns sentinel 'break' (event consumed).
         assert result == "break", f"Expected 'break', got {result!r}"
-        # The clip is already soft-deleted; Delete on an already-removed
-        # item must stay a harmless no-op-ish soft path, never escalate.
+
+        # 3. No permanent deletion methods invoked (neither vault nor storage).
+        perm_delete_many.assert_not_called()
+        perm_remove.assert_not_called()
+        hard_delete.assert_not_called()
+        hard_delete_many.assert_not_called()
+
+        # 4. Clip remains soft-deleted in Recently Removed with content intact.
         reloaded = vault.storage.get_clip(clip.id)
         assert reloaded is not None, "Clip was hard-deleted — permanent deletion occurred"
         assert reloaded.deleted_at is not None, "Clip lost its soft-delete state"
+        assert reloaded.content == clip.content, "Clip content was mutated"
+
+        # 5. Event log contains no permanent-delete events.
+        recent_events = vault.events.recent()
+        perm_events = [
+            e for e in recent_events
+            if e["event_type"] in (
+                models.EVENT_PERMANENTLY_REMOVED,
+                models.EVENT_PERMANENT_DELETE_BATCH,
+                models.EVENT_PERMANENT_DELETE_RECOVERY,
+            )
+        ]
+        assert perm_events == [], f"Unexpected permanent-delete events found: {perm_events}"
     finally:
         app.destroy()
 
