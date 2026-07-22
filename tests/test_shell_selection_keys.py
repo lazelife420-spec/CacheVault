@@ -14,6 +14,7 @@ import tkinter as tk
 from types import SimpleNamespace
 
 import pytest
+from unittest import mock
 
 from cache_vault.core import models
 from cache_vault.core import search
@@ -476,7 +477,8 @@ def test_right_click_collapsing_to_one_item_exits_matching_mode(tmp_path):
         target_clip = vault.storage.get_clip(target_id)
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
 
-        app._list._context(event, target_clip)
+        with mock.patch.object(app._list, "_on_context"):
+            app._list._context(event, target_clip)
 
         assert app._selection_scope.mode == "none"
         assert app._selected_clip_ids == [target_id]
@@ -504,7 +506,8 @@ def test_right_click_preserving_existing_multiselect_keeps_matching_mode(tmp_pat
         target_clip = vault.storage.get_clip(target_id)
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
 
-        app._list._context(event, target_clip)
+        with mock.patch.object(app._list, "_on_context"):
+            app._list._context(event, target_clip)
 
         assert app._selection_scope.mode == "matching"
     finally:
