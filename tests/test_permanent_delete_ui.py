@@ -429,6 +429,11 @@ def test_keyboard_delete_in_recently_removed_never_permanently_deletes(tmp_path)
         app._selected_clip_ids = [clip.id]
         app._selected_clip_id = clip.id
 
+        events_before = {
+            (e["id"], e["event_type"])
+            for e in vault.events.recent()
+        }
+
         with mock.patch.object(app.vault, "permanently_delete_many") as perm_delete_many, \
              mock.patch.object(app.vault, "permanently_remove") as perm_remove, \
              mock.patch.object(app.vault.storage, "hard_delete") as hard_delete, \
@@ -459,17 +464,19 @@ def test_keyboard_delete_in_recently_removed_never_permanently_deletes(tmp_path)
         assert reloaded.deleted_at is not None, "Clip lost its soft-delete state"
         assert reloaded.content == clip.content, "Clip content was mutated"
 
-        # 5. Event log contains no permanent-delete events.
-        recent_events = vault.events.recent()
-        perm_events = [
-            e for e in recent_events
-            if e["event_type"] in (
-                models.EVENT_PERMANENTLY_REMOVED,
-                models.EVENT_PERMANENT_DELETE_BATCH,
-                models.EVENT_PERMANENT_DELETE_RECOVERY,
-            )
-        ]
-        assert perm_events == [], f"Unexpected permanent-delete events found: {perm_events}"
+        # 5. Event log delta contains no newly created permanent-delete events.
+        events_after = {
+            (e["id"], e["event_type"])
+            for e in vault.events.recent()
+        }
+        new_events = events_after - events_before
+        perm_types = {
+            models.EVENT_PERMANENTLY_REMOVED,
+            models.EVENT_PERMANENT_DELETE_BATCH,
+            models.EVENT_PERMANENT_DELETE_RECOVERY,
+        }
+        new_perm_events = [e_type for _, e_type in new_events if e_type in perm_types]
+        assert new_perm_events == [], f"Unexpected permanent-delete events created: {new_perm_events}"
     finally:
         app.destroy()
 
