@@ -2474,7 +2474,8 @@ class CacheVaultApp(ctk.CTk):
                 # clips/total_clips were already fetched (paginated, in SQL)
                 # on the worker thread for this exact query + generation.
                 more_count = total_clips - len(clips)
-                self._page_header.set_content(self._filters.active_label, f"{total_clips} clips")
+                clip_noun = "clip" if total_clips == 1 else "clips"
+                self._page_header.set_content(self._filters.active_label, f"{total_clips} {clip_noun}")
                 self._visible_clip_ids = [c.id for c in clips]
                 empty_msg = self._empty_message(active, clips, query)
                 view = self._grid if self._view_mode == "grid" else self._list

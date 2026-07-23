@@ -114,13 +114,132 @@ class TestNavigation:
         from cache_vault.core.storage import VaultStorage
         from cache_vault.core.settings import Settings
         from cache_vault.core.vault import Vault
-        
+
         vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
         app = _make_app(vault)
         try:
             app.withdraw()
-            
+
             app._nav_history = []
             app._navigate_back() # Should not crash
+        finally:
+            app.destroy()
+
+    def test_collection_active_label_shows_display_name_not_raw_key(self, tmp_path):
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.vault import Vault
+        from cache_vault.core import storage as S
+        from tests.tk_support import wait_for_refresh
+
+        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
+        clip = vault.capture("a note")
+        vault.set_collection(clip.id, "My Collection")
+        app = _make_app(vault)
+        try:
+            app.withdraw()
+
+            # update_collections() is called during refresh(), which is what
+            # actually populates _labels_text for dynamically created
+            # collections -- calling it directly would skip the real
+            # production wiring this bug lives in (shell.py's refresh path).
+            app.refresh()
+            wait_for_refresh(app)
+
+            key = S.COLLECTION_PREFIX + "My Collection"
+            app._navigate_screen(key)
+
+            assert app._filters.active_label == "My Collection"
+            assert app._filters.active_label != key
+        finally:
+            app.destroy()
+
+    def test_collection_label_removed_when_collection_disappears(self, tmp_path):
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.vault import Vault
+        from cache_vault.core import storage as S
+        from tests.tk_support import wait_for_refresh
+
+        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
+        clip = vault.capture("a note")
+        vault.set_collection(clip.id, "Temp Collection")
+        app = _make_app(vault)
+        try:
+            app.withdraw()
+            app.refresh()
+            wait_for_refresh(app)
+
+            key = S.COLLECTION_PREFIX + "Temp Collection"
+            assert app._filters._labels_text.get(key) == "Temp Collection"
+
+            # Removing the clip from the collection makes it disappear from
+            # list_collections(); a fresh refresh should drop the stale
+            # label entry rather than leaving it around indefinitely.
+            vault.set_collection(clip.id, None)
+            app.refresh()
+            wait_for_refresh(app)
+
+            assert key not in app._filters._labels_text
+        finally:
+            app.destroy()
+
+    def test_page_header_count_grammar_is_singular_for_one_clip(self, tmp_path):
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.vault import Vault
+        from cache_vault.core import storage as S
+        from tests.tk_support import wait_for_refresh
+
+        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
+        vault.capture("only clip")
+        app = _make_app(vault)
+        try:
+            app.withdraw()
+            app._navigate_screen(S.FILTER_ALL)
+            app._do_refresh_sync()
+            wait_for_refresh(app)
+
+            assert app._page_header._subtitle_label.cget("text") == "1 clip"
+        finally:
+            app.destroy()
+
+    def test_page_header_count_grammar_is_plural_for_multiple_clips(self, tmp_path):
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.vault import Vault
+        from cache_vault.core import storage as S
+        from tests.tk_support import wait_for_refresh
+
+        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
+        vault.capture("first clip")
+        vault.capture("second clip")
+        app = _make_app(vault)
+        try:
+            app.withdraw()
+            app._navigate_screen(S.FILTER_ALL)
+            app._do_refresh_sync()
+            wait_for_refresh(app)
+
+            assert app._page_header._subtitle_label.cget("text") == "2 clips"
+        finally:
+            app.destroy()
+
+    def test_page_header_count_grammar_is_plural_for_zero_clips(self, tmp_path):
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.vault import Vault
+        from cache_vault.core import storage as S
+        from tests.tk_support import wait_for_refresh
+
+        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
+        app = _make_app(vault)
+        try:
+            app.withdraw()
+            app._navigate_screen(S.FILTER_ALL)
+            app._do_refresh_sync()
+            wait_for_refresh(app)
+
+            assert app._page_header._subtitle_label.cget("text") == "0 clips"
         finally:
             app.destroy()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 import customtkinter as ctk
 from . import theme
 from .. import brand
@@ -243,3 +245,53 @@ class UnavailableState(ctk.CTkFrame):
             justify="center",
         )
         self._desc_lbl.pack(pady=(4, 16))
+
+
+def build_clip_empty_state(
+    master,
+    *,
+    active_filter: str,
+    empty_message: str | None = None,
+    clear_filters: Callable[[], None] | None = None,
+    save_clipboard: Callable[[], None] | None = None,
+) -> "EmptyState":
+    """Resolve and build the one EmptyState CacheVault shows for an empty
+    clip list/grid.
+
+    Resolution is keyed strictly on ``active_filter`` -- the actual
+    structured filter/collection key the caller is currently viewing --
+    never on sniffing the content of ``empty_message`` or any other free
+    text. This is shared by ClipList and ClipGrid so the two views can
+    never independently drift out of sync on what an empty screen says.
+    """
+    from ..core import storage as S
+
+    title = "No clips yet"
+    icon = "\U0001F4ED"  # 📭
+    desc = empty_message or "Copy something and it will appear here."
+    actions = None
+
+    if active_filter == S.FILTER_DUPLICATES:
+        title, icon, desc = "No Duplicates", "≡", "Everything looks clean."
+    elif active_filter == S.FILTER_FAVORITES:
+        title, icon, desc = "No Favorites", "★", "Star clips to save them here."
+    elif active_filter == S.FILTER_SCREENSHOTS:
+        title, icon, desc = "No Screenshots", "▦", "Screenshots will appear here."
+    elif active_filter == S.FILTER_SENSITIVE:
+        title, icon, desc = "No Sensitive Items", "⚠", "Sensitive clips will appear here."
+    elif active_filter == S.FILTER_RECENTLY_REMOVED:
+        title, icon, desc = "No Recently Removed", "↩", "Clean trash bin."
+    elif active_filter.startswith(S.COLLECTION_PREFIX):
+        title = "This collection is empty"
+        icon = "\U0001F5C2"  # 🗂
+        desc = "Add clips to this collection from a clip's context menu."
+    else:
+        title = "No clips match filters"
+        icon = "\U0001F4ED"  # 📭
+        if clear_filters is not None and save_clipboard is not None:
+            actions = [
+                ("Clear Filters", clear_filters, False),
+                ("Save Clipboard", save_clipboard, True),
+            ]
+
+    return EmptyState(master, title=title, description=desc, icon=icon, actions=actions)

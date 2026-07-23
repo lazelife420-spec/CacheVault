@@ -1366,7 +1366,7 @@ class PermanentDeleteSelectedDialog(ctk.CTkToplevel):
         ctk.CTkButton(btns, text="Cancel", height=32, command=self._cancel,
                       **theme.secondary_button()).pack(side="right", padx=(8, 0))
         ctk.CTkButton(btns, text=action_label, height=32,
-                      command=self._confirm, **theme.primary_button()).pack(side="right")
+                      command=self._confirm, **theme.destructive_button()).pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.bind("<Escape>", lambda e: self._cancel())
@@ -1472,7 +1472,7 @@ class PermanentDeleteAllDialog(ctk.CTkToplevel):
         btns.pack(fill="x", side="bottom")
         confirm_btn = ctk.CTkButton(
             btns, text="Permanently delete all items in Recently Removed", height=32,
-            state="disabled", command=self._finish, **theme.primary_button(),
+            state="disabled", command=self._finish, **theme.destructive_button(),
         )
         confirm_btn.pack(side="right")
         ctk.CTkButton(btns, text="Cancel", height=32, command=self._cancel,

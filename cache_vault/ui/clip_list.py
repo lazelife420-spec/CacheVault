@@ -10,7 +10,7 @@ from .. import brand
 from ..core import clip_accents, clip_metadata, models
 from ..core.models import Clip
 from . import theme
-from .page_scaffold import EmptyState
+from .page_scaffold import build_clip_empty_state
 
 
 class ClipList(ctk.CTkScrollableFrame):
@@ -33,6 +33,8 @@ class ClipList(ctk.CTkScrollableFrame):
         self._rail_by_id: dict[str, ctk.CTkFrame] = {}
         self._selected_badge_by_id: dict[str, ctk.CTkLabel] = {}
         self._action_bar_by_id: dict[str, ctk.CTkFrame] = {}
+        self._title_label_by_id: dict[str, ctk.CTkLabel] = {}
+        self._meta_label_by_id: dict[str, ctk.CTkLabel] = {}
         self._collapsed_groups: set[tuple[str, str]] = set()
         self._last_clips: list[Clip] = []
         self._last_empty_message: str | None = None
@@ -71,6 +73,8 @@ class ClipList(ctk.CTkScrollableFrame):
         self._rail_by_id.clear()
         self._selected_badge_by_id.clear()
         self._action_bar_by_id.clear()
+        self._title_label_by_id.clear()
+        self._meta_label_by_id.clear()
         self._render_order.clear()
         self._empty_container.pack_forget()
 
@@ -78,50 +82,15 @@ class ClipList(ctk.CTkScrollableFrame):
             for w in self._empty_container.winfo_children():
                 w.destroy()
 
-            actions = None
-            title = "No clips yet"
-            icon = "📭"
-            desc = empty_message or "Copy something and it will appear here."
-
             shell = self.winfo_toplevel()
             active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
 
-            from ..core import storage as S
-            if active_filter == S.FILTER_DUPLICATES:
-                title = "No Duplicates"
-                icon = "≡"
-                desc = "Everything looks clean."
-            elif active_filter == S.FILTER_FAVORITES:
-                title = "No Favorites"
-                icon = "★"
-                desc = "Star clips to save them here."
-            elif active_filter == S.FILTER_SCREENSHOTS:
-                title = "No Screenshots"
-                icon = "▦"
-                desc = "Screenshots will appear here."
-            elif active_filter == S.FILTER_SENSITIVE:
-                title = "No Sensitive Items"
-                icon = "⚠"
-                desc = "Sensitive clips will appear here."
-            elif active_filter == S.FILTER_RECENTLY_REMOVED:
-                title = "No Recently Removed"
-                icon = "↩"
-                desc = "Clean trash bin."
-            else:
-                title = "No clips match filters"
-                icon = "📭"
-                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
-                    actions = [
-                        ("Clear Filters", shell._clear_filters, False),
-                        ("Save Clipboard", shell._manual_save_clipboard, True),
-                    ]
-
-            est = EmptyState(
+            est = build_clip_empty_state(
                 self._empty_container,
-                title=title,
-                description=desc,
-                icon=icon,
-                actions=actions,
+                active_filter=active_filter,
+                empty_message=empty_message,
+                clear_filters=getattr(shell, "_clear_filters", None),
+                save_clipboard=getattr(shell, "_manual_save_clipboard", None),
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
@@ -170,6 +139,8 @@ class ClipList(ctk.CTkScrollableFrame):
         self._rail_by_id.clear()
         self._selected_badge_by_id.clear()
         self._action_bar_by_id.clear()
+        self._title_label_by_id.clear()
+        self._meta_label_by_id.clear()
         self._render_order.clear()
         self._empty_container.pack_forget()
 
@@ -177,50 +148,15 @@ class ClipList(ctk.CTkScrollableFrame):
             for w in self._empty_container.winfo_children():
                 w.destroy()
 
-            actions = None
-            title = "No clips yet"
-            icon = "📭"
-            desc = empty_message or "Copy something and it will appear here."
-
             shell = self.winfo_toplevel()
             active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
 
-            from ..core import storage as S
-            if active_filter == S.FILTER_DUPLICATES:
-                title = "No Duplicates"
-                icon = "≡"
-                desc = "Everything looks clean."
-            elif active_filter == S.FILTER_FAVORITES:
-                title = "No Favorites"
-                icon = "★"
-                desc = "Star clips to save them here."
-            elif active_filter == S.FILTER_SCREENSHOTS:
-                title = "No Screenshots"
-                icon = "▦"
-                desc = "Screenshots will appear here."
-            elif active_filter == S.FILTER_SENSITIVE:
-                title = "No Sensitive Items"
-                icon = "⚠"
-                desc = "Sensitive clips will appear here."
-            elif active_filter == S.FILTER_RECENTLY_REMOVED:
-                title = "No Recently Removed"
-                icon = "↩"
-                desc = "Clean trash bin."
-            else:
-                title = "No clips match filters"
-                icon = "📭"
-                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
-                    actions = [
-                        ("Clear Filters", shell._clear_filters, False),
-                        ("Save Clipboard", shell._manual_save_clipboard, True),
-                    ]
-
-            est = EmptyState(
+            est = build_clip_empty_state(
                 self._empty_container,
-                title=title,
-                description=desc,
-                icon=icon,
-                actions=actions,
+                active_filter=active_filter,
+                empty_message=empty_message,
+                clear_filters=getattr(shell, "_clear_filters", None),
+                save_clipboard=getattr(shell, "_manual_save_clipboard", None),
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
@@ -385,11 +321,13 @@ class ClipList(ctk.CTkScrollableFrame):
                          text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
-        ctk.CTkLabel(
+        title_lbl = ctk.CTkLabel(
             body, text=title, anchor="w",
             font=ctk.CTkFont(size=13 if selected else 12, weight="bold"),
             text_color=brand.RECEIPT_WHITE,
-        ).pack(fill="x", padx=2)
+        )
+        title_lbl.pack(fill="x", padx=2)
+        self._title_label_by_id[clip.id] = title_lbl
 
         preview_lines = (clip.preview or "(empty)").splitlines()[:3]
         preview = "\n".join(preview_lines)
@@ -417,13 +355,15 @@ class ClipList(ctk.CTkScrollableFrame):
         storage = getattr(getattr(window, "vault", None), "storage", None)
         meta_str = clip_metadata.source_summary_line(clip, storage)
 
-        ctk.CTkLabel(
+        meta_lbl = ctk.CTkLabel(
             body,
             text=meta_str,
             anchor="w",
             text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
             font=ctk.CTkFont(size=11, weight="bold" if selected else "normal"),
-        ).pack(fill="x", padx=2, pady=(0, 8))
+        )
+        meta_lbl.pack(fill="x", padx=2, pady=(0, 8))
+        self._meta_label_by_id[clip.id] = meta_lbl
 
         # Inline Action Bar
         action_bar = ctk.CTkFrame(body, fg_color="transparent")
@@ -606,6 +546,27 @@ class ClipList(ctk.CTkScrollableFrame):
             else:
                 if badge_lbl.winfo_ismapped():
                     badge_lbl.pack_forget()
+
+        # Title and metadata text: font size/weight/color also change on
+        # selection (set at initial _build_row time) but were previously
+        # never touched here, so a row selected via ctrl/shift-click after
+        # its first render kept its unselected title size and metadata
+        # weight/color -- only a row rebuilt from scratch got the full
+        # selected presentation. Repainting them here on every selection
+        # change keeps both paths visually identical.
+        if not hasattr(self, "_title_label_by_id"):
+            self._title_label_by_id = {}
+        if not hasattr(self, "_meta_label_by_id"):
+            self._meta_label_by_id = {}
+        title_lbl = self._title_label_by_id.get(clip_id)
+        if title_lbl is not None:
+            title_lbl.configure(font=ctk.CTkFont(size=13 if is_selected else 12, weight="bold"))
+        meta_lbl = self._meta_label_by_id.get(clip_id)
+        if meta_lbl is not None:
+            meta_lbl.configure(
+                text_color=brand.RECEIPT_WHITE if is_selected else brand.MUTED_FG,
+                font=ctk.CTkFont(size=11, weight="bold" if is_selected else "normal"),
+            )
 
         # Dynamic action bar management
         if not hasattr(self, "_action_bar_by_id"):
