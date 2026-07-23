@@ -348,6 +348,13 @@ def test_toolbar_overflow_at_compact_width(app):
     assert not app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should collapse at compact width"
     assert not app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should collapse at compact width"
     assert not app._control_strip._safe.winfo_ismapped(), "Default Safe label should collapse at compact width"
+    # Both actions above must not become unreachable -- they move into the
+    # "More" overflow instead of vanishing outright.
+    assert app._top_more_btn.winfo_ismapped(), "More overflow button should appear at compact width"
+    assert app._control_strip._lock_btn.cget("text") == "Lock", (
+        "Lock Now should shorten to 'Lock' at compact width, but stay a distinct, reachable button"
+    )
+    assert app._control_strip._lock_btn.winfo_ismapped(), "Lock button must stay reachable at compact width"
 
     with patch.object(app, 'winfo_width', return_value=1600):
         app._handle_resize_debounced()
@@ -357,6 +364,112 @@ def test_toolbar_overflow_at_compact_width(app):
     assert app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should return at wide width"
     assert app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should return at wide width"
     assert app._control_strip._safe.winfo_ismapped(), "Default Safe label should return at wide width"
+    assert not app._top_more_btn.winfo_ismapped(), "More overflow button should disappear at wide width"
+    assert app._control_strip._lock_btn.cget("text") == "Lock Now", (
+        "Lock label should revert to 'Lock Now' at wide width"
+    )
+
+
+def test_toolbar_overflow_menu_invokes_original_handlers(app):
+    """The compact-width "More" menu must call the exact same handlers as
+    the full-width Stamped Receipts / Capture Rules buttons -- this is an
+    access path, not a different feature."""
+    with patch.object(app, 'winfo_width', return_value=950):
+        app._handle_resize_debounced()
+    app.update_idletasks()
+
+    captured_menu = {}
+
+    def _fake_popup(window, menu, x, y):
+        captured_menu["menu"] = menu
+
+    with patch("cache_vault.ui.shell.clip_context.popup_menu", side_effect=_fake_popup), \
+         patch.object(app, "_navigate_screen") as nav_mock, \
+         patch.object(app, "_open_regex_macros") as macros_mock:
+        app._open_top_overflow_menu()
+        menu = captured_menu["menu"]
+        assert menu.index("end") == 1, "Overflow menu should offer exactly the 2 moved actions"
+
+        menu.invoke(0)
+        nav_mock.assert_called_once()
+        from cache_vault.ui.filters import NAV_STAMPED_RECEIPTS
+        assert nav_mock.call_args[0][0] == NAV_STAMPED_RECEIPTS
+
+        menu.invoke(1)
+        macros_mock.assert_called_once()
+    menu.destroy()
+
+
+def test_view_toggle_controls_keep_minimum_right_inset_at_every_supported_width(app):
+    """Cards/Grid must never sit flush against (or past) the toolbar's
+    right edge -- headroom, not a fix for observed clipping (none exists
+    at any currently supported width; this asserts the margin explicitly
+    so a future change can't silently erode it back to zero).
+
+    Uses real window geometry (not a mocked winfo_width) -- mocking only
+    drives the layout-mode branch, it doesn't move any actual widget, so
+    a pixel-bounds assertion needs the real window genuinely resized.
+    """
+    app._navigate_screen(FILTER_ALL)
+    MIN_INSET = 8  # logical px; deliberately looser than the ~21px measured
+                   # after the fix, so this doesn't become pixel-brittle.
+    for geometry in ("900x600", "1000x650", "1100x700", "1600x900"):
+        app.geometry(geometry)
+        app.update()
+        if app._resize_job:
+            app.after_cancel(app._resize_job)
+            app._resize_job = None
+        app._handle_resize_debounced()
+        app.update()
+
+        assert app._grid_btn.winfo_ismapped(), f"Grid must stay visible at {geometry}"
+        assert app._cards_btn.winfo_ismapped(), f"Cards must stay visible at {geometry}"
+        toolbar_right = app._toolbar.winfo_rootx() + app._toolbar.winfo_width()
+        grid_right = app._grid_btn.winfo_rootx() + app._grid_btn.winfo_width()
+        assert grid_right <= toolbar_right, (
+            f"Grid button must not extend past the toolbar boundary at {geometry}"
+        )
+        margin = toolbar_right - grid_right
+        assert margin >= MIN_INSET, (
+            f"Grid button right edge too close to toolbar boundary at {geometry}: "
+            f"margin={margin}px, required >= {MIN_INSET}px"
+        )
+
+
+def test_bulk_action_strip_stays_within_toolbar_bounds_at_minimum_width(app):
+    """Verified via real measurement (not screenshots) that a genuine
+    2-item selection's bulk-action strip stays fully inside the toolbar at
+    the narrowest supported width (900x600) -- confirming no change is
+    needed here, and guarding against future regression."""
+    app.vault.storage.add_clip(Clip(id="bulk_strip_1", content="first", content_type=CONTENT_TEXT))
+    app.vault.storage.add_clip(Clip(id="bulk_strip_2", content="second", content_type=CONTENT_TEXT))
+    app._navigate_screen(FILTER_ALL)
+    app._do_refresh_sync()
+    wait_for_refresh(app)
+
+    app.geometry("900x600")
+    app.update()
+    if app._resize_job:
+        app.after_cancel(app._resize_job)
+        app._resize_job = None
+    app._handle_resize_debounced()
+    app.update()
+
+    app._clear_selection()
+    ids = app._visible_clip_ids[:2]
+    assert len(ids) == 2, "Test fixture needs at least 2 visible clips"
+    for cid in ids:
+        app._list._toggle_select(app.vault.storage.get_clip(cid))
+    app.update()
+
+    assert app._selected_action_frame.winfo_ismapped()
+    toolbar_right = app._toolbar.winfo_rootx() + app._toolbar.winfo_width()
+    for btn in app._selected_action_buttons:
+        btn_right = btn.winfo_rootx() + btn.winfo_width()
+        assert btn_right <= toolbar_right, (
+            f"Bulk-strip button {btn.cget('text')!r} extends past the toolbar "
+            f"boundary at 900x600 ({btn_right} > {toolbar_right})"
+        )
 
 
 def test_repeated_navigation_does_not_duplicate_widgets(app):

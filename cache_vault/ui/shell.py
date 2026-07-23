@@ -20,6 +20,7 @@ import traceback
 from pathlib import Path
 
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import filedialog
 
 from .. import brand
@@ -640,6 +641,13 @@ class CacheVaultApp(ctk.CTk):
             top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
             **theme.secondary_button())
         self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
+        # Compact-width overflow for the two buttons above -- see
+        # _set_toolbar_compact. Occupies their combined grid slot but stays
+        # ungridded (not merely invisible) until compact mode needs it, so
+        # it never steals layout space at standard/wide widths.
+        self._top_more_btn = ctk.CTkButton(
+            top, text="More ▾", width=90, command=self._open_top_overflow_menu,
+            **theme.secondary_button())
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
                       ).grid(row=0, column=4, padx=(4, 12))
@@ -849,6 +857,14 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
 
+        # Narrow-width containment guard: packed first (side="right") so it
+        # stays the true rightmost element of the row regardless of whether
+        # _view_label is later hidden/shown, guaranteeing Grid/Cards always
+        # keep a minimum inset from the toolbar's right edge -- headroom,
+        # not a fix for any observed clipping (none was found at any
+        # supported window size; see the Slice 2 measurement record).
+        ctk.CTkFrame(self._toolbar_row3, width=12, height=1, fg_color="transparent").pack(
+            side="right")
         self._view_label = ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
                      font=theme.body_font(11))
         self._view_label.pack(side="right", padx=(4, 2))
@@ -2990,7 +3006,12 @@ class CacheVaultApp(ctk.CTk):
 
     def _set_toolbar_compact(self, compact: bool) -> None:
         """Drop the least-essential toolbar chrome at narrow widths instead of
-        letting the global toolbar clip or extend past the window edge."""
+        letting the global toolbar clip or extend past the window edge.
+
+        Every action stays reachable either way: at compact widths, Stamped
+        Receipts and Capture Rules move into the "More" overflow menu
+        (_open_top_overflow_menu) rather than being removed outright.
+        """
         if not hasattr(self, "_view_label"):
             return
         if compact:
@@ -2998,13 +3019,16 @@ class CacheVaultApp(ctk.CTk):
             self._selection_hint_label.pack_forget()
             self._top_receipts_btn.grid_remove()
             self._top_capture_rules_btn.grid_remove()
+            self._top_more_btn.grid(row=0, column=2, columnspan=2, padx=4)
         else:
             if not self._view_label.winfo_ismapped():
                 self._view_label.pack(side="right", padx=(4, 2), before=self._grid_btn)
             if not self._selection_hint_label.winfo_ismapped():
                 self._selection_hint_label.pack(side="left", padx=(6, 0))
+            self._top_more_btn.grid_remove()
             self._top_receipts_btn.grid(row=0, column=2, padx=4)
             self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
+        self._control_strip.set_lock_label_compact(compact)
 
         self._control_strip.set_compact(compact)
 
@@ -4583,6 +4607,22 @@ class CacheVaultApp(ctk.CTk):
             if getattr(a, "enabled", True) and getattr(a, "hotkey", "").strip():
                 external[a.hotkey] = f"hotkey action “{a.name}”"
         return external
+
+    def _open_top_overflow_menu(self) -> None:
+        """Compact-width overflow for the top toolbar's secondary actions.
+
+        Invokes the exact same handlers as the full-width buttons -- this
+        is purely a narrow-width access path, not a different feature.
+        """
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label=brand.TERM_STAMPED_RECEIPTS,
+            command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+        )
+        menu.add_command(label="⚡ Capture Rules", command=self._open_regex_macros)
+        x = self._top_more_btn.winfo_rootx()
+        y = self._top_more_btn.winfo_rooty() + self._top_more_btn.winfo_height()
+        clip_context.popup_menu(self, menu, x, y)
 
     def _open_regex_macros(self) -> None:
         from .regex_macro_dialog import RegexMacroDialog

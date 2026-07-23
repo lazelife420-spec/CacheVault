@@ -180,11 +180,12 @@ class VaultControlStrip(ctk.CTkFrame):
         self._receipts.grid(row=0, column=2, padx=4, pady=6)
         self._safe = ctk.CTkLabel(self, text="Default Safe", text_color=brand.MUTED_FG)
         self._safe.grid(row=0, column=3, padx=8, pady=6)
-        ctk.CTkButton(
+        self._lock_btn = ctk.CTkButton(
             self, text="Lock Now", width=92,
             command=lambda: self._callbacks.get("lock_now", lambda: None)(),
             **theme.secondary_button(),
-        ).grid(row=0, column=4, padx=4, pady=6)
+        )
+        self._lock_btn.grid(row=0, column=4, padx=4, pady=6)
         self._quick = ctk.CTkOptionMenu(
             self,
             width=150,
@@ -207,6 +208,12 @@ class VaultControlStrip(ctk.CTkFrame):
             self._safe.grid_remove()
         else:
             self._safe.grid(row=0, column=3, padx=8, pady=6)
+
+    def set_lock_label_compact(self, compact: bool) -> None:
+        """Shorten "Lock Now" to "Lock" at narrow widths. The button stays
+        reachable and wired to the same command either way -- this only
+        changes the displayed label, never visibility."""
+        self._lock_btn.configure(text="Lock" if compact else "Lock Now")
 
     def update_state(self, summary: dict) -> None:
         self._summary = summary
