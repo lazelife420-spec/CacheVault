@@ -301,10 +301,8 @@ class SidebarRow(ctk.CTkFrame):
                     subchild.bind("<Shift-F10>", self._on_right_click)
 
     def _on_right_click(self, event) -> None:
-        # 1. Right-click selects or targets the clicked row first.
-        # 2. The menu acts on that row, not the previously active row.
-        if self._key not in (NAV_FOUNDER, NAV_NEW_SAFE, NAV_SETTINGS):
-            self._select_clicked()
+        # Right-click targets the clicked row for the context menu but does NOT
+        # navigate; the Open command performs navigation only when selected.
         if self._on_context:
             x = getattr(event, "x_root", self.winfo_rootx())
             y = getattr(event, "y_root", self.winfo_rooty() + 10)

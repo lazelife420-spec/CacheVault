@@ -42,6 +42,45 @@ def test_removed_clip_menu_offers_restore():
     assert keys == ["copy_again", "restore", "permanently_remove"]
 
 
+def test_removed_clip_menu_has_exactly_one_permanent_delete_command_with_honest_label():
+    """Corrective commit: the single-item Recently Removed menu must
+    show exactly one permanent-delete command, worded "Permanently
+    delete this item" -- not "Permanently Remove" (the old, now-retired
+    label for the unstaged legacy path) and not the multi-select wording.
+    """
+    items = clip_menu_items(_clip("gone", deleted_at="2026-01-01T00:00:00+00:00"))
+    labels = {i.key: i.label for i in items}
+    permanent_delete_keys = [k for k in labels if "permanent" in k.lower()]
+    assert permanent_delete_keys == ["permanently_remove"]
+    assert labels["permanently_remove"] == "Permanently delete this item"
+
+
+def test_active_clip_menu_has_no_permanent_delete_command():
+    items = clip_menu_items(_clip("still active"))
+    assert "permanently_remove" not in _all_keys(items)
+
+
+def test_multi_select_removed_clips_label_includes_exact_count():
+    removed_a = _clip("a", deleted_at="2026-01-01T00:00:00+00:00")
+    removed_b = _clip("b", deleted_at="2026-01-01T00:00:00+00:00")
+    removed_c = _clip("c", deleted_at="2026-01-01T00:00:00+00:00")
+    items = clip_menu_items([removed_a, removed_b, removed_c])
+    labels = {i.key: i.label for i in items}
+    assert labels["permanently_remove_selected"] == "Permanently delete 3 selected items"
+
+
+def test_active_multi_select_has_no_permanent_delete_command():
+    items = clip_menu_items([_clip("a"), _clip("b")])
+    assert "permanently_remove_selected" not in _keys(items)
+
+
+def test_mixed_active_and_removed_multi_select_has_no_permanent_delete_command():
+    active = _clip("active")
+    removed = _clip("removed", deleted_at="2026-01-01T00:00:00+00:00")
+    items = clip_menu_items([active, removed])
+    assert "permanently_remove_selected" not in _keys(items)
+
+
 def test_favorite_label_toggles():
     normal = clip_menu_items(_clip("x"))
     organize = _children(normal, "organize")
