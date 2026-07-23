@@ -2993,7 +2993,7 @@ class CacheVaultApp(ctk.CTk):
         else:
             self.grid_columnconfigure(2, weight=0, minsize=400 if mode == "wide" else 320)
 
-        self._set_toolbar_compact(mode == "compact")
+        self._set_toolbar_compact(mode)
         self._update_inspector_visibility()
 
         if hasattr(self._home, "set_layout_mode"):
@@ -3004,16 +3004,25 @@ class CacheVaultApp(ctk.CTk):
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
         self.refresh()
 
-    def _set_toolbar_compact(self, compact: bool) -> None:
+    def _set_toolbar_compact(self, mode: str) -> None:
         """Drop the least-essential toolbar chrome at narrow widths instead of
         letting the global toolbar clip or extend past the window edge.
 
         Every action stays reachable either way: at compact widths, Stamped
         Receipts and Capture Rules move into the "More" overflow menu
         (_open_top_overflow_menu) rather than being removed outright.
+
+        VaultControlStrip's own content (Capture/Mobile/Receipts dropdowns
+        + Default Safe label + Lock + Quick Actions) is wide enough that,
+        combined with the outer top bar's fixed-width buttons, "standard"
+        mode (not just "compact") can still be too narrow to fit the
+        Default Safe label without visually clipping it mid-word -- so
+        that label is dropped in "standard" as well as "compact", one step
+        earlier than the top-bar-button overflow below.
         """
         if not hasattr(self, "_view_label"):
             return
+        compact = mode == "compact"
         if compact:
             self._view_label.pack_forget()
             self._selection_hint_label.pack_forget()
@@ -3028,9 +3037,8 @@ class CacheVaultApp(ctk.CTk):
             self._top_more_btn.grid_remove()
             self._top_receipts_btn.grid(row=0, column=2, padx=4)
             self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
+        self._control_strip.set_compact(mode != "wide")
         self._control_strip.set_lock_label_compact(compact)
-
-        self._control_strip.set_compact(compact)
 
     def _empty_message(self, active: str, clips: list, query) -> str | None:
         from ..core import storage as S

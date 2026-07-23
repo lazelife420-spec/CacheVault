@@ -400,6 +400,37 @@ def test_toolbar_overflow_menu_invokes_original_handlers(app):
     menu.destroy()
 
 
+def test_default_safe_label_hidden_in_standard_mode_too_not_just_compact(app):
+    """Regression test for a real steady-state defect found during the
+    Slice 2 visual pass: VaultControlStrip's own content (Capture/Mobile/
+    Receipts dropdowns + Default Safe label + Lock + Quick Actions),
+    combined with the outer top bar's fixed-width buttons, doesn't
+    actually fit in "standard" mode (1150-1499px) -- only "compact" mode
+    previously dropped the Default Safe label, so at e.g. 1100px width
+    the label rendered visually clipped mid-word ("Default Safe: default"
+    -> "D..."). Verified via real window geometry (not a mocked
+    winfo_width) that this no longer happens and nothing overlaps."""
+    app._navigate_screen(FILTER_ALL)
+    for geometry, expected_mode in (("1600x900", "wide"), ("1100x700", "standard"), ("900x600", "compact")):
+        app.geometry(geometry)
+        app.update()
+        if app._resize_job:
+            app.after_cancel(app._resize_job)
+            app._resize_job = None
+        app._handle_resize_debounced()
+        app.update()
+        assert app._current_layout_mode == expected_mode, (
+            f"Expected {expected_mode!r} mode at {geometry}, got {app._current_layout_mode!r}"
+        )
+        safe = app._control_strip._safe
+        if expected_mode == "wide":
+            assert safe.winfo_ismapped(), "Default Safe label should be visible in wide mode"
+        else:
+            assert not safe.winfo_ismapped(), (
+                f"Default Safe label must be hidden in {expected_mode!r} mode, not just 'compact'"
+            )
+
+
 def test_view_toggle_controls_keep_minimum_right_inset_at_every_supported_width(app):
     """Cards/Grid must never sit flush against (or past) the toolbar's
     right edge -- headroom, not a fix for observed clipping (none exists
