@@ -596,7 +596,7 @@ class PreviewPanel(ctk.CTkFrame):
                 ).pack(fill="x", pady=2)
             else:
                 ctk.CTkButton(
-                    danger_body, text="Permanently Remove", height=24,
+                    danger_body, text="Permanently delete this item", height=24,
                     command=lambda: self._fire("permanently_remove", clip),
                     **theme.destructive_button(),
                 ).pack(fill="x", pady=2)

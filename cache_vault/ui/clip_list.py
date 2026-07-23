@@ -143,7 +143,19 @@ class ClipList(ctk.CTkScrollableFrame):
                 pass
             self._render_job = None
 
-    def render_batched(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None, more_count: int = 0) -> None:
+    def render_batched(
+        self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None,
+        more_count: int = 0, on_complete: Callable[[], None] | None = None,
+    ) -> None:
+        """``on_complete``, if given, fires once every batch has actually
+        been built (not right after this call returns -- rendering itself
+        is chunked across ``after(10, ...)`` ticks so the UI thread never
+        blocks on a large list, so a caller that needs to act on the
+        *complete* set of rendered rows -- e.g. repainting a "select all
+        matching" selection's visual state after a same-context refresh
+        -- must wait for this rather than acting immediately after the
+        call, which would only see the first batch's rows.
+        """
         self.cancel_render()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
@@ -212,6 +224,8 @@ class ClipList(ctk.CTkScrollableFrame):
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
+            if on_complete is not None:
+                on_complete()
             return
 
         batch_size = 15
@@ -224,22 +238,32 @@ class ClipList(ctk.CTkScrollableFrame):
                 if (group_by, title) not in self._collapsed_groups:
                     for clip in members:
                         flat_pending.append(("clip", clip))
-            self._render_next_batch_flat(flat_pending, 0, batch_size)
+            self._render_next_batch_flat(flat_pending, 0, batch_size, on_complete)
         else:
-            self._render_next_batch(clips, 0, batch_size)
+            self._render_next_batch(clips, 0, batch_size, on_complete)
 
-    def _render_next_batch(self, clips: list[Clip], start_idx: int, batch_size: int) -> None:
+    def _render_next_batch(
+        self, clips: list[Clip], start_idx: int, batch_size: int,
+        on_complete: Callable[[], None] | None = None,
+    ) -> None:
         end_idx = min(start_idx + batch_size, len(clips))
         for i in range(start_idx, end_idx):
             self._rows.append(self._build_row(clips[i]))
 
         if end_idx < len(clips):
-            self._render_job = self.after(10, lambda: self._render_next_batch(clips, end_idx, batch_size))
+            self._render_job = self.after(
+                10, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete),
+            )
         else:
             self._render_job = None
             self._show_more_footer()
+            if on_complete is not None:
+                on_complete()
 
-    def _render_next_batch_flat(self, pending: list[tuple[str, any]], start_idx: int, batch_size: int) -> None:
+    def _render_next_batch_flat(
+        self, pending: list[tuple[str, any]], start_idx: int, batch_size: int,
+        on_complete: Callable[[], None] | None = None,
+    ) -> None:
         end_idx = min(start_idx + batch_size, len(pending))
         for i in range(start_idx, end_idx):
             kind, data = pending[i]
@@ -249,10 +273,14 @@ class ClipList(ctk.CTkScrollableFrame):
                 self._rows.append(self._build_row(data))
 
         if end_idx < len(pending):
-            self._render_job = self.after(10, lambda: self._render_next_batch_flat(pending, end_idx, batch_size))
+            self._render_job = self.after(
+                10, lambda: self._render_next_batch_flat(pending, end_idx, batch_size, on_complete),
+            )
         else:
             self._render_job = None
             self._show_more_footer()
+            if on_complete is not None:
+                on_complete()
 
     def _build_group_header(self, group_by: str, title: str, count: int) -> None:
         style = clip_accents.group_header_accent(group_by, title)
@@ -516,6 +544,20 @@ class ClipList(ctk.CTkScrollableFrame):
         self._selected_ids = set(self._render_order)
         self._selected_id = self._render_order[-1]
         self._anchor_id = self._render_order[0]
+        self._repaint_selection()
+        self._notify_selection_change()
+
+    def set_selected_ids(self, ids) -> None:
+        """Set the concrete multi-selection directly to an arbitrary
+        (already-computed) set of rendered ids -- e.g. for "Invert
+        visible selection", which no other existing method expresses.
+        Only ids actually in the current render are kept; anything else
+        is silently dropped (mirrors select_all()/clear_selection()'s own
+        "only ever select rendered rows" contract)."""
+        kept = {cid for cid in ids if cid in self._row_by_id}
+        self._selected_ids = kept
+        self._selected_id = next((cid for cid in reversed(self._render_order) if cid in kept), None)
+        self._anchor_id = self._selected_id
         self._repaint_selection()
         self._notify_selection_change()
 

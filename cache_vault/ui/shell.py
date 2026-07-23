@@ -23,7 +23,8 @@ import customtkinter as ctk
 from tkinter import filedialog
 
 from .. import brand
-from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, vault_lock
+from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, selection, vault_lock
+from ..core import sidebar_menu_context as smc
 from .. import feature_gate
 from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
@@ -269,6 +270,23 @@ class CacheVaultApp(ctk.CTk):
         self._selected_clip_id: str | None = None
         self._selected_clip_ids: list[str] = []
         self._visible_clip_ids: list[str] = []
+        # "Select all matching" scope (Ctrl+Shift+A) -- an immutable query
+        # descriptor, never a materialized id list. Kept separate from the
+        # existing visible-selection tracking above (_selected_clip_ids /
+        # ClipList._selected_ids), which is unchanged. See core/selection.py.
+        # Exactly one of {visible, matching} is authoritative at a time --
+        # see _exit_matching_selection_if_manual, called from every real
+        # selection-changing callback so a manual click/ctrl-click/
+        # shift-click/right-click-collapse always makes visible selection
+        # authoritative again rather than leaving a stale "All N matching"
+        # banner showing while _selected_clip_ids has silently diverged.
+        self._selection_scope = selection.SelectionScope(self.vault.storage)
+        # Suppresses that exit-on-change logic for exactly the one
+        # deliberate view.select_all() call _keyboard_select_all_matching
+        # makes to cosmetically paint the rendered subset of a *new*
+        # matching selection -- without this, that call would immediately
+        # cancel the very selection it's painting.
+        self._suppress_matching_exit_on_selection_change = False
         self._sort_key = models.SORT_NEWEST_ADDED
         self._date_added_preset: str | None = None
         self._date_used_preset: str | None = None
@@ -459,6 +477,7 @@ class CacheVaultApp(ctk.CTk):
             "<Control-Shift-C>": lambda e: self._keyboard_copy_clean_selected(e),
             "<Control-a>": lambda e: self._keyboard_select_all(e),
             "<Control-A>": lambda e: self._keyboard_select_all(e),
+            "<Control-Shift-A>": lambda e: self._keyboard_select_all_matching(e),
             "<Delete>": lambda e: self._keyboard_remove_selected(e),
             "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
             "<Menu>": lambda e: self._keyboard_open_context_menu(e),
@@ -913,6 +932,8 @@ class CacheVaultApp(ctk.CTk):
         self._grid.clear_selection()
         self._selected_clip_ids = []
         self._selected_clip_id = None
+        self._selection_scope.clear()
+        self._set_selection_notice(None)
         self._home.set_selected(None)
         self._update_selected_action_strip(None)
         # Clear the inspector so navigation cannot leave a stale clip from the
@@ -934,6 +955,68 @@ class CacheVaultApp(ctk.CTk):
             return "break"
         view.select_all()
         return "break"
+
+    def _keyboard_select_all_matching(self, event=None):
+        """Ctrl+Shift+A: select every clip matching the current nav/search/
+        filter/sort context -- not just the up-to-120 rendered rows. Stores
+        an immutable query descriptor (see core/selection.py) and shows the
+        resolved count; does not materialize a widget or an id per match.
+        Rendered rows are given the existing visual "selected" treatment
+        via view.select_all() (they're a subset of the matching set, so
+        this is honest, not a fake full-set render) -- unloaded matches
+        never become widgets.
+        """
+        if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
+            return None
+        active = self._filters.active
+        general_clips = active not in NAV_SCREEN_KEYS and active != FILTER_HOME
+        if not general_clips:
+            return "break"
+        view = self._grid if self._view_mode == "grid" else self._list
+        try:
+            if not view.winfo_ismapped():
+                return "break"
+        except Exception:  # noqa: BLE001
+            return "break"
+        query = self._build_query()
+        matching = self._selection_scope.activate_matching(active, query)
+        self._paint_matching_selection_visuals(view)
+        self._set_selection_notice(f"All {matching.resolved_count} matching items selected")
+        return "break"
+
+    def _paint_matching_selection_visuals(self, view) -> None:
+        """Gives every currently-rendered row the existing visual
+        "selected" treatment for the active matching selection (a true
+        subset, never a fake full-set render -- unloaded matches never
+        become widgets). Used both right after Ctrl+Shift+A activates a
+        matching selection, and after a same-context refresh re-renders
+        rows while matching mode is still active (see
+        _apply_refresh_snapshot) -- a refresh that didn't change the
+        matching context must keep showing every rendered row as
+        selected, not silently drop back to a single highlighted row.
+        Suppressed via _suppress_matching_exit_on_selection_change so
+        this call doesn't trip _exit_matching_selection_if_manual and
+        cancel the very selection it's painting. When invoked as a
+        render_batched on_complete callback, a newer refresh may have
+        cleared matching mode (or completed and replaced this render) by
+        the time the callback actually fires -- guarded so a stale
+        callback can't resurrect a selection that's genuinely gone.
+        """
+        if self._selection_scope.mode != "matching" or not self._visible_clip_ids:
+            return
+        self._suppress_matching_exit_on_selection_change = True
+        try:
+            view.select_all()
+        finally:
+            self._suppress_matching_exit_on_selection_change = False
+
+    def _set_selection_notice(self, text: str | None) -> None:
+        """Surfaces (or clears) the "All N matching items selected"
+        banner. Non-destructive to the rest of the header (same .place()
+        pattern as the existing refreshing indicator)."""
+        header = getattr(self, "_page_header", None)
+        if header is not None and hasattr(header, "set_selection_notice"):
+            header.set_selection_notice(text)
 
     def _selected_text_clips(self) -> list[models.Clip]:
         clips: list[models.Clip] = []
@@ -963,7 +1046,29 @@ class CacheVaultApp(ctk.CTk):
             on_save_macro=self._save_generated_macro,
         )
 
+    def _block_if_matching_active(self, action_label: str) -> bool:
+        """Guards every legacy action that reads ``_selected_clip_ids``
+        directly (copy/export/move-to-safe/remove and their keyboard
+        shortcuts) against silently acting on only the up-to-120 visible
+        ids while a "select all matching" selection is active and its
+        banner is still showing "All N matching items selected". None of
+        these actions are matching-aware yet (that's later commits'
+        scope) -- for now they refuse to run against a matching
+        selection rather than quietly mutate/export a mismatched subset.
+        Returns True (and shows an explanatory toast) if the caller must
+        abort; False if it's safe to proceed normally.
+        """
+        if self._selection_scope.mode == "none":
+            return False
+        self._show_toast(
+            f"{action_label} isn't available yet for \"select all matching\" -- "
+            "click an item first to select a specific set."
+        )
+        return True
+
     def _bulk_copy(self) -> None:
+        if self._block_if_matching_active("Copy"):
+            return
         batch_actions.bulk_copy(self)
 
     def _copy_generated_text(self, text: str, toast: str) -> None:
@@ -998,13 +1103,362 @@ class CacheVaultApp(ctk.CTk):
         self._send_to_macro_safe(clip.id)
 
     def _bulk_export_proof(self) -> None:
+        if self._block_if_matching_active("Export"):
+            return
         batch_actions.bulk_export_proof(self)
 
     def _bulk_move_to_safe(self) -> None:
+        if self._block_if_matching_active("Move to Safe"):
+            return
         batch_actions.bulk_move_to_safe(self)
 
     def _bulk_remove(self) -> None:
+        if self._block_if_matching_active("Remove"):
+            return
         batch_actions.bulk_remove(self)
+
+    def _confirm_and_permanently_delete(self, ids: list[str], *, on_done=None) -> None:
+        """The one shared entry point behind every single-confirmation
+        permanent-deletion trigger -- single-item menu, preview-pane
+        danger-zone button, and bulk item/context menu all call this,
+        so there is exactly one permanent-deletion safety architecture
+        (one dialog, one plan builder, one pipeline) regardless of how
+        many ids are involved. The sidebar's "selected" command also
+        calls this; only Delete All needs its own two-step dialog and
+        stays separate (see ``_sidebar_permanently_delete_all``), though
+        it still ends at the same ``Vault.permanently_delete_many``.
+        """
+        from ..core import permanent_delete as pd
+        from .dialogs import PermanentDeleteSelectedDialog
+
+        plan = pd.build_deletion_plan(self.vault.storage, ids)
+
+        def _run() -> None:
+            result = self.vault.permanently_delete_many(ids, confirmation_mode="selected")
+            self._report_permanent_delete_result(result)
+            if on_done is not None:
+                on_done()
+
+        PermanentDeleteSelectedDialog(
+            self,
+            eligible_count=len(plan.eligible_ids),
+            skipped_count=len(plan.skipped),
+            asset_count=plan.asset_count,
+            bytes_scheduled=plan.planned_bytes,
+            on_confirm=_run,
+        )
+
+    def _bulk_permanently_delete(self, ids: list[str]) -> None:
+        """Recently Removed item/bulk menu only -- ``clip_menu_items``
+        only offers this command when every targeted clip was already
+        soft-deleted at menu-build time. The deletion plan re-validates
+        ``deleted_at`` for each id again right here at execution time
+        regardless, so a clip restored in the meantime is skipped, not
+        deleted (same staleness contract as the sidebar's equivalent
+        commands).
+        """
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(ids)
+        if not ids:
+            return
+        self._confirm_and_permanently_delete(ids)
+
+    # --- Commit 2: additional visible-mode bulk selection commands ---------
+    # (Copy/Export/Move-to-Recently-Removed already existed above; these
+    # fill in the rest of core/menu_context.py's command_matrix.)
+
+    def _bulk_toggle_favorite(self, favorite: bool) -> None:
+        label = "Favorite" if favorite else "Remove Favorite"
+        if self._block_if_matching_active(label):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        for cid in ids:
+            self.vault.set_favorite(cid, favorite)
+        self.refresh()
+        verb = "Favorited" if favorite else "Removed favorite mark from"
+        self._show_toast(f"{verb} {len(ids)} clip(s).")
+
+    def _run_atomic_bulk_mutation(self, fn, ids, *, action_label: str):
+        """Calls an atomic bulk-mutation primitive (vault.restore_many /
+        vault.remove_from_history_many) and turns a raised exception into
+        a visible error toast instead of letting a caller compute a
+        success count from a call that never actually committed. Because
+        those primitives are atomic (storage.restore_many/
+        soft_delete_many: one transaction, full rollback on any
+        exception), there is no partial-success state to report here --
+        either this returns the committed BulkMutationResult, or it
+        returns None and nothing in the database changed.
+        """
+        try:
+            return fn(ids)
+        except Exception as exc:  # noqa: BLE001
+            write_crash(f"bulk_{action_label.lower().replace(' ', '_')}", exc)
+            self._show_toast(f"{action_label} failed -- no clips were changed.")
+            return None
+
+    def _bulk_restore(self) -> None:
+        if self._block_if_matching_active("Restore"):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        result = self._run_atomic_bulk_mutation(self.vault.restore_many, ids, action_label="Restore")
+        if result is None:
+            return
+        self._clear_selection()
+        self.refresh()
+        self._show_toast(f"Restored {result.succeeded_count} clip(s).")
+
+    def _bulk_add_to_collection(self) -> None:
+        if self._block_if_matching_active("Add to Collection"):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        existing = [c["name"] for c in self.vault.list_collections()]
+
+        def save(name: str) -> None:
+            for cid in ids:
+                self.vault.set_collection(cid, name)
+            self.refresh()
+            self._show_toast(f"Added {len(ids)} clip(s) to '{name}'.")
+
+        MoveToCollectionDialog(self, None, existing, on_save=save)
+
+    def _current_collection_name(self) -> str | None:
+        from ..core.storage import COLLECTION_PREFIX
+
+        active = self._filters.active
+        if isinstance(active, str) and active.startswith(COLLECTION_PREFIX):
+            return active[len(COLLECTION_PREFIX):]
+        return None
+
+    def _bulk_remove_from_collection(self) -> None:
+        """Clears only the current single-assignment collection label
+        (clips.collection) from selected clips that actually belong to
+        it -- never removes the clip itself, never touches favorites or
+        any other metadata. See clear_collection() in clip_context.py
+        for the sidebar/whole-collection equivalent."""
+        name = self._current_collection_name()
+        if name is None:
+            return
+        if self._block_if_matching_active("Remove from Collection"):
+            return
+        if not self._guard_unlocked():
+            return
+        from ..core.selection import dedupe_preserve_order
+
+        ids = dedupe_preserve_order(self._selected_clip_ids)
+        if not ids:
+            return
+        count = 0
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is not None and clip.collection == name:
+                self.vault.set_collection(cid, None)
+                count += 1
+        self.refresh()
+        self._show_toast(f"Removed {count} clip(s) from '{name}'. Clips remain in the vault.")
+
+    def _invert_visible_selection(self) -> None:
+        """Selects every currently-rendered (visible) row that is NOT
+        currently selected, and deselects the ones that are. Exits
+        matching mode first via the normal manual-selection path (this
+        is an explicit visible-only command, not a matching one)."""
+        if not self._guard_unlocked():
+            return
+        view = self._grid if self._view_mode == "grid" else self._list
+        inverted = set(self._visible_clip_ids) - set(self._selected_clip_ids)
+        view.set_selected_ids(inverted)
+
+    # --- Commit 2: matching-wide selection commands -------------------------
+    # Every one of these re-validates the matching context (signature +
+    # fresh count) immediately before doing anything, and resolves ids
+    # through a single read snapshot (core/selection.py's
+    # clip_id_snapshot via SelectionResolution.iter_ids) rather than ever
+    # touching _selected_clip_ids -- see this commit's core invariant: a
+    # matching-selection command must never look like it targets every
+    # matching record while actually acting on only the rendered subset.
+
+    def _resolve_matching_or_abort(self, *, confirm_title: str | None = None, confirm_detail: str = ""):
+        """Shared preamble for every matching-wide command: resolve
+        (validating the signature and re-counting fresh), abort visibly
+        if stale, and optionally confirm with the caller showing the
+        exact resolved count. Returns the SelectionResolution to consume
+        via .iter_ids()/.resolve_all_ids(), or None if the caller should
+        stop (stale, empty, or the user declined the confirmation).
+        """
+        active = self._filters.active
+        query = self._build_query()
+        resolution = self._selection_scope.resolve(active, query)
+        if resolution.mode != "matching":
+            self._show_toast("No matching selection is active.")
+            return None
+        if resolution.stale:
+            self._show_toast(
+                "The matching selection is out of date (search, filter, or "
+                "view changed) -- select all matching again to continue."
+            )
+            return None
+        if resolution.count == 0:
+            self._show_toast("No matching items to act on.")
+            return None
+        if confirm_title is not None:
+            from tkinter import messagebox
+
+            ok = messagebox.askyesno(
+                confirm_title,
+                f"{confirm_title} {resolution.count} matching item(s)?{confirm_detail}",
+                parent=self,
+            )
+            if not ok:
+                return None
+        return resolution
+
+    def _matching_export(self) -> None:
+        if not self._guard_unlocked():
+            return
+        if not self._require_founder("proof_pack_export"):
+            return
+        resolution = self._resolve_matching_or_abort()
+        if resolution is None:
+            return
+        ids = resolution.resolve_all_ids()
+        if not ids:
+            self._show_toast("No matching items to export.")
+            return
+        from ..core.exports import export_zip_basename
+        from tkinter import filedialog
+
+        dest = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export proof zip",
+            defaultextension=".zip",
+            initialfile=export_zip_basename(),
+            filetypes=[("Zip archive", "*.zip")],
+        )
+        if not dest:
+            return
+        # Re-derive protection/existence is handled by export_proof_zip
+        # itself per-id (missing/invalid ids are simply skipped there,
+        # same as the existing visible-mode bulk export path).
+        self.vault.export_proof_zip(ids, dest, mode="auto")
+        self.refresh()
+        self._show_toast(f"Exported proof for {len(ids)} matching clips.")
+
+    def _matching_move_to_recently_removed(self) -> None:
+        if not self._guard_unlocked():
+            return
+        resolution = self._resolve_matching_or_abort(
+            confirm_title="Move to Recently Removed",
+            confirm_detail=" They can be restored from Recently Removed. "
+                            "This does not delete any files from your computer.",
+        )
+        if resolution is None:
+            return
+        ids = resolution.resolve_all_ids()
+        result = self._run_atomic_bulk_mutation(
+            self.vault.remove_from_history_many, ids, action_label="Move to Recently Removed",
+        )
+        if result is None:
+            return
+        self._clear_selection()
+        self.refresh()
+        self._show_toast(f"Moved {result.succeeded_count} matching clip(s) to Recently Removed.")
+
+    def _matching_restore(self) -> None:
+        if not self._guard_unlocked():
+            return
+        resolution = self._resolve_matching_or_abort(confirm_title="Restore")
+        if resolution is None:
+            return
+        ids = resolution.resolve_all_ids()
+        result = self._run_atomic_bulk_mutation(self.vault.restore_many, ids, action_label="Restore")
+        if result is None:
+            return
+        self._clear_selection()
+        self.refresh()
+        self._show_toast(f"Restored {result.succeeded_count} matching clip(s).")
+
+    def _matching_toggle_favorite(self, favorite: bool) -> None:
+        if not self._guard_unlocked():
+            return
+        resolution = self._resolve_matching_or_abort()
+        if resolution is None:
+            return
+        changed = 0
+        for cid in resolution.resolve_all_ids():
+            self.vault.set_favorite(cid, favorite)
+            changed += 1
+        self.refresh()
+        verb = "Favorited" if favorite else "Removed favorite mark from"
+        self._show_toast(f"{verb} {changed} matching clip(s).")
+
+    # --- Commit 2: single dispatch point for context-menu selection commands
+
+    def _dispatch_selection_command(self, key: str, ctx) -> None:
+        """The one place every selection-wide context-menu command (see
+        core/menu_context.py's command_matrix) is dispatched from --
+        commands never independently guess selection state or mode.
+        """
+        if key == "select_all_visible":
+            self._keyboard_select_all()
+            return
+        if key == "select_all_matching":
+            self._keyboard_select_all_matching()
+            return
+        if key == "deselect_all":
+            self._clear_selection()
+            return
+        if key == "invert_visible":
+            self._invert_visible_selection()
+            return
+
+        if ctx.selection_mode == "matching":
+            matching_dispatch = {
+                "export_selected": self._matching_export,
+                "favorite_selected": lambda: self._matching_toggle_favorite(True),
+                "unfavorite_selected": lambda: self._matching_toggle_favorite(False),
+                "remove_favorite_marks": lambda: self._matching_toggle_favorite(False),
+                "move_to_recently_removed": self._matching_move_to_recently_removed,
+                "restore": self._matching_restore,
+            }
+            handler = matching_dispatch.get(key)
+            if handler is not None:
+                handler()
+            return
+
+        visible_dispatch = {
+            "copy_selected": self._bulk_copy,
+            "export_selected": self._bulk_export_proof,
+            "favorite_selected": lambda: self._bulk_toggle_favorite(True),
+            "unfavorite_selected": lambda: self._bulk_toggle_favorite(False),
+            "remove_favorite_marks": lambda: self._bulk_toggle_favorite(False),
+            "add_to_collection": self._bulk_add_to_collection,
+            "remove_from_collection": self._bulk_remove_from_collection,
+            "move_to_recently_removed": self._bulk_remove,
+            "restore": self._bulk_restore,
+        }
+        handler = visible_dispatch.get(key)
+        if handler is not None:
+            handler()
 
     def _keyboard_focus_is_text_input(self, event=None) -> bool:
         widget = getattr(event, "widget", None)
@@ -1039,6 +1493,32 @@ class CacheVaultApp(ctk.CTk):
             self._select_visible_clip_by_id(self._visible_clip_ids[0 if first else -1])
         return "break"
 
+    def _open_item(self, clip_id: str) -> None:
+        """Item-target "Open": the same type-based primary action as
+        Enter-on-selected (_keyboard_primary_action), but for an
+        explicit clip_id -- used by the matching-mode context menu's
+        "Open", which must always act on the clicked clip, never the
+        whole matching selection."""
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        if clip.classification == models.CLASS_LINK:
+            self._open_clip_link(clip.id)
+        elif clip.content_type != models.CONTENT_IMAGE:
+            self._edit_clip_text(clip.id)
+        else:
+            self._copy_again(clip.id)
+
+    def _preview_item(self, clip_id: str) -> None:
+        """Item-target "Preview": shows the clicked clip in the inspector
+        panel without changing _selected_clip_ids/_selected_clip_id --
+        previewing must not itself act as a selection command."""
+        clip = self.vault.storage.get_clip(clip_id)
+        if clip is None:
+            return
+        self._preview.set_usage_events(self.vault.clip_usage_events(clip.id))
+        self._preview.show(clip)
+
     def _keyboard_primary_action(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
@@ -1057,6 +1537,8 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_duplicate_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Duplicate"):
+            return "break"
         clip = self._selected_clip()
         if clip is not None:
             self._duplicate_as_editable_clip(clip.id)
@@ -1084,6 +1566,8 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_copy_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Copy"):
+            return "break"
         if len(self._selected_clip_ids) > 1:
             self._bulk_copy()
             return "break"
@@ -1095,14 +1579,25 @@ class CacheVaultApp(ctk.CTk):
     def _keyboard_copy_clean_selected(self, event=None):
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Copy"):
+            return "break"
         clip = self._selected_clip()
         if clip is not None:
             self._copy_clean(clip.id, copy_clean.COPY_PLAIN_TEXT)
         return "break"
 
     def _keyboard_remove_selected(self, event=None):
+        """Delete: routes only to the existing safe soft-remove path
+        (Recently Removed), never to permanent deletion. While a
+        matching selection is active this refuses to run rather than
+        silently soft-removing only the up-to-120 rendered/visible ids
+        while the "All N matching" banner is still showing a larger
+        claimed set -- see _block_if_matching_active.
+        """
         if self._keyboard_focus_is_text_input(event) or not self._guard_unlocked():
             return None
+        if self._block_if_matching_active("Remove"):
+            return "break"
         if len(self._selected_clip_ids) > 1:
             self._bulk_remove()
             return "break"
@@ -1812,6 +2307,15 @@ class CacheVaultApp(ctk.CTk):
         active = self._filters.active
         general_clips = active not in NAV_SCREEN_KEYS and active != FILTER_HOME
         query = self._build_query() if general_clips else None
+        # Single choke point for matching-selection invalidation: every
+        # context change that matters (search text, type/date filter,
+        # sort, collection, nav tab, active-vs-Recently-Removed state)
+        # flows through _build_query()+refresh() to get here, so checking
+        # once, right here, covers all of them without hooking each
+        # individual setter separately. Never silently reinterprets an old
+        # matching selection against a new view.
+        if self._selection_scope.invalidate_if_stale(active, query):
+            self._set_selection_notice(None)
         gen = self._refresh_generation
         self._refresh_workers_in_flight += 1
         self._refresh_request_queue.put((gen, active, query))
@@ -1972,30 +2476,68 @@ class CacheVaultApp(ctk.CTk):
                 more_count = total_clips - len(clips)
                 self._page_header.set_content(self._filters.active_label, f"{total_clips} clips")
                 self._visible_clip_ids = [c.id for c in clips]
-                self._selected_clip_ids = [
-                    cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
-                ]
-                if self._selected_clip_id not in self._visible_clip_ids:
-                    self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
                 empty_msg = self._empty_message(active, clips, query)
-                if self._view_mode == "grid":
-                    self._grid.set_selected(self._selected_clip_id)
-                    self._grid.render_batched(
-                        clips, empty_message=empty_msg, more_count=more_count,
-                    )
-                    self._grid.set_selected(self._selected_clip_id)
+                view = self._grid if self._view_mode == "grid" else self._list
+
+                if self._selection_scope.mode == "matching":
+                    # invalidate_if_stale already ran earlier in this same
+                    # refresh cycle (_do_refresh_sync) -- reaching here
+                    # still in "matching" mode means the context genuinely
+                    # didn't change, so every re-rendered row must keep
+                    # showing as selected, not collapse to one highlighted
+                    # row the way the else branch below does for plain
+                    # visible selection.
+                    #
+                    # Painting must wait for on_complete, not run right
+                    # after render_batched() returns: rendering is chunked
+                    # across after(10, ...) ticks (15/20 rows per tick), so
+                    # calling select_all() immediately would only see
+                    # whichever rows the first tick had already built,
+                    # painting a partial subset instead of every rendered
+                    # row. on_complete fires once the very last batch has
+                    # actually been constructed. _paint_matching_selection_
+                    # visuals's select_all() call then fires the normal
+                    # on_selection_change callback, which already updates
+                    # _selected_clip_ids/the bulk action strip/the preview
+                    # -- nothing further to do here.
+                    on_complete = lambda v=view: self._paint_matching_selection_visuals(v)  # noqa: E731
+                    if self._view_mode == "grid":
+                        self._grid.render_batched(
+                            clips, empty_message=empty_msg, more_count=more_count,
+                            on_complete=on_complete,
+                        )
+                    else:
+                        self._list.render_batched(
+                            clips,
+                            empty_message=empty_msg,
+                            group_by=self._group_by_for_view(active, query),
+                            more_count=more_count,
+                            on_complete=on_complete,
+                        )
                 else:
-                    self._list.set_selected(self._selected_clip_id)
-                    self._list.render_batched(
-                        clips,
-                        empty_message=empty_msg,
-                        group_by=self._group_by_for_view(active, query),
-                        more_count=more_count,
-                    )
-                    self._list.set_selected(self._selected_clip_id)
-                clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
-                self._update_selected_action_strip(clip)
-                self._preview.show(clip)
+                    self._selected_clip_ids = [
+                        cid for cid in self._selected_clip_ids if cid in self._visible_clip_ids
+                    ]
+                    if self._selected_clip_id not in self._visible_clip_ids:
+                        self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
+                    if self._view_mode == "grid":
+                        self._grid.set_selected(self._selected_clip_id)
+                        self._grid.render_batched(
+                            clips, empty_message=empty_msg, more_count=more_count,
+                        )
+                        self._grid.set_selected(self._selected_clip_id)
+                    else:
+                        self._list.set_selected(self._selected_clip_id)
+                        self._list.render_batched(
+                            clips,
+                            empty_message=empty_msg,
+                            group_by=self._group_by_for_view(active, query),
+                            more_count=more_count,
+                        )
+                        self._list.set_selected(self._selected_clip_id)
+                    clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
+                    self._update_selected_action_strip(clip)
+                    self._preview.show(clip)
                 clip_count = total_clips
 
             summary["shown"] = clip_count
@@ -2535,17 +3077,46 @@ class CacheVaultApp(ctk.CTk):
         if self._search_var.get():
             self._search_var.set("")
             self.focus_set()
+            # Search text is part of the matching-selection signature; the
+            # next refresh() this triggers would invalidate it anyway, but
+            # clear it (and its banner) immediately rather than leaving a
+            # stale "All N matching" notice on screen until that refresh
+            # actually lands.
+            self._selection_scope.clear()
+            self._set_selection_notice(None)
             return
 
-        # 4. Clear selection (single or multi) without re-rendering the list.
-        if self._selected_clip_ids or self._selected_clip_id:
+        # 4. Clear selection (single, multi, or matching) without
+        # re-rendering the list.
+        if self._selected_clip_ids or self._selected_clip_id or self._selection_scope.mode != "none":
             self._clear_selection()
             self._preview.show(None)
             return
 
+    def _exit_matching_selection_if_manual(self) -> None:
+        """Enforces "exactly one active selection mode": any real manual
+        selection action (plain click, Ctrl-click, Shift-click, a
+        right-click that collapses to a single item, Ctrl+A) must make
+        visible selection authoritative again, clearing a stale matching
+        selection and its banner rather than leaving both "active" at
+        once. The one deliberate exception -- painting the rendered
+        subset of a brand-new matching selection -- brackets its own
+        view.select_all() call with _suppress_matching_exit_on_selection_change
+        so it doesn't immediately cancel itself; merely re-rendering
+        existing rows (e.g. after a same-context refresh) never calls
+        this at all, since that path doesn't go through the view's
+        on_select/on_selection_change callbacks.
+        """
+        if self._suppress_matching_exit_on_selection_change:
+            return
+        if self._selection_scope.mode != "none":
+            self._selection_scope.clear()
+            self._set_selection_notice(None)
+
     def _on_clip_select(self, clip) -> None:
         if not self._guard_unlocked():
             return
+        self._exit_matching_selection_if_manual()
         self._selected_clip_id = getattr(clip, "id", None)
         self._selected_clip_ids = [self._selected_clip_id] if self._selected_clip_id else []
         self._list.set_selected(self._selected_clip_id)
@@ -2568,6 +3139,7 @@ class CacheVaultApp(ctk.CTk):
         """
         if not self._guard_unlocked():
             return
+        self._exit_matching_selection_if_manual()
         self._selected_clip_ids = list(ids)
         primary_id = ids[-1] if ids else None
         self._selected_clip_id = primary_id
@@ -2983,6 +3555,433 @@ class CacheVaultApp(ctk.CTk):
     def _open_sidebar_nav_menu(self, nav_key: str, x_root: int, y_root: int) -> None:
         sidebar_context.open_nav_row_menu(self, nav_key, x_root, y_root)
 
+    # --- Sidebar context-menu dispatch -----------------------------------
+    def _dispatch_sidebar_command(self, key: str, ctx: Any) -> None:
+        """Execute a sidebar context-menu command, re-validating live state first."""
+        if not self._guard_unlocked():
+            return
+        # Rebuild context from current app state for every command so stale
+        # captured contexts cannot silently act on the wrong view.
+        current_ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            self, ctx.target_key, getattr(ctx, "collection_name", None),
+        )
+        if not current_ctx.is_target_active and key not in (
+            smc.CMD_OPEN,
+            smc.CMD_SCAN_CLEANUP_SUGGESTIONS,
+            smc.CMD_SCAN_AGAIN,
+            smc.CMD_REVIEW_SUGGESTIONS,
+            smc.CMD_SHOW_IGNORED,
+            smc.CMD_RESTORE_ALL,
+            smc.CMD_RENAME_COLLECTION,
+            smc.CMD_EMPTY_COLLECTION,
+            smc.CMD_PERMANENTLY_DELETE_ALL,
+        ):
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        handler = getattr(self, f"_sidebar_{key}", None)
+        if handler is None:
+            return
+        handler(current_ctx)
+
+    def _sidebar_open(self, ctx: Any) -> None:
+        from ..core import storage as S
+        target = ctx.target_key
+        if target == NAV_CLEANUP_SUGGESTIONS:
+            self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+        elif getattr(ctx, "collection_name", None) is not None:
+            self._navigate_filter(f"{S.COLLECTION_PREFIX}{ctx.collection_name}")
+        elif target.startswith("nav_"):
+            self._navigate_screen(target)
+        else:
+            self._navigate_filter(target)
+
+    def _sidebar_refresh(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self.refresh()
+
+    def _sidebar_scan_cleanup_suggestions(self, ctx: Any) -> None:
+        self._scan_cleanup_suggestions()
+
+    def _sidebar_select_all_visible(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        if not self._visible_clip_ids:
+            return
+        view = self._grid if self._view_mode == "grid" else self._list
+        try:
+            if not view.winfo_ismapped():
+                return
+        except Exception:  # noqa: BLE001
+            return
+        self._selection_scope.clear()
+        view.select_all()
+
+    def _sidebar_select_all_matching(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        query = ctx.target_query
+        view = self._grid if self._view_mode == "grid" else self._list
+        try:
+            if not view.winfo_ismapped():
+                return
+        except Exception:  # noqa: BLE001
+            return
+        matching = self._selection_scope.activate_matching(ctx.target_key, query)
+        self._paint_matching_selection_visuals(view)
+        self._set_selection_notice(f"All {matching.resolved_count} matching items selected")
+
+    def _sidebar_deselect_all(self, ctx: Any) -> None:
+        self._selection_scope.clear()
+        view = self._grid if self._view_mode == "grid" else self._list
+        getattr(view, "deselect_all", lambda: None)()
+
+    def _sidebar_export_current_view(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        collection = self._collection_name_for(ctx.target_key)
+        self._export_for_query(ctx.target_query, collection_name=collection)
+
+    def _sidebar_export_selected(self, ctx: Any) -> None:
+        if not ctx.is_target_active or not ctx.visible_selected_ids:
+            self._show_toast("No selection to export.")
+            return
+        self._export_clip_ids(list(ctx.visible_selected_ids))
+
+    def _sidebar_scan_image_duplicates(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self._scan_cleanup_suggestions()
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_review_tiny_images(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self._scan_cleanup_suggestions()
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_review_largest_images(self, ctx: Any) -> None:
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        self._scan_cleanup_suggestions()
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_remove_favorite_marks(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        ids = self._resolve_sidebar_target_ids(ctx, prefer_selection=True)
+        if not ids:
+            self._show_toast("No favorite marks to remove.")
+            return
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Remove Favorite Marks",
+            f"Remove favorite marks from {len(ids)} clip{'s' if len(ids) != 1 else ''}?\n\n"
+            "Clips and collections are not affected.",
+            parent=self,
+        )
+        if not ok:
+            return
+        succeeded = 0
+        skipped = 0
+        for cid in ids:
+            clip = self.vault.storage.get_clip(cid)
+            if clip is None:
+                skipped += 1
+                continue
+            if clip.is_pinned:
+                self.vault.set_favorite(cid, False)
+                succeeded += 1
+            else:
+                skipped += 1
+        if skipped:
+            self._show_toast(f"Removed favorite marks from {succeeded} clips ({skipped} already removed).")
+        else:
+            self._show_toast(f"Removed favorite marks from {succeeded} clip{'s' if succeeded != 1 else ''}.")
+        self.refresh()
+
+    def _sidebar_rename_collection(self, ctx: Any) -> None:
+        from tkinter import simpledialog
+        name = getattr(ctx, "collection_name", None)
+        if not name:
+            return
+        # Re-resolve the collection at execution time. If the target collection
+        # no longer exists (renamed or deleted before invocation), abort
+        # rather than silently updating zero rows on the wrong set.
+        if ctx.target_query is None or self.vault.count_clips(ctx.target_query) == 0:
+            self._show_toast("Collection no longer exists or is empty; rename aborted.")
+            return
+        new_name = simpledialog.askstring("Rename Collection", "New name:", initialvalue=name, parent=self)
+        if not new_name or new_name.strip() == name:
+            return
+        new_name = new_name.strip()
+        try:
+            self.vault.storage.conn.execute(
+                "UPDATE clips SET collection = ? WHERE collection = ?",
+                (new_name, name),
+            )
+            self.vault.storage.conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            self.vault.storage.conn.rollback()
+            raise exc
+        self.refresh()
+        self._show_toast(f"Renamed collection to '{new_name}'.")
+
+    def _sidebar_empty_collection(self, ctx: Any) -> None:
+        from tkinter import messagebox
+        from ..core import storage as S
+
+        name = getattr(ctx, "collection_name", None)
+        if not name:
+            return
+
+        # Re-resolve current membership at execution time, not the count
+        # frozen in the menu label. The command is collection-wide and must
+        # not depend on any visible/matching selection.
+        ids = self._resolve_sidebar_target_ids(ctx, prefer_selection=False)
+        if not ids:
+            self._show_toast(f"Collection '{name}' is already empty. No clips were changed.")
+            return
+
+        count = len(ids)
+        plural = "s" if count != 1 else ""
+        msg = (
+            f"Empty collection '{name}'?\n\n"
+            f"This will remove the collection label from {count} clip{plural}.\n\n"
+            "Clips will remain in your vault.\n"
+            "Only the collection label will be removed.\n\n"
+            "No clips, files, or favorites will be deleted."
+        )
+        ok = messagebox.askyesno(
+            "Empty collection",
+            msg,
+            parent=self,
+        )
+        if not ok:
+            return
+
+        result = self.vault.empty_collection(name, ids)
+        removed = result.succeeded_count
+        skipped = result.skipped_count
+
+        if removed == 0:
+            self._show_toast(f"Collection '{name}' is already empty. No clips were changed.")
+        elif skipped:
+            self._show_toast(
+                f"Emptied collection '{name}': removed labels from {removed} clip"
+                f"{'s' if removed != 1 else ''} ({skipped} already removed). "
+                "Clips remain in your vault."
+            )
+        else:
+            self._show_toast(
+                f"Emptied collection '{name}': removed labels from {removed} clip"
+                f"{'s' if removed != 1 else ''}. Clips remain in your vault."
+            )
+
+        if ctx.is_target_active:
+            self._selection_scope.clear()
+            self._navigate_filter(S.FILTER_ALL)
+        else:
+            self.refresh()
+
+    def _sidebar_export_collection(self, ctx: Any) -> None:
+        if not ctx.is_target_active or ctx.target_query is None:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        collection = ctx.collection_name
+        self._export_for_query(ctx.target_query, collection_name=collection)
+
+    def _sidebar_restore_selected(self, ctx: Any) -> None:
+        if not ctx.is_target_active or not ctx.visible_selected_ids:
+            self._show_toast("No selection to restore.")
+            return
+        ids = list(dict.fromkeys(ctx.visible_selected_ids))
+        result = self.vault.storage.restore_many(ids)
+        for cid in result.succeeded:
+            self.vault.events.record(models.EVENT_RESTORED, cid)
+        total = len(result.succeeded)
+        skipped = len(result.skipped)
+        if skipped:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''} ({skipped} already active or missing).")
+        else:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''}.")
+        self._selection_scope.clear()
+        self.refresh()
+
+    def _sidebar_restore_all(self, ctx: Any) -> None:
+        if ctx.target_query is None:
+            return
+        ids = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (count, batches):
+            for batch in batches:
+                ids.extend(batch)
+        if not ids:
+            self._show_toast("No removed items to restore.")
+            return
+        from tkinter import messagebox
+        ok = messagebox.askyesno(
+            "Restore All",
+            f"Restore all {len(ids)} removed item{'s' if len(ids) != 1 else ''}?",
+            parent=self,
+        )
+        if not ok:
+            return
+        result = self.vault.storage.restore_many(ids)
+        for cid in result.succeeded:
+            self.vault.events.record(models.EVENT_RESTORED, cid)
+        total = len(result.succeeded)
+        skipped = len(result.skipped)
+        if skipped:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''} ({skipped} skipped).")
+        else:
+            self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''}.")
+        self._selection_scope.clear()
+        self.refresh()
+
+    def _sidebar_permanently_delete_selected(self, ctx: Any) -> None:
+        """Recently Removed only -- guarded by the dispatch allowlist not
+        exempting this key, so a stale/inactive context aborts before we
+        even get here (mirrors ``_sidebar_restore_selected``).
+        """
+        if not ctx.is_target_active:
+            self._show_toast("Sidebar context changed; command aborted.")
+            return
+        ids = self._resolve_sidebar_target_ids(ctx, prefer_selection=True)
+        if not ids:
+            self._show_toast("No selection to permanently delete.")
+            return
+        self._confirm_and_permanently_delete(ids)
+
+    def _sidebar_permanently_delete_all(self, ctx: Any) -> None:
+        from ..core import permanent_delete as pd
+
+        if ctx.target_query is None:
+            return
+        ids = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (count, batches):
+            for batch in batches:
+                ids.extend(batch)
+        if not ids:
+            self._show_toast("No removed items to permanently delete.")
+            return
+
+        plan = pd.build_deletion_plan(self.vault.storage, ids)
+
+        def _run() -> None:
+            result = self.vault.permanently_delete_many(ids, confirmation_mode="delete_all")
+            self._report_permanent_delete_result(result)
+
+        from .dialogs import PermanentDeleteAllDialog
+        PermanentDeleteAllDialog(
+            self,
+            total_count=len(ids),
+            eligible_count=len(plan.eligible_ids),
+            skipped_count=len(plan.skipped),
+            asset_count=plan.asset_count,
+            bytes_scheduled=plan.planned_bytes,
+            on_confirm=_run,
+        )
+
+    def _report_permanent_delete_result(self, result: Any) -> None:
+        deleted = len(result.deleted_ids)
+        skipped = len(result.skipped)
+        deferred = result.managed_files_deferred
+        if deleted == 0:
+            self._show_toast("Nothing was eligible to permanently delete.")
+        elif deferred:
+            self._show_toast(
+                f"Permanently deleted {deleted} item{'s' if deleted != 1 else ''} "
+                f"({skipped} skipped); {deferred} asset file(s) could not be purged "
+                "and are queued for retry."
+            )
+        elif skipped:
+            self._show_toast(
+                f"Permanently deleted {deleted} item{'s' if deleted != 1 else ''} "
+                f"({skipped} skipped)."
+            )
+        else:
+            self._show_toast(f"Permanently deleted {deleted} item{'s' if deleted != 1 else ''}.")
+        self._selection_scope.clear()
+        self.refresh()
+
+    def _sidebar_review_suggestions(self, ctx: Any) -> None:
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_show_ignored(self, ctx: Any) -> None:
+        self._navigate_screen(NAV_CLEANUP_SUGGESTIONS)
+
+    def _sidebar_scan_again(self, ctx: Any) -> None:
+        self._scan_cleanup_suggestions()
+
+    def _sidebar_properties(self, ctx: Any) -> None:
+        label = self._filters.active_label if ctx.is_target_active else ctx.target_key
+        self._show_toast(f"{label}: {ctx.item_count} items")
+
+    # --- Helpers for sidebar commands ------------------------------------
+    def _resolve_sidebar_target_ids(self, ctx: Any, *, prefer_selection: bool = False) -> list[str]:
+        """Resolve the unique IDs a sidebar command should act on.
+
+        If ``prefer_selection`` is True and a visible/matching selection
+        exists, use it. Otherwise use all IDs matching the target query.
+        """
+        if prefer_selection and ctx.has_selection:
+            if ctx.matching_descriptor is not None:
+                resolution = self._selection_scope.resolve(
+                    ctx.target_key,
+                    ctx.target_query,
+                    visible_ids=list(ctx.visible_selected_ids),
+                )
+                if resolution.stale:
+                    return []
+                ids = []
+                for batch in resolution.iter_ids():
+                    ids.extend(batch)
+                return list(dict.fromkeys(ids))
+            return list(dict.fromkeys(ctx.visible_selected_ids))
+        if ctx.target_query is None:
+            return []
+        ids = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (count, batches):
+            for batch in batches:
+                ids.extend(batch)
+        return list(dict.fromkeys(ids))
+
+    def _export_for_query(self, query, *, collection_name: str | None = None) -> None:
+        """Export every clip matching ``query`` via the same dialog used
+        by the active-view export command.
+        """
+        if not self._require_founder("exports_advanced"):
+            return
+        clips = self.vault.list_clips(query)
+        if not clips:
+            return
+        from ..ui.dialogs import ExportViewDialog
+        ExportViewDialog(self, len(clips),
+                         on_export=lambda kind, incl: self._do_export_view(
+                             clips, collection_name, kind, incl))
+
+    def _export_clip_ids(self, clip_ids: list[str]) -> None:
+        """Export the provided clip ids via the existing export dialog."""
+        if not self._require_founder("exports_advanced"):
+            return
+        clips = [self.vault.storage.get_clip(cid) for cid in clip_ids]
+        clips = [c for c in clips if c is not None]
+        if not clips:
+            return
+        from ..ui.dialogs import ExportViewDialog
+        collection = self._collection_name_for(self._filters.active)
+        ExportViewDialog(self, len(clips),
+                         on_export=lambda kind, incl: self._do_export_view(
+                             clips, collection, kind, incl))
+
     def _open_receipt_menu(self, row, x_root: int, y_root: int) -> None:
         clip_context.open_receipt_menu(self, row, x_root, y_root)
 
@@ -3260,18 +4259,18 @@ class CacheVaultApp(ctk.CTk):
         self._preview.show(self.vault.storage.get_clip(clip_id))
 
     def _permanently_remove(self, clip_id: str) -> None:
-        from tkinter import messagebox
-        ok = messagebox.askyesno(
-            "Permanently Remove",
-            "Permanently remove this clip from Cache Vault? This cannot be "
-            "undone. It does not delete any files from your computer.",
-            parent=self,
-        )
-        if not ok:
+        """Recently Removed only -- routes through the exact same staged
+        pipeline as bulk/Delete All (``_confirm_and_permanently_delete``
+        -> ``Vault.permanently_delete_many``), never a direct
+        ``hard_delete`` call. See cache_vault/core/permanent_delete.py
+        for the full managed-root containment, quarantine-staging, and
+        rollback contract this now inherits -- there is exactly one
+        permanent-deletion safety architecture, not a separate one for
+        single items.
+        """
+        if not self._guard_unlocked():
             return
-        self.vault.permanently_remove(clip_id)
-        self.refresh()
-        self._preview.show(None)
+        self._confirm_and_permanently_delete([clip_id], on_done=lambda: self._preview.show(None))
 
     def _send_to_macro_safe(self, clip_id: str) -> None:
         if not self._guard_unlocked():

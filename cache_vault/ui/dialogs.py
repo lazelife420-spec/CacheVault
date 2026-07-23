@@ -1300,3 +1300,195 @@ class EventLogDialog(ctk.CTkToplevel):
                 self._rebuild_rows()
             except Exception:
                 self._show_load_error()
+
+
+def _permanent_delete_action_label(eligible_count: int) -> str:
+    """The one honest label for a permanent-delete confirmation, shared
+    by every trigger (single-item menu/preview button, bulk item menu,
+    sidebar selected) so there's exactly one wording scheme regardless
+    of how many items are involved -- never "Permanently Remove" for
+    one item and a differently-worded "Permanently delete selected" for
+    several.
+    """
+    if eligible_count == 1:
+        return "Permanently delete this item"
+    return f"Permanently delete {eligible_count} selected items"
+
+
+def _permanent_delete_body_text(*, eligible_count: int, skipped_count: int,
+                                 asset_count: int, bytes_scheduled: int) -> str:
+    from ..core.cleanup_suggestions import format_bytes
+    return (
+        f"Eligible: {eligible_count}\n"
+        f"Skipped/protected: {skipped_count}\n"
+        f"Managed assets: {asset_count}\n"
+        f"Managed bytes to delete: {format_bytes(bytes_scheduled)}\n\n"
+        "These items cannot be restored after this action.\n"
+        "External original files will not be deleted."
+    )
+
+
+class PermanentDeleteSelectedDialog(ctk.CTkToplevel):
+    """Single-confirmation dialog for "Permanently delete selected" from
+    Recently Removed.
+
+    The destructive button only ever fires from a real mouse click --
+    it's never bound to Return/Space, and the dialog is centered over the
+    parent window rather than placed at the menu-click coordinates, so
+    the trailing release event from the menu selection that opened this
+    dialog can't land on it and confirm by accident. Escape and the
+    window close button both cancel safely.
+    """
+
+    def __init__(self, master, *, eligible_count: int, skipped_count: int,
+                 asset_count: int, bytes_scheduled: int, on_confirm: Callable[[], None]):
+        super().__init__(master)
+        action_label = _permanent_delete_action_label(eligible_count)
+        self.title(action_label)
+        self.geometry("460x320")
+        self.resizable(False, False)
+        self._on_confirm = on_confirm
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=18, pady=18)
+
+        ctk.CTkLabel(
+            body,
+            text=f"{action_label}?\n\n" + _permanent_delete_body_text(
+                eligible_count=eligible_count, skipped_count=skipped_count,
+                asset_count=asset_count, bytes_scheduled=bytes_scheduled,
+            ),
+            justify="left", anchor="w", wraplength=420,
+        ).pack(fill="x", pady=(0, 16))
+
+        btns = ctk.CTkFrame(body, fg_color="transparent")
+        btns.pack(fill="x", side="bottom")
+        ctk.CTkButton(btns, text="Cancel", height=32, command=self._cancel,
+                      **theme.secondary_button()).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(btns, text=action_label, height=32,
+                      command=self._confirm, **theme.primary_button()).pack(side="right")
+
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda e: self._cancel())
+
+        _bring_to_front(self, master, modal=True, center_on=(460, 320))
+
+    def _cancel(self) -> None:
+        self.destroy()
+
+    def _confirm(self) -> None:
+        self.destroy()
+        self._on_confirm()
+
+
+class PermanentDeleteAllDialog(ctk.CTkToplevel):
+    """Two-step confirmation for "Permanently delete all items in
+    Recently Removed" -- the destructive command this codebase's naming
+    conventions never label Empty/Clear/Clean/Remove all.
+
+    Step 1 shows the same counts/warnings as the selected-item dialog.
+    Only a real click advances to step 2, which requires typing the
+    literal phrase ``DELETE ALL`` before its destructive button enables;
+    that button is still only wired to a real click, never Return/Space,
+    so even a pasted/auto-filled match can't submit by itself. Both
+    steps are centered over the parent (not placed at the menu-click
+    coordinates) so the click that opened the menu can't bleed through
+    and confirm either stage. Escape and window close cancel safely at
+    either step.
+    """
+
+    CONFIRM_PHRASE = "DELETE ALL"
+
+    def __init__(self, master, *, total_count: int, eligible_count: int, skipped_count: int,
+                 asset_count: int, bytes_scheduled: int, on_confirm: Callable[[], None]):
+        super().__init__(master)
+        self.title("Permanently delete all items in Recently Removed")
+        self.geometry("480x400")
+        self.resizable(False, False)
+        self._on_confirm = on_confirm
+        self._confirm_btn: ctk.CTkButton | None = None
+        self._confirm_entry_var: ctk.StringVar | None = None
+
+        self._render_stage1(total_count, eligible_count, skipped_count, asset_count, bytes_scheduled)
+
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda e: self._cancel())
+
+        _bring_to_front(self, master, modal=True, center_on=(480, 400))
+
+    def _cancel(self) -> None:
+        self.destroy()
+
+    def _clear(self) -> None:
+        for child in self.winfo_children():
+            child.destroy()
+
+    def _render_stage1(self, total_count, eligible_count, skipped_count, asset_count, bytes_scheduled) -> None:
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=18, pady=18)
+
+        ctk.CTkLabel(
+            body,
+            text=(
+                f"Permanently delete all items in Recently Removed?\n\n"
+                f"Current Recently Removed count: {total_count}\n"
+            ) + _permanent_delete_body_text(
+                eligible_count=eligible_count, skipped_count=skipped_count,
+                asset_count=asset_count, bytes_scheduled=bytes_scheduled,
+            ),
+            justify="left", anchor="w", wraplength=440,
+        ).pack(fill="x", pady=(0, 16))
+
+        btns = ctk.CTkFrame(body, fg_color="transparent")
+        btns.pack(fill="x", side="bottom")
+        ctk.CTkButton(btns, text="Cancel", height=32, command=self._cancel,
+                      **theme.secondary_button()).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            btns, text="Permanently delete all items in Recently Removed", height=32,
+            command=self._render_stage2, **theme.primary_button(),
+        ).pack(side="right")
+
+    def _render_stage2(self) -> None:
+        self._clear()
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=18, pady=18)
+
+        ctk.CTkLabel(
+            body,
+            text=(
+                "This is your final confirmation.\n\n"
+                f"Type {self.CONFIRM_PHRASE} below to permanently delete these items.\n"
+                "These items cannot be restored after this action."
+            ),
+            justify="left", anchor="w", wraplength=440,
+        ).pack(fill="x", pady=(0, 12))
+
+        entry_var = ctk.StringVar(value="")
+        entry = ctk.CTkEntry(body, textvariable=entry_var)
+        entry.pack(fill="x", pady=(0, 16))
+        self._confirm_entry_var = entry_var
+
+        btns = ctk.CTkFrame(body, fg_color="transparent")
+        btns.pack(fill="x", side="bottom")
+        confirm_btn = ctk.CTkButton(
+            btns, text="Permanently delete all items in Recently Removed", height=32,
+            state="disabled", command=self._finish, **theme.primary_button(),
+        )
+        confirm_btn.pack(side="right")
+        ctk.CTkButton(btns, text="Cancel", height=32, command=self._cancel,
+                      **theme.secondary_button()).pack(side="right", padx=(8, 0))
+        self._confirm_btn = confirm_btn
+
+        def _on_change(*_a) -> None:
+            confirm_btn.configure(state="normal" if entry_var.get() == self.CONFIRM_PHRASE else "disabled")
+
+        entry_var.trace_add("write", _on_change)
+        entry.focus_set()
+
+    def _finish(self) -> None:
+        # Belt-and-suspenders: only proceed if the button is genuinely
+        # enabled (i.e. the typed phrase really matched at click time).
+        if self._confirm_btn is None or str(self._confirm_btn.cget("state")) != "normal":
+            return
+        self.destroy()
+        self._on_confirm()

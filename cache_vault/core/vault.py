@@ -835,21 +835,176 @@ class Vault:
         self.storage.soft_delete(clip_id)
         self.events.record(models.EVENT_DELETED, clip_id, {"action": "remove_from_history"})
 
+    def remove_from_history_many(self, clip_ids):
+        """Bulk move-to-Recently-Removed -- atomic (see
+        storage.soft_delete_many: one transaction, full rollback on any
+        exception, no partial-success return). Events are recorded only
+        after storage.soft_delete_many has already returned successfully
+        (i.e. only after a real commit) -- a raised exception there means
+        this loop never runs and zero events are recorded, so the
+        Stamped Receipts ledger can never show a bulk move that didn't
+        actually commit. One event per clip in the returned
+        BulkMutationResult.succeeded, matching remove_from_history()'s
+        per-clip event granularity."""
+        result = self.storage.soft_delete_many(clip_ids)
+        for cid in result.succeeded:
+            self.events.record(models.EVENT_DELETED, cid, {"action": "remove_from_history"})
+        return result
+
     def restore(self, clip_id: str) -> None:
         """Restore a clip from Recently Removed back into history."""
         self.storage.restore(clip_id)
         self.events.record(models.EVENT_RESTORED, clip_id)
 
-    def permanently_remove(self, clip_id: str) -> None:
-        """Hard-delete a clip's Cache Vault entry. Never touches real files."""
-        self.events.record(models.EVENT_PERMANENTLY_REMOVED, clip_id)
-        self.storage.hard_delete(clip_id)
+    def restore_many(self, clip_ids):
+        """Bulk restore -- atomic (see storage.restore_many). Events are
+        recorded only after a real, successful commit -- same rationale
+        as remove_from_history_many. One event per clip in the returned
+        BulkMutationResult.succeeded, matching restore()'s per-clip
+        event granularity."""
+        result = self.storage.restore_many(clip_ids)
+        for cid in result.succeeded:
+            self.events.record(models.EVENT_RESTORED, cid)
+        return result
+
+    def permanently_remove(self, clip_id: str):
+        """Compatibility wrapper: single-item permanent deletion runs
+        through the exact same staged pipeline as bulk/Delete All (see
+        ``permanently_delete_many``) -- managed-root containment checks,
+        quarantine staging, database-failure rollback, partial-purge
+        reporting, and the same receipt/privacy contract all apply here
+        too. There is only ever one CacheVault-managed asset file per
+        clip (a ``clip_assets`` row under the managed assets root), and
+        only that file may ever be removed; an external original a
+        path-only clip merely references is never touched, by this
+        method or any other permanent-deletion path.
+
+        Returns the same ``PermanentDeleteResult`` bulk callers get,
+        instead of ``None`` -- existing callers that ignored the return
+        value are unaffected; UI callers that want Complete/Partial
+        reporting can now read it.
+        """
+        return self.permanently_delete_many([clip_id], confirmation_mode="selected")
 
     def set_collection(self, clip_id: str, collection: str | None) -> None:
         """Move a clip into a named collection (or None to remove it)."""
         self.storage.set_collection(clip_id, collection)
         self.events.record(models.EVENT_MOVED_COLLECTION, clip_id,
                            {"collection": (collection or "").strip() or None})
+
+    def empty_collection(self, collection_name: str, clip_ids: list[str] | None = None):
+        """Clear the collection label from every live clip currently in
+        ``collection_name`` -- atomic, one transaction, no files touched.
+
+        The optional ``clip_ids`` should be an execution-time snapshot of
+        current members; the storage layer still re-validates membership
+        inside the transaction. A receipt is recorded only after the
+        storage call returns successfully and at least one clip was
+        actually cleared, so a raised exception or an empty/zeroed
+        collection produces no misleading receipt.
+        """
+        from .collection_receipts import record_empty_collection_receipt
+
+        result = self.storage.clear_collection(collection_name, clip_ids)
+        if result.succeeded_count:
+            record_empty_collection_receipt(
+                self.events,
+                collection_name=collection_name,
+                membership_removed=result.succeeded_count,
+                skipped_count=result.skipped_count,
+                clip_ids=list(result.succeeded),
+            )
+        return result
+
+    def permanently_delete_many(self, clip_ids: list[str], *, confirmation_mode: str):
+        """Guarded, staged permanent deletion from Recently Removed.
+
+        Orchestrates the three-stage pipeline in
+        ``cache_vault.core.permanent_delete``: build a read-only plan,
+        stage managed asset files into quarantine (atomic rename, all-or-
+        nothing), commit the database transaction, then purge the staged
+        files. ``confirmation_mode`` is ``"selected"`` or ``"delete_all"``
+        and is recorded on the receipt for audit purposes only.
+
+        A raised exception here means the database transaction itself
+        failed: every staged file has already been moved back to its
+        original location before the exception propagates, and no
+        receipt/event is recorded -- matching this codebase's existing
+        bulk-mutation contract (``clear_collection``, ``soft_delete_many``):
+        the call raises and nothing changed.
+
+        A clip that was restored (deleted_at cleared) by something else
+        between staging and the database commit is not deleted -- its
+        file is moved back out of quarantine and it's reported in
+        ``.skipped``, never in ``.deleted_ids``.
+        """
+        from . import permanent_delete as pd
+
+        plan = pd.build_deletion_plan(self.storage, clip_ids)
+        if not plan.eligible_ids:
+            return pd.PermanentDeleteResult(
+                requested_ids=plan.requested_ids, eligible_ids=(), deleted_ids=(),
+                skipped=plan.skipped, failed={}, managed_assets_deleted=0,
+                managed_files_deferred=0, disk_bytes_reclaimed=0, complete=True,
+            )
+
+        staging = pd.stage_managed_files(plan)
+        if not staging.ok:
+            return pd.PermanentDeleteResult(
+                requested_ids=plan.requested_ids, eligible_ids=plan.eligible_ids, deleted_ids=(),
+                skipped=plan.skipped, failed=staging.failed, managed_assets_deleted=0,
+                managed_files_deferred=0, disk_bytes_reclaimed=0, complete=False,
+            )
+
+        try:
+            db_result = self.storage.hard_delete_many(list(plan.eligible_ids))
+        except Exception:
+            pd.unstage_files(staging, list(staging.staged.keys()))
+            raise
+
+        deleted_ids = db_result.succeeded
+        raced_skips = db_result.skipped
+        if raced_skips:
+            pd.unstage_files(staging, list(raced_skips))
+
+        skipped = dict(plan.skipped)
+        for cid in raced_skips:
+            skipped[cid] = "restored_before_commit"
+
+        purge = pd.purge_staged_files(staging, list(deleted_ids))
+        disk_bytes_reclaimed = sum(purge.purged.values())
+        if purge.deferred:
+            pd.record_deferred_entries(plan, staging, purge.deferred)
+
+        result = pd.PermanentDeleteResult(
+            requested_ids=plan.requested_ids,
+            eligible_ids=plan.eligible_ids,
+            deleted_ids=deleted_ids,
+            skipped=skipped,
+            failed=purge.deferred,
+            managed_assets_deleted=len(purge.purged),
+            managed_files_deferred=len(purge.deferred),
+            disk_bytes_reclaimed=disk_bytes_reclaimed,
+            complete=not purge.deferred,
+        )
+
+        if deleted_ids:
+            pd.record_permanent_delete_receipt(
+                self.events, plan=plan, result=result, confirmation_mode=confirmation_mode,
+            )
+
+        return result
+
+    def retry_deferred_permanent_deletions(self):
+        """Bounded maintenance operation: retry every file still stuck
+        in the permanent-deletion quarantine after a prior partial
+        purge, including one from a previous process (see the durable
+        journal in ``cache_vault.core.permanent_delete``). Safe to call
+        at any time -- e.g. on startup, or from an explicit maintenance
+        action -- with no pending entries, it's a fast no-op.
+        """
+        from . import permanent_delete as pd
+        return pd.retry_deferred_permanent_deletions(self.events)
 
     def list_collections(self) -> list[dict]:
         return self.storage.list_collections()
@@ -1255,6 +1410,15 @@ class Vault:
 
     def count_clips(self, query=None, conn=None) -> int:
         return self.storage.count_clips(query, conn=conn)
+
+    def list_clip_ids(self, query=None, *, limit: int | None = None, offset: int = 0, conn=None):
+        return self.storage.list_clip_ids(query, limit=limit, offset=offset, conn=conn)
+
+    def iter_clip_ids(self, query=None, *, batch_size: int = 500, conn=None):
+        return self.storage.iter_clip_ids(query, batch_size=batch_size, conn=conn)
+
+    def clip_id_snapshot(self, query=None, *, batch_size: int = 500):
+        return self.storage.clip_id_snapshot(query, batch_size=batch_size)
 
     def counts(self, conn=None):
         out = self.storage.counts(conn=conn)

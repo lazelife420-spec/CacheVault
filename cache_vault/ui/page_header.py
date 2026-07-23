@@ -69,6 +69,23 @@ class PageHeader(ctk.CTkFrame):
             font=theme.body_font(11),
         )
 
+        # "All N matching items selected" banner (Ctrl+Shift+A). Same
+        # .place() pattern as _refreshing_label so it survives
+        # set_status_chips()/set_actions() rebuilding their own children.
+        self._selection_notice_label = ctk.CTkLabel(
+            self,
+            text="",
+            text_color=brand.PROOF_TEAL,
+            font=theme.body_font(11),
+        )
+
+    def set_selection_notice(self, text: str | None) -> None:
+        if not text:
+            self._selection_notice_label.place_forget()
+            return
+        self._selection_notice_label.configure(text=text)
+        self._selection_notice_label.place(relx=0.0, rely=1.0, anchor="sw", x=8, y=-6)
+
     def set_refreshing(self, active: bool, *, error: bool = False) -> None:
         if not active and not error:
             self._refreshing_label.place_forget()
