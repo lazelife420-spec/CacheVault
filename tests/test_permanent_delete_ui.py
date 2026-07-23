@@ -21,7 +21,7 @@ from cache_vault.core.models import Clip
 from cache_vault.core.settings import Settings
 from cache_vault.core.storage import VaultStorage
 from cache_vault.core.vault import Vault
-from cache_vault.ui import dialogs, sidebar_context
+from cache_vault.ui import dialogs, sidebar_context, theme
 from cache_vault.ui.shell import CacheVaultApp
 from tests.tk_support import _tcl_unavailable, probe_tk_ui, wait_for_refresh
 
@@ -606,4 +606,59 @@ def test_permanent_delete_selected_dialog_escape_cancels_safely(tmp_path):
             dlg.destroy()
         except Exception:
             pass
+        root.destroy()
+
+
+def _find_button_by_text(widget, text):
+    import customtkinter as ctk
+
+    if isinstance(widget, ctk.CTkButton) and widget.cget("text") == text:
+        return widget
+    for child in widget.winfo_children():
+        found = _find_button_by_text(child, text)
+        if found is not None:
+            return found
+    return None
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_irreversible_permanent_delete_confirm_buttons_use_destructive_style():
+    """The confirm control that actually fires an irreversible permanent
+    delete must use theme.destructive_button() (Warning Red), not
+    theme.primary_button() (Proof Teal) -- the app's own theme module
+    reserves destructive_button() specifically for "permanent removal and
+    destructive warnings," and every other irreversible action in the app
+    already uses it; only these two dialogs' confirm buttons didn't."""
+    import customtkinter as ctk
+
+    root = ctk.CTk()
+    root.withdraw()
+    try:
+        expected = theme.destructive_button()
+
+        selected_dlg = dialogs.PermanentDeleteSelectedDialog(
+            root, eligible_count=1, skipped_count=0, asset_count=0, bytes_scheduled=0,
+            on_confirm=lambda: None,
+        )
+        try:
+            action_label = dialogs._permanent_delete_action_label(1)
+            btn = _find_button_by_text(selected_dlg, action_label)
+            assert btn is not None
+            assert btn.cget("fg_color") == expected["fg_color"]
+            assert btn.cget("hover_color") == expected["hover_color"]
+        finally:
+            selected_dlg.destroy()
+
+        all_dlg = dialogs.PermanentDeleteAllDialog(
+            root, total_count=3, eligible_count=3, skipped_count=0,
+            asset_count=0, bytes_scheduled=0, on_confirm=lambda: None,
+        )
+        try:
+            all_dlg._render_stage2()
+            assert all_dlg._confirm_btn is not None
+            assert all_dlg._confirm_btn.cget("fg_color") == expected["fg_color"]
+            assert all_dlg._confirm_btn.cget("hover_color") == expected["hover_color"]
+        finally:
+            all_dlg.destroy()
+    finally:
         root.destroy()

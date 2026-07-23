@@ -10,7 +10,7 @@ from .. import brand
 from ..core import clip_metadata, models
 from ..core.models import Clip
 from . import theme
-from .page_scaffold import EmptyState
+from .page_scaffold import build_clip_empty_state
 
 # (key, header label, min width weight)
 COLUMNS = [
@@ -114,50 +114,15 @@ class ClipGrid(ctk.CTkScrollableFrame):
             for w in self._empty_container.winfo_children():
                 w.destroy()
 
-            actions = None
-            title = "No clips yet"
-            icon = "📭"
-            desc = empty_message or "Copy something and it will appear here."
-
             shell = self.winfo_toplevel()
             active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
 
-            from ..core import storage as S
-            if active_filter == S.FILTER_DUPLICATES:
-                title = "No Duplicates"
-                icon = "≡"
-                desc = "Everything looks clean."
-            elif active_filter == S.FILTER_FAVORITES:
-                title = "No Favorites"
-                icon = "★"
-                desc = "Star clips to save them here."
-            elif active_filter == S.FILTER_SCREENSHOTS:
-                title = "No Screenshots"
-                icon = "▦"
-                desc = "Screenshots will appear here."
-            elif active_filter == S.FILTER_SENSITIVE:
-                title = "No Sensitive Items"
-                icon = "⚠"
-                desc = "Sensitive clips will appear here."
-            elif active_filter == S.FILTER_RECENTLY_REMOVED:
-                title = "No Recently Removed"
-                icon = "↩"
-                desc = "Clean trash bin."
-            else:
-                title = "No clips match filters"
-                icon = "📭"
-                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
-                    actions = [
-                        ("Clear Filters", shell._clear_filters, False),
-                        ("Save Clipboard", shell._manual_save_clipboard, True),
-                    ]
-
-            est = EmptyState(
+            est = build_clip_empty_state(
                 self._empty_container,
-                title=title,
-                description=desc,
-                icon=icon,
-                actions=actions,
+                active_filter=active_filter,
+                empty_message=empty_message,
+                clear_filters=getattr(shell, "_clear_filters", None),
+                save_clipboard=getattr(shell, "_manual_save_clipboard", None),
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
@@ -198,50 +163,15 @@ class ClipGrid(ctk.CTkScrollableFrame):
             for w in self._empty_container.winfo_children():
                 w.destroy()
 
-            actions = None
-            title = "No clips yet"
-            icon = "📭"
-            desc = empty_message or "Copy something and it will appear here."
-
             shell = self.winfo_toplevel()
             active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
 
-            from ..core import storage as S
-            if active_filter == S.FILTER_DUPLICATES:
-                title = "No Duplicates"
-                icon = "≡"
-                desc = "Everything looks clean."
-            elif active_filter == S.FILTER_FAVORITES:
-                title = "No Favorites"
-                icon = "★"
-                desc = "Star clips to save them here."
-            elif active_filter == S.FILTER_SCREENSHOTS:
-                title = "No Screenshots"
-                icon = "▦"
-                desc = "Screenshots will appear here."
-            elif active_filter == S.FILTER_SENSITIVE:
-                title = "No Sensitive Items"
-                icon = "⚠"
-                desc = "Sensitive clips will appear here."
-            elif active_filter == S.FILTER_RECENTLY_REMOVED:
-                title = "No Recently Removed"
-                icon = "↩"
-                desc = "Clean trash bin."
-            else:
-                title = "No clips match filters"
-                icon = "📭"
-                if hasattr(shell, "_clear_filters") and hasattr(shell, "_manual_save_clipboard"):
-                    actions = [
-                        ("Clear Filters", shell._clear_filters, False),
-                        ("Save Clipboard", shell._manual_save_clipboard, True),
-                    ]
-
-            est = EmptyState(
+            est = build_clip_empty_state(
                 self._empty_container,
-                title=title,
-                description=desc,
-                icon=icon,
-                actions=actions,
+                active_filter=active_filter,
+                empty_message=empty_message,
+                clear_filters=getattr(shell, "_clear_filters", None),
+                save_clipboard=getattr(shell, "_manual_save_clipboard", None),
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)

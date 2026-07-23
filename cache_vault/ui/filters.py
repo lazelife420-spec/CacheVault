@@ -821,6 +821,8 @@ class FilterNav(ctk.CTkFrame):
                 del self._labels[key]
                 if key in self._counts:
                     del self._counts[key]
+                if key in self._labels_text:
+                    del self._labels_text[key]
         if not collections:
             self._collections_empty.pack(fill="x", padx=14, pady=2)
         else:
@@ -828,6 +830,7 @@ class FilterNav(ctk.CTkFrame):
             for col in collections:
                 name = col["name"]
                 key = S.COLLECTION_PREFIX + name
+                self._labels_text[key] = name
 
                 on_context = None
                 if self._on_collection_context:

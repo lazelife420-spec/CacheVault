@@ -10,7 +10,10 @@ import pytest
 
 from cache_vault import brand
 from cache_vault.core import storage as S
-from cache_vault.ui.page_scaffold import PageScaffold, LoadingState, EmptyState, ErrorState, UnavailableState
+from cache_vault.ui.page_scaffold import (
+    PageScaffold, LoadingState, EmptyState, ErrorState, UnavailableState,
+    build_clip_empty_state,
+)
 from cache_vault.ui.page_header import PageHeader
 from cache_vault.ui import home_dashboard
 
@@ -124,6 +127,111 @@ def test_error_state_and_unavailable_state(tk_root):
     unavail.update_idletasks()
     assert unavail._title_lbl.cget("text") == "Feature Offline"
     assert unavail._desc_lbl.cget("text") == "LAN bridge not paired."
+
+
+def test_build_clip_empty_state_favorites(tk_root):
+    parent = ctk.CTkFrame(tk_root)
+    parent.grid(row=0, column=0)
+    est = build_clip_empty_state(parent, active_filter=S.FILTER_FAVORITES)
+    est.grid(row=0, column=0)
+    est.update_idletasks()
+    assert est._title_lbl.cget("text") == "No Favorites"
+    assert est._icon_lbl.cget("text") == "★"
+    assert est._desc_lbl.cget("text") == "Star clips to save them here."
+    assert not hasattr(est, "_actions_frame")
+
+
+def test_build_clip_empty_state_recently_removed(tk_root):
+    parent = ctk.CTkFrame(tk_root)
+    parent.grid(row=0, column=0)
+    est = build_clip_empty_state(parent, active_filter=S.FILTER_RECENTLY_REMOVED)
+    est.grid(row=0, column=0)
+    est.update_idletasks()
+    assert est._title_lbl.cget("text") == "No Recently Removed"
+    assert est._icon_lbl.cget("text") == "↩"
+    assert est._desc_lbl.cget("text") == "Clean trash bin."
+
+
+def test_build_clip_empty_state_duplicates_screenshots_sensitive(tk_root):
+    cases = [
+        (S.FILTER_DUPLICATES, "No Duplicates", "≡", "Everything looks clean."),
+        (S.FILTER_SCREENSHOTS, "No Screenshots", "▦", "Screenshots will appear here."),
+        (S.FILTER_SENSITIVE, "No Sensitive Items", "⚠", "Sensitive clips will appear here."),
+    ]
+    for active_filter, title, icon, desc in cases:
+        parent = ctk.CTkFrame(tk_root)
+        parent.grid(row=0, column=0)
+        est = build_clip_empty_state(parent, active_filter=active_filter)
+        est.grid(row=0, column=0)
+        est.update_idletasks()
+        assert est._title_lbl.cget("text") == title
+        assert est._icon_lbl.cget("text") == icon
+        assert est._desc_lbl.cget("text") == desc
+        est.destroy()
+        parent.destroy()
+
+
+def test_build_clip_empty_state_collection_has_bespoke_state_no_actions(tk_root):
+    """A Collection screen must get its own real empty state, not the
+    generic 'no clips match filters' fallback, and must not offer
+    Clear Filters / Save Clipboard actions that don't apply to it."""
+    parent = ctk.CTkFrame(tk_root)
+    parent.grid(row=0, column=0)
+    est = build_clip_empty_state(
+        parent,
+        active_filter=S.COLLECTION_PREFIX + "My Collection",
+        clear_filters=lambda: None,
+        save_clipboard=lambda: None,
+    )
+    est.grid(row=0, column=0)
+    est.update_idletasks()
+    assert est._title_lbl.cget("text") == "This collection is empty"
+    assert est._desc_lbl.cget("text") == "Add clips to this collection from a clip's context menu."
+    assert not hasattr(est, "_actions_frame")
+
+
+def test_build_clip_empty_state_generic_fallback_attaches_actions_when_available(tk_root):
+    called = []
+    parent = ctk.CTkFrame(tk_root)
+    parent.grid(row=0, column=0)
+    est = build_clip_empty_state(
+        parent,
+        active_filter=S.FILTER_ALL,
+        clear_filters=lambda: called.append("clear"),
+        save_clipboard=lambda: called.append("save"),
+    )
+    est.grid(row=0, column=0)
+    est.update_idletasks()
+    assert est._title_lbl.cget("text") == "No clips match filters"
+    buttons = est._actions_frame.winfo_children()
+    assert [b.cget("text") for b in buttons] == ["Clear Filters", "Save Clipboard"]
+    buttons[0].invoke()
+    buttons[1].invoke()
+    assert called == ["clear", "save"]
+
+
+def test_build_clip_empty_state_generic_fallback_no_actions_when_callbacks_missing(tk_root):
+    parent = ctk.CTkFrame(tk_root)
+    parent.grid(row=0, column=0)
+    est = build_clip_empty_state(parent, active_filter=S.FILTER_ALL)
+    est.grid(row=0, column=0)
+    est.update_idletasks()
+    assert est._title_lbl.cget("text") == "No clips match filters"
+    assert not hasattr(est, "_actions_frame")
+
+
+def test_build_clip_empty_state_uses_empty_message_when_no_filter_matches(tk_root):
+    parent = ctk.CTkFrame(tk_root)
+    parent.grid(row=0, column=0)
+    est = build_clip_empty_state(
+        parent, active_filter="", empty_message="Nothing captured yet in this vault.",
+    )
+    est.grid(row=0, column=0)
+    est.update_idletasks()
+    # No structured filter/collection key matched, so this falls to the
+    # generic branch, which always overwrites desc -- matching the
+    # pre-existing behavior this refactor preserves rather than changes.
+    assert est._title_lbl.cget("text") == "No clips match filters"
 
 
 def test_home_dashboard_no_duplicate_method_definitions():

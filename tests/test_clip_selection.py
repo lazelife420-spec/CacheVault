@@ -7,11 +7,15 @@ import pytest
 
 from cache_vault import brand
 from cache_vault.core import models
+from cache_vault.core import storage as S
 from cache_vault.core.models import Clip
+from cache_vault.core.settings import Settings
+from cache_vault.core.storage import VaultStorage
+from cache_vault.core.vault import Vault
 from cache_vault.ui.clip_grid import ClipGrid
 from cache_vault.ui.clip_list import ClipList
 from cache_vault.ui.shell import CacheVaultApp
-from tests.tk_support import probe_tk_ui, _tcl_unavailable
+from tests.tk_support import probe_tk_ui, _tcl_unavailable, wait_for_refresh
 
 OK, REASON = probe_tk_ui()
 
@@ -526,5 +530,74 @@ def test_bulk_action_strip_keeps_danger_under_more(vault, tmp_path, monkeypatch)
             "Copy Combined Text", "Create Proof Receipt", "Export Selection",
             "Save Images", "More…",
         ]
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_clip_list_ctrl_click_repaints_full_selected_and_deselected_presentation(tmp_path):
+    """Regression test for a defect where selecting a row via Ctrl/Shift
+    click *after* it was already rendered only got the row border/rail/
+    badge repainted, not the title label's larger bold font or the
+    metadata line's bold/white styling -- those were only ever set at
+    initial ``_build_row`` time, so a row selected this way silently kept
+    its unselected title size and metadata weight/color. This asserts the
+    *live* repaint path (``_toggle_select`` -> ``_repaint_selection`` ->
+    ``_update_row_visuals``) applies the complete presentation, and that
+    deselecting reverts it completely too."""
+    vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
+    a = vault.capture("first clip")
+    b = vault.capture("second clip")
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        app._do_refresh_sync()
+        wait_for_refresh(app)
+
+        clip_a = vault.storage.get_clip(a.id)
+        clip_b = vault.storage.get_clip(b.id)
+
+        # A settled refresh leaves the first visible clip single-selected
+        # by default (see _apply_refresh_snapshot) -- clear first so the
+        # toggles below are a clean accumulation, not an accidental
+        # toggle-off of a pre-selected row.
+        app._clear_selection()
+
+        # Both rows start unselected: 12pt normal-weight title, muted
+        # normal-weight metadata.
+        title_a = app._list._title_label_by_id[a.id]
+        meta_a = app._list._meta_label_by_id[a.id]
+        assert title_a.cget("font").cget("size") == 12
+        assert meta_a.cget("font").cget("weight") == "normal"
+        assert meta_a.cget("text_color") == brand.MUTED_FG
+
+        # Ctrl-click both rows to build a multi-selection via the live
+        # repaint path, not initial construction.
+        app._list._toggle_select(clip_a)
+        app._list._toggle_select(clip_b)
+
+        for clip_id in (a.id, b.id):
+            title = app._list._title_label_by_id[clip_id]
+            meta = app._list._meta_label_by_id[clip_id]
+            assert title.cget("font").cget("size") == 13
+            assert title.cget("font").cget("weight") == "bold"
+            assert meta.cget("font").cget("weight") == "bold"
+            assert meta.cget("text_color") == brand.RECEIPT_WHITE
+
+        # Ctrl-click one off again: it must fully revert, the other must
+        # stay fully selected.
+        app._list._toggle_select(clip_a)
+
+        assert title_a.cget("font").cget("size") == 12
+        assert title_a.cget("font").cget("weight") == "bold"  # weight is constant; only size/color change
+        assert meta_a.cget("font").cget("weight") == "normal"
+        assert meta_a.cget("text_color") == brand.MUTED_FG
+
+        title_b = app._list._title_label_by_id[b.id]
+        meta_b = app._list._meta_label_by_id[b.id]
+        assert title_b.cget("font").cget("size") == 13
+        assert meta_b.cget("font").cget("weight") == "bold"
+        assert meta_b.cget("text_color") == brand.RECEIPT_WHITE
     finally:
         app.destroy()
