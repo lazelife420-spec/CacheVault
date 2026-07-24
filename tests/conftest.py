@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -8,24 +7,27 @@ import pytest
 # where pytest is invoked from.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Never spin up a real system-tray icon during the test suite. pystray's
-# Windows backend keeps its own non-daemon message-loop thread whose clean
-# shutdown depends on GC/finalizer timing (it can end up blocked deep inside
-# a PIL/tkinter finalizer chain triggered from icon-image regeneration) —
-# when that happens, threading._shutdown() blocks forever waiting to join
-# it, and the whole test process hangs after pytest has already reported
-# every test as passed. Set before any test imports cache_vault.ui.shell,
-# so every Shell built during the session skips tray-icon creation
-# entirely (see cache_vault/ui/tray.py's TrayController.start()). Existing
-# scripts (scripts/macro_live_smoke.py, scripts/post_rc3_acceptance_gate.py)
-# already opt into this same flag for the same reason; setdefault leaves it
-# overridable for anyone deliberately testing the real tray icon.
-os.environ.setdefault("CACHE_VAULT_DISABLE_TRAY", "1")
+# Redirect CacheVault's default LOCALAPPDATA/TEMP/TMP/USERPROFILE-derived
+# file paths into a throwaway per-session sandbox *before* anything below
+# imports a cache_vault module. This also sets CACHE_VAULT_DISABLE_TRAY=1.
+# See tests/sandbox.py for why this has to live here, at conftest import
+# time (ahead of collection), rather than in an autouse fixture.
+from tests import sandbox  # noqa: E402
+
+sandbox.bootstrap()
 
 from cache_vault.core.settings import Settings  # noqa: E402
 from cache_vault.core.storage import VaultStorage  # noqa: E402
 from cache_vault.core.vault import Vault  # noqa: E402
 from tests.tk_support import _tcl_unavailable, probe_tk_ui  # noqa: E402
+
+
+def pytest_report_header(config):
+    return f"cachevault test sandbox: {sandbox.SANDBOX_ROOT}"
+
+
+def pytest_sessionfinish(session, exitstatus):
+    sandbox.cleanup_if_clean(exitstatus)
 
 
 @pytest.fixture(scope="session")
