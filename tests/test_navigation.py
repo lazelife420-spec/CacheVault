@@ -191,8 +191,16 @@ class TestNavigation:
         from cache_vault.core import storage as S
         from tests.tk_support import wait_for_refresh
 
-        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
-        vault.capture("only clip")
+        # This test verifies deterministic header-count grammar and must
+        # not observe the host OS clipboard -- a real ClipboardMonitor
+        # left active during wait_for_refresh's event pump can auto-capture
+        # genuine external clipboard activity into this test's own vault,
+        # making the count nondeterministic.
+        vault = Vault(
+            storage=VaultStorage(tmp_path / "vault.db"),
+            settings=Settings(auto_capture_enabled=False, capture_paused=True),
+        )
+        vault.capture("only clip", force=True)
         app = _make_app(vault)
         try:
             app.withdraw()
@@ -211,9 +219,17 @@ class TestNavigation:
         from cache_vault.core import storage as S
         from tests.tk_support import wait_for_refresh
 
-        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
-        vault.capture("first clip")
-        vault.capture("second clip")
+        # This test verifies deterministic header-count grammar and must
+        # not observe the host OS clipboard -- a real ClipboardMonitor
+        # left active during wait_for_refresh's event pump can auto-capture
+        # genuine external clipboard activity into this test's own vault,
+        # making the count nondeterministic.
+        vault = Vault(
+            storage=VaultStorage(tmp_path / "vault.db"),
+            settings=Settings(auto_capture_enabled=False, capture_paused=True),
+        )
+        vault.capture("first clip", force=True)
+        vault.capture("second clip", force=True)
         app = _make_app(vault)
         try:
             app.withdraw()
@@ -232,7 +248,15 @@ class TestNavigation:
         from cache_vault.core import storage as S
         from tests.tk_support import wait_for_refresh
 
-        vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=Settings())
+        # This test verifies deterministic header-count grammar and must
+        # not observe the host OS clipboard -- a real ClipboardMonitor
+        # left active during wait_for_refresh's event pump can auto-capture
+        # genuine external clipboard activity into this test's own vault,
+        # making the count nondeterministic.
+        vault = Vault(
+            storage=VaultStorage(tmp_path / "vault.db"),
+            settings=Settings(auto_capture_enabled=False, capture_paused=True),
+        )
         app = _make_app(vault)
         try:
             app.withdraw()
@@ -241,5 +265,94 @@ class TestNavigation:
             wait_for_refresh(app)
 
             assert app._page_header._subtitle_label.cget("text") == "0 clips"
+        finally:
+            app.destroy()
+
+    def test_page_header_count_tests_settings_leave_monitor_paused(self, tmp_path):
+        """Regression guard for the auto-capture contamination bug: the
+        count-grammar tests' settings (auto_capture_enabled=False,
+        capture_paused=True) must leave the real ClipboardMonitor paused
+        after construction. A monitor-start spy confirms the app still
+        genuinely attempts to start the monitor thread (this isn't a
+        skipped/no-op construction) while ending up paused."""
+        from unittest.mock import patch
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.vault import Vault
+        from cache_vault.core.clipboard import ClipboardMonitor
+
+        vault = Vault(
+            storage=VaultStorage(tmp_path / "vault.db"),
+            settings=Settings(auto_capture_enabled=False, capture_paused=True),
+        )
+        with patch.object(
+            ClipboardMonitor, "start", autospec=True, side_effect=ClipboardMonitor.start
+        ) as start_spy:
+            app = _make_app(vault)
+        try:
+            assert start_spy.called, (
+                "Construction should still genuinely attempt to start the "
+                "monitor thread -- this guard is about it ending up paused, "
+                "not about skipping startup"
+            )
+            assert app._monitor.paused is True, (
+                "The count tests' settings must leave the monitor paused so "
+                "a started thread can never deliver a capture"
+            )
+        finally:
+            app.destroy()
+
+    def test_page_header_count_tests_event_pump_cannot_capture_external_clipboard_change(self, tmp_path):
+        """Regression guard, directly reproducing the traced defect's
+        mechanism without touching the real OS clipboard or logging any
+        clipboard content: with a real (paused) ClipboardMonitor after a
+        real Tk event-loop pump, a controlled fake external clipboard
+        change must not reach the vault. Only a fixed placeholder string
+        is used as the fake signal -- never real clipboard content."""
+        from unittest.mock import patch
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.vault import Vault
+        from cache_vault.core import storage as S
+        from tests.tk_support import wait_for_refresh
+
+        vault = Vault(
+            storage=VaultStorage(tmp_path / "vault.db"),
+            settings=Settings(auto_capture_enabled=False, capture_paused=True),
+        )
+        app = _make_app(vault)
+        try:
+            app.withdraw()
+            app._navigate_screen(S.FILTER_ALL)
+            app._do_refresh_sync()
+            wait_for_refresh(app)
+
+            assert app._monitor.paused is True
+            # Controlled fake: drive the monitor's real _emit() path (the
+            # same one a live background thread calls on a genuine
+            # clipboard change) with a fixed placeholder value standing in
+            # for external content, instead of writing to the real
+            # clipboard. If the pause guard is ever removed or bypassed,
+            # this becomes a real captured clip and the count assertion
+            # below fails.
+            with patch(
+                "cache_vault.core.clipboard._read_clipboard_text",
+                return_value="PLACEHOLDER-SIMULATED-EXTERNAL-CLIPBOARD-CHANGE",
+            ), patch("cache_vault.core.clipboard._read_clipboard_image", return_value=None):
+                app._monitor._emit()
+
+            # _on_clip_captured only queues the ingest via _call_on_main;
+            # the actual storage write happens when _pump_main_thread next
+            # drains that queue (normally via the Tk event loop's own
+            # after(50, ...) schedule) -- give it that chance explicitly so
+            # this test exercises the real end-to-end path, not just the
+            # queuing half of it.
+            app._pump_main_thread()
+
+            assert vault.storage.count_clips() == 0, (
+                "A simulated external clipboard change must not be captured "
+                "into the vault while the monitor is paused, even after "
+                "driving its real _emit() dispatch path"
+            )
         finally:
             app.destroy()
