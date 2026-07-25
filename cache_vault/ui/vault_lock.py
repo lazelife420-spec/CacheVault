@@ -146,6 +146,9 @@ class VaultLockScreen(ctk.CTkFrame):
 class VaultControlStrip(ctk.CTkFrame):
     """Compact top status/actions strip for the vault console."""
 
+    QUICK_ACTION_CHOICES = ("Quick Paste", "Snippet Macros", "Export Selected",
+                             "Show First-Use Guide", "Lock Vault")
+
     def __init__(self, master, *, callbacks: dict[str, Callable], **kw):
         super().__init__(master, fg_color=brand.SURFACE_BG, corner_radius=0, **kw)
         self._callbacks = callbacks
@@ -189,8 +192,7 @@ class VaultControlStrip(ctk.CTkFrame):
         self._quick = ctk.CTkOptionMenu(
             self,
             width=150,
-            values=["Quick Actions", "Quick Paste", "Snippet Macros",
-                    "Export Selected", "Show First-Use Guide", "Lock Vault"],
+            values=["Quick Actions", *self.QUICK_ACTION_CHOICES],
             command=self._quick_action,
         )
         self._quick.grid(row=0, column=5, padx=4, pady=6)
@@ -210,10 +212,37 @@ class VaultControlStrip(ctk.CTkFrame):
             self._safe.grid(row=0, column=3, padx=8, pady=6)
 
     def set_lock_label_compact(self, compact: bool) -> None:
-        """Shorten "Lock Now" to "Lock" at narrow widths. The button stays
-        reachable and wired to the same command either way -- this only
-        changes the displayed label, never visibility."""
-        self._lock_btn.configure(text="Lock" if compact else "Lock Now")
+        """Shorten "Lock Now" to "Lock" at narrow widths, and shrink the
+        button's own width to match -- at compact width this strip's
+        allotted column is narrow enough that the full-width button still
+        clipped past this frame's boundary even with the shorter label.
+        The button stays reachable and wired to the same command either
+        way -- this only changes the rendered size, never visibility."""
+        if compact:
+            self._lock_btn.configure(text="Lock", width=72)
+        else:
+            self._lock_btn.configure(text="Lock Now", width=92)
+
+    def set_quick_actions_compact(self, compact: bool) -> None:
+        """Move Quick Actions into the top toolbar's "More" overflow at
+        non-wide widths -- the same overflow path already used for Stamped
+        Receipts / Capture Rules, not a new mechanism. At standard/compact
+        width this strip's own fixed-width content (Capture/Mobile/
+        Receipts/Lock dropdowns and button) doesn't leave enough room for
+        Quick Actions to render without being clipped by this frame's own
+        boundary -- winfo_ismapped() stayed True throughout, since Tk
+        still "manages" a child positioned past its parent's edge; only
+        real geometry (child bounds vs parent bounds) shows the clipping.
+        invoke_quick_action() is the reachable replacement in that menu."""
+        if compact:
+            self._quick.grid_remove()
+        else:
+            self._quick.grid(row=0, column=5, padx=4, pady=6)
+
+    def invoke_quick_action(self, choice: str) -> None:
+        """Entry point for the "More" overflow menu -- calls the exact
+        same dispatcher the Quick Actions dropdown itself uses."""
+        self._quick_action(choice)
 
     def update_state(self, summary: dict) -> None:
         self._summary = summary
