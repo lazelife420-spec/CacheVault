@@ -12,6 +12,18 @@ import customtkinter as ctk
 class Toast(ctk.CTkToplevel):
     def __init__(self, master, text: str, duration_ms: int = 1600):
         super().__init__(master)
+        # self.after(duration_ms, self.destroy) below has no id tracked or
+        # cancelled anywhere, so a Toast destroyed early -- directly, or via
+        # its owning CacheVaultApp cascading destroy() at the Tcl level,
+        # which never calls a Python-level destroy() on children at all --
+        # leaves that job pending. Tk raises "invalid command name" once it
+        # fires against the now-destroyed widget (issue #86). <Destroy> is
+        # Tk's own event, fired for both a direct .destroy() call and a
+        # parent-cascade teardown, at a point where after_cancel can still
+        # succeed -- unlike overriding destroy() alone, which a cascade
+        # never invokes.
+        self._destroy_job: str | None = None
+        self.bind("<Destroy>", self._cancel_destroy_job, add="+")
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         try:
@@ -40,4 +52,23 @@ class Toast(ctk.CTkToplevel):
             self.attributes("-disabled", True)
         except Exception:  # noqa: BLE001
             pass
-        self.after(duration_ms, self.destroy)
+        self._destroy_job = self.after(duration_ms, self._fire_destroy)
+
+    def _fire_destroy(self) -> None:
+        self._destroy_job = None
+        if self.winfo_exists():
+            self.destroy()
+
+    def _cancel_destroy_job(self, event=None) -> None:
+        # <Destroy> bound on a Toplevel fires for every descendant too (this
+        # Toast's own CTkFrame/CTkLabel), as each is torn down in the same
+        # cascade -- filter to this widget's own event so a child's teardown
+        # can't be mistaken for the Toast's own.
+        if event is not None and str(event.widget) != self._w:
+            return
+        if self._destroy_job is not None:
+            try:
+                self.after_cancel(self._destroy_job)
+            except Exception:  # noqa: BLE001 - already fired/invalid, fine
+                pass
+            self._destroy_job = None
