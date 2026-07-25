@@ -234,7 +234,26 @@ class CacheVaultApp(ctk.CTk):
             pass
 
     def __init__(self, vault: Vault | None = None):
-        super().__init__()
+        # CTk.__init__ (invoked by super().__init__() below) schedules its
+        # own Windows titlebar-icon workaround via
+        # self.after(200, self._windows_set_titlebar_icon) before any of
+        # this constructor's own body runs -- before _init_jobs even exists
+        # (see below) -- so nothing else in this class ever gets a chance to
+        # record that job's id, and destroy() never cancelled it: a
+        # construct-then-destroy within 200ms left it pending against an
+        # already-destroyed interpreter (issue #80). Overriding self.after
+        # only for the duration of super().__init__() captures that one
+        # call without affecting anything else CTk.__init__ schedules --
+        # e.g. the 1ms focus-restore inside its titlebar-color workaround --
+        # and without touching self.after for the rest of this window's
+        # life; the override is removed immediately after super().__init__()
+        # returns.
+        self._titlebar_icon_job: str | None = None
+        self.after = self._capture_titlebar_icon_job
+        try:
+            super().__init__()
+        finally:
+            del self.after
         self.vault = vault or Vault()
         self.title(brand.WINDOW_TITLE)
         self.geometry("1100x700")
@@ -441,6 +460,26 @@ class CacheVaultApp(ctk.CTk):
         self.bind("<Configure>", self._on_window_configure)
         self._init_jobs.append(self.after(200, self._install_native_mouse_handler))
 
+    def _capture_titlebar_icon_job(self, ms, fn=None, *args):
+        """Instance-only override of self.after, installed immediately
+        before -- and removed immediately after -- super().__init__() (see
+        __init__). CTk.__init__ schedules its Windows titlebar-icon
+        workaround via self.after(200, self._windows_set_titlebar_icon)
+        before this class's own __init__ body runs, so this is the only
+        window in which that specific job's id can be captured at all.
+
+        Every other self.after(...) call made during super().__init__() --
+        e.g. the 1ms focus-restore CTk's titlebar-color workaround schedules
+        -- passes straight through to the real after() untouched via the
+        `fn == self._windows_set_titlebar_icon` guard below; only the exact
+        titlebar-icon callback gets recorded, so destroy() can cancel that
+        one job without touching any other live callback.
+        """
+        job_id = super().after(ms) if fn is None else super().after(ms, fn, *args)
+        if fn is not None and fn == self._windows_set_titlebar_icon:
+            self._titlebar_icon_job = job_id
+        return job_id
+
     def _install_native_mouse_handler(self) -> None:
         self._mouse_handler = install_mouse_handler(
             self,
@@ -501,6 +540,15 @@ class CacheVaultApp(ctk.CTk):
         """Fully clean up all background threads and listeners."""
         self._shutting_down = True
         # 1. Stop UI timers
+        # CTk.__init__'s own titlebar-icon workaround (see __init__ and
+        # _capture_titlebar_icon_job) -- cancel before any other teardown
+        # step in case it's already due to fire.
+        if hasattr(self, "_titlebar_icon_job") and self._titlebar_icon_job:
+            try:
+                self.after_cancel(self._titlebar_icon_job)
+            except Exception:
+                pass
+            self._titlebar_icon_job = None
         # _pump_job reschedules itself every 50ms (see _pump_main_thread),
         # so unlike _init_jobs' one-shot entries, cancelling it here means
         # cancelling whichever id is CURRENTLY live, not just the original.
