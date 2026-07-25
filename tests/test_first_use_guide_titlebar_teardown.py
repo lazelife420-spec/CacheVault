@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import time
 
+import customtkinter as ctk
 import pytest
 
 from cache_vault.ui.first_use_guide import FirstUseGuideDialog
@@ -48,6 +49,105 @@ _DIAGNOSTIC_MARKERS = (
     "invalid command name",
     "_revert_withdraw_after_windows_set_titlebar_color",
 )
+
+
+def test_descendant_destruction_does_not_cancel_live_dialog_jobs(tk_root, capfd):
+    """Review concern: <Destroy> bound on a Toplevel fires for every
+    descendant too, as each is torn down in the same cascade -- confirmed
+    empirically, a full construct-then-destroy cycle produces 67 <Destroy>
+    events for this dialog's widget subtree, only 1 of which is the dialog's
+    own. Without filtering to that one event, destroying so much as a single
+    descendant button while the dialog is still fully alive and open would
+    silently cancel every tracked pending job -- legitimate in-flight
+    titlebar/focus/icon/topmost-reset work that has nothing to do with
+    teardown. This proves the full required sequence: a descendant destroy
+    while alive does NOT cancel live jobs or disable normal behavior, while
+    the dialog's own destruction (via a genuine parent-cascade, not a direct
+    .destroy() call) still cancels everything and nothing fires against the
+    destroyed interpreter afterward.
+    """
+    capfd.readouterr()
+
+    # An intermediate parent (not the session-scoped tk_root) so destroying
+    # it to trigger a genuine Tcl-level cascade -- the same mechanism
+    # CacheVaultApp's plain super().destroy() uses, which never calls a
+    # Python-level destroy() on its children at all -- doesn't tear down the
+    # shared session root out from under every other test.
+    parent = ctk.CTkToplevel(tk_root)
+    parent.withdraw()
+
+    # 1. Create the dialog.
+    dialog = FirstUseGuideDialog(parent, from_settings=False, on_action=lambda a: None)
+
+    # 2. Schedule a tracked callback that records execution -- distinct from
+    # CustomTkinter's own internal jobs, so we can prove specifically that a
+    # descendant's destruction doesn't cancel this window's unrelated
+    # pending work.
+    recorded = []
+    canary_id = dialog.after(150, lambda: recorded.append("canary-fired"))
+    assert canary_id in dialog._pending_after_ids
+
+    # 3. Destroy one descendant widget while the dialog remains alive.
+    footer = dialog.winfo_children()[0]
+    button = footer.winfo_children()[0]
+    button.destroy()
+
+    # 4. Pump the event loop -- not yet long enough for the 150ms canary.
+    _pump(tk_root, 0.05)
+
+    # 5. Prove: the dialog still exists; the tracked callback was not
+    # prematurely cancelled; normal live-window behavior remains
+    # operational (the canary firing on schedule, and CustomTkinter's own
+    # titlebar/topmost chain completing normally, not suppressed).
+    assert dialog.winfo_exists(), "a descendant destroy must not destroy the dialog itself"
+    assert canary_id in dialog._pending_after_ids, (
+        "a descendant's own <Destroy> must not cancel this window's "
+        "still-pending, unrelated tracked jobs"
+    )
+    _pump(tk_root, 0.15)
+    assert recorded == ["canary-fired"], (
+        "a callback scheduled on the live dialog must still fire normally "
+        "after a descendant (not the dialog itself) was destroyed"
+    )
+    _pump(tk_root, 0.3)  # let CustomTkinter's ~15ms chain + the 200ms
+    # topmost-reset complete naturally, proving normal titlebar/focus
+    # restoration executes fine while the dialog is alive
+    out, err = capfd.readouterr()
+    combined = out + err
+    for marker in _DIAGNOSTIC_MARKERS:
+        assert marker not in combined, (
+            f"{marker!r} must not appear from normal operation after a "
+            f"descendant destroy; captured: {combined!r}"
+        )
+    assert not dialog.attributes("-topmost"), (
+        "normal topmost-reset must complete while the dialog stays alive, "
+        "unaffected by the earlier descendant destroy"
+    )
+
+    # 6. Destroy the dialog through the parent-cascade path. Schedule one
+    # more, long-delay canary first so there is something genuinely still
+    # pending at the moment of cascade -- otherwise "everything pending got
+    # cancelled" would be vacuously true if nothing was left to cancel.
+    long_canary_id = dialog.after(5000, lambda: None)
+    assert long_canary_id in dialog._pending_after_ids
+    capfd.readouterr()
+    parent.destroy()
+
+    # 7. Prove all remaining tracked callbacks are cancelled.
+    assert not dialog._pending_after_ids, (
+        "the dialog's own destruction via parent-cascade must cancel every "
+        "remaining tracked job, including the long-delay canary"
+    )
+
+    # 8. Prove no callback executes against the destroyed interpreter.
+    _pump(tk_root, 0.4)
+    out, err = capfd.readouterr()
+    combined = out + err
+    for marker in _DIAGNOSTIC_MARKERS:
+        assert marker not in combined, (
+            f"{marker!r} must not appear after parent-cascade destroy; "
+            f"captured: {combined!r}"
+        )
 
 
 def test_quick_destroy_leaves_no_invalid_command_diagnostics(tk_root, capfd):

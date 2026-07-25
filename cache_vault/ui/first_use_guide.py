@@ -163,17 +163,31 @@ class FirstUseGuideDialog(ctk.CTkToplevel):
         an explicit .destroy() call or a parent window's destroy() cascading
         through Tcl.
 
-        No event.widget filtering here. Verified empirically that this fires
-        once per descendant widget as the whole subtree tears down (footer,
-        buttons, labels, ...), then once more for self -- not just once for
-        self as might be assumed -- so this must be idempotent (it is: an
-        empty _pending_after_ids is a no-op) rather than rely on being called
-        exactly once. An earlier version added an `event.widget is not self`
-        guard to only react to this widget's own event; that broke
-        cancellation entirely, because event.widget is not reliably
-        `is`-identical to self at destroy time, so the guard's early-return
-        branch was always taken.
+        Must filter to this widget's own event: <Destroy> bound on a
+        Toplevel fires for every descendant too, as each is torn down in the
+        same cascade (Tk's default bindtags for any widget include its
+        containing toplevel's path, so a Toplevel-level binding matches
+        descendant events as well as its own) -- confirmed empirically, a
+        full construct-then-destroy cycle produces 67 <Destroy> events for
+        this dialog's widget subtree, only 1 of which is the dialog's own.
+        Without filtering, destroying so much as a single descendant button
+        while this dialog is still fully alive and open (winfo_exists() still
+        true) wipes every tracked pending job -- silently cancelling
+        legitimate in-flight titlebar/focus/icon/topmost-reset work that has
+        nothing to do with teardown.
+
+        An earlier version filtered with `event.widget is not self`, which
+        broke cancellation entirely: event.widget is not reliably
+        `is`-identical to self at destroy time (it can be a resolved widget
+        object or a bare Tcl path string depending on internal registry
+        state), so that guard's early-return branch was always taken and
+        nothing ever got cancelled. Comparing the *string* Tk path instead
+        (str(event.widget) against self._w, this widget's own stable path)
+        is reliable regardless of which form event.widget takes -- verified
+        empirically to correctly flag exactly the 1-of-67 self event.
         """
+        if event is not None and str(event.widget) != self._w:
+            return  # a descendant's own <Destroy>, not this window's
         for job_id in list(self._pending_after_ids):
             try:
                 self.after_cancel(job_id)
