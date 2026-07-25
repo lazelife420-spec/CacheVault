@@ -15,6 +15,7 @@ from ..feature_gate import founder_feature_label
 from .. import licensing
 from . import theme
 from .dialogs import _bring_to_front
+from .textbox import CacheVaultTextbox
 
 
 def _purchase_url() -> str:
@@ -105,7 +106,7 @@ class FounderDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
         ).pack(anchor="w", padx=20, pady=(4, 8))
 
-        body = ctk.CTkTextbox(self, height=260, wrap="word", font=theme.body_font(11))
+        body = CacheVaultTextbox(self, height=260, wrap="word", font=theme.body_font(11))
         body.pack(fill="both", expand=True, padx=20, pady=4)
         body.insert("1.0", self._edition_copy(status))
         body.configure(state="disabled")
@@ -192,7 +193,7 @@ class FounderDialog(ctk.CTkToplevel):
         ctk.CTkLabel(win, text="Paste license JSON:", anchor="w").pack(
             fill="x", padx=16, pady=(12, 4),
         )
-        box = ctk.CTkTextbox(win, height=140, wrap="word")
+        box = CacheVaultTextbox(win, height=140, wrap="word")
         box.pack(fill="both", expand=True, padx=16, pady=4)
 
         def apply() -> None:

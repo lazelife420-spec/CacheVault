@@ -13,6 +13,7 @@ from ..core.settings import Settings
 from . import theme
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
+from .textbox import CacheVaultTextbox
 from .vault_lock import LOCK_STYLES
 
 
@@ -101,7 +102,7 @@ class AboutDialog(ctk.CTkToplevel):
                      wraplength=400, justify="left", text_color=brand.MUTED_FG,
                      font=ctk.CTkFont(size=11)).pack(anchor="w", padx=20, pady=(0, 10))
 
-        body = ctk.CTkTextbox(self, height=120, wrap="word")
+        body = CacheVaultTextbox(self, height=120, wrap="word")
         body.pack(fill="x", padx=20, pady=4)
         body.insert("1.0", brand.PRODUCT_ABOUT)
         body.configure(state="disabled")
@@ -494,7 +495,7 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(body, text="Excluded apps (one per line):").pack(
             anchor="w", padx=8, pady=(10, 0))
-        self._excluded = ctk.CTkTextbox(body, height=80)
+        self._excluded = CacheVaultTextbox(body, height=80)
         self._excluded.insert("1.0", "\n".join(settings.excluded_apps))
         self._excluded.pack(fill="x", padx=8, pady=(4, 8))
 
@@ -627,7 +628,7 @@ class SettingsDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=brand.PROOF_TEAL,
         ).pack(anchor="w", padx=16, pady=(14, 6))
-        body = ctk.CTkTextbox(help_win, wrap="word")
+        body = CacheVaultTextbox(help_win, wrap="word")
         body.pack(fill="both", expand=True, padx=16, pady=(0, 8))
         lines = [
             "Cache Vault registers global shortcuts on Windows.",
@@ -1157,7 +1158,7 @@ class EventLogDialog(ctk.CTkToplevel):
         ctk.CTkLabel(detail_frame, text="Receipt details",
                      font=ctk.CTkFont(size=13, weight="bold")).pack(
             anchor="w", padx=10, pady=(8, 4))
-        self._detail = ctk.CTkTextbox(detail_frame, wrap="word")
+        self._detail = CacheVaultTextbox(detail_frame, wrap="word")
         self._detail.pack(fill="both", expand=True, padx=10, pady=4)
         self._detail.configure(state="disabled")
 
