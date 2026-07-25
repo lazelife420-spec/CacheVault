@@ -19,6 +19,7 @@ from .guide_copy import (
     TOOLTIP_STAMPED_RECEIPTS,
     TOOLTIP_VAULT_MACROS,
 )
+from .textbox import CacheVaultTextbox
 from .tooltip import bind_tooltip
 from .receipt_ledger import (
     FILTER_ALL,
@@ -142,7 +143,7 @@ class VaultScreenHost(ctk.CTkFrame):
 
         list_frame = ctk.CTkFrame(parent, fg_color=brand.SURFACE_BG, corner_radius=8)
         list_frame.pack(fill="both", expand=True, pady=4)
-        detail = ctk.CTkTextbox(parent, height=140, wrap="word", font=theme.body_font(11))
+        detail = CacheVaultTextbox(parent, height=140, wrap="word", font=theme.body_font(11))
         detail.pack(fill="x", pady=(8, 4))
         detail.configure(state="disabled")
 
@@ -379,7 +380,7 @@ class VaultScreenHost(ctk.CTkFrame):
 
         self._macro_list = ctk.CTkFrame(parent, fg_color="transparent")
         self._macro_list.pack(fill="both", expand=True)
-        self._macro_inspector = ctk.CTkTextbox(parent, height=120, wrap="word", font=theme.body_font(11))
+        self._macro_inspector = CacheVaultTextbox(parent, height=120, wrap="word", font=theme.body_font(11))
         self._macro_inspector.pack(fill="x", pady=(8, 0))
         self._macro_inspector.configure(state="disabled")
 

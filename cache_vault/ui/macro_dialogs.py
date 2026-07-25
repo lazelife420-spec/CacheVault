@@ -26,6 +26,7 @@ from ..core.vault_macros import (
 from . import theme
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .hotkey_recording import DialogHotkeyRecorder
+from .textbox import CacheVaultTextbox
 
 
 def _bring_to_front(win: ctk.CTkToplevel) -> None:
@@ -247,7 +248,7 @@ class MacroEditDialog(ctk.CTkToplevel):
         self._stype.pack(anchor="w", pady=(0, 8))
 
         ctk.CTkLabel(body, text="Macro body").pack(anchor="w")
-        self._body = ctk.CTkTextbox(body, height=160, width=460)
+        self._body = CacheVaultTextbox(body, height=160, width=460)
         self._body.insert("1.0", macro.body or "")
         self._body.pack(anchor="w", pady=(0, 8))
 

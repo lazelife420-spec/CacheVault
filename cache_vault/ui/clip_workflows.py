@@ -10,6 +10,7 @@ from .. import brand
 from ..core import multi_link
 from . import theme
 from .dialogs import _bring_to_front
+from .textbox import CacheVaultTextbox
 
 
 def compose_text(parts: list[str], mode: str) -> str:
@@ -67,7 +68,7 @@ class ClipComposerDialog(ctk.CTkToplevel):
         self._mode.pack(fill="x", padx=18, pady=(0, 10))
         self._mode.set("blank_line")
 
-        self._body = ctk.CTkTextbox(self, wrap="word", font=theme.body_font(12))
+        self._body = CacheVaultTextbox(self, wrap="word", font=theme.body_font(12))
         self._body.pack(fill="both", expand=True, padx=18, pady=(0, 12))
         self._reset_from_mode("blank_line")
 
@@ -160,7 +161,7 @@ class EditClipTextDialog(ctk.CTkToplevel):
             font=theme.body_font(12),
         ).pack(anchor="w", padx=18, pady=(0, 10))
 
-        self._body = ctk.CTkTextbox(self, wrap="word", font=theme.body_font(12))
+        self._body = CacheVaultTextbox(self, wrap="word", font=theme.body_font(12))
         self._body.pack(fill="both", expand=True, padx=18, pady=(0, 12))
         self._body.insert("1.0", initial_text or "")
 
@@ -274,7 +275,7 @@ class MultiLinkPasteDialog(ctk.CTkToplevel):
             font=theme.body_font(12),
         ).pack(anchor="w", padx=18, pady=(0, 12))
 
-        preview = ctk.CTkTextbox(self, height=180, wrap="none", font=theme.mono_font(11))
+        preview = CacheVaultTextbox(self, height=180, wrap="none", font=theme.mono_font(11))
         preview.pack(fill="both", expand=True, padx=18, pady=(0, 12))
         preview.insert("1.0", multi_link.one_per_line(payload))
         preview.configure(state="disabled")

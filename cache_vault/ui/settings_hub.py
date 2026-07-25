@@ -20,6 +20,7 @@ from . import theme
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .dialogs import _center_on_parent
 from .hotkey_recording import DialogHotkeyRecorder
+from .textbox import CacheVaultTextbox
 
 _WIDTH, _HEIGHT = 900, 700
 
@@ -542,7 +543,7 @@ class SettingsHub(ctk.CTkToplevel):
                 # not a single-line entry (see settings_schema.FIELD_TYPES).
                 if not isinstance(var, _ListTextVar):
                     var = _ListTextVar("\n".join(current_val))
-                textbox = ctk.CTkTextbox(control_col, width=250, height=80)
+                textbox = CacheVaultTextbox(control_col, width=250, height=80)
                 textbox.insert("1.0", var.get())
                 textbox.bind(
                     "<KeyRelease>",

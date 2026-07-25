@@ -14,6 +14,7 @@ from ..core import clip_metadata, models, pathutil
 from ..core.clip_accents import LOCKED_ITEMS_MESSAGE
 from ..core.models import Clip
 from . import theme
+from .textbox import CacheVaultTextbox
 
 
 class PreviewPanel(ctk.CTkFrame):
@@ -56,7 +57,7 @@ class PreviewPanel(ctk.CTkFrame):
         )
         self._tabs.set(self._active_tab)
 
-        self._body = ctk.CTkTextbox(self._scroll, height=140, wrap="word",
+        self._body = CacheVaultTextbox(self._scroll, height=140, wrap="word",
                                     font=theme.body_font(12))
         self._body.pack(fill="x", padx=10, pady=6)
         self._body.configure(state="disabled")

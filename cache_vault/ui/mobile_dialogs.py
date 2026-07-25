@@ -20,6 +20,7 @@ from ..core.mobile.models import (
     paired_device_status,
 )
 from . import theme
+from .textbox import CacheVaultTextbox
 from .pairing_help import (
     PAIRING_ERROR,
     PAIRING_PLACEHOLDER,
@@ -144,7 +145,7 @@ class PairAndroidDialog(ctk.CTkToplevel):
         )
         self._toggle_token_btn.pack(side="right")
 
-        self._out = ctk.CTkTextbox(scroll, height=180, wrap="word")
+        self._out = CacheVaultTextbox(scroll, height=180, wrap="word")
         self._out.pack(fill="x", padx=8, pady=4)
         self._set_output(PAIRING_PLACEHOLDER)
 
@@ -348,7 +349,7 @@ class MobileAccessReceiptsDialog(ctk.CTkToplevel):
             self, text=brand.MOBILE_PROMISE, anchor="w",
             text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=16, pady=(0, 8))
-        box = ctk.CTkTextbox(self, wrap="none")
+        box = CacheVaultTextbox(self, wrap="none")
         box.pack(fill="both", expand=True, padx=12, pady=8)
         if not receipts:
             box.insert("1.0", "No mobile access receipts yet.")
