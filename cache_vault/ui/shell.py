@@ -306,6 +306,11 @@ class CacheVaultApp(ctk.CTk):
         self._settings_window = None
         self._photo_viewer_window = None
         self._init_jobs = []
+        # Dedicated tracking for the current live _pump_main_thread schedule
+        # -- unlike the one-shot jobs in _init_jobs, this one reschedules
+        # itself every 50ms, so its id changes on every firing and must be
+        # kept current rather than recorded once.
+        self._pump_job = None
 
         self._mobile_bridge = MobileBridge(self.vault)
         self._mobile_controller = MobileAccessController(self.vault, self._mobile_bridge)
@@ -429,7 +434,7 @@ class CacheVaultApp(ctk.CTk):
 
         self._center_on_screen()
         self._show_window()
-        self._init_jobs.append(self.after(50, self._pump_main_thread))
+        self._pump_job = self.after(50, self._pump_main_thread)
         self._init_jobs.append(self.after(150, self._maybe_show_first_use_guide))
         self._bind_selection_keys()
         self.bind("<Configure>", self._on_window_configure)
@@ -495,6 +500,15 @@ class CacheVaultApp(ctk.CTk):
         """Fully clean up all background threads and listeners."""
         self._shutting_down = True
         # 1. Stop UI timers
+        # _pump_job reschedules itself every 50ms (see _pump_main_thread),
+        # so unlike _init_jobs' one-shot entries, cancelling it here means
+        # cancelling whichever id is CURRENTLY live, not just the original.
+        if hasattr(self, "_pump_job") and self._pump_job:
+            try:
+                self.after_cancel(self._pump_job)
+            except Exception:
+                pass
+            self._pump_job = None
         if hasattr(self, "_idle_lock_job") and self._idle_lock_job:
             self.after_cancel(self._idle_lock_job)
             self._idle_lock_job = None
@@ -566,6 +580,13 @@ class CacheVaultApp(ctk.CTk):
         self._main_thread_calls.put(fn)
 
     def _pump_main_thread(self) -> None:
+        # _shutting_down is set at the very start of destroy(), before any
+        # widget teardown -- checking it here (rather than relying solely on
+        # _alive()'s visibility-based check) stops this from doing any work,
+        # including rescheduling, once destruction has begun.
+        if self._shutting_down:
+            self._pump_job = None
+            return
         while True:
             try:
                 fn = self._main_thread_calls.get_nowait()
@@ -576,7 +597,9 @@ class CacheVaultApp(ctk.CTk):
             except Exception as exc:  # noqa: BLE001
                 write_crash("main thread dispatch", exc)
         if self._alive():
-            self.after(50, self._pump_main_thread)
+            self._pump_job = self.after(50, self._pump_main_thread)
+        else:
+            self._pump_job = None
 
     def _center_on_screen(self) -> None:
         self.update_idletasks()
