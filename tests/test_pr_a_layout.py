@@ -1,6 +1,7 @@
 import pytest
 import customtkinter as ctk
-from unittest.mock import patch
+from unittest.mock import call, patch
+from cache_vault import brand
 from cache_vault.ui.shell import CacheVaultApp
 from cache_vault.ui.page_header import PageHeader
 from cache_vault.ui.filters import (
@@ -64,6 +65,34 @@ def _heading_sized_label_texts(widget) -> list[str]:
     for child in widget.winfo_children():
         texts.extend(_heading_sized_label_texts(child))
     return texts
+
+
+def _bounds(widget):
+    x = widget.winfo_rootx()
+    return x, x + widget.winfo_width()
+
+
+def _assert_fully_visible(child, parent, label, size_label):
+    """winfo_ismapped() alone doesn't prove a control is usable -- Tk keeps
+    "managing" a child even after it's been positioned past its own
+    parent's boundary, and the OS then clips it there silently. This
+    checks actual bounds: the child must sit entirely within its parent's
+    rendered rectangle, not just be nominally mapped."""
+    child_left, child_right = _bounds(child)
+    parent_left, parent_right = _bounds(parent)
+    visible_width = max(0, min(child_right, parent_right) - max(child_left, parent_left))
+    assert child_left >= parent_left, (
+        f"{label} left edge ({child_left}) is left of its parent's left edge "
+        f"({parent_left}) at {size_label}"
+    )
+    assert child_right <= parent_right, (
+        f"{label} right edge ({child_right}) extends past its parent's right edge "
+        f"({parent_right}) at {size_label} -- clipped by {child_right - parent_right}px"
+    )
+    assert visible_width == child.winfo_width(), (
+        f"{label} is only partially visible at {size_label}: "
+        f"{visible_width}px visible of {child.winfo_width()}px"
+    )
 
 
 @pytest.fixture
@@ -348,6 +377,14 @@ def test_toolbar_overflow_at_compact_width(app):
     assert not app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should collapse at compact width"
     assert not app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should collapse at compact width"
     assert not app._control_strip._safe.winfo_ismapped(), "Default Safe label should collapse at compact width"
+    assert not app._control_strip._quick.winfo_ismapped(), "Quick Actions dropdown should collapse at compact width"
+    # All actions above must not become unreachable -- they move into the
+    # "More" overflow instead of vanishing outright.
+    assert app._top_more_btn.winfo_ismapped(), "More overflow button should appear at compact width"
+    assert app._control_strip._lock_btn.cget("text") == "Lock", (
+        "Lock Now should shorten to 'Lock' at compact width, but stay a distinct, reachable button"
+    )
+    assert app._control_strip._lock_btn.winfo_ismapped(), "Lock button must stay reachable at compact width"
 
     with patch.object(app, 'winfo_width', return_value=1600):
         app._handle_resize_debounced()
@@ -357,6 +394,269 @@ def test_toolbar_overflow_at_compact_width(app):
     assert app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should return at wide width"
     assert app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should return at wide width"
     assert app._control_strip._safe.winfo_ismapped(), "Default Safe label should return at wide width"
+    assert app._control_strip._quick.winfo_ismapped(), "Quick Actions dropdown should return at wide width"
+    assert not app._top_more_btn.winfo_ismapped(), "More overflow button should disappear at wide width"
+    assert app._control_strip._lock_btn.cget("text") == "Lock Now", (
+        "Lock label should revert to 'Lock Now' at wide width"
+    )
+
+
+def test_toolbar_overflow_menu_invokes_original_handlers(app):
+    """The non-wide-width "More" menu must call the exact same handlers as
+    the full-width Stamped Receipts / Capture Rules buttons and the
+    Quick Actions dropdown's own choices -- this is an access path, not a
+    different feature."""
+    with patch.object(app, 'winfo_width', return_value=950):
+        app._handle_resize_debounced()
+    app.update_idletasks()
+
+    captured_menu = {}
+
+    def _fake_popup(window, menu, x, y):
+        captured_menu["menu"] = menu
+
+    with patch("cache_vault.ui.shell.clip_context.popup_menu", side_effect=_fake_popup), \
+         patch.object(app, "_navigate_screen") as nav_mock, \
+         patch.object(app, "_open_regex_macros") as macros_mock, \
+         patch.object(app._control_strip, "invoke_quick_action") as quick_mock:
+        app._open_top_overflow_menu()
+        menu = captured_menu["menu"]
+        choices = app._control_strip.QUICK_ACTION_CHOICES
+        assert menu.index("end") == 2 + len(choices), (
+            "Overflow menu should offer Stamped Receipts, Capture Rules, a "
+            "separator, and every Quick Actions choice"
+        )
+        assert menu.type(2) == "separator", "A separator should divide the two action groups"
+
+        menu.invoke(0)
+        nav_mock.assert_called_once()
+        from cache_vault.ui.filters import NAV_STAMPED_RECEIPTS
+        assert nav_mock.call_args[0][0] == NAV_STAMPED_RECEIPTS
+
+        menu.invoke(1)
+        macros_mock.assert_called_once()
+
+        for offset, choice in enumerate(choices):
+            menu.invoke(3 + offset)
+        # assert_has_calls inspects mock_calls, which also records calls
+        # made on a mock's *return value* (Tk's command dispatch stringifies
+        # each callback's result); call_args_list only reflects direct
+        # invocations of the mock itself, so it's the correct comparison.
+        assert quick_mock.call_args_list == [call(c) for c in choices]
+    menu.destroy()
+
+
+def test_control_strip_lock_and_quick_actions_stay_reachable_at_every_width(app):
+    """Regression test for a real defect found during the Slice 2 visual
+    pass: winfo_ismapped() was insufficient to prove a control is usable --
+    a widget Tk still "manages" can be positioned past its own parent
+    frame's boundary and get silently clipped there, invisibly, since
+    Tk doesn't shrink a frame's children to fit when the frame itself gets
+    squeezed by its own parent's grid. At compact and standard widths,
+    VaultControlStrip's full content (Capture/Mobile/Receipts dropdowns +
+    Default Safe + Lock + Quick Actions) doesn't fit even after Default
+    Safe is hidden -- Quick Actions (and, at these widths, Stamped
+    Receipts / Capture Rules) move into the "More" overflow, and Lock
+    must remain directly visible and fully within VaultControlStrip's
+    bounds at every one of these widths, never reduced to a clipped
+    sliver."""
+    app._navigate_screen(FILTER_ALL)
+    cs = app._control_strip
+
+    for geometry, expected_mode in (
+        ("900x600", "compact"),
+        ("1000x650", "standard"),
+        ("1100x700", "standard"),
+        ("1600x900", "wide"),
+    ):
+        app.geometry(geometry)
+        app.update()
+        if app._resize_job:
+            app.after_cancel(app._resize_job)
+            app._resize_job = None
+        app._handle_resize_debounced()
+        app.update()
+        assert app._current_layout_mode == expected_mode, (
+            f"Expected {expected_mode!r} mode at {geometry}, got {app._current_layout_mode!r}"
+        )
+
+        # Always-direct controls: fully bounds-checked at every width, not
+        # just "mapped" -- a mapped widget can still be clipped by its
+        # parent's actual rendered boundary.
+        for widget, label in (
+            (cs._capture, "Capture dropdown"),
+            (cs._mobile, "Mobile dropdown"),
+            (cs._receipts, "Receipts dropdown"),
+            (cs._lock_btn, "Lock button"),
+        ):
+            assert widget.winfo_ismapped(), f"{label} must be mapped at {geometry}"
+            _assert_fully_visible(widget, cs, label, geometry)
+
+        if expected_mode == "wide":
+            for widget, label in (
+                (cs._safe, "Default Safe label"),
+                (cs._quick, "Quick Actions dropdown"),
+                (app._top_receipts_btn, "Stamped Receipts button"),
+                (app._top_capture_rules_btn, "Capture Rules button"),
+            ):
+                assert widget.winfo_ismapped(), f"{label} must be mapped at {geometry}"
+                _assert_fully_visible(widget, widget.master, label, geometry)
+            assert not app._top_more_btn.winfo_ismapped(), (
+                f"More button should be absent in wide mode at {geometry}"
+            )
+            continue
+
+        # Overflowed at compact/standard: intentionally not directly
+        # mapped, but still reachable via the "More" menu, calling the
+        # exact same handlers as the direct controls would.
+        assert not cs._safe.winfo_ismapped(), f"Default Safe should be hidden at {geometry}"
+        assert not cs._quick.winfo_ismapped(), (
+            f"Quick Actions dropdown must be intentionally removed (not left "
+            f"mapped-but-clipped) at {geometry}"
+        )
+        assert not app._top_receipts_btn.winfo_ismapped(), f"Stamped Receipts button should be hidden at {geometry}"
+        assert not app._top_capture_rules_btn.winfo_ismapped(), f"Capture Rules button should be hidden at {geometry}"
+        assert app._top_more_btn.winfo_ismapped(), f"More button must be reachable at {geometry}"
+        _assert_fully_visible(app._top_more_btn, app._top_more_btn.master, "More button", geometry)
+
+        captured_menu = {}
+
+        def _fake_popup(window, menu, x, y):
+            captured_menu["menu"] = menu
+
+        with patch("cache_vault.ui.shell.clip_context.popup_menu", side_effect=_fake_popup), \
+             patch.object(app, "_navigate_screen") as nav_mock, \
+             patch.object(app, "_open_regex_macros") as macros_mock, \
+             patch.object(cs, "invoke_quick_action") as quick_mock:
+            app._open_top_overflow_menu()
+            menu = captured_menu["menu"]
+            choices = cs.QUICK_ACTION_CHOICES
+
+            assert menu.entrycget(0, "label") == brand.TERM_STAMPED_RECEIPTS
+            assert menu.entrycget(1, "label") == "⚡ Capture Rules"
+            assert menu.type(2) == "separator"
+            for offset, choice in enumerate(choices):
+                assert menu.entrycget(3 + offset, "label") == choice, (
+                    f"More menu must offer the Quick Actions choice {choice!r} at {geometry}"
+                )
+
+            menu.invoke(0)
+            from cache_vault.ui.filters import NAV_STAMPED_RECEIPTS
+            nav_mock.assert_called_once_with(NAV_STAMPED_RECEIPTS)
+
+            menu.invoke(1)
+            macros_mock.assert_called_once()
+
+            for offset in range(len(choices)):
+                menu.invoke(3 + offset)
+            # call_args_list (not mock_calls / assert_has_calls) -- Tk's
+            # command dispatch stringifies each callback's return value,
+            # which otherwise shows up as spurious call().__str__() entries.
+            assert quick_mock.call_args_list == [call(c) for c in choices]
+        menu.destroy()
+
+
+def test_default_safe_label_hidden_in_standard_mode_too_not_just_compact(app):
+    """Regression test for a real steady-state defect found during the
+    Slice 2 visual pass: VaultControlStrip's own content (Capture/Mobile/
+    Receipts dropdowns + Default Safe label + Lock + Quick Actions),
+    combined with the outer top bar's fixed-width buttons, doesn't
+    actually fit in "standard" mode (1150-1499px) -- only "compact" mode
+    previously dropped the Default Safe label, so at e.g. 1100px width
+    the label rendered visually clipped mid-word ("Default Safe: default"
+    -> "D..."). Verified via real window geometry (not a mocked
+    winfo_width) that this no longer happens and nothing overlaps."""
+    app._navigate_screen(FILTER_ALL)
+    for geometry, expected_mode in (("1600x900", "wide"), ("1100x700", "standard"), ("900x600", "compact")):
+        app.geometry(geometry)
+        app.update()
+        if app._resize_job:
+            app.after_cancel(app._resize_job)
+            app._resize_job = None
+        app._handle_resize_debounced()
+        app.update()
+        assert app._current_layout_mode == expected_mode, (
+            f"Expected {expected_mode!r} mode at {geometry}, got {app._current_layout_mode!r}"
+        )
+        safe = app._control_strip._safe
+        if expected_mode == "wide":
+            assert safe.winfo_ismapped(), "Default Safe label should be visible in wide mode"
+        else:
+            assert not safe.winfo_ismapped(), (
+                f"Default Safe label must be hidden in {expected_mode!r} mode, not just 'compact'"
+            )
+
+
+def test_view_toggle_controls_keep_minimum_right_inset_at_every_supported_width(app):
+    """Cards/Grid must never sit flush against (or past) the toolbar's
+    right edge -- headroom, not a fix for observed clipping (none exists
+    at any currently supported width; this asserts the margin explicitly
+    so a future change can't silently erode it back to zero).
+
+    Uses real window geometry (not a mocked winfo_width) -- mocking only
+    drives the layout-mode branch, it doesn't move any actual widget, so
+    a pixel-bounds assertion needs the real window genuinely resized.
+    """
+    app._navigate_screen(FILTER_ALL)
+    MIN_INSET = 8  # logical px; deliberately looser than the ~21px measured
+                   # after the fix, so this doesn't become pixel-brittle.
+    for geometry in ("900x600", "1000x650", "1100x700", "1600x900"):
+        app.geometry(geometry)
+        app.update()
+        if app._resize_job:
+            app.after_cancel(app._resize_job)
+            app._resize_job = None
+        app._handle_resize_debounced()
+        app.update()
+
+        assert app._grid_btn.winfo_ismapped(), f"Grid must stay visible at {geometry}"
+        assert app._cards_btn.winfo_ismapped(), f"Cards must stay visible at {geometry}"
+        toolbar_right = app._toolbar.winfo_rootx() + app._toolbar.winfo_width()
+        grid_right = app._grid_btn.winfo_rootx() + app._grid_btn.winfo_width()
+        assert grid_right <= toolbar_right, (
+            f"Grid button must not extend past the toolbar boundary at {geometry}"
+        )
+        margin = toolbar_right - grid_right
+        assert margin >= MIN_INSET, (
+            f"Grid button right edge too close to toolbar boundary at {geometry}: "
+            f"margin={margin}px, required >= {MIN_INSET}px"
+        )
+
+
+def test_bulk_action_strip_stays_within_toolbar_bounds_at_minimum_width(app):
+    """Verified via real measurement (not screenshots) that a genuine
+    2-item selection's bulk-action strip stays fully inside the toolbar at
+    the narrowest supported width (900x600) -- confirming no change is
+    needed here, and guarding against future regression."""
+    app.vault.storage.add_clip(Clip(id="bulk_strip_1", content="first", content_type=CONTENT_TEXT))
+    app.vault.storage.add_clip(Clip(id="bulk_strip_2", content="second", content_type=CONTENT_TEXT))
+    app._navigate_screen(FILTER_ALL)
+    app._do_refresh_sync()
+    wait_for_refresh(app)
+
+    app.geometry("900x600")
+    app.update()
+    if app._resize_job:
+        app.after_cancel(app._resize_job)
+        app._resize_job = None
+    app._handle_resize_debounced()
+    app.update()
+
+    app._clear_selection()
+    ids = app._visible_clip_ids[:2]
+    assert len(ids) == 2, "Test fixture needs at least 2 visible clips"
+    for cid in ids:
+        app._list._toggle_select(app.vault.storage.get_clip(cid))
+    app.update()
+
+    assert app._selected_action_frame.winfo_ismapped()
+    toolbar_right = app._toolbar.winfo_rootx() + app._toolbar.winfo_width()
+    for btn in app._selected_action_buttons:
+        btn_right = btn.winfo_rootx() + btn.winfo_width()
+        assert btn_right <= toolbar_right, (
+            f"Bulk-strip button {btn.cget('text')!r} extends past the toolbar "
+            f"boundary at 900x600 ({btn_right} > {toolbar_right})"
+        )
 
 
 def test_repeated_navigation_does_not_duplicate_widgets(app):

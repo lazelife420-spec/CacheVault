@@ -20,6 +20,7 @@ import traceback
 from pathlib import Path
 
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import filedialog
 
 from .. import brand
@@ -640,6 +641,13 @@ class CacheVaultApp(ctk.CTk):
             top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
             **theme.secondary_button())
         self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
+        # Compact-width overflow for the two buttons above -- see
+        # _set_toolbar_compact. Occupies their combined grid slot but stays
+        # ungridded (not merely invisible) until compact mode needs it, so
+        # it never steals layout space at standard/wide widths.
+        self._top_more_btn = ctk.CTkButton(
+            top, text="More ▾", width=90, command=self._open_top_overflow_menu,
+            **theme.secondary_button())
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
                       ).grid(row=0, column=4, padx=(4, 12))
@@ -849,6 +857,14 @@ class CacheVaultApp(ctk.CTk):
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
 
+        # Narrow-width containment guard: packed first (side="right") so it
+        # stays the true rightmost element of the row regardless of whether
+        # _view_label is later hidden/shown, guaranteeing Grid/Cards always
+        # keep a minimum inset from the toolbar's right edge -- headroom,
+        # not a fix for any observed clipping (none was found at any
+        # supported window size; see the Slice 2 measurement record).
+        ctk.CTkFrame(self._toolbar_row3, width=12, height=1, fg_color="transparent").pack(
+            side="right")
         self._view_label = ctk.CTkLabel(self._toolbar_row3, text="View:", text_color=brand.MUTED_FG,
                      font=theme.body_font(11))
         self._view_label.pack(side="right", padx=(4, 2))
@@ -2977,7 +2993,7 @@ class CacheVaultApp(ctk.CTk):
         else:
             self.grid_columnconfigure(2, weight=0, minsize=400 if mode == "wide" else 320)
 
-        self._set_toolbar_compact(mode == "compact")
+        self._set_toolbar_compact(mode)
         self._update_inspector_visibility()
 
         if hasattr(self._home, "set_layout_mode"):
@@ -2988,25 +3004,54 @@ class CacheVaultApp(ctk.CTk):
         # For now, we'll just refresh, but Phase A batched render will make this cheap.
         self.refresh()
 
-    def _set_toolbar_compact(self, compact: bool) -> None:
+    def _set_toolbar_compact(self, mode: str) -> None:
         """Drop the least-essential toolbar chrome at narrow widths instead of
-        letting the global toolbar clip or extend past the window edge."""
+        letting the global toolbar clip or extend past the window edge.
+
+        Every action stays reachable either way: at non-wide widths,
+        Stamped Receipts, Capture Rules, and Quick Actions move into the
+        "More" overflow menu (_open_top_overflow_menu) rather than being
+        removed outright.
+
+        VaultControlStrip's own content (Capture/Mobile/Receipts dropdowns
+        + Default Safe label + Lock + Quick Actions) is wide enough that,
+        combined with the outer top bar's fixed-width buttons, "standard"
+        mode (not just "compact") is too narrow to fit everything without
+        clipping. winfo_ismapped() alone doesn't catch this -- a widget
+        Tk still "manages" can be positioned past its own parent frame's
+        boundary and get silently clipped there, at any of the four
+        breakpoint-adjacent widths measured (900x600 / 1000x650 / 1100x700
+        against the 1150-1499 "standard" floor). So Default Safe, Stamped
+        Receipts, Capture Rules, and Quick Actions are all dropped in
+        "standard" as well as "compact" -- only "wide" keeps the complete,
+        uncollapsed toolbar. Lock stays a direct, always-visible button at
+        every width (never moved into the overflow menu); it fits once the
+        wider dropdowns/buttons above stop competing with it for
+        VaultControlStrip's own allotted column width.
+        """
         if not hasattr(self, "_view_label"):
             return
+        compact = mode == "compact"
+        not_wide = mode != "wide"
         if compact:
             self._view_label.pack_forget()
             self._selection_hint_label.pack_forget()
-            self._top_receipts_btn.grid_remove()
-            self._top_capture_rules_btn.grid_remove()
         else:
             if not self._view_label.winfo_ismapped():
                 self._view_label.pack(side="right", padx=(4, 2), before=self._grid_btn)
             if not self._selection_hint_label.winfo_ismapped():
                 self._selection_hint_label.pack(side="left", padx=(6, 0))
+        if not_wide:
+            self._top_receipts_btn.grid_remove()
+            self._top_capture_rules_btn.grid_remove()
+            self._top_more_btn.grid(row=0, column=2, columnspan=2, padx=4)
+        else:
+            self._top_more_btn.grid_remove()
             self._top_receipts_btn.grid(row=0, column=2, padx=4)
             self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
-
-        self._control_strip.set_compact(compact)
+        self._control_strip.set_compact(not_wide)
+        self._control_strip.set_lock_label_compact(compact)
+        self._control_strip.set_quick_actions_compact(not_wide)
 
     def _empty_message(self, active: str, clips: list, query) -> str | None:
         from ..core import storage as S
@@ -4583,6 +4628,29 @@ class CacheVaultApp(ctk.CTk):
             if getattr(a, "enabled", True) and getattr(a, "hotkey", "").strip():
                 external[a.hotkey] = f"hotkey action “{a.name}”"
         return external
+
+    def _open_top_overflow_menu(self) -> None:
+        """Non-wide-width overflow for the top toolbar's secondary actions
+        and Quick Actions.
+
+        Invokes the exact same handlers as the full-width controls -- this
+        is purely a narrow-width access path, not a different feature.
+        """
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label=brand.TERM_STAMPED_RECEIPTS,
+            command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
+        )
+        menu.add_command(label="⚡ Capture Rules", command=self._open_regex_macros)
+        menu.add_separator()
+        for choice in self._control_strip.QUICK_ACTION_CHOICES:
+            menu.add_command(
+                label=choice,
+                command=lambda c=choice: self._control_strip.invoke_quick_action(c),
+            )
+        x = self._top_more_btn.winfo_rootx()
+        y = self._top_more_btn.winfo_rooty() + self._top_more_btn.winfo_height()
+        clip_context.popup_menu(self, menu, x, y)
 
     def _open_regex_macros(self) -> None:
         from .regex_macro_dialog import RegexMacroDialog
