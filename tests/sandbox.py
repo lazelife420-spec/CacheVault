@@ -134,7 +134,7 @@ def bootstrap() -> Path:
     return root
 
 
-def cleanup_if_clean(exitstatus: int) -> None:
+def cleanup_if_clean(session=None, exitstatus: int = 0) -> bool:
     """Remove the sandbox after a fully green run; keep it otherwise.
 
     ``exitstatus == 0`` is pytest's own definition of "every collected test
@@ -144,7 +144,21 @@ def cleanup_if_clean(exitstatus: int) -> None:
     just silently left behind.
     """
     if SANDBOX_ROOT is None:
-        return
+        return True
+
+    # 1. Close any open Vault and VaultStorage instances globally before cleanup.
+    try:
+        from cache_vault.core.vault import Vault
+        Vault.close_all_open_vaults()
+    except Exception:
+        pass
+
+    try:
+        from cache_vault.core.storage import VaultStorage
+        VaultStorage.close_all_open_storages()
+    except Exception:
+        pass
+
     if exitstatus == 0:
         # Safety guard: only ever delete a path that (a) we created this
         # session, (b) carries our own sandbox prefix, and (c) is a direct
@@ -156,45 +170,61 @@ def cleanup_if_clean(exitstatus: int) -> None:
             and SANDBOX_ROOT.parent == _real_temp_root
             and SANDBOX_ROOT.exists()
         ):
-            return
+            return True
 
-        # Tests that build a VaultStorage(tmp_path / "vault.db") without an
-        # explicit .close() leave a SQLite WAL/SHM handle open until that
-        # object is garbage-collected; on Windows that can make its file
-        # (and therefore its parent dir) briefly undeletable, so a plain
-        # rmtree(ignore_errors=True) can silently leave debris behind even
-        # after every test passed. Force GC to release those handles, then
-        # give rmtree one real attempt before falling back to a second try.
         import gc
         import time
 
-        # onerror (not onexc): pyproject.toml declares requires-python>=3.10,
-        # and onexc only exists from 3.12 on. onerror is deprecated but still
-        # functional through 3.13, and all it needs to do here is swallow the
-        # per-file error so rmtree keeps going instead of raising.
-        for attempt, delay in enumerate((0, 0.25, 0.75)):
+        start_time = time.monotonic()
+        max_duration = 2.0  # Strict 2.0s monotonic timing boundary
+        delays = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
+
+        for delay in delays:
             if delay:
+                if time.monotonic() - start_time >= max_duration:
+                    break
                 time.sleep(delay)
+
             gc.collect()
-            shutil.rmtree(SANDBOX_ROOT, onerror=lambda fn, p, excinfo: None)
+
+            errors = []
+
+            def _record_error(func, path, exc_info):
+                errors.append((func, path, exc_info))
+
+            shutil.rmtree(SANDBOX_ROOT, onerror=_record_error)
+
             if not SANDBOX_ROOT.exists():
                 break
 
+            # Fail fast if errors are not handle-locking / sharing-violation errors
+            has_unrelated_error = False
+            for func, path, exc_info in errors:
+                exc = exc_info[1] if exc_info else None
+                if isinstance(exc, FileNotFoundError):
+                    continue
+                if not isinstance(exc, (PermissionError, OSError)):
+                    has_unrelated_error = True
+                    break
+            if has_unrelated_error:
+                break
+
         if SANDBOX_ROOT.exists():
-            # Honest failure, not a silently-swallowed one: cleanup did not
-            # fully succeed even though every test passed. Most likely cause
-            # is a still-open SQLite WAL/SHM file from a test-owned
-            # VaultStorage that was never explicitly closed.
+            remaining = [p.relative_to(SANDBOX_ROOT).as_posix() for p in SANDBOX_ROOT.rglob("*") if p.is_file()]
             sys.stderr.write(
-                f"[cachevault-test-sandbox] all tests passed, but the sandbox "
-                f"could not be fully removed (likely a file still open, e.g. "
-                f"an unclosed VaultStorage's SQLite WAL/SHM handle): "
-                f"{SANDBOX_ROOT}\n"
+                f"[cachevault-test-sandbox] CLEANUP FAILURE: all tests passed, but the sandbox "
+                f"could not be fully removed (retained files: {remaining}): {SANDBOX_ROOT}\n"
             )
             sys.stderr.flush()
+            if session is not None and hasattr(session, "exitstatus"):
+                session.exitstatus = 1
+            return False
+
+        return True
     else:
         sys.stderr.write(
             f"[cachevault-test-sandbox] run did not exit 0 (exitstatus={exitstatus}); "
             f"retaining sandbox for inspection: {SANDBOX_ROOT}\n"
         )
         sys.stderr.flush()
+        return True
