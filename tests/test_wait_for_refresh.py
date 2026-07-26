@@ -56,6 +56,50 @@ class _FakeGlobalApp:
         action(self)
 
 
+class _FakePendingViewApp(_FakeRefreshApp):
+    def __init__(self):
+        super().__init__([_apply_target])
+        self.refresh_indicator_visible = True
+        self.ui_teardown_runs = 0
+        self.on_ui_teardown = None
+
+    def _apply_refresh_snapshot(self, generation, *_args, **_kwargs):
+        super()._apply_refresh_snapshot(generation)
+
+        def settle_view(app):
+            app.refresh_indicator_visible = False
+            app.ui_teardown_runs += 1
+            if app.on_ui_teardown is not None:
+                app.on_ui_teardown(app)
+
+        self._updates = iter([settle_view])
+
+
+class _FakeAfterIdleViewApp(_FakeRefreshApp):
+    def __init__(self):
+        super().__init__([_apply_target])
+        self.refresh_indicator_visible = True
+        self._idle_callbacks = []
+
+    def after_idle(self, callback):
+        self._idle_callbacks.append(callback)
+
+    def update(self):
+        try:
+            action = next(self._updates)
+        except StopIteration:
+            if self._idle_callbacks:
+                self._idle_callbacks.pop(0)()
+            return
+        action(self)
+
+    def _apply_refresh_snapshot(self, generation, *_args, **_kwargs):
+        super()._apply_refresh_snapshot(generation)
+        self.after_idle(
+            lambda: setattr(self, "refresh_indicator_visible", False)
+        )
+
+
 def _apply_target(app):
     app._apply_refresh_snapshot(app._refresh_generation)
 
@@ -76,6 +120,86 @@ def test_known_refresh_generation_completes_successfully():
     wait_for_refresh(app, timeout=0.05)
 
     assert app.applied == [("snapshot", 1)]
+
+
+def test_model_completion_alone_does_not_claim_queued_view_settlement():
+    app = _FakePendingViewApp()
+
+    wait_for_refresh(app, timeout=0.05)
+
+    assert app.refresh_indicator_visible
+    assert app.ui_teardown_runs == 0
+
+
+def test_ui_postcondition_pumps_queued_target_view_work_before_return():
+    app = _FakePendingViewApp()
+
+    wait_for_refresh(
+        app,
+        timeout=0.05,
+        ui_settled=lambda: not app.refresh_indicator_visible,
+        ui_description="refresh indicator hidden",
+    )
+
+    assert not app.refresh_indicator_visible
+    assert app.ui_teardown_runs == 1
+
+
+def test_ui_postcondition_pumps_after_idle_teardown_before_return():
+    app = _FakeAfterIdleViewApp()
+
+    wait_for_refresh(
+        app,
+        timeout=0.05,
+        ui_settled=lambda: not app.refresh_indicator_visible,
+        ui_description="after_idle indicator teardown",
+    )
+
+    assert not app.refresh_indicator_visible
+    assert app._idle_callbacks == []
+
+
+def test_ui_postcondition_does_not_wait_for_unrelated_later_generation():
+    app = _FakePendingViewApp()
+
+    def settle_target_view_then_start_later(app):
+        app._refresh_generation = 2
+        app._refresh_workers_in_flight = 1
+        app._refresh_job = "later-job"
+
+    app.on_ui_teardown = settle_target_view_then_start_later
+
+    wait_for_refresh(
+        app,
+        timeout=0.05,
+        ui_settled=lambda: not app.refresh_indicator_visible,
+        ui_description="target indicator teardown",
+    )
+
+    assert app.ui_teardown_runs == 1
+    assert app._refresh_generation == 2
+    assert app._refresh_workers_in_flight == 1
+    assert app._refresh_job == "later-job"
+
+
+def test_stuck_ui_postcondition_fails_with_model_and_view_diagnostics():
+    app = _FakeRefreshApp([_apply_target])
+
+    with pytest.raises(AssertionError) as raised:
+        wait_for_refresh(
+            app,
+            timeout=0.01,
+            max_timeout=0.03,
+            poll_interval=0.001,
+            ui_settled=lambda: False,
+            ui_description="refresh indicator hidden",
+        )
+
+    message = str(raised.value)
+    assert "model_settled=True" in message
+    assert "view_settled=False" in message
+    assert "refresh indicator hidden" in message
+    assert "pending_after=" in message
 
 
 def test_known_generation_may_be_silent_until_bounded_completion():
@@ -185,5 +309,29 @@ def test_repeated_waits_restore_observers_without_leaks():
         assert "_apply_refresh_failure" not in app.__dict__
         assert app._apply_refresh_snapshot.__func__ is snapshot_function
         assert app._apply_refresh_failure.__func__ is failure_function
+
+    assert threading.active_count() == baseline_threads
+
+
+def test_repeated_ui_settlement_waits_leak_no_observers_callbacks_or_threads():
+    baseline_threads = threading.active_count()
+
+    for _ in range(8):
+        app = _FakeAfterIdleViewApp()
+        snapshot_function = app._apply_refresh_snapshot.__func__
+        failure_function = app._apply_refresh_failure.__func__
+
+        wait_for_refresh(
+            app,
+            timeout=0.05,
+            ui_settled=lambda app=app: not app.refresh_indicator_visible,
+            ui_description="repeated after_idle teardown",
+        )
+
+        assert "_apply_refresh_snapshot" not in app.__dict__
+        assert "_apply_refresh_failure" not in app.__dict__
+        assert app._apply_refresh_snapshot.__func__ is snapshot_function
+        assert app._apply_refresh_failure.__func__ is failure_function
+        assert app._idle_callbacks == []
 
     assert threading.active_count() == baseline_threads

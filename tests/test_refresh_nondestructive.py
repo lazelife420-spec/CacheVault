@@ -38,6 +38,14 @@ def _make_app(n_clips: int = 10):
     return app
 
 
+def _wait_for_indicator_to_settle(app) -> None:
+    wait_for_refresh(
+        app,
+        ui_settled=lambda: app._page_header._refreshing_label.place_info() == {},
+        ui_description="refreshing label place_info() is empty",
+    )
+
+
 def test_refresh_leaves_visible_clips_untouched_before_debounce_fires():
     app = _make_app(10)
     try:
@@ -61,19 +69,20 @@ def test_refresh_leaves_visible_clips_untouched_before_debounce_fires():
 
 
 def test_page_header_shows_refreshing_indicator_while_in_flight():
-    app = _make_app(5)
-    try:
-        app._navigate_screen(S.FILTER_ALL)
-        wait_for_refresh(app)
-        assert app._page_header._refreshing_label.place_info() == {}
+    for _iteration in range(30):
+        app = _make_app(5)
+        try:
+            app._navigate_screen(S.FILTER_ALL)
+            _wait_for_indicator_to_settle(app)
+            assert app._page_header._refreshing_label.place_info() == {}
 
-        app.refresh()
-        assert app._page_header._refreshing_label.cget("text") == "Refreshing…"
+            app.refresh()
+            assert app._page_header._refreshing_label.cget("text") == "Refreshing…"
 
-        wait_for_refresh(app)
-        assert app._page_header._refreshing_label.place_info() == {}
-    finally:
-        app.destroy()
+            _wait_for_indicator_to_settle(app)
+            assert app._page_header._refreshing_label.place_info() == {}
+        finally:
+            app.destroy()
 
 
 def test_refresh_failure_shows_error_indicator_and_keeps_old_content(monkeypatch):
@@ -119,7 +128,7 @@ def test_successful_refresh_after_a_failure_clears_the_error_indicator(monkeypat
 
         monkeypatch.undo()
         app.refresh()
-        wait_for_refresh(app)
+        _wait_for_indicator_to_settle(app)
         assert app._page_header._refreshing_label.place_info() == {}
     finally:
         app.destroy()
