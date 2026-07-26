@@ -28,6 +28,7 @@ Child status values
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import functools
 import json
 import subprocess
@@ -279,12 +280,20 @@ def wait_for_refresh(
     *,
     max_timeout: float | None = None,
     poll_interval: float = 0.01,
+    ui_settled: Callable[[], bool] | None = None,
+    ui_description: str = "caller-supplied UI postcondition",
 ) -> None:
     """Wait for the refresh generation current at entry to be applied.
 
     A newer generation that supersedes the target before it applies becomes
     the new target.  Once the target has applied, later unrelated refresh
     work does not make this caller wait for global application idleness.
+
+    When ``ui_settled`` is supplied, model completion alone is insufficient:
+    event pumping continues until that bounded, caller-owned UI postcondition
+    is also true.  This is intentionally optional because a shared widget
+    (for example the refreshing indicator) may be reused by a later unrelated
+    generation even though the original target has completed correctly.
 
     For apps whose generation completion can be observed, ``max_timeout`` is
     the bound: a refresh worker can be externally silent for longer than
@@ -324,9 +333,23 @@ def wait_for_refresh(
             _queue_depth("_main_thread_calls"),
         )
 
-    # Do not install observers or pump events when there is already no work.
+    def _ui_is_settled() -> bool:
+        return ui_settled is None or bool(ui_settled())
+
+    def _pending_after_info():
+        tk = getattr(app, "tk", None)
+        if tk is None or not hasattr(tk, "call"):
+            return None
+        try:
+            return tuple(str(item) for item in tk.call("after", "info"))
+        except Exception as exc:  # noqa: BLE001 - diagnostics must not mask timeout
+            return f"<unavailable: {type(exc).__name__}: {exc}>"
+
+    # Do not install observers or pump events when both model and requested
+    # view state are already settled.
     initial_state = _state()
-    if initial_state[1] is None and initial_state[2] == 0:
+    initially_idle = initial_state[1] is None and initial_state[2] == 0
+    if initially_idle and _ui_is_settled():
         return
 
     start = time.monotonic()
@@ -336,7 +359,7 @@ def wait_for_refresh(
     last_state = initial_state
     progress_changes = 0
     iterations = 0
-    target = {"generation": initial_state[0], "completed": False}
+    target = {"generation": initial_state[0], "completed": initially_idle}
     restorations = []
 
     def _record_completion(generation):
@@ -390,13 +413,16 @@ def wait_for_refresh(
 
             globally_idle = state[1] is None and state[2] == 0
             if generation_observable:
-                settled = target["completed"]
+                model_settled = target["completed"]
             else:
-                settled = globally_idle
-            if settled and now <= hard_deadline:
+                model_settled = globally_idle
+            view_settled = _ui_is_settled()
+            if model_settled and view_settled and now <= hard_deadline:
                 return
             if now >= hard_deadline or (
-                not generation_observable and now >= progress_deadline
+                not generation_observable
+                and not model_settled
+                and now >= progress_deadline
             ):
                 stalled_for = now - last_progress
                 raise AssertionError(
@@ -405,8 +431,12 @@ def wait_for_refresh(
                     f"max_timeout={max_timeout:.3f}s, iterations={iterations}, "
                     f"target_generation={target['generation']!r}, "
                     f"target_completed={target['completed']}, "
+                    f"model_settled={model_settled}, "
+                    f"view_settled={view_settled}, "
+                    f"ui_description={ui_description!r}, "
                     f"state={state!r}, progress_changes={progress_changes}, "
                     f"stalled_for={stalled_for:.3f}s, "
+                    f"pending_after={_pending_after_info()!r}, "
                     f"thread_count={threading.active_count()}, "
                     f"thread_names={[t.name for t in threading.enumerate()]!r}"
                 )
