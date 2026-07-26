@@ -21,6 +21,9 @@ from .models import Clip
 from .settings import Settings
 from .storage import VaultStorage
 from .mobile.models import is_mobile_inbox_clip
+import weakref
+
+_OPEN_VAULTS: weakref.WeakSet[Vault] = weakref.WeakSet()
 
 
 class Vault:
@@ -28,6 +31,8 @@ class Vault:
                  settings: Settings | None = None):
         self.storage = storage or VaultStorage()
         self.settings = settings or Settings.load()
+        self._closed = False
+        _OPEN_VAULTS.add(self)
         self.events = EventLog(self.storage)
         self.safes = SafeRegistry(self.settings)
 
@@ -1510,4 +1515,30 @@ class Vault:
         return False
 
     def close(self) -> None:
-        self.storage.close()
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        try:
+            if hasattr(self, "storage") and self.storage:
+                self.storage.close()
+        except Exception:
+            pass
+
+    @classmethod
+    def close_all_open_vaults(cls) -> int:
+        count = 0
+        vaults = list(_OPEN_VAULTS)
+        for v in vaults:
+            try:
+                if not getattr(v, "_closed", False):
+                    v.close()
+                    count += 1
+            except Exception:
+                pass
+        return count
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

@@ -47,6 +47,9 @@ FILTER_SEARCH_ALL = "search_all"
 FILTER_SCREENSHOTS = "screenshots"
 # Sidebar collection entries use this prefix, e.g. "col:Work".
 COLLECTION_PREFIX = "col:"
+import weakref
+
+_OPEN_STORAGES: weakref.WeakSet[VaultStorage] = weakref.WeakSet()
 # Sidebar Safe entries use this prefix, e.g. "safe:default".
 SAFE_PREFIX = "safe:"
 # Smart folder sidebar entries, e.g. "smart:recent".
@@ -150,6 +153,42 @@ class VaultStorage:
         self.conn.executescript(_SCHEMA)
         self._migrate()
         self.conn.commit()
+        self._closed = False
+        _OPEN_STORAGES.add(self)
+
+    def close(self) -> None:
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        try:
+            if hasattr(self, "conn") and self.conn:
+                if str(self.db_path) != ":memory:":
+                    try:
+                        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                    except Exception:
+                        pass
+                self.conn.close()
+        except Exception:
+            pass
+
+    @classmethod
+    def close_all_open_storages(cls) -> int:
+        count = 0
+        storages = list(_OPEN_STORAGES)
+        for s in storages:
+            try:
+                if not getattr(s, "_closed", False):
+                    s.close()
+                    count += 1
+            except Exception:
+                pass
+        return count
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     # Columns we expect on the clips table, with safe defaults. Used to bring
     # an older database forward without wiping or recreating it.
@@ -212,9 +251,6 @@ class VaultStorage:
         )
         from .editable_copies import EditableCopyStore
         EditableCopyStore(self.conn).ensure_schema()
-
-    def close(self) -> None:
-        self.conn.close()
 
     @contextmanager
     def reader_connection(self):

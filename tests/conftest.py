@@ -27,7 +27,7 @@ def pytest_report_header(config):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    sandbox.cleanup_if_clean(exitstatus)
+    sandbox.cleanup_if_clean(session, exitstatus)
 
 
 @pytest.fixture(scope="session")
