@@ -33,13 +33,23 @@ class PreviewPanel(ctk.CTkFrame):
         self._title = ctk.CTkLabel(self._title_frame, text=brand.TERM_VAULT_ITEM, anchor="w",
                                    font=ctk.CTkFont(size=16, weight="bold"))
         self._title.pack(side="left", fill="x", expand=True)
-        
+
         self._close_btn = ctk.CTkButton(
             self._title_frame, text="✕", width=24, height=24, fg_color="transparent",
             hover_color=brand.MUTED_FG,
             command=self._on_close_clicked
         )
         self._close_btn.pack(side="right")
+
+        # self._title has no wraplength by default, so a long clip title
+        # simply renders past the label's own bounds and is visually
+        # clipped rather than wrapping -- most noticeable at compact/
+        # standard widths, where this panel itself is narrower (issue #83).
+        # Recompute wraplength from the title frame's actual current width
+        # on every resize (including the panel's own compact/standard/wide
+        # transitions and the floating compact slide-over) so long titles
+        # wrap onto multiple lines instead of being cut off.
+        self._title_frame.bind("<Configure>", self._on_title_frame_configure, add="+")
 
         self._seal_frame = ctk.CTkFrame(self._scroll, **theme.vault_card())
         self._seal_labels: list[ctk.CTkLabel] = []
@@ -168,6 +178,23 @@ class PreviewPanel(ctk.CTkFrame):
             justify="center",
         ).pack()
 
+    def _on_title_frame_configure(self, event=None) -> None:
+        frame_width = self._title_frame.winfo_width()
+        if frame_width <= 1:
+            return  # not yet laid out -- nothing meaningful to compute
+        close_width = self._close_btn.winfo_width() if self._close_btn.winfo_ismapped() else 0
+        # winfo_width() reports actual (DPI-scaled) physical pixels, but
+        # CTkLabel.configure(wraplength=...) takes a logical value and
+        # re-applies widget scaling internally (see customtkinter's
+        # ctk_label.py) -- passing the physical width straight through would
+        # scale it a second time, making the effective wrap boundary looser
+        # than this frame's real on-screen width.
+        scaling = ctk.ScalingTracker.get_widget_scaling(self)
+        available_physical = max(80, frame_width - close_width - 12)
+        wraplength = max(1, round(available_physical / scaling))
+        if self._title.cget("wraplength") != wraplength:
+            self._title.configure(wraplength=wraplength)
+
     def _on_close_clicked(self) -> None:
         if "close_inspector" in self._actions:
             self._actions["close_inspector"]()
@@ -247,6 +274,7 @@ class PreviewPanel(ctk.CTkFrame):
         safety = "Sensitive — masked in lists" if clip.is_sensitive else "Standard"
         self._title.configure(text=title)
         self._close_btn.pack(side="right")
+        self._on_title_frame_configure()
 
         # Collect badges based on metadata and storage status
         badges = []
