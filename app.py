@@ -57,16 +57,63 @@ def _selftest() -> int:
         print("selftest OK — core capture/classify/sensitive/image/mobile pipeline works")
         return 0
     except Exception as exc:
-        import os
-        import sys
         sys.stderr.write(f"selftest failed: {exc}\n")
         sys.stderr.flush()
-        os._exit(1)
+        return 1
+
+
+def _run_contained_selftest() -> int:
+    """Run selftest inside an automatically managed, isolated temporary profile root.
+
+    Maintains 100% containment:
+    - Never reads from or writes to the real user profile (%LOCALAPPDATA%\\CacheVault).
+    - Creates a unique temporary directory for every selftest execution.
+    - Sets process-local path overrides and disables tray/external capture.
+    - Cleans up the temporary directory in a finally block on success or failure.
+    - Reports cleanup failures honestly with a non-zero exit code.
+    """
+    import os
+    import shutil
+    import tempfile
+
+    temp_dir = tempfile.mkdtemp(prefix="cachevault-selftest-")
+    orig_env = {
+        k: os.environ.get(k)
+        for k in ("LOCALAPPDATA", "TEMP", "TMP", "USERPROFILE", "CACHE_VAULT_DISABLE_TRAY")
+    }
+
+    try:
+        os.environ["LOCALAPPDATA"] = temp_dir
+        os.environ["TEMP"] = temp_dir
+        os.environ["TMP"] = temp_dir
+        os.environ["USERPROFILE"] = temp_dir
+        os.environ["CACHE_VAULT_DISABLE_TRAY"] = "1"
+
+        res = _selftest()
+    except Exception as exc:
+        sys.stderr.write(f"selftest execution error: {exc}\n")
+        sys.stderr.flush()
+        res = 1
+    finally:
+        for k, v in orig_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+        if os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=False)
+            except Exception as cleanup_exc:
+                sys.stderr.write(f"selftest cleanup failed for '{temp_dir}': {cleanup_exc}\n")
+                sys.stderr.flush()
+                res = 1
+    return res
 
 
 def main() -> int:
     if "--selftest" in sys.argv:
-        return _selftest()
+        return _run_contained_selftest()
 
     from cache_vault.core.settings import Settings
     from cache_vault.ui.scroll_patch import install_windows_scroll_patch, scroll_config_from_settings

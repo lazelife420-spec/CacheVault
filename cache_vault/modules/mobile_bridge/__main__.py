@@ -42,9 +42,50 @@ def _selftest() -> int:
         return 1
 
 
+def _run_contained_selftest() -> int:
+    """Run selftest inside an automatically managed, isolated temporary profile root."""
+    import os
+    import shutil
+    import tempfile
+
+    temp_dir = tempfile.mkdtemp(prefix="cachevault-selftest-")
+    orig_env = {
+        k: os.environ.get(k)
+        for k in ("LOCALAPPDATA", "TEMP", "TMP", "USERPROFILE", "CACHE_VAULT_DISABLE_TRAY")
+    }
+
+    try:
+        os.environ["LOCALAPPDATA"] = temp_dir
+        os.environ["TEMP"] = temp_dir
+        os.environ["TMP"] = temp_dir
+        os.environ["USERPROFILE"] = temp_dir
+        os.environ["CACHE_VAULT_DISABLE_TRAY"] = "1"
+
+        res = _selftest()
+    except Exception as exc:
+        sys.stderr.write(f"mobile_bridge selftest execution error: {exc}\n")
+        sys.stderr.flush()
+        res = 1
+    finally:
+        for k, v in orig_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+        if os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=False)
+            except Exception as cleanup_exc:
+                sys.stderr.write(f"selftest cleanup failed for '{temp_dir}': {cleanup_exc}\n")
+                sys.stderr.flush()
+                res = 1
+    return res
+
+
 def main() -> int:
     if "--selftest" in sys.argv:
-        return _selftest()
+        return _run_contained_selftest()
 
     try:
         from cache_vault.core.mobile.connection_doctor import (
