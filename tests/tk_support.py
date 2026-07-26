@@ -273,30 +273,148 @@ def _probe_cached() -> tuple[bool, str]:
 # Utilities used by test bodies.
 # ---------------------------------------------------------------------------
 
-def wait_for_refresh(app, timeout: float = 6.0) -> None:
-    """Pump the Tk loop until an async refresh started by ``refresh()`` /
-    ``_do_refresh_sync()`` has finished applying its snapshot.
+def wait_for_refresh(
+    app,
+    timeout: float = 6.0,
+    *,
+    max_timeout: float | None = None,
+    poll_interval: float = 0.01,
+) -> None:
+    """Wait for the refresh generation current at entry to be applied.
 
-    ``refresh()`` debounces via ``self.after(50, self._do_refresh_sync)``,
-    and the DB work then happens on a worker thread and lands back on the
-    Tk thread via ``after(...)``;  a bare ``app.update()`` right after
-    calling ``refresh()``/``_do_refresh_sync()`` is no longer enough to
-    observe the result.  Checks ``_refresh_job`` (the pending debounce timer)
-    as well as ``_refresh_workers_in_flight`` -- checking only the latter
-    would race a call that hasn't reached ``_do_refresh_sync`` yet and
-    return immediately, before the counter is ever incremented.  Raises
-    ``AssertionError`` if the refresh hasn't settled within ``timeout``
-    seconds, since a test that silently checked stale/empty state would be
-    worse than a loud failure.
+    A newer generation that supersedes the target before it applies becomes
+    the new target.  Once the target has applied, later unrelated refresh
+    work does not make this caller wait for global application idleness.
+
+    For apps whose generation completion can be observed, ``max_timeout`` is
+    the bound: a refresh worker can be externally silent for longer than
+    ``timeout`` under suite load while still completing its target generation.
+    For fallback apps without generation completion hooks, ``timeout`` is a
+    no-progress limit; observable state changes extend it up to
+    ``max_timeout``.  Both limits use a monotonic clock.
     """
+    import threading
     import time
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        app.update()
-        if (
-            getattr(app, "_refresh_job", None) is None
-            and getattr(app, "_refresh_workers_in_flight", 0) == 0
-        ):
+    import types
+
+    if timeout <= 0:
+        raise ValueError("timeout must be positive")
+    if poll_interval < 0:
+        raise ValueError("poll_interval cannot be negative")
+    if max_timeout is None:
+        max_timeout = timeout * 3
+    if max_timeout < timeout:
+        raise ValueError("max_timeout cannot be shorter than timeout")
+
+    def _queue_depth(name):
+        q = getattr(app, name, None)
+        if q is None or not hasattr(q, "qsize"):
+            return None
+        try:
+            return q.qsize()
+        except NotImplementedError:
+            return None
+
+    def _state():
+        return (
+            getattr(app, "_refresh_generation", None),
+            getattr(app, "_refresh_job", None),
+            getattr(app, "_refresh_workers_in_flight", 0),
+            _queue_depth("_refresh_request_queue"),
+            _queue_depth("_main_thread_calls"),
+        )
+
+    # Do not install observers or pump events when there is already no work.
+    initial_state = _state()
+    if initial_state[1] is None and initial_state[2] == 0:
+        return
+
+    start = time.monotonic()
+    hard_deadline = start + max_timeout
+    progress_deadline = start + timeout
+    last_progress = start
+    last_state = initial_state
+    progress_changes = 0
+    iterations = 0
+    target = {"generation": initial_state[0], "completed": False}
+    restorations = []
+
+    def _record_completion(generation):
+        current = getattr(app, "_refresh_generation", None)
+        if target["completed"]:
             return
-        time.sleep(0.01)
-    raise AssertionError(f"refresh did not settle within {timeout}s")
+        if (
+            isinstance(current, int)
+            and isinstance(target["generation"], int)
+            and current > target["generation"]
+        ):
+            target["generation"] = current
+        if generation == target["generation"] and current == generation:
+            target["completed"] = True
+
+    def _observe_method(name):
+        original = getattr(app, name, None)
+        if original is None:
+            return
+        instance_dict = getattr(app, "__dict__", {})
+        had_instance_value = name in instance_dict
+        instance_value = instance_dict.get(name)
+
+        def observed(_app, generation, *args, **kwargs):
+            result = original(generation, *args, **kwargs)
+            _record_completion(generation)
+            return result
+
+        setattr(app, name, types.MethodType(observed, app))
+        restorations.append((name, had_instance_value, instance_value))
+
+    _observe_method("_apply_refresh_snapshot")
+    _observe_method("_apply_refresh_failure")
+    generation_observable = bool(restorations) and isinstance(
+        target["generation"], int
+    )
+    if generation_observable:
+        progress_deadline = hard_deadline
+
+    try:
+        while True:
+            app.update()
+            iterations += 1
+            now = time.monotonic()
+            state = _state()
+            if state != last_state:
+                progress_changes += 1
+                last_progress = now
+                progress_deadline = min(hard_deadline, now + timeout)
+                last_state = state
+
+            globally_idle = state[1] is None and state[2] == 0
+            if generation_observable:
+                settled = target["completed"]
+            else:
+                settled = globally_idle
+            if settled and now <= hard_deadline:
+                return
+            if now >= hard_deadline or (
+                not generation_observable and now >= progress_deadline
+            ):
+                stalled_for = now - last_progress
+                raise AssertionError(
+                    "refresh did not settle: "
+                    f"elapsed={now - start:.3f}s, timeout={timeout:.3f}s, "
+                    f"max_timeout={max_timeout:.3f}s, iterations={iterations}, "
+                    f"target_generation={target['generation']!r}, "
+                    f"target_completed={target['completed']}, "
+                    f"state={state!r}, progress_changes={progress_changes}, "
+                    f"stalled_for={stalled_for:.3f}s, "
+                    f"thread_count={threading.active_count()}, "
+                    f"thread_names={[t.name for t in threading.enumerate()]!r}"
+                )
+            if poll_interval:
+                time.sleep(poll_interval)
+    finally:
+        for name, had_instance_value, instance_value in reversed(restorations):
+            if had_instance_value:
+                setattr(app, name, instance_value)
+            else:
+                delattr(app, name)
