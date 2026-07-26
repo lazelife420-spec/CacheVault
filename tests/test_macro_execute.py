@@ -54,7 +54,8 @@ def exec_env(tmp_path, monkeypatch):
         on_notice=notices.append,
         confirm_sensitive=lambda _label: True,
     )
-    return settings, store, registry, events, executor, notices
+    yield settings, store, registry, events, executor, notices
+    vault.close()
 
 
 def _macro(**kwargs) -> Macro:
