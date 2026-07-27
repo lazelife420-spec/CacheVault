@@ -29,6 +29,7 @@ from ..core import sidebar_menu_context as smc
 from .. import feature_gate
 from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
+from ..core.clipboard_custody import ClipboardWriteSuppressor, ClipboardWriter
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
 from ..core.safes import SafeRegistry
@@ -199,8 +200,7 @@ class CacheVaultApp(ctk.CTk):
             tb_str = "".join(traceback.format_exception(exc, val, tb))
 
             def _copy():
-                self.clipboard_clear()
-                self.clipboard_append(tb_str)
+                self._writer_write_text(tb_str, operation="copy_traceback")
                 messagebox.showinfo("Copied", "Error traceback copied to clipboard.", parent=dialog)
 
             def _open_log():
@@ -353,10 +353,17 @@ class CacheVaultApp(ctk.CTk):
                 reason="startup",
             )
 
+        # Clipboard write custody (Slice A) — one process-owned suppressor
+        # shared by the monitor, Quick Paste, MacroExecutor, and every UI
+        # clipboard action, so internal writes are never recaptured.
+        self._clipboard_suppressor = ClipboardWriteSuppressor()
+        self._clipboard_writer = ClipboardWriter(self._clipboard_suppressor)
+
         # Clipboard monitor — callback marshalled onto the Tk thread.
         self._monitor = ClipboardMonitor(
             self._on_clip_captured,
             poll_interval_ms=self.vault.settings.poll_interval_ms,
+            suppressor=self._clipboard_suppressor,
         )
         if self.vault.settings.capture_paused:
             self._monitor.pause()
@@ -392,6 +399,7 @@ class CacheVaultApp(ctk.CTk):
             self.vault.events,
             on_notice=lambda msg: self._call_on_main(lambda m=msg: self._show_toast(m)),
             confirm_sensitive=self._confirm_sensitive_macro,
+            clipboard_writer=self._clipboard_writer,
         )
         self._macro_hotkeys = MultiHotkeyListener()
         self._macro_hotkey_bindings: dict[int, tuple[str, list]] = {}
@@ -1159,9 +1167,7 @@ class CacheVaultApp(ctk.CTk):
         batch_actions.bulk_copy(self)
 
     def _copy_generated_text(self, text: str, toast: str) -> None:
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._writer_write_text(text, operation="copy_generated_text")
         self._show_toast(toast)
 
     def _save_generated_clip(self, text: str, safe_id: str | None = None) -> None:
@@ -3466,11 +3472,10 @@ class CacheVaultApp(ctk.CTk):
             if not png:
                 return
             from ..core import image_assets
-            if image_assets.write_clipboard_png(png):
+            if self._writer_write_image(png, operation="copy_clip_image"):
                 # Verify clipboard contains image data when possible and give a
                 # precise message advising where to paste.
                 ok = image_assets.clipboard_has_image()
-                self._monitor.note_local_copy_image(png)
                 if ok:
                     Toast(self, brand.TOAST_VAULT_IMAGE_COPIED)
                 else:
@@ -3479,9 +3484,7 @@ class CacheVaultApp(ctk.CTk):
         content = self.vault.copied_again(clip_id)
         if content is None:
             return
-        self.clipboard_clear()
-        self.clipboard_append(content)
-        self._monitor.note_local_copy(content)
+        self._writer_write_text(content, operation="copy_clip")
 
     def _open_clip_link(self, clip_id: str) -> None:
         import webbrowser
@@ -3502,15 +3505,13 @@ class CacheVaultApp(ctk.CTk):
                 f"created={clip.created_at} last_used={clip.date_used} "
                 f"use_count={clip.use_count} sensitive={clip.is_sensitive} "
                 f"hash={clip.content_hash[:12]}")
-        self.clipboard_clear()
-        self.clipboard_append(meta)
-        self._monitor.note_local_copy(meta)
+        self._writer_write_text(meta, operation="copy_metadata")
 
     def _copy_path(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
         if clip is None:
             return
-        self._copy_text(clip.content, "Copied path.")
+        self._copy_text(clip.content, "Copied path.", operation="copy_path")
 
     def _copy_clean(self, clip_id: str, action: str) -> None:
         if not self._guard_unlocked():
@@ -3522,9 +3523,7 @@ class CacheVaultApp(ctk.CTk):
         if text is None:
             self._show_toast("That Copy Clean format is not available for this item.")
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._writer_write_text(text, operation=f"copy_clean:{action}")
         self.vault.events.record(
             copy_clean.EVENT_ITEM_COPIED_CLEAN,
             clip_id,
@@ -3569,9 +3568,7 @@ class CacheVaultApp(ctk.CTk):
         if not self._guard_unlocked():
             return
         text = copy_clean.receipt_summary(row)
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._writer_write_text(text, operation="copy_receipt_summary")
         self.vault.events.record(
             copy_clean.EVENT_RECEIPT_SUMMARY_COPIED,
             getattr(row, "clip_id", None),
@@ -4161,12 +4158,56 @@ class CacheVaultApp(ctk.CTk):
                 self.vault.settings.save()
                 self.refresh()
 
-    def _copy_text(self, text: str, notice: str = "Copied.") -> None:
+    # Class-level defaults: instances built without __init__ (headless test
+    # stubs) must resolve these without hitting tkinter's __getattr__ proxy.
+    _clipboard_suppressor = None
+    _clipboard_writer = None
+
+    def _tk_set_clipboard_text(self, text: str) -> bool:
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            return True
+        except Exception:  # noqa: BLE001 - clipboard can be transiently locked
+            return False
+
+    def _writer_write_text(self, text: str, *, operation: str) -> bool:
+        """Internal text write with self-capture custody when wired."""
+        writer = self._clipboard_writer
+        if writer is not None:
+            return writer.write_text(text, operation=operation, via=self._tk_set_clipboard_text)
+        if not self._tk_set_clipboard_text(text):
+            return False
+        monitor = getattr(self, "_monitor", None)
+        note = getattr(monitor, "note_local_copy", None)
+        if note is not None:
+            note(text)
+        return True
+
+    def _writer_restore_text(self, text: str | None, *, operation: str) -> bool:
+        writer = self._clipboard_writer
+        if writer is not None:
+            return writer.restore_text(text, operation=operation)
+        return restore_clipboard_text(text)
+
+    def _writer_write_image(self, png: bytes, *, operation: str) -> bool:
+        """Internal image write with self-capture custody when wired."""
+        writer = self._clipboard_writer
+        if writer is not None:
+            return writer.write_image(png, operation=operation)
+        from ..core import image_assets
+        if not image_assets.write_clipboard_png(png):
+            return False
+        monitor = getattr(self, "_monitor", None)
+        note = getattr(monitor, "note_local_copy_image", None)
+        if note is not None:
+            note(png)
+        return True
+
+    def _copy_text(self, text: str, notice: str = "Copied.", *, operation: str = "copy_text") -> None:
         if not self._guard_unlocked():
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._writer_write_text(text, operation=operation)
         self._show_toast(notice)
 
     def _open_clip_path(self, clip_id: str) -> None:
@@ -5029,9 +5070,7 @@ class CacheVaultApp(ctk.CTk):
             if content is None:
                 Toast(self, "Nothing available to copy.")
                 return
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self._monitor.note_local_copy(content)
+            self._writer_write_text(content, operation="quick_paste_copy_only")
             self.vault.events.record(
                 "quick_paste_copy_only",
                 clip.id,
@@ -5044,9 +5083,7 @@ class CacheVaultApp(ctk.CTk):
             if content is None:
                 Toast(self, "Nothing available to paste.")
                 return
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self._monitor.note_local_copy(content)
+            self._writer_write_text(content, operation="quick_paste_deliver")
             pasted_text = True
             item_type = clip.content_type or clip.classification or "text"
 
@@ -5074,7 +5111,7 @@ class CacheVaultApp(ctk.CTk):
                 reason = result.reason
                 target_title = result.target_title
                 if settings.restore_clipboard_after_paste and pasted_text:
-                    restore_clipboard_text(prior_clipboard)
+                    self._writer_restore_text(prior_clipboard, operation="quick_paste_restore")
                 self._finish_paste(
                     clip, delivery_ok, item_type, target_title, reason,
                     clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
@@ -5084,7 +5121,7 @@ class CacheVaultApp(ctk.CTk):
             return
 
         if settings.restore_clipboard_after_paste and pasted_text and delivery_ok:
-            restore_clipboard_text(prior_clipboard)
+            self._writer_restore_text(prior_clipboard, operation="quick_paste_restore")
         self._finish_paste(
             clip, delivery_ok, item_type, target_title, reason,
             clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
@@ -5127,7 +5164,7 @@ class CacheVaultApp(ctk.CTk):
             Toast(self, "Image not available.")
             return
         from ..core import image_assets
-        if not image_assets.write_clipboard_png(png):
+        if not self._writer_write_image(png, operation="quick_paste_image"):
             self.vault.events.record(
                 "quick_paste_image_copied",
                 clip.id,
@@ -5137,7 +5174,6 @@ class CacheVaultApp(ctk.CTk):
             return
         # Confirm the clipboard contains image data and provide a helpful toast.
         ok = image_assets.clipboard_has_image()
-        self._monitor.note_local_copy_image(png)
         self.vault.storage.touch_clip(clip.id)
         self.vault.events.record(
             "quick_paste_image_copied",
@@ -5231,9 +5267,7 @@ class CacheVaultApp(ctk.CTk):
         if not path_text:
             Toast(self, "No path available to copy.")
             return
-        self.clipboard_clear()
-        self.clipboard_append(path_text)
-        self._monitor.note_local_copy(path_text)
+        self._writer_write_text(path_text, operation="quick_paste_copy_path")
         self.vault.events.record(
             "quick_paste_copy_only",
             clip.id,

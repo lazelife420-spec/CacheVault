@@ -109,7 +109,14 @@ class ClipboardMonitor:
     to the main thread (the shell uses ``after`` for this).
     """
 
-    def __init__(self, on_clip: ClipCallback, poll_interval_ms: int = 800):
+    def __init__(
+        self,
+        on_clip: ClipCallback,
+        poll_interval_ms: int = 800,
+        *,
+        suppressor=None,
+        get_sequence=None,
+    ):
         self._on_clip = on_clip
         self._poll_interval = max(200, poll_interval_ms) / 1000.0
         self._paused = False
@@ -118,6 +125,13 @@ class ClipboardMonitor:
         self._hwnd = None
         self._last_text: Optional[str] = None
         self._last_image_hash: Optional[str] = None
+        # Slice A custody: shared suppressor + clipboard sequence tracking.
+        self._suppressor = suppressor
+        if get_sequence is None:
+            from .clipboard_custody import default_clipboard_sequence
+            get_sequence = default_clipboard_sequence
+        self._get_sequence = get_sequence
+        self._last_seq: Optional[int] = None
 
     # --- lifecycle ---------------------------------------------------------
     @property
@@ -166,17 +180,46 @@ class ClipboardMonitor:
         self._last_image_hash = models.bytes_hash(png_bytes)
 
     # --- internals ---------------------------------------------------------
+    def _sequence(self) -> Optional[int]:
+        try:
+            return self._get_sequence()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _suppress_own(self, content_type: str, fingerprint: str, seq: Optional[int]) -> bool:
+        """One-shot custody check: consume the matching record, if any."""
+        suppressor = self._suppressor
+        if suppressor is None:
+            return False
+        try:
+            return suppressor.should_suppress(
+                content_type=content_type,
+                fingerprint=fingerprint,
+                sequence=seq,
+            )
+        except Exception:  # noqa: BLE001 - custody failure must not drop clips
+            return False
+
     def _emit(self) -> None:
         if self._paused or not self._running:
             return
-        from . import capture_debug
+        from . import capture_debug, models
+        seq = self._sequence()
+        if seq is not None:
+            if seq == self._last_seq:
+                return
+            self._last_seq = seq
         source = _foreground_source()
         image = _read_clipboard_image()
         if image is not None:
             png, width, height = image
-            from . import models
             ih = models.bytes_hash(png)
-            if ih != self._last_image_hash:
+            if self._suppress_own(models.CONTENT_IMAGE, ih, seq):
+                self._last_image_hash = ih
+                return
+            # Content dedupe only applies when sequence numbers are missing;
+            # with sequences, a later genuine identical copy must recapture.
+            if seq is not None or ih != self._last_image_hash:
                 self._last_image_hash = ih
                 payload = {
                     "image_png": png,
@@ -191,7 +234,12 @@ class ClipboardMonitor:
                     pass
             return
         text = _read_clipboard_text()
-        if not text or text == self._last_text:
+        if not text:
+            return
+        if self._suppress_own(models.CONTENT_TEXT, text, seq):
+            self._last_text = text
+            return
+        if seq is None and text == self._last_text:
             return
         self._last_text = text
         payload = {"text": text, **source}
@@ -231,11 +279,13 @@ class ClipboardMonitor:
             self._run_poll_loop()
             return
         self._last_text = _read_clipboard_text()
+        self._last_seq = self._sequence()
         win32gui.PumpMessages()
 
     def _run_poll_loop(self) -> None:
         import time
         self._last_text = _read_clipboard_text()
+        self._last_seq = self._sequence()
         while self._running:
             self._emit()
             time.sleep(self._poll_interval)

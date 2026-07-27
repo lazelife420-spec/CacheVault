@@ -11,6 +11,7 @@ from ..core import startup, vault_lock
 from ..core.hotkey import DEFAULT_HOTKEY_BINDINGS, diagnose_hotkey_spec, normalize_hotkey
 from ..core.settings import Settings
 from . import theme
+from .clipboard_write import write_text_via_app
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
 from .textbox import CacheVaultTextbox
@@ -1247,13 +1248,19 @@ class EventLogDialog(ctk.CTkToplevel):
 
     def _copy_receipt(self) -> None:
         if self._selected:
-            self.clipboard_clear()
-            self.clipboard_append(self._format_receipt_copy_fn(self._selected))
+            write_text_via_app(
+                self,
+                self._format_receipt_copy_fn(self._selected),
+                operation="copy_receipt",
+            )
 
     def _copy_hash(self) -> None:
         if self._selected and self._selected.proof_hash:
-            self.clipboard_clear()
-            self.clipboard_append(self._selected.proof_hash)
+            write_text_via_app(
+                self,
+                self._selected.proof_hash,
+                operation="copy_proof_hash",
+            )
 
     def _export_selected(self) -> None:
         if not self._selected:

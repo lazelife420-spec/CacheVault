@@ -20,6 +20,7 @@ from ..core.mobile.models import (
     paired_device_status,
 )
 from . import theme
+from .clipboard_write import write_text_via_app
 from .textbox import CacheVaultTextbox
 from .pairing_help import (
     PAIRING_ERROR,
@@ -30,9 +31,8 @@ from .pairing_help import (
 )
 
 
-def _copy_to_clipboard(master: ctk.CTk, text: str) -> None:
-    master.clipboard_clear()
-    master.clipboard_append(text)
+def _copy_to_clipboard(master: ctk.CTk, text: str, *, operation: str = "mobile_pairing_copy") -> None:
+    write_text_via_app(master, text, operation=operation)
 
 
 class PairAndroidDialog(ctk.CTkToplevel):
