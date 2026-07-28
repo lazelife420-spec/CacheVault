@@ -8,6 +8,8 @@ from cache_vault.core import models
 from cache_vault.core.clipboard_custody import (
     DEFAULT_FALLBACK_TTL_S,
     MAX_RECORD_TTL_S,
+    MIN_MONITOR_POLL_INTERVAL_S,
+    POLLING_FALLBACK_MARGIN_S,
     ClipboardWriteSuppressor,
     ClipboardWriter,
     SuppressionDecision,
@@ -108,12 +110,19 @@ def test_raising_write_callable_cancels_record():
 
 # --- sequence matching -----------------------------------------------------------
 
-def test_sequence_match_suppresses_despite_fingerprint_difference():
-    clock = FakeClock()
-    s = ClipboardWriteSuppressor(clock=clock)
-    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="recorded")
+def test_equal_sequence_and_equal_fingerprint_suppresses():
+    s = ClipboardWriteSuppressor()
+    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="same")
     s.commit(token, sequence=42)
-    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="readback-differs", sequence=42) is True
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="same", sequence=42) is True
+
+
+def test_equal_sequence_and_different_fingerprint_captures():
+    s = ClipboardWriteSuppressor()
+    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="internal")
+    s.commit(token, sequence=42)
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="external", sequence=42) is False
+    assert len(s) == 1
 
 
 def test_sequence_mismatch_does_not_consume_record():
@@ -162,6 +171,46 @@ def test_missing_sequence_expires_after_fallback_ttl():
     s.commit(token, sequence=None)
     clock.advance(DEFAULT_FALLBACK_TTL_S + 0.01)
     assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="fb", sequence=None) is False
+
+
+def test_polling_fallback_uses_actual_200ms_cadence_with_margin():
+    clock = FakeClock()
+    ttl = MIN_MONITOR_POLL_INTERVAL_S + POLLING_FALLBACK_MARGIN_S
+
+    within = ClipboardWriteSuppressor(clock=clock)
+    within.set_monitor_cadence(mode="poll", cadence_s=0.2)
+    token = within.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="x")
+    within.commit(token, sequence=None)
+    clock.advance(ttl - 0.01)
+    assert within.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="x", sequence=None) is True
+
+    clock = FakeClock()
+    expired = ClipboardWriteSuppressor(clock=clock)
+    expired.set_monitor_cadence(mode="poll", cadence_s=0.2)
+    token = expired.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="x")
+    expired.commit(token, sequence=None)
+    clock.advance(ttl + 0.01)
+    assert expired.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="x", sequence=None) is False
+
+
+def test_polling_fallback_uses_actual_800ms_cadence_with_margin():
+    clock = FakeClock()
+    ttl = 0.8 + POLLING_FALLBACK_MARGIN_S
+
+    within = ClipboardWriteSuppressor(clock=clock)
+    within.set_monitor_cadence(mode="poll", cadence_s=0.8)
+    token = within.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="x")
+    within.commit(token, sequence=None)
+    clock.advance(ttl - 0.01)
+    assert within.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="x", sequence=None) is True
+
+    clock = FakeClock()
+    expired = ClipboardWriteSuppressor(clock=clock)
+    expired.set_monitor_cadence(mode="poll", cadence_s=0.8)
+    token = expired.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="x")
+    expired.commit(token, sequence=None)
+    clock.advance(ttl + 0.01)
+    assert expired.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="x", sequence=None) is False
 
 
 # --- content type / fingerprint ---------------------------------------------------
@@ -229,6 +278,21 @@ def test_restore_text_uses_own_operation_record():
     assert snap[0]["operation"] == "quick_paste_restore"
     assert snap[0]["committed"] is True
     assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="prior", sequence=1) is True
+
+
+def test_writer_records_sequence_before_and_after_platform_write():
+    s = ClipboardWriteSuppressor()
+    state = {"seq": 10}
+
+    def write(_text: str) -> bool:
+        state["seq"] = 11
+        return True
+
+    writer = ClipboardWriter(s, set_text=write, get_sequence=lambda: state["seq"])
+    assert writer.write_text("owned", operation="copy_clip") is True
+    [record] = s.snapshot()
+    assert record["sequence_before"] == 10
+    assert record["sequence_after"] == 11
 
 
 # --- concurrency -----------------------------------------------------------------
@@ -341,5 +405,6 @@ def test_sequence_32bit_boundary_wraparound_equality():
     s = ClipboardWriteSuppressor()
     token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="wrap")
     s.commit(token, sequence=0xFFFFFFFF)
-    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="different", sequence=0xFFFFFFFF) is True
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="different", sequence=0xFFFFFFFF) is False
     assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="wrap", sequence=0) is False
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="wrap", sequence=0xFFFFFFFF) is True

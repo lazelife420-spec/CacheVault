@@ -45,6 +45,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_MONITOR_POLL_INTERVAL_MS = 800
 DEFAULT_MONITOR_POLL_INTERVAL_S = DEFAULT_MONITOR_POLL_INTERVAL_MS / 1000.0
 
+#: ClipboardMonitor clamps configured polling to at least 200ms.  Use that
+#: same validated floor when deriving a fallback lifetime directly.
+MIN_MONITOR_POLL_INTERVAL_S = 0.2
+
 #: Measured scheduling margin for polling fallback.  Covers worst-case jitter
 #: between an internal write and the next poll detection on a loaded host.
 #: See qa_artifacts/clipboard-custody-correction/polling-latency.tsv.
@@ -133,7 +137,8 @@ class _Record:
     created_at: float
     committed: bool = False
     committed_at: float = 0.0
-    sequence: int | None = None
+    sequence_before: int | None = None
+    sequence_after: int | None = None
 
 
 class ClipboardWriteSuppressor:
@@ -179,15 +184,25 @@ class ClipboardWriteSuppressor:
             )
         return token
 
-    def commit(self, token: str, *, sequence: int | None = None) -> bool:
+    def commit(
+        self,
+        token: str,
+        *,
+        sequence: int | None = None,
+        sequence_before: int | None = None,
+        sequence_after: int | None = None,
+    ) -> bool:
         """Mark a begun write as successfully placed on the clipboard."""
         with self._condition:
             rec = self._records.get(token)
             if rec is None or rec.committed:
                 return False
+            if sequence_after is None:
+                sequence_after = sequence
             rec.committed = True
             rec.committed_at = self._clock()
-            rec.sequence = sequence
+            rec.sequence_before = sequence_before
+            rec.sequence_after = sequence_after
             self._condition.notify_all()
             return True
 
@@ -260,6 +275,13 @@ class ClipboardWriteSuppressor:
                         fingerprint=fingerprint,
                         sequence=sequence,
                     )
+                    # Abandon the exact pending operation atomically.  A slow
+                    # writer that eventually returns cannot commit this token
+                    # and make it suppressive again.
+                    current = self._records.get(token)
+                    if current is rec and not current.committed:
+                        del self._records[token]
+                        self._condition.notify_all()
                     return SuppressionDecision.CAPTURE
                 self._condition.wait(timeout=remaining)
 
@@ -279,7 +301,10 @@ class ClipboardWriteSuppressor:
             if mode == "event":
                 ttl = EVENT_FALLBACK_LATENCY_S + EVENT_FALLBACK_MARGIN_S
             else:
-                ttl = max(cadence_s, DEFAULT_MONITOR_POLL_INTERVAL_S) + POLLING_FALLBACK_MARGIN_S
+                ttl = (
+                    max(float(cadence_s), MIN_MONITOR_POLL_INTERVAL_S)
+                    + POLLING_FALLBACK_MARGIN_S
+                )
             self._fallback_ttl = float(ttl)
 
     # --- diagnostics / tests -------------------------------------------------
@@ -293,7 +318,9 @@ class ClipboardWriteSuppressor:
                     "operation": rec.operation,
                     "content_type": rec.content_type,
                     "committed": rec.committed,
-                    "sequence": rec.sequence,
+                    "sequence": rec.sequence_after,
+                    "sequence_before": rec.sequence_before,
+                    "sequence_after": rec.sequence_after,
                     "age_s": round(self._clock() - rec.created_at, 6),
                 }
                 for rec in self._records.values()
@@ -346,11 +373,15 @@ class ClipboardWriteSuppressor:
         sequence: int | None,
         now: float,
     ) -> SuppressionDecision:
-        # Both sides have a sequence number: sequence equality decides.
-        if sequence is not None and rec.sequence is not None:
-            if _u32_equal(sequence, rec.sequence):
+        # Fingerprint compatibility is always required.  When both sides have
+        # sequence numbers, equality additionally confirms ownership; it never
+        # substitutes for matching content.
+        if sequence is not None and rec.sequence_after is not None:
+            if not _u32_equal(sequence, rec.sequence_after):
+                # Known mismatch: do not fall back to the fingerprint.
+                return SuppressionDecision.CAPTURE
+            if rec.fingerprint == fingerprint:
                 return SuppressionDecision.SUPPRESS
-            # Known mismatch: do not fall back to the fingerprint for this record.
             return SuppressionDecision.CAPTURE
 
         # At least one side is missing a sequence number: use canonical fingerprint
@@ -428,8 +459,9 @@ class ClipboardWriter:
             content_type=models.CONTENT_TEXT,
             fingerprint=text,
         )
+        sequence_before = self._sequence()
         ok = self._attempt(write, text)
-        self._settle(token, ok)
+        self._settle(token, ok, sequence_before=sequence_before)
         return ok
 
     def restore_text(self, text: str | None, *, operation: str, via=None) -> bool:
@@ -442,8 +474,9 @@ class ClipboardWriter:
             content_type=models.CONTENT_TEXT,
             fingerprint=text,
         )
+        sequence_before = self._sequence()
         ok = self._attempt(write, text)
-        self._settle(token, ok)
+        self._settle(token, ok, sequence_before=sequence_before)
         return ok
 
     def write_image(self, png_bytes: bytes, *, operation: str, via=None) -> bool:
@@ -454,8 +487,9 @@ class ClipboardWriter:
             content_type=models.CONTENT_IMAGE,
             fingerprint=self._image_fingerprint(png_bytes),
         )
+        sequence_before = self._sequence()
         ok = self._attempt(write, png_bytes)
-        self._settle(token, ok)
+        self._settle(token, ok, sequence_before=sequence_before)
         return ok
 
     # --- internals ---------------------------------------------------------
@@ -465,9 +499,19 @@ class ClipboardWriter:
         except Exception:  # noqa: BLE001 - a failed write must never capture
             return False
 
-    def _settle(self, token: str, ok: bool) -> None:
+    def _settle(
+        self,
+        token: str,
+        ok: bool,
+        *,
+        sequence_before: int | None,
+    ) -> None:
         if ok:
-            self._suppressor.commit(token, sequence=self._sequence())
+            self._suppressor.commit(
+                token,
+                sequence_before=sequence_before,
+                sequence_after=self._sequence(),
+            )
         else:
             self._suppressor.cancel(token)
 

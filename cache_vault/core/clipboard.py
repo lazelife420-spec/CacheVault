@@ -16,6 +16,7 @@ never logs contents and never touches the network.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable, Optional
 
@@ -31,6 +32,11 @@ except Exception:  # noqa: BLE001
 
 
 ClipCallback = Callable[[dict], None]
+logger = logging.getLogger(__name__)
+
+# A clipboard change normally stabilizes by the second read.  Keep retries
+# bounded so a continuously changing clipboard cannot stall the monitor.
+STABLE_SNAPSHOT_MAX_ATTEMPTS = 3
 
 
 def _read_clipboard_text() -> Optional[str]:
@@ -217,13 +223,16 @@ class ClipboardMonitor:
         if self._paused or not self._running:
             return
         from . import capture_debug, image_assets, models
-        seq = self._sequence()
+
+        snapshot = self._read_stable_snapshot()
+        if snapshot is None:
+            return
+        seq, image, text = snapshot
         if seq is not None:
             if seq == self._last_seq:
                 return
             self._last_seq = seq
         source = _foreground_source()
-        image = _read_clipboard_image()
         if image is not None:
             png, width, height = image
             ih = image_assets.canonical_image_fingerprint(png)
@@ -247,7 +256,6 @@ class ClipboardMonitor:
                 except Exception:  # noqa: BLE001
                     pass
             return
-        text = _read_clipboard_text()
         if not text:
             return
         if self._suppress_own(models.CONTENT_TEXT, text, seq):
@@ -262,6 +270,53 @@ class ClipboardMonitor:
             self._on_clip(payload)
         except Exception:  # noqa: BLE001 - never let a UI error kill the monitor
             pass
+
+    def _read_stable_snapshot(
+        self,
+    ) -> tuple[int | None, tuple[bytes, int, int] | None, str | None] | None:
+        """Read content bracketed by sequence values.
+
+        When both sequence reads are available, content is accepted only if
+        they identify the same clipboard state.  A continuously changing
+        clipboard is deferred without updating ``_last_seq``, so the next
+        listener notification or polling pass can retry.
+        """
+        for attempt in range(1, STABLE_SNAPSHOT_MAX_ATTEMPTS + 1):
+            sequence_before = self._sequence()
+            image = _read_clipboard_image()
+            text = None if image is not None else _read_clipboard_text()
+            sequence_after = self._sequence()
+
+            if sequence_before is not None and sequence_after is not None:
+                stable = (
+                    int(sequence_before) & 0xFFFFFFFF
+                ) == (
+                    int(sequence_after) & 0xFFFFFFFF
+                )
+                if not stable:
+                    logger.info(
+                        "clipboard snapshot changed during read: "
+                        "attempt=%d/%d sequence_before=%s sequence_after=%s",
+                        attempt,
+                        STABLE_SNAPSHOT_MAX_ATTEMPTS,
+                        sequence_before,
+                        sequence_after,
+                    )
+                    continue
+                sequence = sequence_after
+            else:
+                # A missing sequence on either side cannot safely label the
+                # payload.  Process it through bounded fingerprint fallback.
+                sequence = None
+
+            return sequence, image, text
+
+        logger.warning(
+            "clipboard snapshot remained unstable after %d attempts; "
+            "deferring capture to the next monitor pass",
+            STABLE_SNAPSHOT_MAX_ATTEMPTS,
+        )
+        return None
 
     def _run_event_loop(self) -> None:  # pragma: no cover - needs Windows desktop
         WM_CLIPBOARDUPDATE = 0x031D

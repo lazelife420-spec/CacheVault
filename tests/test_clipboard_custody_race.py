@@ -10,7 +10,9 @@ from __future__ import annotations
 import threading
 import time
 
+import cache_vault.core.clipboard as clipmod
 from cache_vault.core import models
+from cache_vault.core.clipboard import ClipboardMonitor
 from cache_vault.core.clipboard_custody import (
     ClipboardWriteSuppressor,
     ClipboardWriter,
@@ -77,6 +79,45 @@ def test_observer_timeout_fails_open():
     )
     elapsed = time.monotonic() - start
     assert 0.03 <= elapsed <= 0.15
+
+
+def test_timed_out_pending_token_is_abandoned_and_cannot_be_revived():
+    s = ClipboardWriteSuppressor(pending_timeout=0.03)
+    token = s.begin(
+        operation="copy_clip",
+        content_type=models.CONTENT_TEXT,
+        fingerprint="identical",
+    )
+    results: list[bool] = []
+
+    def observer() -> None:
+        results.append(
+            s.should_suppress(
+                content_type=models.CONTENT_TEXT,
+                fingerprint="identical",
+                sequence=9,
+            )
+        )
+
+    waiters = [threading.Thread(target=observer) for _ in range(3)]
+    for waiter in waiters:
+        waiter.start()
+    for waiter in waiters:
+        waiter.join(timeout=1.0)
+
+    assert results == [False, False, False]
+    assert len(s) == 0
+    assert s.commit(token, sequence_before=8, sequence_after=9) is False
+    assert len(s) == 0
+    # A later genuine identical user copy has no live custody record.
+    assert (
+        s.should_suppress(
+            content_type=models.CONTENT_TEXT,
+            fingerprint="identical",
+            sequence=10,
+        )
+        is False
+    )
 
 
 def test_unrelated_event_never_waits():
@@ -240,3 +281,167 @@ def test_decide_exposes_wait_state_for_pending_records():
     time.sleep(0.02)
     # Do nothing — let the pending timeout expire; the observer must fail open.
     t.join(timeout=1.0)
+
+
+def _monitor(monkeypatch, *, sequence, read_text, read_image=lambda: None):
+    captures: list[dict] = []
+    monkeypatch.setattr(clipmod, "_read_clipboard_text", read_text)
+    monkeypatch.setattr(clipmod, "_read_clipboard_image", read_image)
+    monkeypatch.setattr(
+        clipmod,
+        "_foreground_source",
+        lambda: {"source_app": "external.exe", "source_window": "External"},
+    )
+    monitor = ClipboardMonitor(captures.append, get_sequence=sequence)
+    monitor._running = True
+    return monitor, captures
+
+
+def test_text_snapshot_retries_when_sequence_changes_during_read(monkeypatch):
+    state = {"sequence": 1, "reads": 0}
+
+    def read_text():
+        state["reads"] += 1
+        if state["reads"] == 1:
+            state["sequence"] = 2
+            return "stale"
+        return "stable"
+
+    monitor, captures = _monitor(
+        monkeypatch,
+        sequence=lambda: state["sequence"],
+        read_text=read_text,
+    )
+    monitor._emit()
+
+    assert state["reads"] == 2
+    assert captures == [
+        {
+            "text": "stable",
+            "clipboard_sequence": 2,
+            "source_app": "external.exe",
+            "source_window": "External",
+        }
+    ]
+
+
+def test_image_snapshot_retries_when_sequence_changes_during_read(monkeypatch):
+    from cache_vault.core import image_assets
+
+    state = {"sequence": 4, "reads": 0}
+
+    def read_image():
+        state["reads"] += 1
+        if state["reads"] == 1:
+            state["sequence"] = 5
+            return b"stale-image", 1, 1
+        return b"stable-image", 2, 3
+
+    monkeypatch.setattr(
+        image_assets,
+        "canonical_image_fingerprint",
+        lambda payload: payload.decode(),
+    )
+    monitor, captures = _monitor(
+        monkeypatch,
+        sequence=lambda: state["sequence"],
+        read_text=lambda: None,
+        read_image=read_image,
+    )
+    monitor._emit()
+
+    assert state["reads"] == 2
+    assert len(captures) == 1
+    assert captures[0]["image_png"] == b"stable-image"
+    assert captures[0]["width"] == 2
+    assert captures[0]["height"] == 3
+    assert captures[0]["clipboard_sequence"] == 5
+
+
+def test_repeated_snapshot_instability_defers_without_wrong_payload(
+    monkeypatch,
+    caplog,
+):
+    state = {"sequence": 20, "unstable": True}
+
+    def read_text():
+        if state["unstable"]:
+            state["sequence"] += 1
+        return f"value-{state['sequence']}"
+
+    monitor, captures = _monitor(
+        monkeypatch,
+        sequence=lambda: state["sequence"],
+        read_text=read_text,
+    )
+    with caplog.at_level("INFO", logger="cache_vault.core.clipboard"):
+        monitor._emit()
+
+    assert captures == []
+    assert monitor._last_seq is None
+    assert "remained unstable after 3 attempts" in caplog.text
+
+    state["unstable"] = False
+    monitor._emit()
+    assert len(captures) == 1
+    assert captures[0]["text"] == f"value-{state['sequence']}"
+    assert captures[0]["clipboard_sequence"] == state["sequence"]
+
+
+def test_stable_payload_retains_bracketing_sequence(monkeypatch):
+    monitor, captures = _monitor(
+        monkeypatch,
+        sequence=lambda: 77,
+        read_text=lambda: "stable payload",
+    )
+    monitor._emit()
+    assert captures[0]["text"] == "stable payload"
+    assert captures[0]["clipboard_sequence"] == 77
+
+
+def test_sequence_hijack_external_payload_is_captured(monkeypatch):
+    state = {"sequence": 10, "text": "prior"}
+    suppressor = ClipboardWriteSuppressor()
+    captures: list[dict] = []
+    monkeypatch.setattr(clipmod, "_read_clipboard_image", lambda: None)
+    monkeypatch.setattr(clipmod, "_read_clipboard_text", lambda: state["text"])
+    monkeypatch.setattr(
+        clipmod,
+        "_foreground_source",
+        lambda: {"source_app": "other.exe", "source_window": "Other"},
+    )
+
+    def hijacked_write(_text: str) -> bool:
+        state["text"] = "internal"
+        state["sequence"] = 11
+        # Another owner wins before the writer reads its post-write sequence.
+        state["text"] = "external"
+        state["sequence"] = 12
+        return True
+
+    writer = ClipboardWriter(
+        suppressor,
+        set_text=hijacked_write,
+        get_sequence=lambda: state["sequence"],
+    )
+    monitor = ClipboardMonitor(
+        captures.append,
+        suppressor=suppressor,
+        get_sequence=lambda: state["sequence"],
+    )
+    monitor._running = True
+
+    assert writer.write_text("internal", operation="copy_clip") is True
+    [record] = suppressor.snapshot()
+    assert record["sequence_before"] == 10
+    assert record["sequence_after"] == 12
+
+    monitor._emit()
+    assert captures == [
+        {
+            "text": "external",
+            "clipboard_sequence": 12,
+            "source_app": "other.exe",
+            "source_window": "Other",
+        }
+    ]
