@@ -258,7 +258,18 @@ class ClipboardMonitor:
             return
         if not text:
             return
-        if self._suppress_own(models.CONTENT_TEXT, text, seq):
+        capture_debug.log(
+            "clipboard_observed",
+            f"type=text len={len(text)} hash={models.content_hash(text)[:12]} "
+            f"sequence={seq}",
+        )
+        suppressed = self._suppress_own(models.CONTENT_TEXT, text, seq)
+        capture_debug.log(
+            "clipboard_custody_decision",
+            f"type=text hash={models.content_hash(text)[:12]} sequence={seq} "
+            f"decision={'suppress' if suppressed else 'capture'}",
+        )
+        if suppressed:
             self._last_text = text
             return
         if seq is None and text == self._last_text:

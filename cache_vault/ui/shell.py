@@ -1167,7 +1167,15 @@ class CacheVaultApp(ctk.CTk):
         batch_actions.bulk_copy(self)
 
     def _copy_generated_text(self, text: str, toast: str) -> None:
-        self._writer_write_text(text, operation="copy_generated_text")
+        writer = self._clipboard_writer
+        if writer is not None:
+            # Generated text can contain LF separators. Tk exports those as
+            # CRLF, which would differ from the fingerprint registered before
+            # the write. The coordinator's Win32 writer preserves the exact
+            # registered payload and performs one committed platform write.
+            writer.write_text(text, operation="copy_generated_text")
+        else:
+            self._writer_write_text(text, operation="copy_generated_text")
         self._show_toast(toast)
 
     def _save_generated_clip(self, text: str, safe_id: str | None = None) -> None:

@@ -453,6 +453,8 @@ class ClipboardWriter:
 
     def write_text(self, text: str, *, operation: str, via=None) -> bool:
         """Write ``text`` with custody. ``via`` overrides the write mechanism."""
+        from . import capture_debug
+
         write = via or self._set_text
         token = self._suppressor.begin(
             operation=operation,
@@ -460,8 +462,18 @@ class ClipboardWriter:
             fingerprint=text,
         )
         sequence_before = self._sequence()
+        capture_debug.log(
+            "clipboard_write_begin",
+            f"operation={operation} token={token} type=text len={len(text)} "
+            f"hash={models.content_hash(text)[:12]} sequence_before={sequence_before}",
+        )
         ok = self._attempt(write, text)
-        self._settle(token, ok, sequence_before=sequence_before)
+        sequence_after = self._settle(token, ok, sequence_before=sequence_before)
+        capture_debug.log(
+            "clipboard_write_settle",
+            f"operation={operation} token={token} outcome={'commit' if ok else 'cancel'} "
+            f"sequence_before={sequence_before} sequence_after={sequence_after}",
+        )
         return ok
 
     def restore_text(self, text: str | None, *, operation: str, via=None) -> bool:
@@ -505,15 +517,18 @@ class ClipboardWriter:
         ok: bool,
         *,
         sequence_before: int | None,
-    ) -> None:
+    ) -> int | None:
         if ok:
+            sequence_after = self._sequence()
             self._suppressor.commit(
                 token,
                 sequence_before=sequence_before,
-                sequence_after=self._sequence(),
+                sequence_after=sequence_after,
             )
+            return sequence_after
         else:
             self._suppressor.cancel(token)
+            return None
 
     def _sequence(self) -> int | None:
         try:
