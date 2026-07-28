@@ -132,6 +132,7 @@ class ClipboardMonitor:
             get_sequence = default_clipboard_sequence
         self._get_sequence = get_sequence
         self._last_seq: Optional[int] = None
+        self._set_suppressor_cadence()
 
     # --- lifecycle ---------------------------------------------------------
     @property
@@ -176,8 +177,8 @@ class ClipboardMonitor:
 
     def note_local_copy_image(self, png_bytes: bytes) -> None:
         """Suppress re-capture after Copy Again puts an image on the clipboard."""
-        from . import models
-        self._last_image_hash = models.bytes_hash(png_bytes)
+        from . import image_assets
+        self._last_image_hash = image_assets.canonical_image_fingerprint(png_bytes)
 
     # --- internals ---------------------------------------------------------
     def _sequence(self) -> Optional[int]:
@@ -185,6 +186,18 @@ class ClipboardMonitor:
             return self._get_sequence()
         except Exception:  # noqa: BLE001
             return None
+
+    def _set_suppressor_cadence(self) -> None:
+        """Tell the shared suppressor our cadence so it can size fallback TTL."""
+        if self._suppressor is None:
+            return
+        try:
+            self._suppressor.set_monitor_cadence(
+                mode=self.mode,
+                cadence_s=self._poll_interval,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     def _suppress_own(self, content_type: str, fingerprint: str, seq: Optional[int]) -> bool:
         """One-shot custody check: consume the matching record, if any."""
@@ -203,7 +216,7 @@ class ClipboardMonitor:
     def _emit(self) -> None:
         if self._paused or not self._running:
             return
-        from . import capture_debug, models
+        from . import capture_debug, image_assets, models
         seq = self._sequence()
         if seq is not None:
             if seq == self._last_seq:
@@ -213,7 +226,7 @@ class ClipboardMonitor:
         image = _read_clipboard_image()
         if image is not None:
             png, width, height = image
-            ih = models.bytes_hash(png)
+            ih = image_assets.canonical_image_fingerprint(png)
             if self._suppress_own(models.CONTENT_IMAGE, ih, seq):
                 self._last_image_hash = ih
                 return
@@ -225,6 +238,7 @@ class ClipboardMonitor:
                     "image_png": png,
                     "width": width,
                     "height": height,
+                    "clipboard_sequence": seq,
                     **source,
                 }
                 capture_debug.log("clipboard_event", capture_debug.payload_summary(payload))
@@ -242,7 +256,7 @@ class ClipboardMonitor:
         if seq is None and text == self._last_text:
             return
         self._last_text = text
-        payload = {"text": text, **source}
+        payload = {"text": text, "clipboard_sequence": seq, **source}
         capture_debug.log("clipboard_event", capture_debug.payload_summary(payload))
         try:
             self._on_clip(payload)
@@ -284,6 +298,17 @@ class ClipboardMonitor:
 
     def _run_poll_loop(self) -> None:
         import time
+        # The event-listener path can fall back here at runtime when
+        # AddClipboardFormatListener fails.  Re-size the custody window for
+        # polling even when pywin32 was available during construction.
+        if self._suppressor is not None:
+            try:
+                self._suppressor.set_monitor_cadence(
+                    mode="poll",
+                    cadence_s=self._poll_interval,
+                )
+            except Exception:  # noqa: BLE001
+                pass
         self._last_text = _read_clipboard_text()
         self._last_seq = self._sequence()
         while self._running:

@@ -10,6 +10,7 @@ from cache_vault.core.clipboard_custody import (
     MAX_RECORD_TTL_S,
     ClipboardWriteSuppressor,
     ClipboardWriter,
+    SuppressionDecision,
 )
 
 
@@ -52,8 +53,8 @@ def test_committed_record_suppresses_exactly_once():
     assert len(s) == 0
 
 
-def test_pending_record_never_suppresses():
-    s = ClipboardWriteSuppressor()
+def test_pending_record_without_settlement_captures():
+    s = ClipboardWriteSuppressor(pending_timeout=0)
     s.begin(operation="copy_clip", content_type=models.CONTENT_TEXT, fingerprint="alpha")
     assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="alpha", sequence=1) is False
 
@@ -296,3 +297,49 @@ def test_concurrent_begin_cancel_churn_is_safe():
     assert errors == []
     snap = s.snapshot()
     assert isinstance(snap, list)
+
+
+# --- explicit decision / 32-bit sequences --------------------------------------
+
+def test_decide_returns_suppression_decision_enum():
+    s = ClipboardWriteSuppressor()
+    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="x")
+    s.commit(token, sequence=7)
+    assert s.decide(content_type=models.CONTENT_TEXT, fingerprint="x", sequence=7) is SuppressionDecision.SUPPRESS
+    assert s.decide(content_type=models.CONTENT_TEXT, fingerprint="x", sequence=7) is SuppressionDecision.CAPTURE
+
+
+def test_writer_unavailable_falls_back_to_fingerprint():
+    clock = FakeClock()
+    s = ClipboardWriteSuppressor(clock=clock)
+    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="fallback")
+    s.commit(token, sequence=None)  # writer could not read the sequence
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="fallback", sequence=12) is True
+
+
+def test_monitor_unavailable_falls_back_to_fingerprint():
+    clock = FakeClock()
+    s = ClipboardWriteSuppressor(clock=clock)
+    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="fallback")
+    s.commit(token, sequence=12)
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="fallback", sequence=None) is True
+
+
+def test_sequence_mismatch_with_known_values_does_not_fall_back():
+    clock = FakeClock()
+    s = ClipboardWriteSuppressor(clock=clock)
+    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="same")
+    s.commit(token, sequence=10)
+    # The record exists and the fallback window is still open, but the sequence
+    # numbers differ, so we must capture and never consume via fingerprint.
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="same", sequence=11) is False
+    assert len(s) == 1
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="same", sequence=10) is True
+
+
+def test_sequence_32bit_boundary_wraparound_equality():
+    s = ClipboardWriteSuppressor()
+    token = s.begin(operation="op", content_type=models.CONTENT_TEXT, fingerprint="wrap")
+    s.commit(token, sequence=0xFFFFFFFF)
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="different", sequence=0xFFFFFFFF) is True
+    assert s.should_suppress(content_type=models.CONTENT_TEXT, fingerprint="wrap", sequence=0) is False
