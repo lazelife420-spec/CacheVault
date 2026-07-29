@@ -5118,21 +5118,25 @@ class CacheVaultApp(ctk.CTk):
                 delivery_ok = result.ok
                 reason = result.reason
                 target_title = result.target_title
+                restore_ok = False
                 if settings.restore_clipboard_after_paste and pasted_text:
-                    self._writer_restore_text(prior_clipboard, operation="quick_paste_restore")
+                    restore_ok = self._writer_restore_text(
+                        prior_clipboard, operation="quick_paste_restore",
+                    )
                 self._finish_paste(
                     clip, delivery_ok, item_type, target_title, reason,
-                    clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+                    clipboard_restored=restore_ok,
                 )
 
             self.after(80, _deliver)
             return
 
+        restore_ok = False
         if settings.restore_clipboard_after_paste and pasted_text and delivery_ok:
-            self._writer_restore_text(prior_clipboard, operation="quick_paste_restore")
+            restore_ok = self._writer_restore_text(prior_clipboard, operation="quick_paste_restore")
         self._finish_paste(
             clip, delivery_ok, item_type, target_title, reason,
-            clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+            clipboard_restored=restore_ok,
         )
 
     def _quick_paste_text_for_action(self, clip, action: str) -> str | None:

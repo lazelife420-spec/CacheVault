@@ -478,7 +478,13 @@ class ClipboardWriter:
 
     def restore_text(self, text: str | None, *, operation: str, via=None) -> bool:
         """Restore ``text`` with custody (snapshot/restore paste flows)."""
+        from . import capture_debug
+
         if text is None:
+            capture_debug.log(
+                "clipboard_restore_skipped",
+                f"operation={operation} reason=prior_clipboard_none",
+            )
             return False
         write = via or self._restore_text
         token = self._suppressor.begin(
@@ -487,8 +493,18 @@ class ClipboardWriter:
             fingerprint=text,
         )
         sequence_before = self._sequence()
+        capture_debug.log(
+            "clipboard_restore_begin",
+            f"operation={operation} token={token} len={len(text)} "
+            f"hash={models.content_hash(text)[:12]} sequence_before={sequence_before}",
+        )
         ok = self._attempt(write, text)
-        self._settle(token, ok, sequence_before=sequence_before)
+        sequence_after = self._settle(token, ok, sequence_before=sequence_before)
+        capture_debug.log(
+            "clipboard_restore_settle",
+            f"operation={operation} token={token} outcome={'commit' if ok else 'cancel'} "
+            f"sequence_before={sequence_before} sequence_after={sequence_after}",
+        )
         return ok
 
     def write_image(self, png_bytes: bytes, *, operation: str, via=None) -> bool:
@@ -506,9 +522,18 @@ class ClipboardWriter:
 
     # --- internals ---------------------------------------------------------
     def _attempt(self, write, payload) -> bool:
+        from . import capture_debug
+
         try:
-            return bool(write(payload))
-        except Exception:  # noqa: BLE001 - a failed write must never capture
+            ok = bool(write(payload))
+            if not ok:
+                capture_debug.log("clipboard_write_attempt_failed", "reason=writer_returned_false")
+            return ok
+        except Exception as exc:  # noqa: BLE001 - a failed write must never capture
+            capture_debug.log(
+                "clipboard_write_attempt_exception",
+                f"type={type(exc).__name__} detail={exc}",
+            )
             return False
 
     def _settle(

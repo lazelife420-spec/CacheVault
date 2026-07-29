@@ -397,6 +397,114 @@ def test_quick_paste_restoration(h, monkeypatch):
     assert "quick_paste_restore" not in remaining_ops
 
 
+def test_quick_paste_restoration_reports_failure_when_restore_write_fails(h, monkeypatch):
+    """Regression: clipboard_restored must reflect the ACTUAL restore write
+    outcome, not be assumed from (setting enabled and delivery succeeded).
+
+    Native testing found the real win32 restore write can silently fail
+    (OpenClipboard contention with the paste target) while the delivered
+    content stays on the clipboard -- and the app still reported
+    clipboard_restored=True because it never checked the write's own return
+    value. This drives the exact same _do_paste path with a writer whose
+    restore call fails, and asserts the app tells the truth about it.
+    """
+    monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
+    monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
+    monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
+    monkeypatch.setattr(
+        shell_mod, "deliver_ctrl_v",
+        lambda hwnd: PasteResult(True, "ok", "Notepad"),
+    )
+    failing_writer = ClipboardWriter(
+        h.suppressor,
+        set_text=h.sysclip.write,
+        restore_text=lambda _text: False,  # simulates a real OpenClipboard race
+        get_sequence=lambda: h.sysclip.seq,
+    )
+    settings = SimpleNamespace(restore_clipboard_after_paste=True, auto_paste=True)
+    vault = FakeVault(settings)
+    clip = make_clip(content="pasted content")
+    vault.storage.clips["c1"] = clip
+    app = make_app(h, vault)
+    app._clipboard_writer = failing_writer
+    app._paste_target = 4242
+
+    h.sysclip.write("PRIOR CLIPBOARD")
+    app._do_paste(clip, "primary")
+
+    # the restore write failed, so the delivered content is still on the clipboard
+    assert h.sysclip.text == "pasted content"
+    # and the app must not claim restoration succeeded when it didn't
+    assert vault.pasted and vault.pasted[0]["clipboard_restored"] is False
+    # the failed restore token must not survive -- it was cancelled, not left
+    # open (the delivery write's own token is a separate, legitimately
+    # committed record and is unaffected).
+    ops = [r["operation"] for r in h.suppressor.snapshot()]
+    assert "quick_paste_restore" not in ops
+    assert "quick_paste_deliver" in ops
+
+
+def test_quick_paste_delivery_success_is_not_reported_as_restoration_success(h, monkeypatch):
+    """A successful delivery must never be conflated with a successful
+    restoration -- they are two independent custody-guarded writes."""
+    monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
+    monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
+    monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
+    monkeypatch.setattr(
+        shell_mod, "deliver_ctrl_v",
+        lambda hwnd: PasteResult(True, "ok", "Notepad"),
+    )
+    failing_writer = ClipboardWriter(
+        h.suppressor,
+        set_text=h.sysclip.write,
+        restore_text=lambda _text: False,
+        get_sequence=lambda: h.sysclip.seq,
+    )
+    settings = SimpleNamespace(restore_clipboard_after_paste=True, auto_paste=True)
+    vault = FakeVault(settings)
+    clip = make_clip(content="pasted content")
+    vault.storage.clips["c1"] = clip
+    app = make_app(h, vault)
+    app._clipboard_writer = failing_writer
+    app._paste_target = 4242
+
+    app._do_paste(clip, "primary")
+
+    # delivery itself succeeded (Toast/log would report success for it)...
+    assert vault.pasted and vault.pasted[0]["success"] is True
+    # ...but that must not leak into the independent restoration outcome
+    assert vault.pasted[0]["clipboard_restored"] is False
+
+
+def test_quick_paste_restoration_disabled_is_distinguishable_from_failed(h, monkeypatch):
+    """restore_clipboard_after_paste=False and a genuine restore failure both
+    surface clipboard_restored=False -- but they must remain distinguishable
+    via the custody trail: disabled means no restore write is ever attempted
+    (no token), while a failure means a token was opened and then cancelled.
+    """
+    monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
+    monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
+    monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
+    monkeypatch.setattr(
+        shell_mod, "deliver_ctrl_v",
+        lambda hwnd: PasteResult(True, "ok", "Notepad"),
+    )
+    settings = SimpleNamespace(restore_clipboard_after_paste=False, auto_paste=True)
+    vault = FakeVault(settings)
+    clip = make_clip(content="pasted content")
+    vault.storage.clips["c1"] = clip
+    app = make_app(h, vault)
+    app._paste_target = 4242
+
+    app._do_paste(clip, "primary")
+
+    assert vault.pasted and vault.pasted[0]["clipboard_restored"] is False
+    # disabled: no restore write was ever attempted, so no token was ever
+    # opened for it -- distinct from a failure, which opens and cancels one.
+    ops = [r["operation"] for r in h.suppressor.snapshot()]
+    assert "quick_paste_restore" not in ops
+
+
 def test_macro_clipboard_output(h, tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     from cache_vault.core.macro_execute import MacroExecutor
