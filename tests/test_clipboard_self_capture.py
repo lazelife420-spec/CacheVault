@@ -22,6 +22,7 @@ from cache_vault.core.clipboard_custody import (
     ClipboardWriteSuppressor,
     ClipboardWriter,
 )
+from cache_vault.core import paste_delivery
 from cache_vault.core.paste_delivery import PasteResult
 from cache_vault.ui import shell as shell_mod
 from cache_vault.ui.clipboard_write import write_text_via_app
@@ -401,13 +402,22 @@ def test_quick_paste_restoration_reports_failure_when_restore_write_fails(h, mon
     """Regression: clipboard_restored must reflect the ACTUAL restore write
     outcome, not be assumed from (setting enabled and delivery succeeded).
 
-    Native testing found the real win32 restore write can silently fail
-    (OpenClipboard contention with the paste target) while the delivered
-    content stays on the clipboard -- and the app still reported
-    clipboard_restored=True because it never checked the write's own return
-    value. This drives the exact same _do_paste path with a writer whose
-    restore call fails, and asserts the app tells the truth about it.
+    The real win32 restore write can silently fail (e.g. OpenClipboard
+    contention with the paste target) while the delivered content stays on
+    the clipboard -- and the app used to still report clipboard_restored=True
+    because it never checked the write's own return value. (This is a
+    code-level diagnosis; no native/live OS-level reproduction is claimed
+    here. See test_clipboard_open_retry.py for the isolated retry-path tests
+    and test_quick_paste_restoration_recovers_after_transient_open_failure
+    below for the integrated retry-through-restoration path.) This drives
+    the exact same _do_paste path with a writer whose restore call fails,
+    and asserts the app tells the truth about it.
     """
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    logged: list[tuple[str, str]] = []
+    monkeypatch.setattr(capture_debug_mod, "log", lambda stage, detail: logged.append((stage, detail)))
+
     monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
     monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
     monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
@@ -442,6 +452,13 @@ def test_quick_paste_restoration_reports_failure_when_restore_write_fails(h, mon
     ops = [r["operation"] for r in h.suppressor.snapshot()]
     assert "quick_paste_restore" not in ops
     assert "quick_paste_deliver" in ops
+    # positive diagnostic proof of the failure path (paired with the
+    # disabled-path test below, which proves the *absence* of these same
+    # two log entries -- together they show the two cases are genuinely
+    # distinguishable, not just coincidentally absent from the ops snapshot).
+    restore_stages = [(s, d) for s, d in logged if s in ("clipboard_restore_begin", "clipboard_restore_settle")]
+    assert any(s == "clipboard_restore_begin" for s, _ in restore_stages)
+    assert any(s == "clipboard_restore_settle" and "outcome=cancel" in d for s, d in restore_stages)
 
 
 def test_quick_paste_delivery_success_is_not_reported_as_restoration_success(h, monkeypatch):
@@ -478,10 +495,21 @@ def test_quick_paste_delivery_success_is_not_reported_as_restoration_success(h, 
 
 def test_quick_paste_restoration_disabled_is_distinguishable_from_failed(h, monkeypatch):
     """restore_clipboard_after_paste=False and a genuine restore failure both
-    surface clipboard_restored=False -- but they must remain distinguishable
-    via the custody trail: disabled means no restore write is ever attempted
-    (no token), while a failure means a token was opened and then cancelled.
+    surface clipboard_restored=False, and BOTH end up absent from the custody
+    ops snapshot (a cancelled token is popped just like a never-opened one --
+    see ClipboardWriteSuppressor.cancel). So the ops snapshot alone does NOT
+    prove they're distinguishable; this asserts on the diagnostic trail
+    instead, where the real difference lives: disabled means restore_text()
+    is never called at all, so no clipboard_restore_begin/settle diagnostic
+    ever fires. Compare against
+    test_quick_paste_restoration_reports_failure_when_restore_write_fails,
+    which proves the failure path DOES emit both.
     """
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    logged: list[tuple[str, str]] = []
+    monkeypatch.setattr(capture_debug_mod, "log", lambda stage, detail: logged.append((stage, detail)))
+
     monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
     monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
     monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
@@ -499,10 +527,103 @@ def test_quick_paste_restoration_disabled_is_distinguishable_from_failed(h, monk
     app._do_paste(clip, "primary")
 
     assert vault.pasted and vault.pasted[0]["clipboard_restored"] is False
-    # disabled: no restore write was ever attempted, so no token was ever
-    # opened for it -- distinct from a failure, which opens and cancels one.
     ops = [r["operation"] for r in h.suppressor.snapshot()]
     assert "quick_paste_restore" not in ops
+    restore_stages = [(s, d) for s, d in logged if s in ("clipboard_restore_begin", "clipboard_restore_settle")]
+    assert restore_stages == [], (
+        f"disabled must never emit a restore begin/settle diagnostic, got {restore_stages}"
+    )
+
+
+def test_quick_paste_restoration_recovers_after_transient_open_failure(h, monkeypatch):
+    """Integrated test: drives the REAL restore path end-to-end --
+    _do_paste -> ClipboardWriter.restore_text -> the default writer ->
+    paste_delivery.restore_clipboard_text -> _open_clipboard_with_retry --
+    against a fake win32clipboard whose OpenClipboard fails transiently
+    before succeeding. Every other test in this file that exercises restore
+    failure uses a lambda stand-in (restore_text=lambda _text: False); this
+    one does not -- it proves the retry logic in paste_delivery.py actually
+    composes correctly with the app + custody layers, not just in isolation
+    (test_clipboard_open_retry.py) or with the app layer alone (the
+    lambda-based tests above).
+    """
+    import sys
+
+    class _TransientlyFlakyClipboard:
+        """OpenClipboard fails `fail_times` times (transient contention),
+        then succeeds; Empty/Set/Close behave normally throughout."""
+
+        def __init__(self, fail_times: int) -> None:
+            self.fail_times = fail_times
+            self.opens = 0
+            self.closed = 0
+            self.set_calls: list[tuple[int, str]] = []
+
+        def OpenClipboard(self) -> None:
+            self.opens += 1
+            if self.opens <= self.fail_times:
+                raise OSError("Cannot open Clipboard (transient)")
+
+        def EmptyClipboard(self) -> None:
+            pass
+
+        def SetClipboardData(self, fmt, text) -> None:
+            self.set_calls.append((fmt, text))
+
+        def CloseClipboard(self) -> None:
+            self.closed += 1
+
+    fake = _TransientlyFlakyClipboard(fail_times=2)
+    fake_module = SimpleNamespace(
+        OpenClipboard=fake.OpenClipboard,
+        EmptyClipboard=fake.EmptyClipboard,
+        SetClipboardData=fake.SetClipboardData,
+        CloseClipboard=fake.CloseClipboard,
+    )
+    monkeypatch.setitem(sys.modules, "win32clipboard", fake_module)
+    monkeypatch.setattr(paste_delivery, "win32con", SimpleNamespace(CF_UNICODETEXT=13), raising=False)
+    monkeypatch.setattr(paste_delivery, "_HAS_WIN32", True, raising=False)
+    monkeypatch.setattr(paste_delivery.time, "sleep", lambda s: None)
+
+    monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
+    monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
+    monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
+    monkeypatch.setattr(
+        shell_mod, "deliver_ctrl_v",
+        lambda hwnd: PasteResult(True, "ok", "Notepad"),
+    )
+
+    recovering_writer = ClipboardWriter(
+        h.suppressor,
+        set_text=h.sysclip.write,
+        restore_text=None,  # default -> real paste_delivery.restore_clipboard_text
+        get_sequence=lambda: h.sysclip.seq,
+    )
+    settings = SimpleNamespace(restore_clipboard_after_paste=True, auto_paste=True)
+    vault = FakeVault(settings)
+    clip = make_clip(content="pasted content")
+    vault.storage.clips["c1"] = clip
+    app = make_app(h, vault)
+    app._clipboard_writer = recovering_writer
+    app._paste_target = 4242
+
+    h.sysclip.write("PRIOR CLIPBOARD")
+    app._do_paste(clip, "primary")
+
+    # OpenClipboard was genuinely retried (2 failures + 1 success) -- this
+    # is not a first-try success and not a lambda stand-in.
+    assert fake.opens == 3
+    # the retry ultimately succeeded, so the real prior content landed via
+    # the actual SetClipboardData call.
+    assert fake.set_calls == [(13, "PRIOR CLIPBOARD")]
+    assert fake.closed == 1
+    # the app reports the true (recovered) outcome
+    assert vault.pasted and vault.pasted[0]["clipboard_restored"] is True
+    # committed, not cancelled -- the retry's eventual success is reflected
+    # in custody, not just in the boolean return value.
+    records = h.suppressor.snapshot()
+    restore_recs = [r for r in records if r["operation"] == "quick_paste_restore"]
+    assert restore_recs and restore_recs[0]["committed"] is True
 
 
 def test_macro_clipboard_output(h, tmp_path, monkeypatch):

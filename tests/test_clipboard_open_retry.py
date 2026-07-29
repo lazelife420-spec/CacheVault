@@ -2,12 +2,17 @@
 
 Added to fix Quick Paste restoration silently failing when the paste target
 window is still consuming the delivered clipboard content at the exact moment
-CacheVault attempts the restoration write. Live native testing showed the real
-win32 restore write can raise inside ``OpenClipboard`` under that race, and the
-failure was previously swallowed with no retry and no diagnostic trail.
+CacheVault attempts the restoration write. Reading the Win32 clipboard API
+contract: the paste target briefly holds the clipboard open right after a
+synthetic Ctrl+V to read the delivered content, so the restoration write's own
+``OpenClipboard`` can race it and raise. That failure was previously swallowed
+with no retry and no diagnostic trail. (This is a code-level diagnosis of the
+race, not a claim of native/live OS-level reproduction -- none has been
+recorded as part of this change.)
 
 See test_clipboard_self_capture.py for the higher-level ``clipboard_restored``
-regression that covers the app-level contract.
+regression that covers the app-level contract, including an integrated test
+that drives this exact retry path end-to-end.
 """
 
 from __future__ import annotations
