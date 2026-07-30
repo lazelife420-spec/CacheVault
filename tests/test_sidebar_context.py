@@ -1051,6 +1051,62 @@ def test_matching_selection_ownership_across_rows(tmp_path):
 # --- Menu-opening purity -------------------------------------------------------
 
 
+def test_disabled_sidebar_command_keeps_label_and_reason_structured():
+    """Core owns availability and the canonical reason, not UI formatting."""
+    ctx = sidebar_context.build_sidebar_invocation_context(
+        target_key=S.FILTER_SCREENSHOTS,
+        active_key=S.FILTER_SCREENSHOTS,
+        collection_name=None,
+        visible_selected_ids=(),
+        matching=None,
+        item_count=0,
+    )
+    commands = {
+        command.key: command
+        for command in sidebar_context.sidebar_command_matrix(ctx)
+    }
+
+    disabled = commands["select_all_visible"]
+    assert disabled.enabled is False
+    assert disabled.label == "Select all visible"
+    assert disabled.reason == "no images"
+    assert "no images" not in disabled.label
+
+    enabled = commands["open"]
+    assert enabled.enabled is True
+    assert enabled.label == "Open"
+    assert enabled.reason == ""
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_renders_disabled_reason_exactly_once(tmp_path):
+    vault = _vault_with_clips(tmp_path, 0)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_SCREENSHOTS)
+        _settle(app)
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_SCREENSHOTS,
+        )
+
+        with mock.patch("cache_vault.ui.sidebar_context.popup_menu") as popup:
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        menu = popup.call_args.args[1]
+        labels = [
+            menu.entrycget(index, "label")
+            for index in range(menu.index("end") + 1)
+        ]
+        assert "Select all visible (no images)" in labels
+        assert "Select all visible (no images) (no images)" not in labels
+        assert labels.count("Select all visible (no images)") == 1
+        assert "Open" in labels
+        assert all(not label.startswith("Open (") for label in labels)
+    finally:
+        app.destroy()
+
+
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_menu_opening_for_all_row_types_causes_no_mutation(tmp_path):
     vault = _vault_with_clips(tmp_path, 5)
@@ -1499,5 +1555,4 @@ def test_empty_collection_successful_receipt_reports_zero_deletions(tmp_path):
         assert payload["disk_bytes_reclaimed"] == 0
     finally:
         app.destroy()
-
 

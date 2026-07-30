@@ -702,6 +702,38 @@ def test_no_new_permanent_delete_dispatch_key_exists():
     assert "hard_delete" not in source
 
 
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_item_menu_disabled_reason_rendering_remains_single_owned(tk_root):
+    """The shared item-menu contract remains label + structured reason."""
+    from cache_vault.core.menu_context import MenuInvocationContext, VIEW_ACTIVE
+
+    ctx = MenuInvocationContext(
+        clicked_clip_id="c1",
+        nav_key=S.FILTER_ALL,
+        view_kind=VIEW_ACTIVE,
+        was_selected_before_click=False,
+        selection_mode="none",
+        visible_selected_ids=(),
+        matching_signature=None,
+        matching_count=None,
+    )
+    window = SimpleNamespace(_dispatch_selection_command=lambda *_args: None)
+    menu = tk.Menu(tk_root, tearoff=0)
+    clip_context._append_selection_menu_section(window, menu, ctx)
+    labels = [
+        menu.entrycget(index, "label")
+        for index in range(menu.index("end") + 1)
+        if menu.type(index) != "separator"
+    ]
+
+    assert "Copy Selected (nothing selected)" in labels
+    assert "Copy Selected (nothing selected) (nothing selected)" not in labels
+    assert labels.count("Copy Selected (nothing selected)") == 1
+    assert "Select All Visible" in labels
+    assert all(not label.startswith("Select All Visible (") for label in labels)
+    menu.destroy()
+
+
 # --- Preview/Properties: one honest command, not two labels for one action --
 
 

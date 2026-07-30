@@ -178,7 +178,7 @@ def _label_count(label: str, count: int, suffix: str = "") -> str:
 
 
 def _disabled(reason: str, key: str, label: str) -> MenuCommand:
-    return MenuCommand(key=key, label=f"{label} ({reason})", enabled=False, reason=reason)
+    return MenuCommand(key=key, label=label, enabled=False, reason=reason)
 
 
 def _enabled(key: str, label: str) -> MenuCommand:
