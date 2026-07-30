@@ -54,6 +54,22 @@ def _settle(app):
     wait_for_refresh(app)
 
 
+def _invoke_menu_label(menu: tk.Menu, label: str) -> int:
+    """Invoke one real Tk menu entry by its exact rendered label."""
+    end = menu.index("end")
+    assert end is not None
+    matches = [
+        index
+        for index in range(end + 1)
+        if menu.type(index) == "command" and menu.entrycget(index, "label") == label
+    ]
+    assert len(matches) == 1, f"Expected one {label!r} entry, got {matches}"
+    index = matches[0]
+    assert menu.entrycget(index, "state") == "normal"
+    menu.invoke(index)
+    return index
+
+
 # --- Right-click routing / inactive-row safety ---------------------------------
 
 
@@ -176,6 +192,149 @@ def test_inactive_row_select_all_visible_aborts(tmp_path):
 
         assert app._selected_clip_ids == before_selected
     finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_invoke_binds_select_all_visible_to_exact_dispatch(tmp_path):
+    """The real Tk command must retain its own key and captured row context."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+        dispatched = []
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Select all visible (7)")
+
+        with mock.patch.object(
+            app,
+            "_dispatch_sidebar_command",
+            side_effect=lambda key, bound_ctx: dispatched.append((key, bound_ctx)),
+        ), mock.patch(
+            "cache_vault.ui.sidebar_context.popup_menu",
+            side_effect=invoke_popup,
+        ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert dispatched == [("select_all_visible", ctx)]
+        assert dispatched[0][1].target_key == S.FILTER_ALL
+    finally:
+        for menu in menus:
+            menu.destroy()
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_invoke_selects_all_seven_visible_clips(tmp_path):
+    """Exercise the complete Tk menu -> dispatch -> rendered-view selection chain."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        initially_selected = app._visible_clip_ids[0]
+        view.set_selected(initially_selected)
+        app._on_clip_selection_change([initially_selected])
+        assert app._selected_clip_ids == [initially_selected]
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Select all visible (7)")
+
+        with mock.patch.object(app, "_sidebar_empty_collection") as empty_collection, \
+             mock.patch.object(app, "_sidebar_permanently_delete_selected") as delete_selected, \
+             mock.patch.object(app, "_sidebar_permanently_delete_all") as delete_all, \
+             mock.patch(
+                 "cache_vault.ui.sidebar_context.popup_menu",
+                 side_effect=invoke_popup,
+             ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert set(app._selected_clip_ids) == set(app._visible_clip_ids)
+        assert len(app._selected_clip_ids) == 7
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.count_clips(None) == 7
+        empty_collection.assert_not_called()
+        delete_selected.assert_not_called()
+        delete_all.assert_not_called()
+    finally:
+        for menu in menus:
+            menu.destroy()
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_active_sidebar_activation_after_menu_invoke_resets_visible_selection(tmp_path):
+    """Model popup activation followed by the same Button-1 path as the sidebar row."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        initially_selected = app._visible_clip_ids[0]
+        view.set_selected(initially_selected)
+        app._on_clip_selection_change([initially_selected])
+        assert app._selected_clip_ids == [initially_selected]
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Select all visible (7)")
+
+        with mock.patch(
+            "cache_vault.ui.sidebar_context.popup_menu",
+            side_effect=invoke_popup,
+        ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert len(app._selected_clip_ids) == 7
+
+        # SidebarRow binds Button-1 to this exact callback path.
+        app._filters._rows[S.FILTER_ALL]._select_clicked()
+        app.withdraw()
+        _settle(app)
+
+        current_view = app._grid if app._view_mode == "grid" else app._list
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.count_clips(None) == 7
+        assert len(current_view._selected_ids) == 1
+        assert current_view._selected_ids == {app._visible_clip_ids[0]}
+        assert app._selected_clip_id == app._visible_clip_ids[0]
+        assert app._selected_clip_ids == []
+    finally:
+        for menu in menus:
+            menu.destroy()
         app.destroy()
 
 
@@ -1555,4 +1714,3 @@ def test_empty_collection_successful_receipt_reports_zero_deletions(tmp_path):
         assert payload["disk_bytes_reclaimed"] == 0
     finally:
         app.destroy()
-
