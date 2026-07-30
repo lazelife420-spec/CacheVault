@@ -626,6 +626,64 @@ def test_quick_paste_restoration_recovers_after_transient_open_failure(h, monkey
     assert restore_recs and restore_recs[0]["committed"] is True
 
 
+def test_quick_paste_restoration_close_failure_commits_custody_but_reports_failure(h, monkeypatch):
+    """Content-set + close-failure: custody must commit (the internal payload
+    may be visible on the clipboard and must not be recaptured as new
+    history), but the UI must report clipboard_restored=False (the
+    transaction did not close cleanly). A single bool cannot represent both
+    -- this proves paste_delivery.ClipboardWriteOutcome's dual signal
+    actually reaches both custody and the UI correctly, and that no internal
+    clip ingestion happens despite the close failure.
+    """
+    monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
+    monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
+    monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
+    monkeypatch.setattr(
+        shell_mod, "deliver_ctrl_v",
+        lambda hwnd: PasteResult(True, "ok", "Notepad"),
+    )
+
+    close_failed_outcome = paste_delivery.ClipboardWriteOutcome(
+        opened=True, content_set=True, closed=False, error_stage="CloseClipboard",
+    )
+
+    def _restore_with_close_failure(text):
+        h.sysclip.write(text)  # the content really did land on the (simulated) clipboard
+        return close_failed_outcome
+
+    writer = ClipboardWriter(
+        h.suppressor,
+        set_text=h.sysclip.write,
+        restore_text=_restore_with_close_failure,
+        get_sequence=lambda: h.sysclip.seq,
+    )
+    settings = SimpleNamespace(restore_clipboard_after_paste=True, auto_paste=True)
+    vault = FakeVault(settings)
+    clip = make_clip(content="pasted content")
+    vault.storage.clips["c1"] = clip
+    app = make_app(h, vault)
+    app._clipboard_writer = writer
+    app._paste_target = 4242
+
+    h.sysclip.write("PRIOR CLIPBOARD")
+    app._do_paste(clip, "primary")
+
+    # the content genuinely landed on the (simulated) clipboard...
+    assert h.sysclip.text == "PRIOR CLIPBOARD"
+    # ...but the UI must not claim clean restoration success
+    assert vault.pasted and vault.pasted[0]["clipboard_restored"] is False
+    # ...while custody committed (not cancelled) -- the payload must be
+    # suppressed from recapture even though the UI reports failure.
+    records = h.suppressor.snapshot()
+    restore_recs = [r for r in records if r["operation"] == "quick_paste_restore"]
+    assert restore_recs and restore_recs[0]["committed"] is True
+
+    # and no internal clip ingestion happens for this write -- the monitor
+    # must suppress it despite clipboard_restored=False.
+    emit(h)
+    assert h.captures == []
+
+
 def test_macro_clipboard_output(h, tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     from cache_vault.core.macro_execute import MacroExecutor

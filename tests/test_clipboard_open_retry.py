@@ -50,14 +50,16 @@ class _FlakyClipboard:
 
 def test_retries_and_succeeds_after_transient_contention():
     clip = _FlakyClipboard(fail_times=2)
-    _open_clipboard_with_retry(clip, attempts=5, delay_s=0)
+    attempt = _open_clipboard_with_retry(clip, attempts=5, delay_s=0)
     assert clip.calls == 3
+    assert attempt == 3
 
 
 def test_succeeds_immediately_when_uncontended():
     clip = _FlakyClipboard(fail_times=0)
-    _open_clipboard_with_retry(clip, attempts=5, delay_s=0)
+    attempt = _open_clipboard_with_retry(clip, attempts=5, delay_s=0)
     assert clip.calls == 1
+    assert attempt == 1
 
 
 def test_gives_up_after_bounded_attempts_not_indefinitely():
@@ -146,9 +148,12 @@ def test_successful_open_has_exactly_one_close_in_finally(monkeypatch):
     fake = _StagedClipboard(fail_stage=None)
     _install_fake_clipboard(monkeypatch, fake)
 
-    ok = _write_clipboard_text("hello", operation="test")
+    outcome = _write_clipboard_text("hello", operation="test")
 
-    assert ok is True
+    assert outcome.content_set is True
+    assert outcome.closed is True
+    assert outcome.custody_should_commit is True
+    assert outcome.user_visible_success is True
     assert fake.opened == 1
     assert fake.closed == 1
     assert fake.emptied == 1
@@ -161,9 +166,11 @@ def test_failed_open_does_not_call_close(monkeypatch):
     # exhaust retries fast
     monkeypatch.setattr(paste_delivery.time, "sleep", lambda s: None)
 
-    ok = _write_clipboard_text("hello", operation="test")
+    outcome = _write_clipboard_text("hello", operation="test")
 
-    assert ok is False
+    assert outcome.opened is False
+    assert outcome.custody_should_commit is False
+    assert outcome.user_visible_success is False
     assert fake.opened == 0
     assert fake.closed == 0, "CloseClipboard must never run when OpenClipboard never succeeded"
 
@@ -177,14 +184,22 @@ def test_partial_mutation_failure_still_closes_and_is_not_retried(monkeypatch, f
     fake = _StagedClipboard(fail_stage=fail_stage)
     _install_fake_clipboard(monkeypatch, fake)
 
-    ok = _write_clipboard_text("hello", operation="test")
+    outcome = _write_clipboard_text("hello", operation="test")
 
-    assert ok is False
+    assert outcome.content_set is False, "nothing was actually placed on the clipboard"
+    assert outcome.custody_should_commit is False
+    assert outcome.user_visible_success is False
+    assert outcome.error_stage == fail_stage
     assert fake.opened == 1, "OpenClipboard must be attempted exactly once, not retried"
     assert fake.closed == 1, "CloseClipboard must still run after a partial-mutation failure"
 
 
-def test_close_clipboard_failure_is_logged_but_does_not_raise(monkeypatch):
+def test_close_clipboard_failure_commits_content_but_reports_user_visible_failure(monkeypatch):
+    """A close failure AFTER content was genuinely set is a different case
+    from a close failure with nothing set: the payload IS on the clipboard
+    (custody must commit to suppress recapture), but the transaction did not
+    close cleanly, so the UI-facing signal must be False. A single bool
+    return value cannot represent this split -- ClipboardWriteOutcome can."""
     class _CloseFailsClipboard(_StagedClipboard):
         def CloseClipboard(self) -> None:
             super().CloseClipboard()
@@ -194,9 +209,42 @@ def test_close_clipboard_failure_is_logged_but_does_not_raise(monkeypatch):
     _install_fake_clipboard(monkeypatch, fake)
 
     # must not raise even though CloseClipboard itself fails
-    ok = _write_clipboard_text("hello", operation="test")
-    assert ok is True  # the mutation itself (Empty+Set) succeeded
+    outcome = _write_clipboard_text("hello", operation="test")
+    assert fake.set_calls == [(13, "hello")]  # the content really was set
     assert fake.closed == 1
+    assert outcome.content_set is True
+    assert outcome.closed is False
+    assert outcome.error_stage == "CloseClipboard"
+    assert outcome.custody_should_commit is True, "content was set -- must suppress recapture"
+    assert outcome.user_visible_success is False, "did not close cleanly -- must not claim success"
+
+
+def test_diagnostic_logger_failure_after_successful_open_does_not_leak_ownership_or_retry(monkeypatch):
+    """If the diagnostic logger itself raises right after OpenClipboard
+    succeeds, that must never be mistaken for an OpenClipboard failure (which
+    would trigger a second, unbalanced OpenClipboard call and could leak
+    clipboard ownership). OpenClipboard must be called exactly once,
+    CloseClipboard exactly once, no retry, and the write outcome must be
+    based purely on the real clipboard operations -- not on logger
+    behavior."""
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    def _raising_log(stage, detail=""):
+        raise RuntimeError("simulated broken diagnostics")
+
+    monkeypatch.setattr(capture_debug_mod, "log", _raising_log)
+
+    fake = _StagedClipboard(fail_stage=None)
+    _install_fake_clipboard(monkeypatch, fake)
+
+    outcome = _write_clipboard_text("hello", operation="test")  # must not raise
+
+    assert fake.opened == 1, "OpenClipboard must be called exactly once, not retried"
+    assert fake.closed == 1
+    assert fake.set_calls == [(13, "hello")]
+    assert outcome.content_set is True
+    assert outcome.closed is True
+    assert outcome.user_visible_success is True, "outcome must reflect clipboard ops, not logger failures"
 
 
 # --- diagnostics: operation, stage, attempt, total_attempts, error_code -------
@@ -241,8 +289,59 @@ def test_diagnostics_final_result_logged_on_success(monkeypatch):
     fake = _StagedClipboard(fail_stage=None)
     _install_fake_clipboard(monkeypatch, fake)
 
-    ok = _write_clipboard_text("hello", operation="quick_paste_restore")
+    outcome = _write_clipboard_text("hello", operation="quick_paste_restore")
 
-    assert ok is True
+    assert outcome.user_visible_success is True
     complete = [d for s, d in logged if s == "clipboard_write_stage" and "stage=complete" in d]
     assert complete and "result=ok" in complete[0] and "operation=quick_paste_restore" in complete[0]
+    # the deferred OpenClipboard success diagnostic must also have fired,
+    # after CloseClipboard was attempted (not before, per _open_clipboard_with_retry).
+    open_ok = [d for s, d in logged if s == "clipboard_write_stage" and "stage=OpenClipboard" in d and "result=ok" in d]
+    assert open_ok
+
+
+@pytest.mark.parametrize(
+    "fail_stage, expected_complete_result",
+    [
+        (None, "ok"),
+        ("EmptyClipboard", "fail"),
+        ("SetClipboardData", "fail"),
+    ],
+)
+def test_complete_diagnostic_reflects_content_and_close_state(monkeypatch, fail_stage, expected_complete_result):
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    logged: list[tuple[str, str]] = []
+    monkeypatch.setattr(capture_debug_mod, "log", lambda stage, detail: logged.append((stage, detail)))
+
+    fake = _StagedClipboard(fail_stage=fail_stage)
+    _install_fake_clipboard(monkeypatch, fake)
+
+    _write_clipboard_text("hello", operation="test")
+
+    complete = [d for s, d in logged if s == "clipboard_write_stage" and "stage=complete" in d]
+    assert complete and f"result={expected_complete_result}" in complete[0]
+
+
+def test_complete_diagnostic_is_partial_success_not_ok_when_content_set_but_close_fails(monkeypatch):
+    """A close failure after a successful set must never be reported as a
+    plain 'ok' complete -- that would misrepresent an unclean transaction as
+    a clean one in the diagnostic trail itself."""
+    class _CloseFailsClipboard(_StagedClipboard):
+        def CloseClipboard(self) -> None:
+            super().CloseClipboard()
+            raise OSError("CloseClipboard failed")
+
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    logged: list[tuple[str, str]] = []
+    monkeypatch.setattr(capture_debug_mod, "log", lambda stage, detail: logged.append((stage, detail)))
+
+    fake = _CloseFailsClipboard(fail_stage=None)
+    _install_fake_clipboard(monkeypatch, fake)
+
+    _write_clipboard_text("hello", operation="test")
+
+    complete = [d for s, d in logged if s == "clipboard_write_stage" and "stage=complete" in d]
+    assert complete and "result=partial_success" in complete[0]
+    assert not any("result=ok" in d for d in complete)

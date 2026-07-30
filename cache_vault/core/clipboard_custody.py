@@ -35,6 +35,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from . import models
 from .image_assets import canonical_image_fingerprint
@@ -110,16 +111,19 @@ def default_clipboard_sequence() -> int | None:
         return None
 
 
-def _default_set_text(text: str) -> bool:
-    from .paste_delivery import set_clipboard_text
+def _default_set_text(text: str):
+    # Returns paste_delivery.ClipboardWriteOutcome (or None) rather than a
+    # plain bool -- ClipboardWriter._attempt() unpacks it to distinguish
+    # custody-commit from user-visible success. See ClipboardWriteOutcome.
+    from .paste_delivery import _set_clipboard_text_outcome
 
-    return set_clipboard_text(text)
+    return _set_clipboard_text_outcome(text)
 
 
-def _default_restore_text(text: str | None) -> bool:
-    from .paste_delivery import restore_clipboard_text
+def _default_restore_text(text: str | None):
+    from .paste_delivery import _restore_clipboard_text_outcome
 
-    return restore_clipboard_text(text)
+    return _restore_clipboard_text_outcome(text)
 
 
 def _default_set_image(png_bytes: bytes) -> bool:
@@ -420,6 +424,14 @@ def _u32_equal(a: int, b: int) -> bool:
     return (int(a) & 0xFFFFFFFF) == (int(b) & 0xFFFFFFFF)
 
 
+class _AttemptResult(NamedTuple):
+    """Two independent outcomes of one write attempt -- see
+    ``ClipboardWriter._attempt``."""
+
+    custody_commit: bool
+    user_visible_success: bool
+
+
 class ClipboardWriter:
     """Custody-enforcing adapter for every internal clipboard write.
 
@@ -467,14 +479,15 @@ class ClipboardWriter:
             f"operation={operation} token={token} type=text len={len(text)} "
             f"hash={models.content_hash(text)[:12]} sequence_before={sequence_before}",
         )
-        ok = self._attempt(write, text)
-        sequence_after = self._settle(token, ok, sequence_before=sequence_before)
+        attempt = self._attempt(write, text)
+        sequence_after = self._settle(token, attempt.custody_commit, sequence_before=sequence_before)
         capture_debug.log(
             "clipboard_write_settle",
-            f"operation={operation} token={token} outcome={'commit' if ok else 'cancel'} "
+            f"operation={operation} token={token} outcome={'commit' if attempt.custody_commit else 'cancel'} "
+            f"user_visible_success={attempt.user_visible_success} "
             f"sequence_before={sequence_before} sequence_after={sequence_after}",
         )
-        return ok
+        return attempt.user_visible_success
 
     def restore_text(self, text: str | None, *, operation: str, via=None) -> bool:
         """Restore ``text`` with custody (snapshot/restore paste flows)."""
@@ -498,14 +511,15 @@ class ClipboardWriter:
             f"operation={operation} token={token} len={len(text)} "
             f"hash={models.content_hash(text)[:12]} sequence_before={sequence_before}",
         )
-        ok = self._attempt(write, text)
-        sequence_after = self._settle(token, ok, sequence_before=sequence_before)
+        attempt = self._attempt(write, text)
+        sequence_after = self._settle(token, attempt.custody_commit, sequence_before=sequence_before)
         capture_debug.log(
             "clipboard_restore_settle",
-            f"operation={operation} token={token} outcome={'commit' if ok else 'cancel'} "
+            f"operation={operation} token={token} outcome={'commit' if attempt.custody_commit else 'cancel'} "
+            f"user_visible_success={attempt.user_visible_success} "
             f"sequence_before={sequence_before} sequence_after={sequence_after}",
         )
-        return ok
+        return attempt.user_visible_success
 
     def write_image(self, png_bytes: bytes, *, operation: str, via=None) -> bool:
         """Write an image with custody; fingerprint matches the capture path."""
@@ -516,25 +530,51 @@ class ClipboardWriter:
             fingerprint=self._image_fingerprint(png_bytes),
         )
         sequence_before = self._sequence()
-        ok = self._attempt(write, png_bytes)
-        self._settle(token, ok, sequence_before=sequence_before)
-        return ok
+        attempt = self._attempt(write, png_bytes)
+        self._settle(token, attempt.custody_commit, sequence_before=sequence_before)
+        return attempt.user_visible_success
 
     # --- internals ---------------------------------------------------------
-    def _attempt(self, write, payload) -> bool:
+    def _attempt(self, write, payload) -> _AttemptResult:
+        """Run the platform write and resolve it into two independent
+        signals: whether custody should commit (an internal payload may now
+        be visible on the clipboard and must be suppressed from recapture)
+        and whether the operation succeeded cleanly enough to report to the
+        user. A plain bool writer (e.g. simple test lambdas) collapses both
+        signals to the same value -- there's no way to distinguish them with
+        only one bit of information. A ``ClipboardWriteOutcome`` (the real
+        Win32-backed writers) can report them separately -- see
+        ``ClipboardWriteOutcome`` in paste_delivery.py for why they diverge.
+        """
         from . import capture_debug
+        from .paste_delivery import ClipboardWriteOutcome
 
         try:
-            ok = bool(write(payload))
-            if not ok:
-                capture_debug.log("clipboard_write_attempt_failed", "reason=writer_returned_false")
-            return ok
+            result = write(payload)
         except Exception as exc:  # noqa: BLE001 - a failed write must never capture
             capture_debug.log(
                 "clipboard_write_attempt_exception",
                 f"type={type(exc).__name__} detail={exc}",
             )
-            return False
+            return _AttemptResult(custody_commit=False, user_visible_success=False)
+
+        if isinstance(result, ClipboardWriteOutcome):
+            if not result.user_visible_success:
+                capture_debug.log(
+                    "clipboard_write_attempt_failed",
+                    f"reason=writer_reported_failure error_stage={result.error_stage} "
+                    f"content_set={result.content_set} closed={result.closed}",
+                )
+            return _AttemptResult(
+                custody_commit=result.custody_should_commit,
+                user_visible_success=result.user_visible_success,
+            )
+
+        # Legacy simple bool contract.
+        ok = bool(result)
+        if not ok:
+            capture_debug.log("clipboard_write_attempt_failed", "reason=writer_returned_false")
+        return _AttemptResult(custody_commit=ok, user_visible_success=ok)
 
     def _settle(
         self,

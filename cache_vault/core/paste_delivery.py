@@ -36,6 +36,36 @@ _CLIPBOARD_OPEN_RETRY_ATTEMPTS = 5
 _CLIPBOARD_OPEN_RETRY_DELAY_S = 0.015  # 4 gaps x 15ms = 60ms max scheduled delay
 
 
+@dataclass(frozen=True)
+class ClipboardWriteOutcome:
+    """Structured result of a low-level clipboard write attempt.
+
+    A single bool cannot represent both "should custody commit" and "did the
+    user-visible operation cleanly succeed" -- these diverge specifically
+    when ``content_set`` is True but ``closed`` is False (SetClipboardData
+    succeeded but CloseClipboard itself failed): the payload IS on the
+    clipboard and custody must commit to suppress it from being recaptured
+    as new history, but the transaction did not close cleanly, so the UI
+    must not report a clean restoration success.
+    """
+
+    opened: bool
+    content_set: bool
+    closed: bool
+    error_stage: str | None = None
+
+    @property
+    def custody_should_commit(self) -> bool:
+        """Content genuinely reached the clipboard API -- suppress recapture
+        regardless of whether CloseClipboard itself succeeded."""
+        return self.content_set
+
+    @property
+    def user_visible_success(self) -> bool:
+        """Clean, fully-completed transaction -- what the UI should report."""
+        return self.content_set and self.closed
+
+
 def _win32_error_code(exc: Exception) -> int | None:
     """Best-effort Win32 error code extraction (pywintypes.error, OSError)."""
     code = getattr(exc, "winerror", None)
@@ -52,19 +82,29 @@ def _log_clipboard_stage(
     operation: str, stage: str, result: str, *, attempt: int | None = None,
     total_attempts: int | None = None, exc: Exception | None = None,
 ) -> None:
-    from . import capture_debug
+    """Best-effort diagnostic logging.
 
-    parts = [f"operation={operation}", f"stage={stage}", f"result={result}"]
-    if attempt is not None:
-        parts.append(f"attempt={attempt}")
-    if total_attempts is not None:
-        parts.append(f"total_attempts={total_attempts}")
-    if exc is not None:
-        parts.append(f"error_type={type(exc).__name__}")
-        code = _win32_error_code(exc)
-        if code is not None:
-            parts.append(f"error_code={code}")
-    capture_debug.log("clipboard_write_stage", " ".join(parts))
+    Must never affect clipboard control flow: a broken/raising logger is a
+    diagnostics bug, not a clipboard failure, and must never be mistaken for
+    one (e.g. by triggering a spurious OpenClipboard retry while the first
+    call actually succeeded and ownership is already held).
+    """
+    try:
+        from . import capture_debug
+
+        parts = [f"operation={operation}", f"stage={stage}", f"result={result}"]
+        if attempt is not None:
+            parts.append(f"attempt={attempt}")
+        if total_attempts is not None:
+            parts.append(f"total_attempts={total_attempts}")
+        if exc is not None:
+            parts.append(f"error_type={type(exc).__name__}")
+            code = _win32_error_code(exc)
+            if code is not None:
+                parts.append(f"error_code={code}")
+        capture_debug.log("clipboard_write_stage", " ".join(parts))
+    except Exception:  # noqa: BLE001 - diagnostics must never break the caller
+        pass
 
 
 def _open_clipboard_with_retry(
@@ -73,21 +113,25 @@ def _open_clipboard_with_retry(
     operation: str = "unspecified",
     attempts: int = _CLIPBOARD_OPEN_RETRY_ATTEMPTS,
     delay_s: float = _CLIPBOARD_OPEN_RETRY_DELAY_S,
-) -> None:
+) -> int:
     """Retry ``OpenClipboard`` a bounded number of times.
 
     Sleeps only *between* attempts — attempts ``1..attempts-1`` may be
     followed by a ``delay_s`` sleep; the final attempt never sleeps
     afterward, whether it succeeds or exhausts the budget.
+
+    Returns the 1-based attempt number that succeeded. Once OpenClipboard
+    succeeds, ownership is held and this function does nothing else that
+    could raise -- no logging happens on the success path here, so nothing
+    can be mistaken for an OpenClipboard failure and trigger a second,
+    unbalanced OpenClipboard call. The success diagnostic is the caller's
+    responsibility, emitted only after CloseClipboard has been attempted
+    (see ``_write_clipboard_text``).
     """
     last_exc: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
             win32clipboard.OpenClipboard()
-            _log_clipboard_stage(
-                operation, "OpenClipboard", "ok", attempt=attempt, total_attempts=attempts,
-            )
-            return
         except Exception as exc:  # noqa: BLE001 - retried below; re-raised if exhausted
             last_exc = exc
             _log_clipboard_stage(
@@ -96,6 +140,8 @@ def _open_clipboard_with_retry(
             )
             if attempt < attempts:
                 time.sleep(delay_s)
+            continue
+        return attempt
     assert last_exc is not None
     raise last_exc
 
@@ -121,7 +167,7 @@ def snapshot_clipboard_text() -> str | None:
     return _read_clipboard_text()
 
 
-def _write_clipboard_text(text: str, *, operation: str) -> bool:
+def _write_clipboard_text(text: str, *, operation: str) -> ClipboardWriteOutcome:
     """Shared body for ``set_clipboard_text``/``restore_clipboard_text``.
 
     ``OpenClipboard`` gets the bounded retry above (the contention-prone
@@ -131,44 +177,76 @@ def _write_clipboard_text(text: str, *, operation: str) -> bool:
     without a proven-safe recovery path would be unsound. ``CloseClipboard``
     always runs in ``finally`` once ``OpenClipboard`` has succeeded, and
     never runs otherwise.
+
+    Returns a :class:`ClipboardWriteOutcome` rather than a plain bool:
+    ``content_set`` and ``closed`` can diverge (SetClipboardData succeeds but
+    CloseClipboard then fails), and custody / the UI need those two signals
+    separately -- see ``ClipboardWriteOutcome`` for why.
     """
     import win32clipboard  # type: ignore
 
     try:
-        _open_clipboard_with_retry(win32clipboard, operation=operation)
+        open_attempt = _open_clipboard_with_retry(win32clipboard, operation=operation)
     except Exception as exc:  # noqa: BLE001 - OpenClipboard exhausted its retries
         _log_clipboard_stage(operation, "OpenClipboard", "fail_final", exc=exc)
-        return False
+        return ClipboardWriteOutcome(opened=False, content_set=False, closed=False, error_stage="OpenClipboard")
 
+    content_set = False
+    error_stage: str | None = None
     try:
         try:
             win32clipboard.EmptyClipboard()
         except Exception as exc:  # noqa: BLE001
+            error_stage = "EmptyClipboard"
             _log_clipboard_stage(operation, "EmptyClipboard", "fail", exc=exc)
-            return False
-        try:
-            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
-        except Exception as exc:  # noqa: BLE001
-            _log_clipboard_stage(operation, "SetClipboardData", "fail", exc=exc)
-            return False
+        else:
+            try:
+                win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+                content_set = True
+            except Exception as exc:  # noqa: BLE001
+                error_stage = "SetClipboardData"
+                _log_clipboard_stage(operation, "SetClipboardData", "fail", exc=exc)
     finally:
+        closed = False
         try:
             win32clipboard.CloseClipboard()
+            closed = True
         except Exception as exc:  # noqa: BLE001
+            if error_stage is None:
+                error_stage = "CloseClipboard"
             _log_clipboard_stage(operation, "CloseClipboard", "fail", exc=exc)
 
-    _log_clipboard_stage(operation, "complete", "ok")
-    return True
+    # Deferred: OpenClipboard's success diagnostic is only emitted now, after
+    # CloseClipboard has been attempted -- see _open_clipboard_with_retry.
+    _log_clipboard_stage(operation, "OpenClipboard", "ok", attempt=open_attempt, total_attempts=_CLIPBOARD_OPEN_RETRY_ATTEMPTS)
+
+    if content_set and closed:
+        _log_clipboard_stage(operation, "complete", "ok")
+    elif content_set:
+        _log_clipboard_stage(operation, "complete", "partial_success")
+    else:
+        _log_clipboard_stage(operation, "complete", "fail")
+
+    return ClipboardWriteOutcome(opened=True, content_set=content_set, closed=closed, error_stage=error_stage)
 
 
-def restore_clipboard_text(text: str | None) -> bool:
+def _restore_clipboard_text_outcome(text: str | None) -> ClipboardWriteOutcome | None:
+    """Like ``restore_clipboard_text`` but returns the full structured
+    outcome, so callers that need to distinguish custody-commit from
+    user-visible success (``ClipboardWriter``) can. Returns ``None`` when the
+    write can't be attempted at all (no win32, or nothing to restore)."""
     if not _HAS_WIN32 or text is None:
-        return False
+        return None
     try:
         return _write_clipboard_text(text, operation="restore_clipboard_text")
     except Exception as exc:  # noqa: BLE001 - defensive: never let a write raise
         _log_clipboard_stage("restore_clipboard_text", "unexpected", "fail", exc=exc)
-        return False
+        return ClipboardWriteOutcome(opened=False, content_set=False, closed=False, error_stage="unexpected")
+
+
+def restore_clipboard_text(text: str | None) -> bool:
+    outcome = _restore_clipboard_text_outcome(text)
+    return outcome is not None and outcome.user_visible_success
 
 
 def window_title(hwnd) -> str:
@@ -253,14 +331,21 @@ def deliver_ctrl_v(hwnd, *, delay_s: float = 0.08) -> PasteResult:
     return PasteResult(True, "ok", title)
 
 
-def set_clipboard_text(text: str) -> bool:
+def _set_clipboard_text_outcome(text: str) -> ClipboardWriteOutcome | None:
+    """Like ``set_clipboard_text`` but returns the full structured outcome --
+    see ``_restore_clipboard_text_outcome``."""
     if not _HAS_WIN32:
-        return False
+        return None
     try:
         return _write_clipboard_text(text, operation="set_clipboard_text")
     except Exception as exc:  # noqa: BLE001 - defensive: never let a write raise
         _log_clipboard_stage("set_clipboard_text", "unexpected", "fail", exc=exc)
-        return False
+        return ClipboardWriteOutcome(opened=False, content_set=False, closed=False, error_stage="unexpected")
+
+
+def set_clipboard_text(text: str) -> bool:
+    outcome = _set_clipboard_text_outcome(text)
+    return outcome is not None and outcome.user_visible_success
 
 
 def send_backspaces(hwnd, count: int, *, delay_s: float = 0.02) -> bool:
