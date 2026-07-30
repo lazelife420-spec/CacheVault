@@ -626,6 +626,88 @@ def test_quick_paste_restoration_recovers_after_transient_open_failure(h, monkey
     assert restore_recs and restore_recs[0]["committed"] is True
 
 
+def test_quick_paste_restoration_close_failure_via_real_production_path(h, monkeypatch):
+    """Same proof as test_quick_paste_restoration_close_failure_commits_custody_but_reports_failure
+    below, but constructs ClipboardWriter exactly as production does --
+    restore_text=None (the real default _default_restore_text), not an
+    injected ClipboardWriteOutcome lambda. This exercises the actual chain
+    used by CacheVaultApp: ClipboardWriter(suppressor) [shell.py's real
+    construction has no restore_text override either] -> _default_restore_text
+    -> paste_delivery._restore_clipboard_text_outcome -> _write_clipboard_text
+    -> a real (faked-at-the-win32-boundary) CloseClipboard failure, proving
+    the structured outcome is not collapsed to bool anywhere on this path.
+    """
+    import sys
+
+    class _CloseFailsClipboard:
+        def __init__(self) -> None:
+            self.opens = 0
+            self.closed = 0
+            self.set_calls: list[tuple[int, str]] = []
+
+        def OpenClipboard(self) -> None:
+            self.opens += 1
+
+        def EmptyClipboard(self) -> None:
+            pass
+
+        def SetClipboardData(self, fmt, text) -> None:
+            self.set_calls.append((fmt, text))
+
+        def CloseClipboard(self) -> None:
+            self.closed += 1
+            raise OSError("CloseClipboard failed")
+
+    fake = _CloseFailsClipboard()
+    fake_module = SimpleNamespace(
+        OpenClipboard=fake.OpenClipboard,
+        EmptyClipboard=fake.EmptyClipboard,
+        SetClipboardData=fake.SetClipboardData,
+        CloseClipboard=fake.CloseClipboard,
+    )
+    monkeypatch.setitem(sys.modules, "win32clipboard", fake_module)
+    monkeypatch.setattr(paste_delivery, "win32con", SimpleNamespace(CF_UNICODETEXT=13), raising=False)
+    monkeypatch.setattr(paste_delivery, "_HAS_WIN32", True, raising=False)
+
+    monkeypatch.setattr(shell_mod, "Toast", lambda *a, **k: None)
+    monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda hwnd, w: False)
+    monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: h.sysclip.text)
+    monkeypatch.setattr(
+        shell_mod, "deliver_ctrl_v",
+        lambda hwnd: PasteResult(True, "ok", "Notepad"),
+    )
+
+    # restore_text=None -- the real default (_default_restore_text), exactly
+    # what shell.py's actual `ClipboardWriter(self._clipboard_suppressor)`
+    # construction produces. No lambda, no pre-built outcome.
+    real_default_writer = ClipboardWriter(
+        h.suppressor,
+        set_text=h.sysclip.write,
+        get_sequence=lambda: h.sysclip.seq,
+    )
+    settings = SimpleNamespace(restore_clipboard_after_paste=True, auto_paste=True)
+    vault = FakeVault(settings)
+    clip = make_clip(content="pasted content")
+    vault.storage.clips["c1"] = clip
+    app = make_app(h, vault)
+    app._clipboard_writer = real_default_writer
+    app._paste_target = 4242
+
+    h.sysclip.write("PRIOR CLIPBOARD")  # only tracked for the delivery leg
+    app._do_paste(clip, "primary")
+
+    # the real SetClipboardData call happened (content genuinely set)...
+    assert fake.set_calls == [(13, "PRIOR CLIPBOARD")]
+    assert fake.closed == 1
+    # ...but the UI must not claim clean restoration success
+    assert vault.pasted and vault.pasted[0]["clipboard_restored"] is False
+    # ...while custody committed -- proving the structured outcome, not a
+    # collapsed bool, reached ClipboardWriter._attempt() on the real path.
+    records = h.suppressor.snapshot()
+    restore_recs = [r for r in records if r["operation"] == "quick_paste_restore"]
+    assert restore_recs and restore_recs[0]["committed"] is True
+
+
 def test_quick_paste_restoration_close_failure_commits_custody_but_reports_failure(h, monkeypatch):
     """Content-set + close-failure: custody must commit (the internal payload
     may be visible on the clipboard and must not be recaptured as new

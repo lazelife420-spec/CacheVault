@@ -247,6 +247,82 @@ def test_diagnostic_logger_failure_after_successful_open_does_not_leak_ownership
     assert outcome.user_visible_success is True, "outcome must reflect clipboard ops, not logger failures"
 
 
+def test_diagnostic_logger_failure_during_open_retry_failure_logging_does_not_alter_retry(monkeypatch):
+    """Logger raises while logging an OpenClipboard retry failure (a
+    different call site than the success-path test above) -- must not add
+    extra attempts, must not change the exhaustion outcome."""
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    def _raising_log(stage, detail=""):
+        raise RuntimeError("simulated broken diagnostics")
+
+    monkeypatch.setattr(capture_debug_mod, "log", _raising_log)
+    monkeypatch.setattr(paste_delivery.time, "sleep", lambda s: None)
+
+    fake = _StagedClipboard(fail_stage="OpenClipboard")
+    _install_fake_clipboard(monkeypatch, fake)
+
+    outcome = _write_clipboard_text("hello", operation="test")  # must not raise
+
+    assert fake.opened == 0
+    assert fake.closed == 0
+    assert outcome.opened is False
+    assert outcome.user_visible_success is False
+
+
+@pytest.mark.parametrize("fail_stage", ["EmptyClipboard", "SetClipboardData"])
+def test_diagnostic_logger_failure_during_mutation_failure_logging_does_not_alter_outcome(monkeypatch, fail_stage):
+    """Logger raises while logging an EmptyClipboard/SetClipboardData
+    failure -- must not alter the real outcome, must not trigger a retry,
+    must not skip the guaranteed CloseClipboard."""
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    def _raising_log(stage, detail=""):
+        raise RuntimeError("simulated broken diagnostics")
+
+    monkeypatch.setattr(capture_debug_mod, "log", _raising_log)
+
+    fake = _StagedClipboard(fail_stage=fail_stage)
+    _install_fake_clipboard(monkeypatch, fake)
+
+    outcome = _write_clipboard_text("hello", operation="test")  # must not raise
+
+    assert fake.opened == 1, "must not retry OpenClipboard due to logger failures"
+    assert fake.closed == 1, "CloseClipboard must still run despite the logger failure"
+    assert outcome.content_set is False
+    assert outcome.error_stage == fail_stage
+
+
+def test_diagnostic_logger_failure_during_close_failure_logging_does_not_alter_outcome(monkeypatch):
+    """Logger raises while logging a CloseClipboard failure -- the write's
+    own content_set/closed/custody signals must still be computed purely
+    from the real clipboard operations."""
+    import cache_vault.core.capture_debug as capture_debug_mod
+
+    def _raising_log(stage, detail=""):
+        raise RuntimeError("simulated broken diagnostics")
+
+    monkeypatch.setattr(capture_debug_mod, "log", _raising_log)
+
+    class _CloseFailsClipboard(_StagedClipboard):
+        def CloseClipboard(self) -> None:
+            super().CloseClipboard()
+            raise OSError("CloseClipboard failed")
+
+    fake = _CloseFailsClipboard(fail_stage=None)
+    _install_fake_clipboard(monkeypatch, fake)
+
+    outcome = _write_clipboard_text("hello", operation="test")  # must not raise
+
+    assert fake.opened == 1
+    assert fake.closed == 1
+    assert outcome.content_set is True
+    assert outcome.closed is False
+    assert outcome.error_stage == "CloseClipboard"
+    assert outcome.custody_should_commit is True
+    assert outcome.user_visible_success is False
+
+
 # --- diagnostics: operation, stage, attempt, total_attempts, error_code -------
 
 def test_diagnostics_capture_operation_stage_attempt_and_error_code(monkeypatch):
