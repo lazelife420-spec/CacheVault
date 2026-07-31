@@ -320,6 +320,20 @@ def test_empty_space_right_click_does_not_clear_selection(tmp_path):
 # --- Popup-boundary regression: selection tests cannot reach tk_popup ----
 
 
+def _wait_for_deferred_destroy(tk_root, destroy_mock, timeout: float = 2.0) -> None:
+    """popup_menu schedules destroy_menu via menu.after(150, ...) -- real
+    wall-clock time, not the next idle tick -- so pump the loop until it
+    has actually fired rather than a single tk_root.update()."""
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        tk_root.update()
+        if destroy_mock.call_count:
+            return
+        time.sleep(0.01)
+    raise AssertionError("deferred destroy_menu did not run within timeout")
+
+
 def _menu_event_for_index(menu: tk.Menu, index: int) -> SimpleNamespace:
     end = menu.index("end")
     assert end is not None
@@ -699,17 +713,19 @@ def test_explicit_activation_handlers_safe_after_menu_destroyed(tk_root):
 
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_popup_menu_defers_destroy_past_tk_popup_return(tk_root):
-    """destroy_menu must run via after_idle, not synchronously inside
-    popup_menu's finally block. On Windows, a real native popup delivers
-    the selected entry's command callback as a queued Tcl event processed
-    after tk_popup returns -- not synchronously as part of tk_popup
-    itself. An immediate destroy was directly reproduced (three
-    standalone repro scripts, escalating fidelity to popup_menu's own
-    code shape) to race ahead of that queued dispatch and discard it
-    before it ran, silently breaking every context-menu command while
-    leaving the popup itself appearing to close normally. Deferring the
-    destroy via after_idle lets any already-queued native invoke run
-    first."""
+    """destroy_menu must run via a deferred menu.after(...) call, not
+    synchronously inside popup_menu's finally block. On Windows, a real
+    native popup delivers the selected entry's command callback as a
+    queued Tcl event processed after tk_popup returns -- not
+    synchronously as part of tk_popup itself. An immediate destroy was
+    directly reproduced (three standalone repro scripts, escalating
+    fidelity to popup_menu's own code shape) to race ahead of that
+    queued dispatch and discard it before it ran, silently breaking
+    every context-menu command while leaving the popup itself appearing
+    to close normally. after_idle (next-tick) measurably improved but
+    did not fix this against the real app's constant background timer
+    activity; an explicit ~150ms delay did -- see popup_menu's own
+    comment for the live-testing numbers behind that choice."""
     menu = tk.Menu(tk_root, tearoff=0)
     menu.add_command(label="Canary", command=lambda: None)
     window = SimpleNamespace()
@@ -721,7 +737,7 @@ def test_popup_menu_defers_destroy_past_tk_popup_return(tk_root):
             "destroy_menu ran synchronously -- this is the exact regression "
             "that discards an asynchronously-delivered native command callback"
         )
-        tk_root.update()
+        _wait_for_deferred_destroy(tk_root, destroy_menu)
         destroy_menu.assert_called_once_with(menu)
 
 
@@ -747,9 +763,10 @@ def test_popup_menu_binds_activation_and_cleans_up_on_popup_failure(tk_root):
          mock.patch.object(clip_context, "destroy_menu", wraps=clip_context.destroy_menu) as destroy_menu:
         with pytest.raises(RuntimeError):
             clip_context.popup_menu(window, menu, 0, 0)
-        # destroy_menu is scheduled via after_idle, not called synchronously
-        # -- pump the loop (while the mock is still active) to let it run.
-        tk_root.update()
+        # destroy_menu is scheduled via a deferred menu.after(...) call, not
+        # called synchronously -- wait it out (while the mock is still
+        # active) to let it run.
+        _wait_for_deferred_destroy(tk_root, destroy_menu)
 
     assert bound_before_popup == [True]
     tk_popup.assert_called_once_with(0, 0)
@@ -844,9 +861,10 @@ def test_popup_menu_cleanup_runs_when_bound_command_raises(tk_root):
              mock.patch.object(clip_context.tooltip, "after_menu_close") as after_menu_close, \
              mock.patch.object(clip_context, "destroy_menu", wraps=clip_context.destroy_menu) as destroy_menu:
             clip_context.popup_menu(window, menu, 0, 0)  # must not raise
-            # destroy_menu is scheduled via after_idle, not called
-            # synchronously -- pump the loop while the mock is still active.
-            tk_root.update()
+            # destroy_menu is scheduled via a deferred menu.after(...) call,
+            # not called synchronously -- wait it out while the mock is
+            # still active.
+            _wait_for_deferred_destroy(tk_root, destroy_menu)
 
         assert calls == ["attempted"]
         assert captured_activation[0]._activated is True

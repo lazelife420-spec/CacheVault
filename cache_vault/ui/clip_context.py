@@ -647,11 +647,23 @@ def popup_menu(window, menu, x_root: int, y_root: int) -> None:
         # itself. Destroying the menu here immediately raced ahead of
         # that pending dispatch and discarded it -- confirmed by direct
         # reproduction: with an immediate destroy, a deliberately clicked
-        # command never fired; deferring the destroy via after_idle (so
-        # any already-queued native invoke gets a chance to run first)
-        # fixed it. This predates the explicit-activation feature and is
-        # unrelated to it -- see commit history for popup_menu.
-        menu.after_idle(lambda: destroy_menu(menu))
+        # command never fired. This predates the explicit-activation
+        # feature and is unrelated to it -- see commit history for
+        # popup_menu.
+        #
+        # after_idle (fires at the next idle tick) fixed it in isolation
+        # but was still unreliable in the real app -- confirmed by live
+        # physical testing: the sidebar menu path lost this race on
+        # roughly 19 of 20 real attempts even with after_idle, while an
+        # explicit 150ms delay brought that to 10/11 across every sidebar
+        # command tested (select_all_visible, deselect_all, refresh,
+        # export_current_view, scan_cleanup_suggestions). The app runs a
+        # recurring 50ms _pump_main_thread timer (see shell.py) for its
+        # entire lifetime, so there is no long quiet idle stretch for
+        # after_idle to land in -- it competes with that timer on every
+        # tick. An explicit delay waits out real wall-clock time instead
+        # of racing the next idle opportunity.
+        menu.after(150, lambda: destroy_menu(menu))
 
 
 def open_home_clip_menu(window, clip, x_root: int, y_root: int) -> None:
