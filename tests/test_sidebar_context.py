@@ -285,6 +285,55 @@ def test_sidebar_menu_invoke_selects_all_seven_visible_clips(tmp_path):
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_invoke_deselects_all_selected_clips(tmp_path):
+    """_sidebar_deselect_all used to call getattr(view, "deselect_all",
+    lambda: None)() -- neither ClipList nor ClipGrid actually defines a
+    deselect_all method, so this silently no-opped every single time,
+    while self._selection_scope.clear() alone left _selected_clip_ids,
+    the action strip, and the preview panel all untouched. Assert the
+    real, complete clear (matching _clear_selection, the same method
+    the working item-menu "Deselect All" path already used), not just
+    that the handler returned without raising."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        view.select_all()
+        app._on_clip_selection_change(list(app._visible_clip_ids))
+        assert len(app._selected_clip_ids) == 7
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Deselect all")
+
+        with mock.patch(
+            "cache_vault.ui.sidebar_context.popup_menu",
+            side_effect=invoke_popup,
+        ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert app._selected_clip_ids == []
+        assert app._selected_clip_id is None
+        assert not app._selection_scope.matching
+    finally:
+        for menu in menus:
+            menu.destroy()
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
 def test_sidebar_explicit_release_selects_all_seven_visible_clips(tmp_path):
     """Exercise the real popup binding through the full sidebar command path."""
     vault = _vault_with_clips(tmp_path, 7)
