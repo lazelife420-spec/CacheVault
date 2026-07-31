@@ -641,7 +641,17 @@ def popup_menu(window, menu, x_root: int, y_root: int) -> None:
     finally:
         menu.grab_release()
         tooltip.after_menu_close()
-        destroy_menu(menu)
+        # Native menu command dispatch on Windows delivers the selected
+        # entry's callback asynchronously (a queued Tcl event processed
+        # after tk_popup returns), not synchronously as part of tk_popup
+        # itself. Destroying the menu here immediately raced ahead of
+        # that pending dispatch and discarded it -- confirmed by direct
+        # reproduction: with an immediate destroy, a deliberately clicked
+        # command never fired; deferring the destroy via after_idle (so
+        # any already-queued native invoke gets a chance to run first)
+        # fixed it. This predates the explicit-activation feature and is
+        # unrelated to it -- see commit history for popup_menu.
+        menu.after_idle(lambda: destroy_menu(menu))
 
 
 def open_home_clip_menu(window, clip, x_root: int, y_root: int) -> None:
