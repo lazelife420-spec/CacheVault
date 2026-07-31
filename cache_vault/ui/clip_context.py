@@ -584,7 +584,15 @@ class _ExplicitMenuActivation:
         if entry_type == "cascade":
             return None
         if not self._actionable(index):
-            return "break" if entry_type in {"separator", "command"} else None
+            # Every non-cascade outcome must consume the event: a
+            # separator, a disabled command, an out-of-bounds/outside-
+            # pointer release (index is None here), or -- for keyboard --
+            # no active entry at all. Returning anything but "break" would
+            # let Tk's own Menu class binding, the one this class exists
+            # to override, keep processing the same event and potentially
+            # invoke whatever IT considers active via hover/keyboard-nav
+            # state our explicit x/y and one-shot checks never see.
+            return "break"
 
         self._activated = True
         try:

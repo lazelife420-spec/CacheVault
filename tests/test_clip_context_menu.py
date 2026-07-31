@@ -358,7 +358,12 @@ def test_explicit_release_outside_menu_never_activates_stale_active_entry(tk_roo
     """A release outside the menu's bounds must never fall back to
     whatever entry is "active" -- that state can be stale (e.g. left over
     from keyboard hover) and has nothing to do with where the pointer was
-    actually released. This is the outside-pointer safety invariant."""
+    actually released. This is the outside-pointer safety invariant.
+
+    The release must also be fully consumed ("break"), not just resolved
+    to no entry: returning anything else would leave Tk's own Menu class
+    binding free to keep processing the same event and invoke whatever
+    IT considers active, via hover state this handler never inspects."""
     invoked = []
     menu = tk.Menu(tk_root, tearoff=0)
     menu.add_command(label="Canary", command=lambda: invoked.append("command"))
@@ -368,7 +373,7 @@ def test_explicit_release_outside_menu_never_activates_stale_active_entry(tk_roo
     try:
         assert activation.on_button_release(
             SimpleNamespace(x=-1, y=-100),
-        ) is None
+        ) == "break"
         assert invoked == []
     finally:
         menu.destroy()
@@ -386,7 +391,7 @@ def test_explicit_release_below_last_entry_never_activates_stale_active_entry(tk
         far_below = int(menu.winfo_reqheight()) + 500
         assert activation.on_button_release(
             SimpleNamespace(x=4, y=far_below),
-        ) is None
+        ) == "break"
         assert invoked == []
     finally:
         menu.destroy()
@@ -405,7 +410,24 @@ def test_explicit_release_negative_x_never_activates(tk_root):
     try:
         assert activation.on_button_release(
             SimpleNamespace(x=-1, y=in_band_y),
-        ) is None
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_negative_y_never_activates(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    in_band_x = _menu_event_for_index(menu, 0).x
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=in_band_x, y=-1),
+        ) == "break"
         assert invoked == []
     finally:
         menu.destroy()
@@ -423,11 +445,59 @@ def test_explicit_release_x_at_or_beyond_menu_width_never_activates(tk_root):
     try:
         assert activation.on_button_release(
             SimpleNamespace(x=width, y=in_band_y),
-        ) is None
+        ) == "break"
         assert activation.on_button_release(
             SimpleNamespace(x=width + 500, y=in_band_y),
-        ) is None
+        ) == "break"
         assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_y_at_or_beyond_menu_height_never_activates(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    in_band_x = _menu_event_for_index(menu, 0).x
+    height = int(menu.winfo_reqheight())
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=in_band_x, y=height),
+        ) == "break"
+        assert activation.on_button_release(
+            SimpleNamespace(x=in_band_x, y=height + 500),
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_outside_menu_break_stops_later_bindtag_dispatch(tk_root):
+    """Same class-binding-continuation model as
+    test_explicit_release_break_stops_later_bindtag_dispatch, applied to
+    an outside-pointer release rather than a valid one: the stale entry
+    that would be invoked if Tk's own class binding kept running must
+    stay untouched precisely because this handler returns "break"."""
+    invoked = []
+    later_binding = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    menu.activate(0)  # a stale "active" entry a class binding could invoke
+    try:
+        result = activation.on_button_release(
+            SimpleNamespace(x=-1, y=-100),
+        )
+        if result != "break":
+            later_binding.append("class")
+        assert invoked == []
+        assert later_binding == []
+        assert result == "break"
     finally:
         menu.destroy()
 
@@ -596,14 +666,16 @@ def test_new_popup_after_prior_dismissal_invokes_normally(tk_root):
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_explicit_keyboard_activation_with_no_active_entry_invokes_nothing(tk_root):
     """No item has been keyboard-activated yet (menu.index("active") is
-    None) -- Return must not invoke anything, and must not raise."""
+    None) -- Return must not invoke anything, must not raise, and must
+    consume the event ("break") rather than leaving it for Tk's own Menu
+    class binding to interpret via its own idea of "active"."""
     invoked = []
     menu = tk.Menu(tk_root, tearoff=0)
     menu.add_command(label="Canary", command=lambda: invoked.append("command"))
     activation = clip_context._bind_explicit_menu_activation(menu)
     try:
         assert menu.index("active") is None
-        assert activation.on_return(SimpleNamespace()) is None
+        assert activation.on_return(SimpleNamespace()) == "break"
         assert invoked == []
     finally:
         menu.destroy()
@@ -613,14 +685,15 @@ def test_explicit_keyboard_activation_with_no_active_entry_invokes_nothing(tk_ro
 def test_explicit_activation_handlers_safe_after_menu_destroyed(tk_root):
     """The menu can be torn down (e.g. window closing mid-interaction)
     before a bound handler runs. Every handler must degrade to a no-op
-    rather than raise once the underlying Tk widget is gone."""
+    rather than raise once the underlying Tk widget is gone -- and, same
+    as any other non-cascade outcome, must still consume the event."""
     menu = tk.Menu(tk_root, tearoff=0)
     menu.add_command(label="Canary", command=lambda: None)
     activation = clip_context._bind_explicit_menu_activation(menu)
     menu.destroy()
 
-    assert activation.on_button_release(SimpleNamespace(x=4, y=4)) in (None, "break")
-    assert activation.on_return(SimpleNamespace()) in (None, "break")
+    assert activation.on_button_release(SimpleNamespace(x=4, y=4)) == "break"
+    assert activation.on_return(SimpleNamespace()) == "break"
     assert activation.on_escape(SimpleNamespace()) == "break"
 
 
