@@ -533,24 +533,34 @@ class _ExplicitMenuActivation:
             return False
 
     def _event_index(self, event):
+        """Resolve the entry under an event, or None if the pointer is not
+        actually over an entry. A release outside the menu's vertical
+        bounds -- above the first entry or below the last -- must resolve
+        to None, never to whatever entry happened to be "active" (e.g.
+        from a prior keyboard hover): that stale state has nothing to do
+        with where the pointer was released. The "active" entry is only
+        ever used by on_return, where it correctly reflects keyboard
+        navigation, not here.
+        """
         try:
             y = int(event.y)
-            index = self.menu.index(f"@{y}")
-            if index is not None:
-                top = int(self.menu.yposition(index))
-                end = self.menu.index("end")
-                if end is not None and index < end:
-                    bottom = int(self.menu.yposition(index + 1))
-                else:
-                    bottom = int(self.menu.winfo_reqheight())
-                if top <= y < bottom:
-                    return index
-        except Exception:  # noqa: BLE001 - active entry is the safe fallback
-            pass
-        try:
-            return self.menu.index("active")
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no usable coordinate, nothing to activate
             return None
+        try:
+            index = self.menu.index(f"@{y}")
+            if index is None:
+                return None
+            top = int(self.menu.yposition(index))
+            end = self.menu.index("end")
+            if end is not None and index < end:
+                bottom = int(self.menu.yposition(index + 1))
+            else:
+                bottom = int(self.menu.winfo_reqheight())
+        except Exception:  # noqa: BLE001 - menu in an unusable state, nothing to activate
+            return None
+        if top <= y < bottom:
+            return index
+        return None
 
     def _activate(self, index):
         if self._activated:
@@ -585,6 +595,11 @@ class _ExplicitMenuActivation:
         return self._activate(index)
 
     def on_escape(self, _event):
+        # Permanently consume this activation object, same flag _activate's
+        # one-shot guard checks -- any ButtonRelease/Return that was already
+        # queued (or that fires before the menu finishes tearing down) must
+        # not invoke a command after the user has dismissed the popup.
+        self._activated = True
         try:
             self.menu.unpost()
         except Exception:  # noqa: BLE001
