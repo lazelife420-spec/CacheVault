@@ -320,6 +320,171 @@ def test_empty_space_right_click_does_not_clear_selection(tmp_path):
 # --- Popup-boundary regression: selection tests cannot reach tk_popup ----
 
 
+def _menu_event_for_index(menu: tk.Menu, index: int) -> SimpleNamespace:
+    end = menu.index("end")
+    assert end is not None
+    top = menu.yposition(index)
+    bottom = (
+        menu.yposition(index + 1)
+        if index < end
+        else menu.winfo_reqheight()
+    )
+    return SimpleNamespace(x=4, y=top + max(1, (bottom - top) // 2))
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_activates_y_entry_once_and_returns_break(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="First", command=lambda: invoked.append("first"))
+    menu.add_command(label="Second", command=lambda: invoked.append("second"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    event = _menu_event_for_index(menu, 1)
+    try:
+        assert activation.on_button_release(event) == "break"
+        assert activation.on_button_release(event) == "break"
+        assert invoked == ["second"]
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_uses_validated_active_entry_fallback(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    menu.activate(0)
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=-1, y=-100),
+        ) == "break"
+        assert invoked == ["command"]
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_break_stops_later_bindtag_dispatch(tk_root):
+    invoked = []
+    later_binding = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        result = activation.on_button_release(
+            _menu_event_for_index(menu, 0),
+        )
+        # Tk proceeds to later bindtags only when the widget binding does not
+        # return "break". Model that contract without posting a native menu.
+        if result != "break":
+            later_binding.append("class")
+        assert invoked == ["command"]
+        assert later_binding == []
+        assert result == "break"
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_activation_leaves_real_cascade_to_tk(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    submenu = tk.Menu(menu, tearoff=0)
+    submenu.add_command(label="Child", command=lambda: invoked.append("child"))
+    menu.add_cascade(label="More", menu=submenu)
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        assert activation.on_button_release(
+            _menu_event_for_index(menu, 0)
+        ) is None
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+@pytest.mark.parametrize("sequence", ("<Return>", "<KP_Enter>"))
+def test_explicit_keyboard_activation_invokes_active_once(tk_root, sequence):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    menu.activate(0)
+    try:
+        assert menu.bind(sequence)
+        assert activation.on_return(SimpleNamespace()) == "break"
+        assert activation.on_return(SimpleNamespace()) == "break"
+        assert invoked == ["command"]
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_escape_unposts_without_dispatch(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    with mock.patch.object(menu, "unpost", wraps=menu.unpost) as unpost:
+        assert activation.on_escape(SimpleNamespace()) == "break"
+    assert invoked == []
+    unpost.assert_called_once_with()
+    menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+@pytest.mark.parametrize("entry_type", ("disabled", "separator"))
+def test_explicit_activation_never_invokes_non_actionable_entries(
+    tk_root, entry_type,
+):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    if entry_type == "disabled":
+        menu.add_command(
+            label="Unavailable",
+            state="disabled",
+            command=lambda: invoked.append("disabled"),
+        )
+    else:
+        menu.add_separator()
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        assert activation.on_button_release(
+            _menu_event_for_index(menu, 0)
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_activation_preserves_item_menu_command_behavior(tk_root):
+    opened = []
+    previewed = []
+    window = SimpleNamespace(
+        _open_item=lambda clip_id: opened.append(clip_id),
+        _preview_item=lambda clip_id: previewed.append(clip_id),
+    )
+    clip = SimpleNamespace(id="clip-qa")
+    menu = tk.Menu(tk_root, tearoff=0)
+    clip_context._append_item_target_commands(window, menu, clip)
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        assert activation.on_button_release(
+            _menu_event_for_index(menu, 1)
+        ) == "break"
+        assert opened == []
+        assert previewed == ["clip-qa"]
+    finally:
+        menu.destroy()
+
+
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_right_click_selection_tests_never_reach_tk_popup(tmp_path):
     """Prove that the five right-click selection-routing tests stop at the

@@ -18,7 +18,7 @@ from cache_vault.core.search import SearchQuery
 from cache_vault.core.settings import Settings
 from cache_vault.core.storage import VaultStorage
 from cache_vault.core.vault import Vault
-from cache_vault.ui import sidebar_context
+from cache_vault.ui import clip_context, sidebar_context
 from cache_vault.ui.filters import FilterNav, NAV_QUICK_PASTE
 from cache_vault.ui.shell import CacheVaultApp
 from tests.tk_support import _tcl_unavailable, probe_tk_ui, wait_for_refresh
@@ -281,6 +281,85 @@ def test_sidebar_menu_invoke_selects_all_seven_visible_clips(tmp_path):
     finally:
         for menu in menus:
             menu.destroy()
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_explicit_release_selects_all_seven_visible_clips(tmp_path):
+    """Exercise the real popup binding through the full sidebar command path."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    activations = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        initially_selected = app._visible_clip_ids[0]
+        view.set_selected(initially_selected)
+        app._on_clip_selection_change([initially_selected])
+        assert app._selected_clip_ids == [initially_selected]
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+        real_bind = clip_context._bind_explicit_menu_activation
+
+        def capture_activation(menu):
+            activation = real_bind(menu)
+            activations.append(activation)
+            return activation
+
+        def release_select_all(menu, _x_root, _y_root):
+            assert len(activations) == 1
+            index = next(
+                i
+                for i in range(menu.index("end") + 1)
+                if menu.type(i) == "command"
+                and menu.entrycget(i, "label") == "Select all visible (7)"
+            )
+            end = menu.index("end")
+            top = menu.yposition(index)
+            bottom = (
+                menu.yposition(index + 1)
+                if index < end
+                else menu.winfo_reqheight()
+            )
+            result = activations[0].on_button_release(
+                SimpleNamespace(y=top + max(1, (bottom - top) // 2)),
+            )
+            assert result == "break"
+
+        with mock.patch.object(
+            clip_context,
+            "_bind_explicit_menu_activation",
+            side_effect=capture_activation,
+        ), mock.patch.object(
+            tk.Menu,
+            "tk_popup",
+            autospec=True,
+            side_effect=release_select_all,
+        ), mock.patch.object(
+            app, "_sidebar_empty_collection",
+        ) as empty_collection, mock.patch.object(
+            app, "_sidebar_permanently_delete_selected",
+        ) as delete_selected, mock.patch.object(
+            app, "_sidebar_permanently_delete_all",
+        ) as delete_all:
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert set(app._selected_clip_ids) == set(app._visible_clip_ids)
+        assert len(app._selected_clip_ids) == 7
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.count_clips(None) == 7
+        empty_collection.assert_not_called()
+        delete_selected.assert_not_called()
+        delete_all.assert_not_called()
+    finally:
         app.destroy()
 
 

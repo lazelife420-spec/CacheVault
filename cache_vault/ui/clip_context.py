@@ -508,8 +508,99 @@ def destroy_menu(menu) -> None:
         pass
 
 
+class _ExplicitMenuActivation:
+    """One-shot command activation independent of Tk's Menu class binding."""
+
+    def __init__(self, menu):
+        self.menu = menu
+        self._activated = False
+
+    def bind(self) -> None:
+        self.menu.bind("<ButtonRelease-1>", self.on_button_release)
+        self.menu.bind("<Return>", self.on_return)
+        self.menu.bind("<KP_Enter>", self.on_return)
+        self.menu.bind("<Escape>", self.on_escape)
+
+    def _actionable(self, index) -> bool:
+        try:
+            return (
+                index is not None
+                and self.menu.type(index) == "command"
+                and self.menu.entrycget(index, "state") != "disabled"
+                and bool(self.menu.entrycget(index, "command"))
+            )
+        except Exception:  # noqa: BLE001 - a closing menu is not actionable
+            return False
+
+    def _event_index(self, event):
+        try:
+            y = int(event.y)
+            index = self.menu.index(f"@{y}")
+            if index is not None:
+                top = int(self.menu.yposition(index))
+                end = self.menu.index("end")
+                if end is not None and index < end:
+                    bottom = int(self.menu.yposition(index + 1))
+                else:
+                    bottom = int(self.menu.winfo_reqheight())
+                if top <= y < bottom:
+                    return index
+        except Exception:  # noqa: BLE001 - active entry is the safe fallback
+            pass
+        try:
+            return self.menu.index("active")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _activate(self, index):
+        if self._activated:
+            return "break"
+        try:
+            entry_type = self.menu.type(index) if index is not None else None
+        except Exception:  # noqa: BLE001
+            entry_type = None
+        if entry_type == "cascade":
+            return None
+        if not self._actionable(index):
+            return "break" if entry_type in {"separator", "command"} else None
+
+        self._activated = True
+        try:
+            self.menu.invoke(index)
+        finally:
+            try:
+                self.menu.unpost()
+            except Exception:  # noqa: BLE001
+                pass
+        return "break"
+
+    def on_button_release(self, event):
+        return self._activate(self._event_index(event))
+
+    def on_return(self, _event):
+        try:
+            index = self.menu.index("active")
+        except Exception:  # noqa: BLE001
+            index = None
+        return self._activate(index)
+
+    def on_escape(self, _event):
+        try:
+            self.menu.unpost()
+        except Exception:  # noqa: BLE001
+            pass
+        return "break"
+
+
+def _bind_explicit_menu_activation(menu) -> _ExplicitMenuActivation:
+    activation = _ExplicitMenuActivation(menu)
+    activation.bind()
+    return activation
+
+
 def popup_menu(window, menu, x_root: int, y_root: int) -> None:
     tooltip.before_menu_open()
+    _bind_explicit_menu_activation(menu)
     try:
         menu.tk_popup(x_root, y_root)
     finally:
