@@ -534,19 +534,31 @@ class _ExplicitMenuActivation:
 
     def _event_index(self, event):
         """Resolve the entry under an event, or None if the pointer is not
-        actually over an entry. A release outside the menu's vertical
-        bounds -- above the first entry or below the last -- must resolve
-        to None, never to whatever entry happened to be "active" (e.g.
-        from a prior keyboard hover): that stale state has nothing to do
-        with where the pointer was released. The "active" entry is only
-        ever used by on_return, where it correctly reflects keyboard
-        navigation, not here.
+        actually inside the posted menu's rectangle. A release outside the
+        menu -- above the first entry, below the last, or off either
+        horizontal edge -- must resolve to None, never to whatever entry
+        happened to be "active" (e.g. from a prior keyboard hover): that
+        stale state has nothing to do with where the pointer was released.
+        The "active" entry is only ever used by on_return, where it
+        correctly reflects keyboard navigation, not here.
+
+        Bounds are read via winfo_reqwidth/winfo_reqheight rather than
+        winfo_width/winfo_height: a tk.Menu is posted at its natural
+        requested size (nothing resizes it the way a geometry manager can
+        resize a frame), so the two are equivalent for this widget, and
+        reqwidth/reqheight -- unlike width/height -- are populated as soon
+        as the menu has entries, without requiring it to be mapped on
+        screen first.
         """
         try:
+            x = int(event.x)
             y = int(event.y)
-        except Exception:  # noqa: BLE001 - no usable coordinate, nothing to activate
+        except Exception:  # noqa: BLE001 - no usable coordinates, nothing to activate
             return None
         try:
+            width = int(self.menu.winfo_reqwidth())
+            if not (0 <= x < width):
+                return None
             index = self.menu.index(f"@{y}")
             if index is None:
                 return None

@@ -330,7 +330,10 @@ def test_sidebar_explicit_release_selects_all_seven_visible_clips(tmp_path):
                 else menu.winfo_reqheight()
             )
             result = activations[0].on_button_release(
-                SimpleNamespace(y=top + max(1, (bottom - top) // 2)),
+                SimpleNamespace(
+                    x=max(0, min(3, int(menu.winfo_reqwidth()) - 1)),
+                    y=top + max(1, (bottom - top) // 2),
+                ),
             )
             assert result == "break"
 
