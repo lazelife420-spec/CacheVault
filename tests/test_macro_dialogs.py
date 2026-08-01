@@ -166,16 +166,21 @@ def test_macro_edit_real_keypress_dispatch_captures_combo(tk_root):
     dlg.destroy()
 
 
-def test_create_macro_from_clip_dialog_prepopulates(tk_root, monkeypatch):
+def test_create_macro_from_clip_dialog_prepopulates(tk_root, tmp_path, monkeypatch):
     from cache_vault.ui.shell import CacheVaultApp
     from cache_vault.core.vault import Vault
+    from cache_vault.core.storage import VaultStorage, default_db_path
     from cache_vault.core.models import Clip
     from cache_vault.core import models
     from cache_vault.core.settings import Settings
 
     settings = Settings()
     settings.founder_license_key = "founder-license-active"
-    vault = Vault(settings=settings)
+    vault = Vault(storage=VaultStorage(tmp_path / "vault.db"), settings=settings)
+    # Regression guard: this test writes a clip with real-looking fixture
+    # content, so it must never fall through to the real user profile.
+    assert vault.storage.db_path == tmp_path / "vault.db"
+    assert vault.storage.db_path != default_db_path()
     clip = Clip(
         id=models.new_id(),
         content="This is macro content",
