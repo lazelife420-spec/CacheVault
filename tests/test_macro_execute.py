@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -43,6 +44,12 @@ def exec_env(tmp_path, monkeypatch):
     settings.macro_sensitive_confirmation = True
     store = MacroStore(tmp_path / "CacheVault" / "macros.json")
     registry = MacroSafeRegistry(settings)
+    # Keep `vault` referenced for the fixture's full lifetime: Vault.__del__
+    # closes its storage connection, and prior to this fix nothing kept the
+    # Vault itself alive once this function returned (only `events`, which
+    # holds a reference to `vault.storage` but not to `vault`) -- CPython's
+    # refcounting GC collected `vault` immediately, closing the in-memory
+    # connection `events` still depended on for the rest of the test.
     vault = Vault(storage=VaultStorage(":memory:"), settings=settings)
     events = vault.events
     notices: list[str] = []
@@ -54,7 +61,42 @@ def exec_env(tmp_path, monkeypatch):
         on_notice=notices.append,
         confirm_sensitive=lambda _label: True,
     )
-    return settings, store, registry, events, executor, notices
+    try:
+        yield settings, store, registry, events, executor, notices
+    finally:
+        vault.close()
+
+
+def test_exec_env_events_survive_fixture_setup(exec_env):
+    """Regression for the fixture-lifetime defect: before this fix, nothing
+    kept `vault` referenced past exec_env's setup returning, so CPython's
+    refcounting GC collected it immediately, Vault.__del__ closed the
+    in-memory connection `events` still depended on, and any write here
+    raised sqlite3.ProgrammingError: Cannot operate on a closed database."""
+    _settings, _store, _registry, events, _executor, _notices = exec_env
+    event_id = events.record("regression_probe", details={"probe": True})
+    recent = events.recent(limit=10)
+    assert any(row["id"] == event_id for row in recent)
+
+
+def test_exec_env_never_touches_real_profile(exec_env):
+    from cache_vault.core.storage import default_db_path
+
+    _settings, _store, _registry, events, _executor, _notices = exec_env
+    assert str(events._storage.db_path) == ":memory:"
+    assert events._storage.db_path != default_db_path()
+
+
+def test_vault_close_and_del_are_idempotent():
+    vault = Vault(storage=VaultStorage(":memory:"), settings=Settings())
+    storage = vault.storage
+
+    vault.close()
+    vault.close()
+    vault.__del__()
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        storage.conn.execute("SELECT 1")
 
 
 def _macro(**kwargs) -> Macro:
