@@ -320,6 +320,610 @@ def test_empty_space_right_click_does_not_clear_selection(tmp_path):
 # --- Popup-boundary regression: selection tests cannot reach tk_popup ----
 
 
+def _wait_for_deferred_destroy(tk_root, destroy_mock, timeout: float = 2.0) -> None:
+    """popup_menu schedules destroy_menu via menu.after(150, ...) -- real
+    wall-clock time, not the next idle tick -- so pump the loop until it
+    has actually fired rather than a single tk_root.update()."""
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        tk_root.update()
+        if destroy_mock.call_count:
+            return
+        time.sleep(0.01)
+    raise AssertionError("deferred destroy_menu did not run within timeout")
+
+
+def _menu_event_for_index(menu: tk.Menu, index: int) -> SimpleNamespace:
+    end = menu.index("end")
+    assert end is not None
+    top = menu.yposition(index)
+    bottom = (
+        menu.yposition(index + 1)
+        if index < end
+        else menu.winfo_reqheight()
+    )
+    # x must land inside the menu's actual (possibly very narrow, e.g. a
+    # separator-only test menu) requested width -- a fixed x=4 would fall
+    # outside it and be misread as an outside-pointer release.
+    x = max(0, min(3, int(menu.winfo_reqwidth()) - 1))
+    return SimpleNamespace(x=x, y=top + max(1, (bottom - top) // 2))
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_activates_y_entry_once_and_returns_break(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="First", command=lambda: invoked.append("first"))
+    menu.add_command(label="Second", command=lambda: invoked.append("second"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    event = _menu_event_for_index(menu, 1)
+    try:
+        assert activation.on_button_release(event) == "break"
+        assert activation.on_button_release(event) == "break"
+        assert invoked == ["second"]
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_outside_menu_never_activates_stale_active_entry(tk_root):
+    """A release outside the menu's bounds must never fall back to
+    whatever entry is "active" -- that state can be stale (e.g. left over
+    from keyboard hover) and has nothing to do with where the pointer was
+    actually released. This is the outside-pointer safety invariant.
+
+    The release must also be fully consumed ("break"), not just resolved
+    to no entry: returning anything else would leave Tk's own Menu class
+    binding free to keep processing the same event and invoke whatever
+    IT considers active, via hover state this handler never inspects."""
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    menu.activate(0)
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=-1, y=-100),
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_below_last_entry_never_activates_stale_active_entry(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    menu.activate(0)
+    try:
+        far_below = int(menu.winfo_reqheight()) + 500
+        assert activation.on_button_release(
+            SimpleNamespace(x=4, y=far_below),
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_negative_x_never_activates(tk_root):
+    """x is off the left edge even though y lands squarely in a real
+    entry's band -- the pointer is still outside the menu rectangle."""
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    in_band_y = _menu_event_for_index(menu, 0).y
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=-1, y=in_band_y),
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_negative_y_never_activates(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    in_band_x = _menu_event_for_index(menu, 0).x
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=in_band_x, y=-1),
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_x_at_or_beyond_menu_width_never_activates(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    in_band_y = _menu_event_for_index(menu, 0).y
+    width = int(menu.winfo_reqwidth())
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=width, y=in_band_y),
+        ) == "break"
+        assert activation.on_button_release(
+            SimpleNamespace(x=width + 500, y=in_band_y),
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_y_at_or_beyond_menu_height_never_activates(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    in_band_x = _menu_event_for_index(menu, 0).x
+    height = int(menu.winfo_reqheight())
+    try:
+        assert activation.on_button_release(
+            SimpleNamespace(x=in_band_x, y=height),
+        ) == "break"
+        assert activation.on_button_release(
+            SimpleNamespace(x=in_band_x, y=height + 500),
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_outside_menu_break_stops_later_bindtag_dispatch(tk_root):
+    """Same class-binding-continuation model as
+    test_explicit_release_break_stops_later_bindtag_dispatch, applied to
+    an outside-pointer release rather than a valid one: the stale entry
+    that would be invoked if Tk's own class binding kept running must
+    stay untouched precisely because this handler returns "break"."""
+    invoked = []
+    later_binding = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    menu.activate(0)  # a stale "active" entry a class binding could invoke
+    try:
+        result = activation.on_button_release(
+            SimpleNamespace(x=-1, y=-100),
+        )
+        if result != "break":
+            later_binding.append("class")
+        assert invoked == []
+        assert later_binding == []
+        assert result == "break"
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_release_break_stops_later_bindtag_dispatch(tk_root):
+    invoked = []
+    later_binding = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        result = activation.on_button_release(
+            _menu_event_for_index(menu, 0),
+        )
+        # Tk proceeds to later bindtags only when the widget binding does not
+        # return "break". Model that contract without posting a native menu.
+        if result != "break":
+            later_binding.append("class")
+        assert invoked == ["command"]
+        assert later_binding == []
+        assert result == "break"
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_activation_leaves_real_cascade_to_tk(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    submenu = tk.Menu(menu, tearoff=0)
+    submenu.add_command(label="Child", command=lambda: invoked.append("child"))
+    menu.add_cascade(label="More", menu=submenu)
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        assert activation.on_button_release(
+            _menu_event_for_index(menu, 0)
+        ) is None
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+@pytest.mark.parametrize("sequence", ("<Return>", "<KP_Enter>"))
+def test_explicit_keyboard_activation_invokes_active_once(tk_root, sequence):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    menu.activate(0)
+    try:
+        assert menu.bind(sequence)
+        assert activation.on_return(SimpleNamespace()) == "break"
+        assert activation.on_return(SimpleNamespace()) == "break"
+        assert invoked == ["command"]
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_escape_unposts_without_dispatch(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    with mock.patch.object(menu, "unpost", wraps=menu.unpost) as unpost:
+        assert activation.on_escape(SimpleNamespace()) == "break"
+    assert invoked == []
+    unpost.assert_called_once_with()
+    menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_escape_permanently_dismisses_activation_object(tk_root):
+    """Escape must set the same one-shot flag command activation uses, so
+    this activation object is dead from then on -- not just "menu is
+    unposted for now". A ButtonRelease/Return that was already queued (or
+    that fires while the popup is still tearing down) must not invoke a
+    command after the user has hit Escape."""
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: None)
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    try:
+        assert activation._activated is False
+        assert activation.on_escape(SimpleNamespace()) == "break"
+        assert activation._activated is True
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_escape_then_queued_release_does_not_invoke(tk_root):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    event = _menu_event_for_index(menu, 0)
+    try:
+        assert activation.on_escape(SimpleNamespace()) == "break"
+        # A release for the entry that was under the pointer when Escape
+        # landed -- e.g. a ButtonRelease already queued by the OS -- must
+        # be swallowed, not dispatched.
+        assert activation.on_button_release(event) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+@pytest.mark.parametrize("sequence", ("<Return>", "<KP_Enter>"))
+def test_explicit_escape_then_queued_return_does_not_invoke(tk_root, sequence):
+    # <Return> and <KP_Enter> both dispatch through on_return (see bind());
+    # parametrized so both bound sequences are exercised, not just the code
+    # path they share.
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    menu.activate(0)
+    try:
+        assert menu.bind(sequence)
+        assert activation.on_escape(SimpleNamespace()) == "break"
+        assert activation.on_return(SimpleNamespace()) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_new_popup_after_prior_dismissal_invokes_normally(tk_root):
+    """One activation object being consumed (by Escape or a successful
+    invoke) must not leak into the next popup -- each open_*_menu call
+    binds a fresh, independent _ExplicitMenuActivation via popup_menu."""
+    first_invoked = []
+    second_invoked = []
+
+    first_menu = tk.Menu(tk_root, tearoff=0)
+    first_menu.add_command(label="Canary", command=lambda: first_invoked.append("first"))
+    first_activation = clip_context._bind_explicit_menu_activation(first_menu)
+
+    second_menu = tk.Menu(tk_root, tearoff=0)
+    second_menu.add_command(label="Canary", command=lambda: second_invoked.append("second"))
+    second_activation = clip_context._bind_explicit_menu_activation(second_menu)
+    tk_root.update_idletasks()
+
+    try:
+        assert first_activation.on_escape(SimpleNamespace()) == "break"
+        assert first_activation.on_button_release(
+            _menu_event_for_index(first_menu, 0)
+        ) == "break"
+        assert first_invoked == []
+
+        assert second_activation.on_button_release(
+            _menu_event_for_index(second_menu, 0)
+        ) == "break"
+        assert second_invoked == ["second"]
+    finally:
+        first_menu.destroy()
+        second_menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_keyboard_activation_with_no_active_entry_invokes_nothing(tk_root):
+    """No item has been keyboard-activated yet (menu.index("active") is
+    None) -- Return must not invoke anything, must not raise, and must
+    consume the event ("break") rather than leaving it for Tk's own Menu
+    class binding to interpret via its own idea of "active"."""
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: invoked.append("command"))
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    try:
+        assert menu.index("active") is None
+        assert activation.on_return(SimpleNamespace()) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_activation_handlers_safe_after_menu_destroyed(tk_root):
+    """The menu can be torn down (e.g. window closing mid-interaction)
+    before a bound handler runs. Every handler must degrade to a no-op
+    rather than raise once the underlying Tk widget is gone -- and, same
+    as any other non-cascade outcome, must still consume the event."""
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: None)
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    menu.destroy()
+
+    assert activation.on_button_release(SimpleNamespace(x=4, y=4)) == "break"
+    assert activation.on_return(SimpleNamespace()) == "break"
+    assert activation.on_escape(SimpleNamespace()) == "break"
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_popup_menu_defers_destroy_past_tk_popup_return(tk_root):
+    """destroy_menu must run via a deferred menu.after(...) call, not
+    synchronously inside popup_menu's finally block. On Windows, a real
+    native popup delivers the selected entry's command callback as a
+    queued Tcl event processed after tk_popup returns -- not
+    synchronously as part of tk_popup itself. An immediate destroy was
+    directly reproduced (three standalone repro scripts, escalating
+    fidelity to popup_menu's own code shape) to race ahead of that
+    queued dispatch and discard it before it ran, silently breaking
+    every context-menu command while leaving the popup itself appearing
+    to close normally. after_idle (next-tick) measurably improved but
+    did not fix this against the real app's constant background timer
+    activity; an explicit ~150ms delay did -- see popup_menu's own
+    comment for the live-testing numbers behind that choice."""
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: None)
+    window = SimpleNamespace()
+
+    with mock.patch.object(menu, "tk_popup"), \
+         mock.patch.object(clip_context, "destroy_menu", wraps=clip_context.destroy_menu) as destroy_menu:
+        clip_context.popup_menu(window, menu, 0, 0)
+        assert destroy_menu.call_count == 0, (
+            "destroy_menu ran synchronously -- this is the exact regression "
+            "that discards an asynchronously-delivered native command callback"
+        )
+        _wait_for_deferred_destroy(tk_root, destroy_menu)
+        destroy_menu.assert_called_once_with(menu)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_popup_menu_binds_activation_and_cleans_up_on_popup_failure(tk_root):
+    """popup_menu must bind explicit activation before posting, and its
+    grab-release/tooltip/destroy cleanup must still run even if tk_popup
+    itself raises -- a failed popup must never leak the grab or leave a
+    stray menu widget around."""
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=lambda: None)
+    window = SimpleNamespace()
+    bound_before_popup = []
+
+    def _fail_popup(*_args, **_kwargs):
+        # Checked here, before cleanup destroys the menu: activation must
+        # already be bound by the time tk_popup is reached.
+        bound_before_popup.append(bool(menu.bind("<ButtonRelease-1>")))
+        raise RuntimeError("boom")
+
+    with mock.patch.object(menu, "tk_popup", side_effect=_fail_popup) as tk_popup, \
+         mock.patch.object(menu, "grab_release", wraps=menu.grab_release) as grab_release, \
+         mock.patch.object(clip_context, "destroy_menu", wraps=clip_context.destroy_menu) as destroy_menu:
+        with pytest.raises(RuntimeError):
+            clip_context.popup_menu(window, menu, 0, 0)
+        # destroy_menu is scheduled via a deferred menu.after(...) call, not
+        # called synchronously -- wait it out (while the mock is still
+        # active) to let it run.
+        _wait_for_deferred_destroy(tk_root, destroy_menu)
+
+    assert bound_before_popup == [True]
+    tk_popup.assert_called_once_with(0, 0)
+    grab_release.assert_called_once_with()
+    destroy_menu.assert_called_once_with(menu)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_activation_survives_raising_command_and_stays_consumed(tk_root):
+    """menu.invoke() runs the bound command through Tkinter's own Tcl
+    command dispatcher (tkinter.CallWrapper), which already catches an
+    exception raised inside the callback and reports it via
+    report_callback_exception rather than propagating it -- verified
+    directly against this Tk build, not assumed. _activate's finally still
+    runs either way, but the one-shot lock is set *before* invoke() is
+    called, so even if that swallowing behavior ever changed, a second
+    attempt must still find the activation consumed and not re-invoke."""
+    calls = []
+
+    def _raises():
+        calls.append("attempted")
+        raise ValueError("boom")
+
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=_raises)
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    event = _menu_event_for_index(menu, 0)
+    original_report = tk_root.report_callback_exception
+    reported = []
+    tk_root.report_callback_exception = lambda *a: reported.append(a)
+    try:
+        assert activation.on_button_release(event) == "break"
+        assert calls == ["attempted"]
+        assert activation._activated is True
+        assert len(reported) == 1
+
+        # A second release for the same (now-consumed) activation object
+        # must not retry the raising command.
+        assert activation.on_button_release(event) == "break"
+        assert activation.on_return(SimpleNamespace()) == "break"
+        assert calls == ["attempted"]
+    finally:
+        tk_root.report_callback_exception = original_report
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_popup_menu_cleanup_runs_when_bound_command_raises(tk_root):
+    """Drives the real _ExplicitMenuActivation instance that popup_menu
+    binds -- captured via the actual _bind_explicit_menu_activation call,
+    not a stand-in -- through a ButtonRelease on an entry whose command
+    raises, at the point in tk_popup's side effect where Tk would deliver
+    that release while the menu is genuinely up. (A synthetic
+    event_generate can't stand in here: Tk only dispatches bound events to
+    a mapped window, and this menu is never mapped -- see
+    test_right_click_selection_tests_never_reach_tk_popup's module-level
+    rationale for why tk_popup itself is never actually invoked in this
+    suite.) grab_release/tooltip.after_menu_close/destroy_menu must all
+    still run, and popup_menu itself must not propagate the callback's
+    exception (Tk's own dispatcher already contained it; popup_menu adds
+    no additional swallowing/conversion on top of that)."""
+    calls = []
+
+    def _raises():
+        calls.append("attempted")
+        raise RuntimeError("boom")
+
+    menu = tk.Menu(tk_root, tearoff=0)
+    menu.add_command(label="Canary", command=_raises)
+    window = SimpleNamespace()
+    captured_activation = []
+    real_bind = clip_context._bind_explicit_menu_activation
+    original_report = tk_root.report_callback_exception
+    tk_root.report_callback_exception = lambda *a: None  # keep test output clean
+
+    def _capture_bind(bound_menu):
+        activation = real_bind(bound_menu)
+        captured_activation.append(activation)
+        return activation
+
+    def _simulate_popup(*_args, **_kwargs):
+        tk_root.update_idletasks()
+        activation = captured_activation[0]
+        result = activation.on_button_release(_menu_event_for_index(menu, 0))
+        assert result == "break"
+
+    try:
+        with mock.patch.object(clip_context, "_bind_explicit_menu_activation", side_effect=_capture_bind), \
+             mock.patch.object(menu, "tk_popup", side_effect=_simulate_popup), \
+             mock.patch.object(menu, "grab_release", wraps=menu.grab_release) as grab_release, \
+             mock.patch.object(clip_context.tooltip, "after_menu_close") as after_menu_close, \
+             mock.patch.object(clip_context, "destroy_menu", wraps=clip_context.destroy_menu) as destroy_menu:
+            clip_context.popup_menu(window, menu, 0, 0)  # must not raise
+            # destroy_menu is scheduled via a deferred menu.after(...) call,
+            # not called synchronously -- wait it out while the mock is
+            # still active.
+            _wait_for_deferred_destroy(tk_root, destroy_menu)
+
+        assert calls == ["attempted"]
+        assert captured_activation[0]._activated is True
+        grab_release.assert_called_once_with()
+        after_menu_close.assert_called_once_with()
+        destroy_menu.assert_called_once_with(menu)
+    finally:
+        tk_root.report_callback_exception = original_report
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+@pytest.mark.parametrize("entry_type", ("disabled", "separator"))
+def test_explicit_activation_never_invokes_non_actionable_entries(
+    tk_root, entry_type,
+):
+    invoked = []
+    menu = tk.Menu(tk_root, tearoff=0)
+    if entry_type == "disabled":
+        menu.add_command(
+            label="Unavailable",
+            state="disabled",
+            command=lambda: invoked.append("disabled"),
+        )
+    else:
+        menu.add_separator()
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        assert activation.on_button_release(
+            _menu_event_for_index(menu, 0)
+        ) == "break"
+        assert invoked == []
+    finally:
+        menu.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_explicit_activation_preserves_item_menu_command_behavior(tk_root):
+    opened = []
+    previewed = []
+    window = SimpleNamespace(
+        _open_item=lambda clip_id: opened.append(clip_id),
+        _preview_item=lambda clip_id: previewed.append(clip_id),
+    )
+    clip = SimpleNamespace(id="clip-qa")
+    menu = tk.Menu(tk_root, tearoff=0)
+    clip_context._append_item_target_commands(window, menu, clip)
+    activation = clip_context._bind_explicit_menu_activation(menu)
+    tk_root.update_idletasks()
+    try:
+        assert activation.on_button_release(
+            _menu_event_for_index(menu, 1)
+        ) == "break"
+        assert opened == []
+        assert previewed == ["clip-qa"]
+    finally:
+        menu.destroy()
+
+
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_right_click_selection_tests_never_reach_tk_popup(tmp_path):
     """Prove that the five right-click selection-routing tests stop at the
@@ -700,6 +1304,38 @@ def test_no_new_permanent_delete_dispatch_key_exists():
     source = inspect.getsource(shell_module.CacheVaultApp._dispatch_selection_command)
     assert "permanently_remove" not in source
     assert "hard_delete" not in source
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_item_menu_disabled_reason_rendering_remains_single_owned(tk_root):
+    """The shared item-menu contract remains label + structured reason."""
+    from cache_vault.core.menu_context import MenuInvocationContext, VIEW_ACTIVE
+
+    ctx = MenuInvocationContext(
+        clicked_clip_id="c1",
+        nav_key=S.FILTER_ALL,
+        view_kind=VIEW_ACTIVE,
+        was_selected_before_click=False,
+        selection_mode="none",
+        visible_selected_ids=(),
+        matching_signature=None,
+        matching_count=None,
+    )
+    window = SimpleNamespace(_dispatch_selection_command=lambda *_args: None)
+    menu = tk.Menu(tk_root, tearoff=0)
+    clip_context._append_selection_menu_section(window, menu, ctx)
+    labels = [
+        menu.entrycget(index, "label")
+        for index in range(menu.index("end") + 1)
+        if menu.type(index) != "separator"
+    ]
+
+    assert "Copy Selected (nothing selected)" in labels
+    assert "Copy Selected (nothing selected) (nothing selected)" not in labels
+    assert labels.count("Copy Selected (nothing selected)") == 1
+    assert "Select All Visible" in labels
+    assert all(not label.startswith("Select All Visible (") for label in labels)
+    menu.destroy()
 
 
 # --- Preview/Properties: one honest command, not two labels for one action --
