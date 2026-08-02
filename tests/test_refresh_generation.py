@@ -38,7 +38,37 @@ def _app_stub(*, alive: bool = True, generation: int = 0):
     # flags the non-blocking header indicator; stub it out since these are
     # bare object.__new__ stubs with no real Tk widgets.
     app._page_header = SimpleNamespace(set_refreshing=lambda *a, **k: None)
+    # Refresh-coalescing state that real CacheVaultApp.__init__ always sets
+    # unconditionally (see shell.py __init__, alongside
+    # _refresh_workers_in_flight) before any refresh()/_apply_refresh_*
+    # call is reachable. This stub bypasses __init__ via object.__new__, so
+    # without these, _apply_refresh_snapshot's `self._view_mode` read (and
+    # _finish_active_refresh's `self._render_active`/
+    # `self._pending_refresh_signature` reads) fall through to
+    # tkinter.Misc.__getattr__ -> self.tk -> RecursionError, since self.tk
+    # is also never set on this bare stub. Defaults mirror __init__ exactly.
+    app._render_active = False
+    app._pending_refresh_signature = None
+    app._view_mode = "cards"
     return app
+
+
+def test_stub_models_complete_refresh_coalescing_state():
+    """Guards against this stub silently drifting out of sync with
+    CacheVaultApp.__init__ again. object.__new__(CacheVaultApp) bypasses
+    __init__ entirely, so every attribute _apply_refresh_snapshot or
+    _finish_active_refresh touches on self (besides the ones already
+    covered by other stubbed fields) must be explicitly set here with the
+    same default __init__ gives a real instance -- otherwise access falls
+    through to tkinter.Misc.__getattr__ and recurses into self.tk, which
+    is also absent on a bare stub, producing a RecursionError instead of a
+    clean AttributeError.
+    """
+    app = _app_stub()
+
+    assert app._render_active is False
+    assert app._pending_refresh_signature is None
+    assert app._view_mode == "cards"
 
 
 def test_stale_snapshot_is_discarded_without_touching_vault():
