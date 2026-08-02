@@ -272,6 +272,17 @@ class CacheVaultApp(ctk.CTk):
         # settled; production code uses it only via _alive()-guarded apply
         # callbacks, never read directly for control flow.
         self._refresh_workers_in_flight = 0
+        # True from the moment a refresh actually commits to doing work
+        # (worker query queued) until its result has fully finished
+        # rendering -- including, for the general-clips case, the last
+        # after(10, ...) batch of a chunked list/grid render. While True,
+        # refresh() does not cancel and restart the active render; see
+        # refresh()/_finish_active_refresh().
+        self._render_active = False
+        # Latest requested state recorded while a refresh is active, or
+        # None. Applied (as exactly one trailing refresh) only if it turns
+        # out to differ from what the active render actually showed.
+        self._pending_refresh_signature = None
         # A single persistent worker thread processes refresh-snapshot
         # requests one at a time, in arrival order -- not a new OS thread
         # per refresh() call. Under a test suite building hundreds of app
@@ -2340,8 +2351,26 @@ class CacheVaultApp(ctk.CTk):
         self.refresh()
 
     def refresh(self) -> None:
-        """Debounced refresh — collapses rapid-fire calls into one actual render."""
+        """Debounced refresh — collapses rapid-fire calls into one actual render.
+
+        While a refresh is actively rendering (worker query in flight, or
+        its resulting widget batch still being built across after(10, ...)
+        ticks), a new call does not cancel and restart it. Cancelling here
+        used to discard already-built rows and force a second full DB
+        query + widget rebuild for what was often the exact same visible
+        content -- observed directly: window-resize/layout-mode refresh()
+        calls landing while a 120-row capped history was still rendering
+        produced 149 row builds for a list that only ever holds 120.
+        Instead the latest requested state is recorded as one pending
+        trailing request; when the active render finishes
+        (_finish_active_refresh), exactly one more refresh runs, and only
+        if that pending state is materially different from what was just
+        rendered.
+        """
         if not self._alive():
+            return
+        if self._render_active:
+            self._pending_refresh_signature = self._current_refresh_signature()
             return
         if hasattr(self, "_refresh_job") and self._refresh_job:
             self.after_cancel(self._refresh_job)
@@ -2391,9 +2420,7 @@ class CacheVaultApp(ctk.CTk):
             self._lock_screen.lift()
             return
 
-        active = self._filters.active
-        general_clips = active not in NAV_SCREEN_KEYS and active != FILTER_HOME
-        query = self._build_query() if general_clips else None
+        active, query, _view_mode = self._current_refresh_signature()
         # Single choke point for matching-selection invalidation: every
         # context change that matters (search text, type/date filter,
         # sort, collection, nav tab, active-vs-Recently-Removed state)
@@ -2404,8 +2431,43 @@ class CacheVaultApp(ctk.CTk):
         if self._selection_scope.invalidate_if_stale(active, query):
             self._set_selection_notice(None)
         gen = self._refresh_generation
+        self._render_active = True
         self._refresh_workers_in_flight += 1
         self._refresh_request_queue.put((gen, active, query))
+
+    def _current_refresh_signature(self):
+        """Minimal state that determines rendered clip content and which
+        widget renders it: active page/filter, the built search query
+        (search text, type/date filters, sort, collection, matching-vs-
+        visible mode -- everything _build_query() folds in), and grid-vs-
+        list view mode.
+
+        Layout mode (compact/standard/wide) is deliberately excluded: it
+        only changes toolbar/column chrome, never which clips are queried
+        or how a row's own content is built, so a layout-only refresh()
+        call must not be treated as materially different from what is
+        already on screen.
+        """
+        active = self._filters.active
+        general_clips = active not in NAV_SCREEN_KEYS and active != FILTER_HOME
+        query = self._build_query() if general_clips else None
+        return (active, query, self._view_mode)
+
+    def _finish_active_refresh(self, rendered_signature=None) -> None:
+        """Called once the active refresh has fully finished -- either a
+        synchronous render (home/nav-screen) or the last batch of a
+        chunked clip-list/grid render. Runs at most one trailing refresh,
+        and only if a request arrived during the active render whose state
+        genuinely differs from what was just shown.
+        """
+        self._render_active = False
+        pending = self._pending_refresh_signature
+        self._pending_refresh_signature = None
+        if pending is None:
+            return
+        if rendered_signature is not None and pending == rendered_signature:
+            return
+        self.refresh()
 
     def _refresh_worker_loop(self) -> None:
         """The one persistent background thread for this app instance.
@@ -2479,6 +2541,9 @@ class CacheVaultApp(ctk.CTk):
         # destroys it), just flag it as stale rather than pretending it's
         # current.
         self._page_header.set_refreshing(False, error=True)
+        # Nothing was actually rendered, so any pending request always
+        # runs (no signature to compare against).
+        self._finish_active_refresh()
 
     def _apply_refresh_snapshot(
         self, gen: int, active: str, query, counts: dict, clips, total_clips,
@@ -2493,6 +2558,7 @@ class CacheVaultApp(ctk.CTk):
         self._refresh_workers_in_flight = max(0, self._refresh_workers_in_flight - 1)
         if gen != self._refresh_generation or not self._alive():
             return
+        rendered_signature = (active, query, self._view_mode)
         try:
             from ..core import storage as S
 
@@ -2512,6 +2578,7 @@ class CacheVaultApp(ctk.CTk):
             if active in NAV_SCREEN_KEYS:
                 self._show_vault_screen(active)
                 clip_count = summary.get("all", 0)
+                self._finish_active_refresh(rendered_signature)
             elif active == FILTER_HOME:
                 self._show_home()
                 capture_active = not summary.get("capture_paused")
@@ -2556,6 +2623,7 @@ class CacheVaultApp(ctk.CTk):
                         self._vault_panel_callbacks(),
                     )
                 clip_count = summary.get("all", 0)
+                self._finish_active_refresh(rendered_signature)
             else:
                 self._show_clips()
                 # clips/total_clips were already fetched (paginated, in SQL)
@@ -2588,7 +2656,9 @@ class CacheVaultApp(ctk.CTk):
                     # on_selection_change callback, which already updates
                     # _selected_clip_ids/the bulk action strip/the preview
                     # -- nothing further to do here.
-                    on_complete = lambda v=view: self._paint_matching_selection_visuals(v)  # noqa: E731
+                    def on_complete(v=view, sig=rendered_signature):  # noqa: E731
+                        self._paint_matching_selection_visuals(v)
+                        self._finish_active_refresh(sig)
                     if self._view_mode == "grid":
                         self._grid.render_batched(
                             clips, empty_message=empty_msg, more_count=more_count,
@@ -2608,10 +2678,13 @@ class CacheVaultApp(ctk.CTk):
                     ]
                     if self._selected_clip_id not in self._visible_clip_ids:
                         self._selected_clip_id = self._visible_clip_ids[0] if self._visible_clip_ids else None
+                    def _finish(sig=rendered_signature):
+                        self._finish_active_refresh(sig)
                     if self._view_mode == "grid":
                         self._grid.set_selected(self._selected_clip_id)
                         self._grid.render_batched(
                             clips, empty_message=empty_msg, more_count=more_count,
+                            on_complete=_finish,
                         )
                         self._grid.set_selected(self._selected_clip_id)
                     else:
@@ -2621,6 +2694,7 @@ class CacheVaultApp(ctk.CTk):
                             empty_message=empty_msg,
                             group_by=self._group_by_for_view(active, query),
                             more_count=more_count,
+                            on_complete=_finish,
                         )
                         self._list.set_selected(self._selected_clip_id)
                     clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
@@ -2638,6 +2712,15 @@ class CacheVaultApp(ctk.CTk):
         except Exception as exc:  # noqa: BLE001
             write_crash("refresh", exc)
             self._page_header.set_refreshing(False, error=True)
+            # Safety net: if the exception happened before any of the
+            # branch-specific _finish_active_refresh() calls above ran (or
+            # before an async render_batched's on_complete could ever
+            # fire), _render_active would otherwise stay stuck True and
+            # every future refresh() call would silently just record a
+            # pending signature forever. If a batch was already scheduled
+            # and its own on_complete later fires too, this is a harmless
+            # no-op the second time (pending is already consumed).
+            self._finish_active_refresh()
 
     def _render_locked_surface(self) -> None:
         self._selected_clip_id = None
