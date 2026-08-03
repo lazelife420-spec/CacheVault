@@ -508,14 +508,162 @@ def destroy_menu(menu) -> None:
         pass
 
 
+class _ExplicitMenuActivation:
+    """One-shot command activation independent of Tk's Menu class binding."""
+
+    def __init__(self, menu):
+        self.menu = menu
+        self._activated = False
+
+    def bind(self) -> None:
+        self.menu.bind("<ButtonRelease-1>", self.on_button_release)
+        self.menu.bind("<Return>", self.on_return)
+        self.menu.bind("<KP_Enter>", self.on_return)
+        self.menu.bind("<Escape>", self.on_escape)
+
+    def _actionable(self, index) -> bool:
+        try:
+            return (
+                index is not None
+                and self.menu.type(index) == "command"
+                and self.menu.entrycget(index, "state") != "disabled"
+                and bool(self.menu.entrycget(index, "command"))
+            )
+        except Exception:  # noqa: BLE001 - a closing menu is not actionable
+            return False
+
+    def _event_index(self, event):
+        """Resolve the entry under an event, or None if the pointer is not
+        actually inside the posted menu's rectangle. A release outside the
+        menu -- above the first entry, below the last, or off either
+        horizontal edge -- must resolve to None, never to whatever entry
+        happened to be "active" (e.g. from a prior keyboard hover): that
+        stale state has nothing to do with where the pointer was released.
+        The "active" entry is only ever used by on_return, where it
+        correctly reflects keyboard navigation, not here.
+
+        Bounds are read via winfo_reqwidth/winfo_reqheight rather than
+        winfo_width/winfo_height: a tk.Menu is posted at its natural
+        requested size (nothing resizes it the way a geometry manager can
+        resize a frame), so the two are equivalent for this widget, and
+        reqwidth/reqheight -- unlike width/height -- are populated as soon
+        as the menu has entries, without requiring it to be mapped on
+        screen first.
+        """
+        try:
+            x = int(event.x)
+            y = int(event.y)
+        except Exception:  # noqa: BLE001 - no usable coordinates, nothing to activate
+            return None
+        try:
+            width = int(self.menu.winfo_reqwidth())
+            if not (0 <= x < width):
+                return None
+            index = self.menu.index(f"@{y}")
+            if index is None:
+                return None
+            top = int(self.menu.yposition(index))
+            end = self.menu.index("end")
+            if end is not None and index < end:
+                bottom = int(self.menu.yposition(index + 1))
+            else:
+                bottom = int(self.menu.winfo_reqheight())
+        except Exception:  # noqa: BLE001 - menu in an unusable state, nothing to activate
+            return None
+        if top <= y < bottom:
+            return index
+        return None
+
+    def _activate(self, index):
+        if self._activated:
+            return "break"
+        try:
+            entry_type = self.menu.type(index) if index is not None else None
+        except Exception:  # noqa: BLE001
+            entry_type = None
+        if entry_type == "cascade":
+            return None
+        if not self._actionable(index):
+            # Every non-cascade outcome must consume the event: a
+            # separator, a disabled command, an out-of-bounds/outside-
+            # pointer release (index is None here), or -- for keyboard --
+            # no active entry at all. Returning anything but "break" would
+            # let Tk's own Menu class binding, the one this class exists
+            # to override, keep processing the same event and potentially
+            # invoke whatever IT considers active via hover/keyboard-nav
+            # state our explicit x/y and one-shot checks never see.
+            return "break"
+
+        self._activated = True
+        try:
+            self.menu.invoke(index)
+        finally:
+            try:
+                self.menu.unpost()
+            except Exception:  # noqa: BLE001
+                pass
+        return "break"
+
+    def on_button_release(self, event):
+        return self._activate(self._event_index(event))
+
+    def on_return(self, _event):
+        try:
+            index = self.menu.index("active")
+        except Exception:  # noqa: BLE001
+            index = None
+        return self._activate(index)
+
+    def on_escape(self, _event):
+        # Permanently consume this activation object, same flag _activate's
+        # one-shot guard checks -- any ButtonRelease/Return that was already
+        # queued (or that fires before the menu finishes tearing down) must
+        # not invoke a command after the user has dismissed the popup.
+        self._activated = True
+        try:
+            self.menu.unpost()
+        except Exception:  # noqa: BLE001
+            pass
+        return "break"
+
+
+def _bind_explicit_menu_activation(menu) -> _ExplicitMenuActivation:
+    activation = _ExplicitMenuActivation(menu)
+    activation.bind()
+    return activation
+
+
 def popup_menu(window, menu, x_root: int, y_root: int) -> None:
     tooltip.before_menu_open()
+    _bind_explicit_menu_activation(menu)
     try:
         menu.tk_popup(x_root, y_root)
     finally:
         menu.grab_release()
         tooltip.after_menu_close()
-        destroy_menu(menu)
+        # Native menu command dispatch on Windows delivers the selected
+        # entry's callback asynchronously (a queued Tcl event processed
+        # after tk_popup returns), not synchronously as part of tk_popup
+        # itself. Destroying the menu here immediately raced ahead of
+        # that pending dispatch and discarded it -- confirmed by direct
+        # reproduction: with an immediate destroy, a deliberately clicked
+        # command never fired. This predates the explicit-activation
+        # feature and is unrelated to it -- see commit history for
+        # popup_menu.
+        #
+        # after_idle (fires at the next idle tick) fixed it in isolation
+        # but was still unreliable in the real app -- confirmed by live
+        # physical testing: the sidebar menu path lost this race on
+        # roughly 19 of 20 real attempts even with after_idle, while an
+        # explicit 150ms delay brought that to 10/11 across every sidebar
+        # command tested (select_all_visible, deselect_all, refresh,
+        # export_current_view, scan_cleanup_suggestions). The app runs a
+        # recurring 50ms _pump_main_thread timer (see shell.py) for its
+        # entire lifetime, so there is no long quiet idle stretch for
+        # after_idle to land in -- it competes with that timer on every
+        # tick. An explicit delay waits out real wall-clock time instead
+        # of racing the next idle opportunity.
+        menu.after(150, lambda: destroy_menu(menu))
 
 
 def open_home_clip_menu(window, clip, x_root: int, y_root: int) -> None:
