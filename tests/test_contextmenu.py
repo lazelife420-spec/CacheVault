@@ -242,18 +242,18 @@ def test_clip_menu_dispatch_wires_mark_keep():
 def test_context_menus_are_destroyed_after_use():
     """Every popup menu must be destroyed to avoid leaking Tk menu handles.
 
-    Leaked menus eventually trigger 'No more menus can be allocated', which
-    breaks bulk copy and every other context menu.
+    This is an implementation-structure test verifying that popup_menu
+    delegates deferred cleanup to destroy_menu and destroy_menu contains
+    both grab_release and destroy behavior, not proof of native physical mouse behavior.
     """
     from cache_vault.ui import clip_context
 
-    src = inspect.getsource(clip_context)
-    # The freeing helper must exist and actually destroy the menu.
+    # The freeing helper must exist and handle both grab release and menu destruction.
     helper = inspect.getsource(clip_context.destroy_menu)
     assert "menu.destroy()" in helper
+    assert "menu.grab_release()" in helper
     # We centralized popup cleanup in popup_menu function
     popup = inspect.getsource(clip_context.popup_menu)
-    assert "menu.grab_release()" in popup
     assert "destroy_menu(menu)" in popup
 
 

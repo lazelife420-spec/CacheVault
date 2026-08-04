@@ -24,6 +24,29 @@ COLUMNS = [
 ]
 
 
+_MISSING = object()
+
+
+def _get_authoritative_selected_ids(widget) -> set[str]:
+    """Retrieve authoritative selected clip IDs from the top-level shell if present,
+    bypassing Tkinter Misc.__getattr__ interception via object.__getattribute__.
+    Falls back to widget._selected_ids only when the shell attribute is absent.
+    """
+    shell = widget.winfo_toplevel()
+    try:
+        shell_selected = object.__getattribute__(shell, "_selected_clip_ids")
+    except AttributeError:
+        shell_selected = _MISSING
+
+    if shell_selected is _MISSING:
+        try:
+            widget_selected = object.__getattribute__(widget, "_selected_ids")
+        except AttributeError:
+            widget_selected = None
+        return set(widget_selected or ())
+    return set(shell_selected or ())
+
+
 class ClipGrid(ctk.CTkScrollableFrame):
     def __init__(
         self,
@@ -159,6 +182,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._name_label_by_id.clear()
         self._render_order.clear()
         self._current_group = None
+        self._empty_container.pack_forget()
         if not clips:
             for w in self._empty_container.winfo_children():
                 w.destroy()
@@ -293,11 +317,11 @@ class ClipGrid(ctk.CTkScrollableFrame):
 
     def _select(self, clip: Clip) -> None:
         # Plain click: single selection, reported via on_select.
-        previous_id = self._selected_id
         self._selected_id = clip.id
         self._selected_ids = {clip.id}
         self._anchor_id = clip.id
-        self._apply_selection(previous_id, clip.id)
+        self._repaint_selection()
+        self._notify_selection_change()
         self._on_select(clip)
 
     def _toggle_select(self, clip: Clip) -> None:
@@ -396,8 +420,15 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 name_label.configure(text_color=brand.MUTED_FG)
 
     def _context(self, event, clip: Clip) -> None:
-        selected_ids = getattr(self, "_selected_ids", set())
-        if clip.id not in selected_ids or len(selected_ids) <= 1:
+        # Right-clicking inside an existing multi-selection keeps the set so
+        # the menu can act on all of it; otherwise it selects just this row.
+        # "Existing multi-selection" is checked against the shell's own
+        # authoritative _selected_clip_ids, not this widget's own
+        # _selected_ids -- the two can desync and deciding from the
+        # widget-local copy alone let a right-click on an unselected clip
+        # act on an old stale selection.
+        selected_ids = _get_authoritative_selected_ids(self)
+        if clip.id not in selected_ids:
             self._select(clip)
         if self._on_context is not None:
             self._on_context(clip, event.x_root, event.y_root)

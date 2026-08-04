@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import customtkinter as ctk
+from datetime import datetime
 
 from ..core import models, copy_clean, storage as S
 from ..core.contextmenu import clip_menu_items
@@ -503,20 +504,32 @@ def open_locked_menu(window, x_root: int, y_root: int) -> None:
 
 def destroy_menu(menu) -> None:
     try:
+        menu.grab_release()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         menu.destroy()
     except Exception:  # noqa: BLE001
         pass
 
 
 class _ExplicitMenuActivation:
-    """One-shot command activation independent of Tk's Menu class binding."""
+    """Keyboard-only command activation for Tk menus.
+
+    Mouse dispatch is owned entirely by Tk's native Menu class binding.
+    On Windows, tk_popup enters a C-level modal loop that processes mouse
+    events without generating Tcl-level <ButtonRelease-1> events, so a
+    custom instance binding for mouse release never fires during popup.
+    Its mere presence on the menu also prevents Tk from auto-unposting
+    on click (Tk defers to the binding that never runs), producing a
+    two-click defect.  This class therefore binds only keyboard events.
+    """
 
     def __init__(self, menu):
         self.menu = menu
         self._activated = False
 
     def bind(self) -> None:
-        self.menu.bind("<ButtonRelease-1>", self.on_button_release)
         self.menu.bind("<Return>", self.on_return)
         self.menu.bind("<KP_Enter>", self.on_return)
         self.menu.bind("<Escape>", self.on_escape)
@@ -534,21 +547,10 @@ class _ExplicitMenuActivation:
 
     def _event_index(self, event):
         """Resolve the entry under an event, or None if the pointer is not
-        actually inside the posted menu's rectangle. A release outside the
-        menu -- above the first entry, below the last, or off either
-        horizontal edge -- must resolve to None, never to whatever entry
-        happened to be "active" (e.g. from a prior keyboard hover): that
-        stale state has nothing to do with where the pointer was released.
-        The "active" entry is only ever used by on_return, where it
-        correctly reflects keyboard navigation, not here.
-
-        Bounds are read via winfo_reqwidth/winfo_reqheight rather than
-        winfo_width/winfo_height: a tk.Menu is posted at its natural
-        requested size (nothing resizes it the way a geometry manager can
-        resize a frame), so the two are equivalent for this widget, and
-        reqwidth/reqheight -- unlike width/height -- are populated as soon
-        as the menu has entries, without requiring it to be mapped on
-        screen first.
+        actually inside the posted menu's rectangle. Bounds are checked
+        against width/height via winfo_reqwidth/winfo_reqheight, and
+        vertical position is resolved by matching y against entry yposition
+        intervals.
         """
         try:
             x = int(event.x)
@@ -557,22 +559,21 @@ class _ExplicitMenuActivation:
             return None
         try:
             width = int(self.menu.winfo_reqwidth())
-            if not (0 <= x < width):
+            height = int(self.menu.winfo_reqheight())
+            if not (0 <= x < width and 0 <= y < height):
                 return None
-            index = self.menu.index(f"@{y}")
-            if index is None:
-                return None
-            top = int(self.menu.yposition(index))
             end = self.menu.index("end")
-            if end is not None and index < end:
-                bottom = int(self.menu.yposition(index + 1))
-            else:
-                bottom = int(self.menu.winfo_reqheight())
+            if end is None:
+                return None
+            for i in range(end + 1):
+                top = int(self.menu.yposition(i))
+                nxt = i + 1
+                bottom = int(self.menu.yposition(nxt)) if nxt <= end else height
+                if top <= y < bottom:
+                    return i
+            return None
         except Exception:  # noqa: BLE001 - menu in an unusable state, nothing to activate
             return None
-        if top <= y < bottom:
-            return index
-        return None
 
     def _activate(self, index):
         if self._activated:
@@ -583,20 +584,11 @@ class _ExplicitMenuActivation:
             entry_type = None
         if entry_type == "cascade":
             return None
-        if not self._actionable(index):
-            # Every non-cascade outcome must consume the event: a
-            # separator, a disabled command, an out-of-bounds/outside-
-            # pointer release (index is None here), or -- for keyboard --
-            # no active entry at all. Returning anything but "break" would
-            # let Tk's own Menu class binding, the one this class exists
-            # to override, keep processing the same event and potentially
-            # invoke whatever IT considers active via hover/keyboard-nav
-            # state our explicit x/y and one-shot checks never see.
-            return "break"
 
         self._activated = True
         try:
-            self.menu.invoke(index)
+            if self._actionable(index):
+                self.menu.invoke(index)
         finally:
             try:
                 self.menu.unpost()
@@ -605,6 +597,13 @@ class _ExplicitMenuActivation:
         return "break"
 
     def on_button_release(self, event):
+        """Retained for test compatibility — not bound during popup.
+
+        On Windows tk_popup's modal loop processes mouse events at the C
+        level and never generates a Tcl <ButtonRelease-1> event, so this
+        handler does not fire for physical mouse clicks.  Tests call it
+        directly to verify the activation logic in isolation.
+        """
         return self._activate(self._event_index(event))
 
     def on_return(self, _event):
@@ -615,10 +614,6 @@ class _ExplicitMenuActivation:
         return self._activate(index)
 
     def on_escape(self, _event):
-        # Permanently consume this activation object, same flag _activate's
-        # one-shot guard checks -- any ButtonRelease/Return that was already
-        # queued (or that fires before the menu finishes tearing down) must
-        # not invoke a command after the user has dismissed the popup.
         self._activated = True
         try:
             self.menu.unpost()
@@ -633,14 +628,46 @@ def _bind_explicit_menu_activation(menu) -> _ExplicitMenuActivation:
     return activation
 
 
+# Tk on Windows re-dispatches the original Button-3 press once tk_popup's
+# global grab releases -- i.e. the instant the menu closes -- which re-opens
+# the context menu at the same coordinates. We stamp the close time on exit
+# and discard any popup at the same position that arrives within
+# _REPLAY_WINDOW of that close. Keying the window to the close time (not the
+# open time) makes the guard independent of how long the user leaves the
+# menu open, so a menu held open for several seconds is still protected from
+# the replay that fires when it finally closes. The guard state lives on the
+# owning window (one persistent shell in the real app) so it is naturally
+# isolated per top-level and never leaks between unrelated invocations.
+_REPLAY_WINDOW = 0.75
+
+
 def popup_menu(window, menu, x_root: int, y_root: int) -> None:
+    import time as _time
+    _now = _time.monotonic()
+    _pos = (x_root, y_root)
+    _last_pos = getattr(window, "_ctx_menu_last_pos", None)
+    _closed_at = getattr(window, "_ctx_menu_closed_at", 0.0)
+    if _pos == _last_pos and _now - _closed_at < _REPLAY_WINDOW:
+        try:
+            window._ctx_menu_closed_at = _now
+        except Exception:  # noqa: BLE001
+            pass
+        destroy_menu(menu)
+        return
+    try:
+        window._ctx_menu_last_pos = _pos
+    except Exception:  # noqa: BLE001
+        pass
     tooltip.before_menu_open()
     _bind_explicit_menu_activation(menu)
     try:
         menu.tk_popup(x_root, y_root)
     finally:
-        menu.grab_release()
         tooltip.after_menu_close()
+        try:
+            window._ctx_menu_closed_at = _time.monotonic()
+        except Exception:  # noqa: BLE001
+            pass
         # Native menu command dispatch on Windows delivers the selected
         # entry's callback asynchronously (a queued Tcl event processed
         # after tk_popup returns), not synchronously as part of tk_popup

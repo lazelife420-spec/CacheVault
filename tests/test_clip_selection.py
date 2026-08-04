@@ -78,6 +78,8 @@ def test_clip_list_select_repaints_previous_and_current_rows():
 def test_clip_list_right_click_selects_before_opening_context_menu():
     calls = []
     view = object.__new__(ClipList)
+    shell = SimpleNamespace(_selected_clip_ids=set())
+    view.winfo_toplevel = lambda: shell
     view._selected_id = None
     view._row_by_id = {"clip-1": FakeWidget()}
     view._on_select = lambda clip: calls.append(("select", clip.id))
@@ -110,6 +112,8 @@ def test_clip_grid_select_repaints_row_and_name_label():
 def test_clip_grid_right_click_selects_before_opening_context_menu():
     calls = []
     view = object.__new__(ClipGrid)
+    shell = SimpleNamespace(_selected_clip_ids=set())
+    view.winfo_toplevel = lambda: shell
     view._selected_id = None
     view._row_by_id = {"clip-1": FakeWidget()}
     view._name_label_by_id = {"clip-1": FakeWidget()}

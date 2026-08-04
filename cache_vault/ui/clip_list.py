@@ -13,6 +13,29 @@ from . import theme
 from .page_scaffold import build_clip_empty_state
 
 
+_MISSING = object()
+
+
+def _get_authoritative_selected_ids(widget) -> set[str]:
+    """Retrieve authoritative selected clip IDs from the top-level shell if present,
+    bypassing Tkinter Misc.__getattr__ interception via object.__getattribute__.
+    Falls back to widget._selected_ids only when the shell attribute is absent.
+    """
+    shell = widget.winfo_toplevel()
+    try:
+        shell_selected = object.__getattribute__(shell, "_selected_clip_ids")
+    except AttributeError:
+        shell_selected = _MISSING
+
+    if shell_selected is _MISSING:
+        try:
+            widget_selected = object.__getattribute__(widget, "_selected_ids")
+        except AttributeError:
+            widget_selected = None
+        return set(widget_selected or ())
+    return set(shell_selected or ())
+
+
 class ClipList(ctk.CTkScrollableFrame):
     def __init__(self, master, on_select: Callable[[Clip], None],
                  on_context: Callable[[Clip, int, int], None] | None = None,
@@ -433,21 +456,32 @@ class ClipList(ctk.CTkScrollableFrame):
         return "break"
 
     def _context(self, event, clip: Clip) -> None:
-        # Right-clicking inside an existing multi-selection keeps the set so the
-        # menu can act on all of it; otherwise it selects just this row.
-        selected_ids = getattr(self, "_selected_ids", set())
-        if clip.id not in selected_ids or len(selected_ids) <= 1:
+        # Right-clicking inside an existing multi-selection keeps the set so
+        # the menu can act on all of it; otherwise it selects just this row.
+        # "Existing multi-selection" is checked against the shell's own
+        # authoritative _selected_clip_ids, not this widget's own
+        # _selected_ids -- the two can desync (e.g. a stale multi-selection
+        # left over in this widget from an earlier interaction, or a view
+        # switch that only re-synced the shell's single primary id) and
+        # deciding from the widget-local copy alone let a right-click on a
+        # clip the shell does NOT consider selected silently keep acting on
+        # the old, wrong selection instead of replacing it -- the menu's own
+        # selection-wide commands (Favorite N Selected, etc.) read
+        # window._selected_clip_ids directly, so this decision must use the
+        # exact same source of truth.
+        selected_ids = _get_authoritative_selected_ids(self)
+        if clip.id not in selected_ids:
             self._select(clip)
         if self._on_context is not None:
             self._on_context(clip, event.x_root, event.y_root)
 
     def _select(self, clip: Clip) -> None:
         # Plain click: single selection, reported via on_select.
-        previous_id = self._selected_id
         self._selected_id = clip.id
         self._selected_ids = {clip.id}
         self._anchor_id = clip.id
-        self._apply_selection(previous_id, clip.id)
+        self._repaint_selection()
+        self._notify_selection_change()
         self._on_select(clip)
 
     def _toggle_select(self, clip: Clip) -> None:

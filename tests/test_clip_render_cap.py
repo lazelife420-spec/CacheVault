@@ -801,3 +801,69 @@ def test_material_requests_during_active_render_yield_one_trailing_refresh(tmp_p
             del app._apply_refresh_snapshot
     finally:
         app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_favorites_empty_state_cleared_on_switch_to_all_clips(tmp_path):
+    """Phase 2 regression: switching from Favorites (0 clips) to All Clips (7 clips)
+    must clear the Favorites empty state container in both Grid and Cards views,
+    ensuring old empty-state widgets never linger over or beside non-empty clip rows.
+    Tests both idle view switch and in-flight active render view switch.
+    """
+    from cache_vault.core import storage as S
+
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+
+        # 1. Idle view switch: Favorites (0 clips) -> All Clips (7 clips)
+        app._navigate_screen(S.FILTER_FAVORITES)
+        _settle(app)
+        assert len(app._visible_clip_ids) == 0
+        assert app._list._empty_container.winfo_ismapped()
+
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        assert len(app._visible_clip_ids) == 7
+        assert not app._list._empty_container.winfo_ismapped()
+        assert not app._grid._empty_container.winfo_ismapped()
+
+        # 2. In-flight active render view switch: Grid mode, Favorites -> All Clips while active
+        app._set_view_mode("grid")
+        app._navigate_screen(S.FILTER_FAVORITES)
+        _settle(app)
+        assert app._grid._empty_container.winfo_ismapped()
+
+        fake = _FakeScheduler(app)
+        fake.install()
+        try:
+            app._filters.set_active(S.FILTER_FAVORITES)
+            app.refresh()
+            job = app._refresh_job
+            fake.run(job)
+        finally:
+            fake.restore()
+
+        assert app._render_active is True
+        # Request All Clips while Favorites render is active
+        app._filters.set_active(S.FILTER_ALL)
+        app.refresh()
+
+        wait_for_refresh(
+            app,
+            timeout=10.0,
+            ui_settled=lambda: (
+                app._render_active is False
+                and app._refresh_job is None
+                and app._grid._render_job is None
+            ),
+            ui_description="Favorites -> All Clips transition settles",
+        )
+
+        assert app._filters.active == S.FILTER_ALL
+        assert len(app._visible_clip_ids) == 7
+        assert not app._grid._empty_container.winfo_ismapped()
+        assert not app._list._empty_container.winfo_ismapped()
+    finally:
+        app.destroy()

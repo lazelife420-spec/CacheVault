@@ -253,6 +253,259 @@ def test_right_click_unselected_item_selects_only_it_grid(tmp_path):
 
 
 @pytest.mark.skipif(not OK, reason=REASON)
+def test_right_click_unselected_item_replaces_multiselect_grid(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._set_view_mode("grid")
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        ids = app._visible_clip_ids[:3]
+        app._grid.set_selected_ids(ids)
+        assert len(app._grid._selected_ids) == 3
+
+        target_id = app._visible_clip_ids[5]
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._grid, "_on_context") as on_ctx:
+            app._grid._context(event, target_clip)
+
+        assert app._selected_clip_ids == [target_id]
+        assert app._grid._selected_ids == {target_id}
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_shell_selection_discards_stale_widget_multiselect_grid(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._set_view_mode("grid")
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        ids = app._visible_clip_ids[:3]
+        target_id = ids[0]
+        # Simulate stale widget selection while shell has authoritative empty selection
+        app._grid._selected_ids = set(ids)
+        app._selected_clip_ids = []
+
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._grid, "_on_context") as on_ctx:
+            app._grid._context(event, target_clip)
+
+        assert app._selected_clip_ids == [target_id]
+        assert app._grid._selected_ids == {target_id}
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_empty_shell_selection_discards_stale_widget_multiselect_list(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        ids = app._visible_clip_ids[:3]
+        target_id = ids[0]
+        # Simulate stale widget selection while shell has authoritative empty selection
+        app._list._selected_ids = set(ids)
+        app._selected_clip_ids = []
+
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._list, "_on_context") as on_ctx:
+            app._list._context(event, target_clip)
+
+        assert app._selected_clip_ids == [target_id]
+        assert app._list._selected_ids == {target_id}
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_right_click_unselected_item_replaces_multiselect_list(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        ids = app._visible_clip_ids[:3]
+        app._list.set_selected_ids(ids)
+        assert len(app._list._selected_ids) == 3
+
+        target_id = app._visible_clip_ids[5]
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._list, "_on_context") as on_ctx:
+            app._list._context(event, target_clip)
+
+        assert app._selected_clip_ids == [target_id]
+        assert app._list._selected_ids == {target_id}
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_selection_change_callback_cardinality_grid(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._set_view_mode("grid")
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        target_id = app._visible_clip_ids[3]
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._grid, "_on_select") as on_sel, \
+             mock.patch.object(app._grid, "_on_selection_change") as on_sel_change, \
+             mock.patch.object(app._grid, "_on_context") as on_ctx:
+            app._grid._context(event, target_clip)
+
+        on_sel.assert_called_once_with(target_clip)
+        on_sel_change.assert_called_once_with([target_id])
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_selection_change_callback_cardinality_list(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        target_id = app._visible_clip_ids[3]
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._list, "_on_select") as on_sel, \
+             mock.patch.object(app._list, "_on_selection_change") as on_sel_change, \
+             mock.patch.object(app._list, "_on_context") as on_ctx:
+            app._list._context(event, target_clip)
+
+        on_sel.assert_called_once_with(target_clip)
+        on_sel_change.assert_called_once_with([target_id])
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+def test_authoritative_selected_ids_bypasses_hostile_getattr():
+    from cache_vault.ui.clip_grid import _get_authoritative_selected_ids
+
+    class HostileShell:
+        def __init__(self, selected=None):
+            if selected is not None:
+                self._selected_clip_ids = selected
+
+        def __getattr__(self, name):
+            raise RuntimeError(f"Hostile __getattr__ invoked for {name}")
+
+    class HostileWidget:
+        def __init__(self, shell, selected=None):
+            self._shell = shell
+            if selected is not None:
+                self._selected_ids = selected
+
+        def winfo_toplevel(self):
+            return self._shell
+
+        def __getattr__(self, name):
+            raise RuntimeError(f"Hostile __getattr__ invoked for {name}")
+
+    # 1. Shell attribute present: uses shell, does not invoke __getattr__
+    shell_pop = HostileShell(selected=["c1", "c2"])
+    w1 = HostileWidget(shell_pop)
+    assert _get_authoritative_selected_ids(w1) == {"c1", "c2"}
+
+    # 2. Shell attribute present but empty: returns empty set, does not fall back or invoke __getattr__
+    shell_empty = HostileShell(selected=[])
+    w2 = HostileWidget(shell_empty, selected={"stale1"})
+    assert _get_authoritative_selected_ids(w2) == set()
+
+    # 3. Shell attribute absent, widget attribute present: returns widget set, does not invoke __getattr__
+    shell_absent = HostileShell(selected=None)
+    w3 = HostileWidget(shell_absent, selected={"w1"})
+    assert _get_authoritative_selected_ids(w3) == {"w1"}
+
+    # 4. Both attributes absent: returns empty set, does not invoke __getattr__
+    w4 = HostileWidget(shell_absent, selected=None)
+    assert _get_authoritative_selected_ids(w4) == set()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_right_click_inside_multiselect_preserves_multiselect_grid(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._set_view_mode("grid")
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        ids = app._visible_clip_ids[:3]
+        app._grid.set_selected_ids(ids)
+        app._selected_clip_ids = list(ids)
+
+        target_id = ids[1]
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._grid, "_on_context") as on_ctx:
+            app._grid._context(event, target_clip)
+
+        assert set(app._selected_clip_ids) == set(ids)
+        assert app._grid._selected_ids == set(ids)
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_right_click_inside_multiselect_preserves_multiselect_list(tmp_path):
+    vault = _vault_with_clips(tmp_path, 10)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+        ids = app._visible_clip_ids[:3]
+        app._list.set_selected_ids(ids)
+        app._selected_clip_ids = list(ids)
+
+        target_id = ids[1]
+        target_clip = vault.storage.get_clip(target_id)
+        event = SimpleNamespace(x_root=10, y_root=20, widget=app)
+
+        with mock.patch.object(app._list, "_on_context") as on_ctx:
+            app._list._context(event, target_clip)
+
+        assert set(app._selected_clip_ids) == set(ids)
+        assert app._list._selected_ids == set(ids)
+        on_ctx.assert_called_once_with(target_clip, event.x_root, event.y_root)
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
 def test_right_click_matching_highlighted_row_preserves_matching_mode_grid(tmp_path):
     from dataclasses import replace
 
@@ -755,7 +1008,7 @@ def test_popup_menu_binds_activation_and_cleans_up_on_popup_failure(tk_root):
     def _fail_popup(*_args, **_kwargs):
         # Checked here, before cleanup destroys the menu: activation must
         # already be bound by the time tk_popup is reached.
-        bound_before_popup.append(bool(menu.bind("<ButtonRelease-1>")))
+        bound_before_popup.append(bool(menu.bind("<Return>")))
         raise RuntimeError("boom")
 
     with mock.patch.object(menu, "tk_popup", side_effect=_fail_popup) as tk_popup, \
@@ -1583,3 +1836,157 @@ def test_favorite_and_unfavorite_are_separate_explicit_commands_not_a_toggle():
     assert "favorite_selected" in keys
     assert "unfavorite_selected" in keys
     assert "toggle_favorite" not in keys
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_right_click_already_selected_singleton_preserves_selection_without_reselect_callbacks_grid(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._set_view_mode("grid")
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+
+        target_clip = vault.storage.list_clips(None)[0]
+        app._grid.set_selected(target_clip.id)
+        app._selected_clip_ids = [target_clip.id]
+
+        on_select_mock = mock.MagicMock()
+        on_change_mock = mock.MagicMock()
+        on_context_mock = mock.MagicMock()
+
+        app._grid._on_select = on_select_mock
+        app._grid._on_selection_change = on_change_mock
+        app._grid._on_context = on_context_mock
+
+        event = SimpleNamespace(x_root=100, y_root=200, widget=app._grid)
+        app._grid._context(event, target_clip)
+
+        assert on_select_mock.call_count == 0
+        assert on_change_mock.call_count == 0
+        assert on_context_mock.call_count == 1
+        on_context_mock.assert_called_once_with(target_clip, 100, 200)
+        assert app._selected_clip_ids == [target_clip.id]
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_right_click_already_selected_singleton_preserves_selection_without_reselect_callbacks_list(tmp_path):
+    vault = _vault_with_clips(tmp_path, 5)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+
+        target_clip = vault.storage.list_clips(None)[0]
+        app._list.set_selected(target_clip.id)
+        app._selected_clip_ids = [target_clip.id]
+
+        on_select_mock = mock.MagicMock()
+        on_change_mock = mock.MagicMock()
+        on_context_mock = mock.MagicMock()
+
+        app._list._on_select = on_select_mock
+        app._list._on_selection_change = on_change_mock
+        app._list._on_context = on_context_mock
+
+        event = SimpleNamespace(x_root=100, y_root=200, widget=app._list)
+        app._list._context(event, target_clip)
+
+        assert on_select_mock.call_count == 0
+        assert on_change_mock.call_count == 0
+        assert on_context_mock.call_count == 1
+        on_context_mock.assert_called_once_with(target_clip, 100, 200)
+        assert app._selected_clip_ids == [target_clip.id]
+    finally:
+        _teardown(app)
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_shell_dispatch_selection_command_scenarios_a_to_e(tmp_path):
+    from cache_vault.core.menu_context import MenuInvocationContext, VIEW_ACTIVE
+
+    vault = _vault_with_clips(tmp_path, 5)
+    clips = vault.storage.list_clips(None)
+    alpha, bravo, charlie = clips[0], clips[1], clips[2]
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+
+        # Scenario A: Empty shell selection + clicked_clip_id
+        app._selected_clip_ids = []
+        app._selected_clip_id = None
+        ctx_a = MenuInvocationContext(
+            clicked_clip_id=bravo.id, nav_key=S.FILTER_ALL, view_kind=VIEW_ACTIVE,
+            was_selected_before_click=False, selection_mode="visible",
+            visible_selected_ids=(), matching_signature=None, matching_count=None,
+        )
+        app._dispatch_selection_command("favorite_selected", ctx_a)
+        assert vault.storage.get_clip(bravo.id).is_pinned is True
+        assert vault.storage.get_clip(alpha.id).is_pinned is False
+
+        # Reset
+        vault.set_favorite(bravo.id, False)
+
+        # Scenario B: Empty shell selection + visible_selected_ids
+        app._selected_clip_ids = []
+        app._selected_clip_id = None
+        ctx_b = MenuInvocationContext(
+            clicked_clip_id=bravo.id, nav_key=S.FILTER_ALL, view_kind=VIEW_ACTIVE,
+            was_selected_before_click=True, selection_mode="visible",
+            visible_selected_ids=(bravo.id, charlie.id), matching_signature=None, matching_count=None,
+        )
+        app._dispatch_selection_command("favorite_selected", ctx_b)
+        assert vault.storage.get_clip(bravo.id).is_pinned is True
+        assert vault.storage.get_clip(charlie.id).is_pinned is True
+        assert vault.storage.get_clip(alpha.id).is_pinned is False
+
+        # Reset
+        vault.set_favorite(bravo.id, False)
+        vault.set_favorite(charlie.id, False)
+
+        # Scenario C: Stale _selected_clip_id points to Alpha while ctx.clicked_clip_id is Bravo
+        app._selected_clip_ids = []
+        app._selected_clip_id = alpha.id
+        ctx_c = MenuInvocationContext(
+            clicked_clip_id=bravo.id, nav_key=S.FILTER_ALL, view_kind=VIEW_ACTIVE,
+            was_selected_before_click=False, selection_mode="visible",
+            visible_selected_ids=(), matching_signature=None, matching_count=None,
+        )
+        app._dispatch_selection_command("favorite_selected", ctx_c)
+        assert vault.storage.get_clip(bravo.id).is_pinned is True
+        assert vault.storage.get_clip(alpha.id).is_pinned is False
+
+        # Reset
+        vault.set_favorite(bravo.id, False)
+
+        # Scenario D: No selected IDs and no usable context (empty ctx)
+        app._selected_clip_ids = []
+        app._selected_clip_id = None
+        ctx_d = MenuInvocationContext(
+            clicked_clip_id=None, nav_key=S.FILTER_ALL, view_kind=VIEW_ACTIVE,
+            was_selected_before_click=False, selection_mode="visible",
+            visible_selected_ids=(), matching_signature=None, matching_count=None,
+        )
+        app._dispatch_selection_command("favorite_selected", ctx_d)
+        assert all(not c.is_pinned for c in vault.storage.list_clips(None))
+
+        # Scenario E: Multi-selection executes once each with no duplicate dispatch
+        app._selected_clip_ids = [alpha.id, bravo.id]
+        app._selected_clip_id = alpha.id
+        ctx_e = MenuInvocationContext(
+            clicked_clip_id=alpha.id, nav_key=S.FILTER_ALL, view_kind=VIEW_ACTIVE,
+            was_selected_before_click=True, selection_mode="visible",
+            visible_selected_ids=(alpha.id, bravo.id), matching_signature=None, matching_count=None,
+        )
+        app._dispatch_selection_command("favorite_selected", ctx_e)
+        assert vault.storage.get_clip(alpha.id).is_pinned is True
+        assert vault.storage.get_clip(bravo.id).is_pinned is True
+        assert vault.storage.get_clip(charlie.id).is_pinned is False
+    finally:
+        _teardown(app)

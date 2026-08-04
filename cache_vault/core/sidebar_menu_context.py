@@ -321,7 +321,8 @@ def _favorites_matrix(ctx: SidebarInvocationContext) -> list[MenuCommand]:
         export_count = ctx.selection_count if ctx.has_selection else ctx.item_count
         out.append(_enabled(CMD_EXPORT_SELECTED, _label_count("Export", export_count, " favorites/selection")))
     else:
-        out.append(_disabled("no favorites", CMD_EXPORT_SELECTED, "Export favorites/selection"))
+        reason = "target row is not active" if not active else "no favorites"
+        out.append(_disabled(reason, CMD_EXPORT_SELECTED, "Export favorites/selection"))
 
     if active and ctx.item_count:
         remove_count = ctx.selection_count if ctx.has_selection else ctx.item_count

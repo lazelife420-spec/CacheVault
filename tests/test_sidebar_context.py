@@ -1936,3 +1936,31 @@ def test_empty_collection_successful_receipt_reports_zero_deletions(tmp_path):
         assert payload["disk_bytes_reclaimed"] == 0
     finally:
         app.destroy()
+
+
+def test_favorites_sidebar_inactive_row_export_wording():
+    """Phase 4: When Favorites sidebar target row is inactive and item_count is > 0,
+    the Export command's disabled reason must state 'target row is not active'
+    rather than falsely claiming 'no favorites'.
+    """
+    from cache_vault.core.sidebar_menu_context import (
+        CMD_EXPORT_SELECTED,
+        SidebarInvocationContext,
+        sidebar_command_matrix,
+    )
+
+    ctx = SidebarInvocationContext(
+        target_key=S.FILTER_FAVORITES,
+        active_key=S.FILTER_ALL,
+        row_type="favorites",
+        collection_name=None,
+        target_query=None,
+        visible_selected_ids=(),
+        matching_descriptor=None,
+        item_count=1,
+    )
+    cmds = sidebar_command_matrix(ctx)
+    export_cmd = next(c for c in cmds if c.key == CMD_EXPORT_SELECTED)
+    assert not export_cmd.enabled
+    assert export_cmd.reason == "target row is not active"
+    assert export_cmd.label == "Export favorites/selection"
