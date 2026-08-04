@@ -1543,6 +1543,12 @@ class CacheVaultApp(ctk.CTk):
                 handler()
             return
 
+        if ctx:
+            target_ids = list(ctx.visible_selected_ids) if ctx.visible_selected_ids else ([ctx.clicked_clip_id] if ctx.clicked_clip_id else [])
+            if target_ids:
+                self._selected_clip_ids = target_ids
+                self._selected_clip_id = target_ids[0]
+
         visible_dispatch = {
             "copy_selected": self._bulk_copy,
             "export_selected": self._bulk_export_proof,
@@ -3835,9 +3841,7 @@ class CacheVaultApp(ctk.CTk):
         self._set_selection_notice(f"All {matching.resolved_count} matching items selected")
 
     def _sidebar_deselect_all(self, ctx: Any) -> None:
-        self._selection_scope.clear()
-        view = self._grid if self._view_mode == "grid" else self._list
-        getattr(view, "deselect_all", lambda: None)()
+        self._clear_selection()
 
     def _sidebar_export_current_view(self, ctx: Any) -> None:
         if not ctx.is_target_active or ctx.target_query is None:

@@ -18,7 +18,7 @@ from cache_vault.core.search import SearchQuery
 from cache_vault.core.settings import Settings
 from cache_vault.core.storage import VaultStorage
 from cache_vault.core.vault import Vault
-from cache_vault.ui import sidebar_context
+from cache_vault.ui import clip_context, sidebar_context
 from cache_vault.ui.filters import FilterNav, NAV_QUICK_PASTE
 from cache_vault.ui.shell import CacheVaultApp
 from tests.tk_support import _tcl_unavailable, probe_tk_ui, wait_for_refresh
@@ -52,6 +52,22 @@ def _vault_with_clips(tmp_path, n, prefix="clip"):
 def _settle(app):
     app._do_refresh_sync()
     wait_for_refresh(app)
+
+
+def _invoke_menu_label(menu: tk.Menu, label: str) -> int:
+    """Invoke one real Tk menu entry by its exact rendered label."""
+    end = menu.index("end")
+    assert end is not None
+    matches = [
+        index
+        for index in range(end + 1)
+        if menu.type(index) == "command" and menu.entrycget(index, "label") == label
+    ]
+    assert len(matches) == 1, f"Expected one {label!r} entry, got {matches}"
+    index = matches[0]
+    assert menu.entrycget(index, "state") == "normal"
+    menu.invoke(index)
+    return index
 
 
 # --- Right-click routing / inactive-row safety ---------------------------------
@@ -176,6 +192,280 @@ def test_inactive_row_select_all_visible_aborts(tmp_path):
 
         assert app._selected_clip_ids == before_selected
     finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_invoke_binds_select_all_visible_to_exact_dispatch(tmp_path):
+    """The real Tk command must retain its own key and captured row context."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+        dispatched = []
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Select all visible (7)")
+
+        with mock.patch.object(
+            app,
+            "_dispatch_sidebar_command",
+            side_effect=lambda key, bound_ctx: dispatched.append((key, bound_ctx)),
+        ), mock.patch(
+            "cache_vault.ui.sidebar_context.popup_menu",
+            side_effect=invoke_popup,
+        ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert dispatched == [("select_all_visible", ctx)]
+        assert dispatched[0][1].target_key == S.FILTER_ALL
+    finally:
+        for menu in menus:
+            menu.destroy()
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_invoke_selects_all_seven_visible_clips(tmp_path):
+    """Exercise the complete Tk menu -> dispatch -> rendered-view selection chain."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        initially_selected = app._visible_clip_ids[0]
+        view.set_selected(initially_selected)
+        app._on_clip_selection_change([initially_selected])
+        assert app._selected_clip_ids == [initially_selected]
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Select all visible (7)")
+
+        with mock.patch.object(app, "_sidebar_empty_collection") as empty_collection, \
+             mock.patch.object(app, "_sidebar_permanently_delete_selected") as delete_selected, \
+             mock.patch.object(app, "_sidebar_permanently_delete_all") as delete_all, \
+             mock.patch(
+                 "cache_vault.ui.sidebar_context.popup_menu",
+                 side_effect=invoke_popup,
+             ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert set(app._selected_clip_ids) == set(app._visible_clip_ids)
+        assert len(app._selected_clip_ids) == 7
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.count_clips(None) == 7
+        empty_collection.assert_not_called()
+        delete_selected.assert_not_called()
+        delete_all.assert_not_called()
+    finally:
+        for menu in menus:
+            menu.destroy()
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_invoke_deselects_all_selected_clips(tmp_path):
+    """_sidebar_deselect_all used to call getattr(view, "deselect_all",
+    lambda: None)() -- neither ClipList nor ClipGrid actually defines a
+    deselect_all method, so this silently no-opped every single time,
+    while self._selection_scope.clear() alone left _selected_clip_ids,
+    the action strip, and the preview panel all untouched. Assert the
+    real, complete clear (matching _clear_selection, the same method
+    the working item-menu "Deselect All" path already used), not just
+    that the handler returned without raising."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        view.select_all()
+        app._on_clip_selection_change(list(app._visible_clip_ids))
+        assert len(app._selected_clip_ids) == 7
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Deselect all")
+
+        with mock.patch(
+            "cache_vault.ui.sidebar_context.popup_menu",
+            side_effect=invoke_popup,
+        ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert app._selected_clip_ids == []
+        assert app._selected_clip_id is None
+        assert not app._selection_scope.matching
+    finally:
+        for menu in menus:
+            menu.destroy()
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_explicit_release_selects_all_seven_visible_clips(tmp_path):
+    """Exercise the real popup binding through the full sidebar command path."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    activations = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        initially_selected = app._visible_clip_ids[0]
+        view.set_selected(initially_selected)
+        app._on_clip_selection_change([initially_selected])
+        assert app._selected_clip_ids == [initially_selected]
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+        real_bind = clip_context._bind_explicit_menu_activation
+
+        def capture_activation(menu):
+            activation = real_bind(menu)
+            activations.append(activation)
+            return activation
+
+        def release_select_all(menu, _x_root, _y_root):
+            assert len(activations) == 1
+            index = next(
+                i
+                for i in range(menu.index("end") + 1)
+                if menu.type(i) == "command"
+                and menu.entrycget(i, "label") == "Select all visible (7)"
+            )
+            end = menu.index("end")
+            top = menu.yposition(index)
+            bottom = (
+                menu.yposition(index + 1)
+                if index < end
+                else menu.winfo_reqheight()
+            )
+            result = activations[0].on_button_release(
+                SimpleNamespace(
+                    x=max(0, min(3, int(menu.winfo_reqwidth()) - 1)),
+                    y=top + max(1, (bottom - top) // 2),
+                ),
+            )
+            assert result == "break"
+
+        with mock.patch.object(
+            clip_context,
+            "_bind_explicit_menu_activation",
+            side_effect=capture_activation,
+        ), mock.patch.object(
+            tk.Menu,
+            "tk_popup",
+            autospec=True,
+            side_effect=release_select_all,
+        ), mock.patch.object(
+            app, "_sidebar_empty_collection",
+        ) as empty_collection, mock.patch.object(
+            app, "_sidebar_permanently_delete_selected",
+        ) as delete_selected, mock.patch.object(
+            app, "_sidebar_permanently_delete_all",
+        ) as delete_all:
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert set(app._selected_clip_ids) == set(app._visible_clip_ids)
+        assert len(app._selected_clip_ids) == 7
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.count_clips(None) == 7
+        empty_collection.assert_not_called()
+        delete_selected.assert_not_called()
+        delete_all.assert_not_called()
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_active_sidebar_activation_after_menu_invoke_resets_visible_selection(tmp_path):
+    """Model popup activation followed by the same Button-1 path as the sidebar row."""
+    vault = _vault_with_clips(tmp_path, 7)
+    app = _make_app(vault)
+    menus = []
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_ALL)
+        _settle(app)
+        app.deiconify()
+        app.update()
+        assert len(app._visible_clip_ids) == 7
+
+        view = app._grid if app._view_mode == "grid" else app._list
+        initially_selected = app._visible_clip_ids[0]
+        view.set_selected(initially_selected)
+        app._on_clip_selection_change([initially_selected])
+        assert app._selected_clip_ids == [initially_selected]
+
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_ALL,
+        )
+
+        def invoke_popup(_window, menu, _x_root, _y_root):
+            menus.append(menu)
+            _invoke_menu_label(menu, "Select all visible (7)")
+
+        with mock.patch(
+            "cache_vault.ui.sidebar_context.popup_menu",
+            side_effect=invoke_popup,
+        ):
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        assert len(app._selected_clip_ids) == 7
+
+        # SidebarRow binds Button-1 to this exact callback path.
+        app._filters._rows[S.FILTER_ALL]._select_clicked()
+        app.withdraw()
+        _settle(app)
+
+        current_view = app._grid if app._view_mode == "grid" else app._list
+        assert app._filters.active == S.FILTER_ALL
+        assert vault.count_clips(None) == 7
+        assert len(current_view._selected_ids) == 1
+        assert current_view._selected_ids == {app._visible_clip_ids[0]}
+        assert app._selected_clip_id == app._visible_clip_ids[0]
+        assert app._selected_clip_ids == []
+    finally:
+        for menu in menus:
+            menu.destroy()
         app.destroy()
 
 
@@ -1051,6 +1341,153 @@ def test_matching_selection_ownership_across_rows(tmp_path):
 # --- Menu-opening purity -------------------------------------------------------
 
 
+def test_disabled_sidebar_command_keeps_label_and_reason_structured():
+    """Core owns availability and the canonical reason, not UI formatting."""
+    ctx = sidebar_context.build_sidebar_invocation_context(
+        target_key=S.FILTER_SCREENSHOTS,
+        active_key=S.FILTER_SCREENSHOTS,
+        collection_name=None,
+        visible_selected_ids=(),
+        matching=None,
+        item_count=0,
+    )
+    commands = {
+        command.key: command
+        for command in sidebar_context.sidebar_command_matrix(ctx)
+    }
+
+    disabled = commands["select_all_visible"]
+    assert disabled.enabled is False
+    assert disabled.label == "Select all visible"
+    assert disabled.reason == "no images"
+    assert "no images" not in disabled.label
+
+    enabled = commands["open"]
+    assert enabled.enabled is True
+    assert enabled.label == "Open"
+    assert enabled.reason == ""
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_renders_disabled_reason_exactly_once(tmp_path):
+    vault = _vault_with_clips(tmp_path, 0)
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_SCREENSHOTS)
+        _settle(app)
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_SCREENSHOTS,
+        )
+
+        with mock.patch("cache_vault.ui.sidebar_context.popup_menu") as popup:
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        menu = popup.call_args.args[1]
+        labels = [
+            menu.entrycget(index, "label")
+            for index in range(menu.index("end") + 1)
+        ]
+        assert "Select all visible (no images)" in labels
+        assert "Select all visible (no images) (no images)" not in labels
+        assert labels.count("Select all visible (no images)") == 1
+        assert "Open" in labels
+        assert all(not label.startswith("Open (") for label in labels)
+    finally:
+        app.destroy()
+
+
+@pytest.mark.skipif(not OK, reason=REASON)
+def test_sidebar_menu_command_order_and_destructive_section_placement(tmp_path):
+    """Deterministic ordering contract for the sidebar context menu.
+
+    Recently Removed (active target, items present, nothing selected) is
+    the one representative fully-populated state: it is the only sidebar
+    row type carrying genuinely irreversible commands (permanently delete
+    selected/all), and "nothing selected" naturally disables exactly the
+    three selection-dependent commands (deselect_all/restore_selected/
+    permanently_delete_selected) with real reasons -- covering ordering,
+    no-duplicate-labels, and single-reason rendering together without a
+    second scenario. The row's own count-independent commands (restore_
+    all/permanently_delete_all) stay enabled throughout, demonstrating
+    that selection-sensitive commands sit in their fixed relative position
+    without disturbing the commands that don't depend on selection.
+
+    open_sidebar_menu (cache_vault/ui/sidebar_context.py) builds this menu
+    as a flat sequence of menu.add_command calls with no add_separator
+    call anywhere -- confirmed here directly against the real constructed
+    tk.Menu, not merely asserted from reading the source.
+    """
+    vault = _vault_with_clips(tmp_path, 9)
+    clips = vault.storage.list_clips(None)
+    for c in clips:
+        vault.remove_from_history(c.id)
+
+    app = _make_app(vault)
+    try:
+        app.withdraw()
+        app._navigate_filter(S.FILTER_RECENTLY_REMOVED)
+        _settle(app)
+        assert app._selected_clip_ids == []
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            app, S.FILTER_RECENTLY_REMOVED,
+        )
+
+        with mock.patch("cache_vault.ui.sidebar_context.popup_menu") as popup:
+            sidebar_context.open_sidebar_menu(app, ctx, 0, 0)
+
+        menu = popup.call_args.args[1]
+        end = menu.index("end")
+        assert end is not None
+
+        # No separators anywhere in this menu surface.
+        assert all(menu.type(i) != "separator" for i in range(end + 1))
+
+        labels = [menu.entrycget(i, "label") for i in range(end + 1)]
+        expected_order = [
+            "Open",
+            "Refresh",
+            "Select all visible (9)",
+            "Select all matching (9)",
+            "Deselect all (nothing selected)",
+            "Restore selected (no selection)",
+            "Restore all 9 items",
+            "Permanently delete selected (no selection)",
+            "Permanently delete all items in Recently Removed",
+            "Properties / removed-item count (9)",
+        ]
+        assert labels == expected_order
+
+        # No duplicate command labels.
+        assert len(labels) == len(set(labels))
+
+        # Each disabled command's reason is rendered exactly once, never
+        # doubled by any composition layer.
+        assert labels.count("Deselect all (nothing selected)") == 1
+        assert labels.count("Restore selected (no selection)") == 1
+        assert labels.count("Permanently delete selected (no selection)") == 1
+        assert not any("(no selection) (no selection)" in label for label in labels)
+        assert not any("(nothing selected) (nothing selected)" in label for label in labels)
+
+        # Irreversible commands occupy the final section, immediately
+        # before the trailing Properties entry.
+        assert labels[-3] == "Permanently delete selected (no selection)"
+        assert labels[-2] == "Permanently delete all items in Recently Removed"
+        assert labels[-1] == "Properties / removed-item count (9)"
+
+        # Selection-sensitive commands (disabled here, "nothing selected"/
+        # "no selection") sit adjacent to their selection-independent
+        # counterparts (Restore all / Permanently delete all, both
+        # unaffected by the empty selection) in fixed relative order.
+        assert labels.index("Restore selected (no selection)") < labels.index("Restore all 9 items")
+        assert (
+            labels.index("Permanently delete selected (no selection)")
+            < labels.index("Permanently delete all items in Recently Removed")
+        )
+    finally:
+        app.destroy()
+
+
 @pytest.mark.skipif(not OK, reason=REASON)
 def test_menu_opening_for_all_row_types_causes_no_mutation(tmp_path):
     vault = _vault_with_clips(tmp_path, 5)
@@ -1501,3 +1938,29 @@ def test_empty_collection_successful_receipt_reports_zero_deletions(tmp_path):
         app.destroy()
 
 
+def test_favorites_sidebar_inactive_row_export_wording():
+    """Phase 4: When Favorites sidebar target row is inactive and item_count is > 0,
+    the Export command's disabled reason must state 'target row is not active'
+    rather than falsely claiming 'no favorites'.
+    """
+    from cache_vault.core.sidebar_menu_context import (
+        CMD_EXPORT_SELECTED,
+        SidebarInvocationContext,
+        sidebar_command_matrix,
+    )
+
+    ctx = SidebarInvocationContext(
+        target_key=S.FILTER_FAVORITES,
+        active_key=S.FILTER_ALL,
+        row_type="favorites",
+        collection_name=None,
+        target_query=None,
+        visible_selected_ids=(),
+        matching_descriptor=None,
+        item_count=1,
+    )
+    cmds = sidebar_command_matrix(ctx)
+    export_cmd = next(c for c in cmds if c.key == CMD_EXPORT_SELECTED)
+    assert not export_cmd.enabled
+    assert export_cmd.reason == "target row is not active"
+    assert export_cmd.label == "Export favorites/selection"

@@ -473,6 +473,7 @@ def test_right_click_collapsing_to_one_item_exits_matching_mode(tmp_path):
         assert app._selection_scope.mode == "matching"
 
         other_id, target_id = app._visible_clip_ids[0], app._visible_clip_ids[1]
+        app._selected_clip_ids = [other_id]
         app._list._selected_ids = {other_id}  # simulates "clicked row not in current selection"
         target_clip = vault.storage.get_clip(target_id)
         event = SimpleNamespace(x_root=10, y_root=20, widget=app)
