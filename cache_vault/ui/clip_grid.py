@@ -126,13 +126,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             self._on_sort(self._sort_key)
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
-        self.cancel_render()
-        for w in self._rows_frame.winfo_children():
-            if w is not self._empty_container:
-                w.destroy()
-        self._row_by_id.clear()
-        self._name_label_by_id.clear()
-        self._render_order.clear()
+        self.clear()
         if not clips:
             for w in self._empty_container.winfo_children():
                 w.destroy()
@@ -152,6 +146,24 @@ class ClipGrid(ctk.CTkScrollableFrame):
             return
         for clip in clips:
             self._build_row(clip)
+
+    def clear(self) -> None:
+        """Destroy all rendered rows and reset tracking without building an
+        empty-state placeholder.
+
+        See ClipList.clear: frees this view's Tk/USER objects while it is
+        hidden so the process-wide count stays clear of the Windows ~10k
+        cap. refresh() rebuilds the view on return.
+        """
+        self.cancel_render()
+        for w in self._rows_frame.winfo_children():
+            if w is not self._empty_container:
+                w.destroy()
+        self._row_by_id.clear()
+        self._name_label_by_id.clear()
+        self._render_order.clear()
+        self._current_group = None
+        self._empty_container.pack_forget()
 
     def destroy(self) -> None:
         self.cancel_render()
@@ -173,16 +185,8 @@ class ClipGrid(ctk.CTkScrollableFrame):
         been built -- see ClipList.render_batched's docstring for why a
         caller needing the complete rendered set can't just act right
         after this call returns."""
-        self.cancel_render()
+        self.clear()
         self._more_count = more_count
-        for w in self._rows_frame.winfo_children():
-            if w is not self._empty_container:
-                w.destroy()
-        self._row_by_id.clear()
-        self._name_label_by_id.clear()
-        self._render_order.clear()
-        self._current_group = None
-        self._empty_container.pack_forget()
         if not clips:
             for w in self._empty_container.winfo_children():
                 w.destroy()

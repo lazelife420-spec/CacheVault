@@ -84,22 +84,10 @@ class ClipList(ctk.CTkScrollableFrame):
         self._more_label.pack(pady=(8, 14))
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
-        self.cancel_render()
+        self.clear()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
-        for widget in list(self.winfo_children()):
-            if widget is not self._empty_container:
-                widget.destroy()
-        self._rows.clear()
-        self._row_by_id.clear()
-        self._rail_by_id.clear()
-        self._selected_badge_by_id.clear()
-        self._action_bar_by_id.clear()
-        self._title_label_by_id.clear()
-        self._meta_label_by_id.clear()
-        self._render_order.clear()
-        self._empty_container.pack_forget()
 
         if not clips:
             for w in self._empty_container.winfo_children():
@@ -122,6 +110,31 @@ class ClipList(ctk.CTkScrollableFrame):
         for clip in clips:
             self._rows.append(self._build_row(clip))
         self._show_more_footer()
+
+    def clear(self) -> None:
+        """Destroy all rendered rows and reset tracking without building an
+        empty-state placeholder.
+
+        On Windows every Tk widget consumes a process USER object, and the
+        app keeps this view alive (hidden) even when another view/screen is
+        showing. Freeing the rows while hidden keeps the process-wide USER
+        object count away from the ~10k cap that otherwise surfaces as
+        "No more menus can be allocated"; refresh() rebuilds this view on
+        return.
+        """
+        self.cancel_render()
+        for widget in list(self.winfo_children()):
+            if widget is not self._empty_container:
+                widget.destroy()
+        self._rows.clear()
+        self._row_by_id.clear()
+        self._rail_by_id.clear()
+        self._selected_badge_by_id.clear()
+        self._action_bar_by_id.clear()
+        self._title_label_by_id.clear()
+        self._meta_label_by_id.clear()
+        self._render_order.clear()
+        self._empty_container.pack_forget()
 
     def destroy(self) -> None:
         self.cancel_render()
@@ -148,24 +161,11 @@ class ClipList(ctk.CTkScrollableFrame):
         -- must wait for this rather than acting immediately after the
         call, which would only see the first batch's rows.
         """
-        self.cancel_render()
+        self.clear()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
         self._more_count = more_count
-
-        for widget in list(self.winfo_children()):
-            if widget is not self._empty_container:
-                widget.destroy()
-        self._rows.clear()
-        self._row_by_id.clear()
-        self._rail_by_id.clear()
-        self._selected_badge_by_id.clear()
-        self._action_bar_by_id.clear()
-        self._title_label_by_id.clear()
-        self._meta_label_by_id.clear()
-        self._render_order.clear()
-        self._empty_container.pack_forget()
 
         if not clips:
             for w in self._empty_container.winfo_children():

@@ -513,6 +513,43 @@ def destroy_menu(menu) -> None:
         pass
 
 
+def _destroy_previous_active_menu(window) -> None:
+    """Destroy any menu currently registered as this window's active popup.
+
+    Cancels any outstanding deferred cleanup job so the menu is freed
+    immediately. Call this *before* creating a new menu to keep the
+    per-toplevel Tcl menu count bounded.
+    """
+    prev = getattr(window, "_active_popup_menu", None)
+    job = getattr(window, "_active_popup_menu_job", None)
+    if job is not None:
+        try:
+            window.after_cancel(job)
+        except Exception:  # noqa: BLE001
+            pass
+    if prev is not None:
+        try:
+            prev.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        window._active_popup_menu = None
+        window._active_popup_menu_job = None
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _destroy_menu_and_clear_active(window, menu) -> None:
+    """Destroy a menu and clear the window's active reference if it matches."""
+    destroy_menu(menu)
+    try:
+        if getattr(window, "_active_popup_menu", None) is menu:
+            window._active_popup_menu = None
+            window._active_popup_menu_job = None
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class _ExplicitMenuActivation:
     """Keyboard-only command activation for Tk menus.
 
@@ -658,6 +695,12 @@ def popup_menu(window, menu, x_root: int, y_root: int) -> None:
         window._ctx_menu_last_pos = _pos
     except Exception:  # noqa: BLE001
         pass
+    # Ensure only one popup menu is alive per window at a time. Tk has a
+    # finite pool of menu IDs; rapid right-clicking without immediate
+    # cleanup can exhaust it. Destroy any previous active menu before the
+    # new one is shown.
+    _destroy_previous_active_menu(window)
+    window._active_popup_menu = menu
     tooltip.before_menu_open()
     _bind_explicit_menu_activation(menu)
     try:
@@ -690,7 +733,7 @@ def popup_menu(window, menu, x_root: int, y_root: int) -> None:
         # after_idle to land in -- it competes with that timer on every
         # tick. An explicit delay waits out real wall-clock time instead
         # of racing the next idle opportunity.
-        menu.after(150, lambda: destroy_menu(menu))
+        menu.after(150, lambda: _destroy_menu_and_clear_active(window, menu))
 
 
 def open_home_clip_menu(window, clip, x_root: int, y_root: int) -> None:

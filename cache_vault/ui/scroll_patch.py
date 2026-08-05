@@ -35,7 +35,7 @@ def _shift_pressed() -> bool:
 
 
 def _patched_frame_wheel(self, event):
-    if not self.check_if_master_is_canvas(event.widget):
+    if not self._check_if_valid_scroll(event.widget):
         return
     cfg = current_scroll_config()
     if not cfg.use_windows_settings or not sys.platform.startswith("win"):

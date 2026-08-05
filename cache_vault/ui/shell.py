@@ -2582,10 +2582,21 @@ class CacheVaultApp(ctk.CTk):
             self._filters.update_founder_status(licensing.load_license())
 
             if active in NAV_SCREEN_KEYS:
+                # Neither clip view is visible on a vault screen; free their
+                # rows before building the screen so the two never hold full
+                # row sets at once. This keeps the process-wide Tk/USER
+                # object count clear of the Windows ~10k cap ("No more menus
+                # can be allocated").
+                self._list.clear()
+                self._grid.clear()
                 self._show_vault_screen(active)
                 clip_count = summary.get("all", 0)
                 self._finish_active_refresh(rendered_signature)
             elif active == FILTER_HOME:
+                # Command Center is showing; free the hidden clip views'
+                # rows before rendering it (see the vault-screen branch).
+                self._list.clear()
+                self._grid.clear()
                 self._show_home()
                 capture_active = not summary.get("capture_paused")
                 status_text = "● Capture Active" if capture_active else "● Capture Paused"
@@ -2640,6 +2651,10 @@ class CacheVaultApp(ctk.CTk):
                 self._visible_clip_ids = [c.id for c in clips]
                 empty_msg = self._empty_message(active, clips, query)
                 view = self._grid if self._view_mode == "grid" else self._list
+                # Only the active view is populated; free the other one so
+                # both clip views never hold full row sets at once (halves
+                # the process USER object footprint of the clips screen).
+                (self._list if self._view_mode == "grid" else self._grid).clear()
 
                 if self._selection_scope.mode == "matching":
                     # invalidate_if_stale already ran earlier in this same
