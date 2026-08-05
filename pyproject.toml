@@ -15,7 +15,10 @@ license = {file = "LICENSE"}
 # cryptography is REQUIRED (offline Ed25519 Founder-license verification);
 # licensing fails closed without it, so a fresh install must pull it here.
 dependencies = [
-    "customtkinter>=5.2.0",
+    # Pinned exactly (lockstep with requirements.txt): the Windows wheel-scroll
+    # patch relies on private CTkScrollableFrame APIs that only 6.0.0 provides.
+    # See docs/CACHE_VAULT_CUSTOMTKINTER_SUPPORT_POLICY_2026-08-05.md.
+    "customtkinter==6.0.0",
     "pystray>=0.19.0",
     "Pillow>=10.0.0",
     "pywin32>=306; platform_system == 'Windows'",

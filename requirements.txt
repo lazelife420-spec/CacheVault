@@ -1,7 +1,12 @@
 # Cache Vault MVP — runtime dependencies.
 # The core logic (cache_vault.core) needs none of these; they are only for the
 # desktop UI, tray, and Windows clipboard integration.
-customtkinter>=5.2.0
+# Pinned exactly: the Windows wheel-scroll patch (cache_vault/ui/scroll_patch.py)
+# relies on private CTkScrollableFrame APIs that changed across releases
+# (5.2.x exposes check_if_master_is_canvas; 6.0.0 exposes _check_if_valid_scroll).
+# Only 6.0.0 is compatible, so pin it for reproducible CI and packaged builds.
+# See docs/CACHE_VAULT_CUSTOMTKINTER_SUPPORT_POLICY_2026-08-05.md.
+customtkinter==6.0.0
 pystray>=0.19.0
 Pillow>=10.0.0
 pywin32>=306; platform_system == "Windows"
