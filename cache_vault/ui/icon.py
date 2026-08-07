@@ -29,6 +29,47 @@ def asset_path(name: str) -> str:
     return os.path.join(base, "assets", name)
 
 
+def _draw_magnifier(size: int, color: str):
+    """Draw a monochrome magnifier glyph on a transparent RGBA tile."""
+    r = int(color[1:3], 16)
+    g = int(color[3:5], 16)
+    b = int(color[5:7], 16)
+    ink = (r, g, b, 255)
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    lw = max(1, size // 9)
+    cx = size * 0.40
+    cy = size * 0.40
+    rad = size * 0.30
+    d.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], outline=ink, width=lw)
+    # Handle: short diagonal stroke from the lower-right of the lens ring.
+    hx1 = cx + rad * 0.70
+    hy1 = cy + rad * 0.70
+    hx2 = size * 0.86
+    hy2 = size * 0.86
+    d.line([hx1, hy1, hx2, hy2], fill=ink, width=lw)
+    return img
+
+
+def search_icon_pil(size: int = 18):
+    """A monochrome magnifier glyph as a PIL RGBA image for search affordances.
+
+    Drawn at runtime (no asset dependency) so it stays crisp at any DPI and
+    matches the Proof Foundry monochrome-symbol language (cf. the ⟳/◈ glyphs
+    used elsewhere in the chrome). Pillow is already a runtime dependency
+    (used for the tray icon), so this adds no packaging burden. Returns
+    ``None`` when Pillow is unavailable so callers can degrade gracefully.
+
+    The caller is responsible for wrapping this in an ``ImageTk.PhotoImage``
+    bound to the correct Tk root and retaining the reference — a ``CTkImage``
+    binds its internal photo to ``Tk._default_root``, which breaks across the
+    many app construction/teardown cycles in the test suite.
+    """
+    if not _HAS_PIL:
+        return None
+    return _draw_magnifier(size, "#8E98A2")  # lifted muted — visible on BLACK_METAL
+
+
 def icon_ico_path() -> str:
     return asset_path(_PRIMARY_ICO)
 

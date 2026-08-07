@@ -52,6 +52,7 @@ from .dialogs import (
 )
 from . import batch_actions
 from . import clip_context
+from . import icon
 from . import sidebar_context
 try:
     from .settings_hub import SettingsHub
@@ -874,13 +875,82 @@ class CacheVaultApp(ctk.CTk):
         self._used_var = ctk.StringVar(value="Any")
         self._type_var = ctk.StringVar(value="All Types")
 
-        self._clips_search = ctk.CTkEntry(
+        # --- Search field -----------------------------------------------------
+        # The default CTkEntry surface matches the IRON_GRAY toolbar panel
+        # (#1A1F26), so an unstyled entry reads as an empty divider rather
+        # than an interactive control (UX finding: All Clips search control
+        # difficult to discover). Wrap it in a differentiated, outlined well
+        # with a visible magnifier icon and a clear focus state. Search
+        # semantics, the bound StringVar/callback, and the toolbar layout are
+        # unchanged.
+        self._search_field_wrap = ctk.CTkFrame(
             self._toolbar_row1,
-            textvariable=self._search_var,
-            placeholder_text="Search saved clips…  (type:link  source:cursor)",
+            fg_color=brand.BLACK_METAL,
+            border_width=1,
+            border_color=brand.VAULT_BORDER,
+            corner_radius=6,
             height=32,
         )
-        self._clips_search.pack(fill="x", padx=6, pady=4)
+        self._search_field_wrap.pack(fill="x", padx=6, pady=4)
+
+        # Visible magnifier icon. The PhotoImage is bound to this app's own
+        # Tk root (master=self) and retained on the instance so it lives
+        # exactly as long as this window. A CTkImage is deliberately NOT used
+        # here: CTkImage binds its internal photo to Tk._default_root, which
+        # triggers "pyimageN doesn't exist" across the many app
+        # construction/teardown cycles in the test suite (and any other
+        # multi-root process). The glyph matches the app's monochrome-symbol
+        # language (cf. the ⟳/◈ marks used elsewhere).
+        self._search_icon_photo = None
+        self._search_icon_label = None
+        _icon_pil = icon.search_icon_pil(18)
+        if _icon_pil is not None:
+            from PIL import ImageTk
+            self._search_icon_photo = ImageTk.PhotoImage(_icon_pil, master=self)
+            self._search_icon_label = tk.Label(
+                self._search_field_wrap,
+                image=self._search_icon_photo,
+                text="",
+                bg=brand.BLACK_METAL,
+                highlightthickness=0,
+                borderwidth=0,
+            )
+            self._search_icon_label.pack(side="left", padx=(8, 4))
+
+        self._clips_search = ctk.CTkEntry(
+            self._search_field_wrap,
+            textvariable=self._search_var,
+            placeholder_text="Search clips…  (type:link  source:cursor)",
+            height=32,
+            fg_color="transparent",
+            border_width=0,
+        )
+        self._clips_search.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        # Visible placeholder cue. CTkEntry's own placeholder_text never renders
+        # here because CTk only activates it when no textvariable is bound
+        # (see CTkEntry._activate_placeholder) and this field binds
+        # ``_search_var``. That silent gap was part of the discoverability
+        # defect, so drive an explicit overlay label that reads "Search clips…"
+        # while the field is empty and unfocused. Clicking it focuses the entry.
+        self._search_placeholder = tk.Label(
+            self._search_field_wrap,
+            text="Search clips…",
+            bg=brand.BLACK_METAL,
+            fg=brand.MUTED_TEXT,
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self._search_placeholder.bind("<Button-1>", lambda _e: self._clips_search.focus_set())
+
+        # Clear focus affordance: lift the well outline to Proof Teal while the
+        # search input has focus, restore the restrained border on blur, and
+        # keep the placeholder cue in sync with focus/text state.
+        self._clips_search.bind("<FocusIn>", self._on_search_focus_in)
+        self._clips_search.bind("<FocusOut>", self._on_search_focus_out)
+        self._search_var.trace_add("write", lambda *_: self._update_search_placeholder())
+        self._search_placeholder_focused = False
+        self._update_search_placeholder()
         # Cross-view search banner — visible when search is active.
         # Matches FEATURE_DIRECTION: "search runs across all clips — live history AND Recently Removed"
         self._search_scope_banner = ctk.CTkLabel(
@@ -3078,6 +3148,40 @@ class CacheVaultApp(ctk.CTk):
             return
         self._capture_ctrl.arm_ignore_next()
         self._show_toast("Next copy will not be saved.")
+
+    def _on_search_focus_in(self, _event=None) -> None:
+        self._search_placeholder_focused = True
+        try:
+            self._search_field_wrap.configure(border_color=brand.PROOF_TEAL)
+        except Exception:  # noqa: BLE001 — cosmetic only, must not break focus
+            pass
+        self._update_search_placeholder()
+
+    def _on_search_focus_out(self, _event=None) -> None:
+        self._search_placeholder_focused = False
+        try:
+            self._search_field_wrap.configure(border_color=brand.VAULT_BORDER)
+        except Exception:  # noqa: BLE001 — cosmetic only, must not break focus
+            pass
+        self._update_search_placeholder()
+
+    def _update_search_placeholder(self) -> None:
+        """Show the "Search clips…" overlay only while the field is empty and
+        unfocused (standard placeholder behavior). Driven manually because
+        CTkEntry suppresses its own placeholder when a textvariable is bound."""
+        label = getattr(self, "_search_placeholder", None)
+        if label is None:
+            return
+        try:
+            empty = self._search_var.get() == ""
+            show = empty and not getattr(self, "_search_placeholder_focused", False)
+            if show:
+                # Sit just right of the magnifier icon, vertically centered.
+                label.place(relx=0, rely=0.5, x=34, anchor="w")
+            else:
+                label.place_forget()
+        except Exception:  # noqa: BLE001 — cosmetic only
+            pass
 
     def _on_search_changed(self, *_):
         if not self._alive():
