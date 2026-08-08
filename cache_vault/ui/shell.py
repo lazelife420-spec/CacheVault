@@ -133,6 +133,12 @@ _FOUNDER_NAV_GATES: dict[str, str] = {
 
 
 class CacheVaultApp(ctk.CTk):
+    # Label for the page-level All Clips Refresh affordance. The ⟳ glyph is the
+    # visible refresh icon (same monochrome-symbol language as the ◈/⟳ marks
+    # already used in the chrome); the word keeps it accessible and testable.
+    _REFRESH_LABEL = "⟳ Refresh"
+    _REFRESH_BUSY_LABEL = "⟳ Refreshing…"
+
     def report_callback_exception(self, exc, val, tb):  # noqa: N802 - Tk API
         """Log Tk callback failures instead of failing silently."""
         err = val if isinstance(val, BaseException) else Exception(val)
@@ -985,6 +991,23 @@ class CacheVaultApp(ctk.CTk):
             ],
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
+
+        # Page-level Refresh control. Exposes the EXISTING refresh() path
+        # (debounced; single persistent background worker; overlap-guarded by
+        # _render_active/_refresh_generation) as a visible, supported
+        # affordance — the packaged UI previously had no way to invoke it.
+        # Deliberately lives on row2 with Sort/Type (page-level controls) and
+        # is visually distinct from the Cards/Grid view toggle on row3, so the
+        # refresh action is never confused with switching views. It calls
+        # refresh(); it does not add a second refresh implementation. Its
+        # busy/disabled state is driven in lockstep with the refresh indicator
+        # by _set_refreshing().
+        self._refresh_btn = ctk.CTkButton(
+            self._toolbar_row2, text=self._REFRESH_LABEL, width=112, height=28,
+            command=self._on_refresh_clicked, **theme.secondary_button(),
+        )
+        self._refresh_btn.pack(side="right", padx=(2, 8))
+        tooltip.bind_tooltip(self._refresh_btn, "Refresh")
 
         # Narrow-width containment guard: packed first (side="right") so it
         # stays the true rightmost element of the row regardless of whether
@@ -2426,6 +2449,48 @@ class CacheVaultApp(ctk.CTk):
                     frame._refresh()
         self.refresh()
 
+    def _on_refresh_clicked(self) -> None:
+        """Handler for the page-level Refresh control.
+
+        Invokes the existing supported refresh path only. Overlap protection is
+        the engine's job (refresh() coalesces a call made while a render is
+        active into a single pending request and never spins up a second
+        worker), so this deliberately adds no locking of its own -- it must not
+        become a second refresh implementation.
+        """
+        if not self._alive():
+            return
+        self.refresh()
+
+    def _set_refreshing(self, active: bool, *, error: bool = False) -> None:
+        """Single choke point for refresh busy/idle presentation.
+
+        Drives the existing non-blocking PageHeader indicator AND the page-level
+        Refresh control together so the two can never drift: while a refresh is
+        in flight the control shows a busy label and is disabled (which also
+        makes an overlapping click impossible), and it returns to normal once
+        the refresh settles -- on success or on the honest failure path, where
+        the header keeps showing "Refresh failed — showing previous results".
+        """
+        self._page_header.set_refreshing(active, error=error)
+        # Read via __dict__ rather than getattr(): CTk/tkinter override
+        # __getattr__ to delegate unknown names to self.tk, so a plain
+        # getattr(self, "_refresh_btn", None) does NOT return the default when
+        # the attribute is absent (e.g. an early call, or the bare
+        # object.__new__ stubs in tests/test_refresh_generation.py) -- it
+        # recurses into self.tk and raises RecursionError. __dict__.get stays
+        # a simple instance-attribute lookup.
+        btn = self.__dict__.get("_refresh_btn")
+        if btn is None:
+            return
+        try:
+            if active:
+                btn.configure(state="disabled", text=self._REFRESH_BUSY_LABEL)
+            else:
+                btn.configure(state="normal", text=self._REFRESH_LABEL)
+        except Exception:  # noqa: BLE001 - widget may be mid-teardown
+            pass
+
     def refresh(self) -> None:
         """Debounced refresh — collapses rapid-fire calls into one actual render.
 
@@ -2465,7 +2530,7 @@ class CacheVaultApp(ctk.CTk):
         # "list goes blank, then the window hangs" behavior: the vault scan
         # that used to run synchronously right after now runs off-thread,
         # but the blank flash came from this method, not from that scan.
-        self._page_header.set_refreshing(True)
+        self._set_refreshing(True)
 
         self._refresh_job = self.after(50, self._do_refresh_sync)
 
@@ -2616,7 +2681,7 @@ class CacheVaultApp(ctk.CTk):
         # read) -- existing list/grid content is untouched (nothing here
         # destroys it), just flag it as stale rather than pretending it's
         # current.
-        self._page_header.set_refreshing(False, error=True)
+        self._set_refreshing(False, error=True)
         # Nothing was actually rendered, so any pending request always
         # runs (no signature to compare against).
         self._finish_active_refresh()
@@ -2799,10 +2864,10 @@ class CacheVaultApp(ctk.CTk):
             self._control_strip.update_state(summary)
             if self._locked():
                 self._lock_screen.lift()
-            self._page_header.set_refreshing(False)
+            self._set_refreshing(False)
         except Exception as exc:  # noqa: BLE001
             write_crash("refresh", exc)
-            self._page_header.set_refreshing(False, error=True)
+            self._set_refreshing(False, error=True)
             # Safety net: if the exception happened before any of the
             # branch-specific _finish_active_refresh() calls above ran (or
             # before an async render_batched's on_complete could ever
