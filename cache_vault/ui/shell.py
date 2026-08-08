@@ -3965,6 +3965,7 @@ class CacheVaultApp(ctk.CTk):
             smc.CMD_RENAME_COLLECTION,
             smc.CMD_EMPTY_COLLECTION,
             smc.CMD_PERMANENTLY_DELETE_ALL,
+            smc.CMD_CLEAR_ALL_CLIPS,
         ):
             self._show_toast("Sidebar context changed; command aborted.")
             return
@@ -4231,6 +4232,61 @@ class CacheVaultApp(ctk.CTk):
             self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''} ({skipped} skipped).")
         else:
             self._show_toast(f"Restored {total} clip{'s' if total != 1 else ''}.")
+        self._selection_scope.clear()
+        self.refresh()
+
+    def _sidebar_clear_all_clips(self, ctx: Any) -> None:
+        """Move every currently-active clip to Recently Removed.
+
+        Re-resolves the ids from the database at execution time rather
+        than trusting the count frozen into the menu label, and never
+        consults the visible/matching selection -- this command is
+        view-wide by definition.
+        """
+        if ctx.target_query is None:
+            return
+        ids: list[str] = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (
+            count, batches,
+        ):
+            for batch in batches:
+                ids.extend(batch)
+        if not ids:
+            self._show_toast("There are no clips to clear.")
+            return
+
+        def _run() -> None:
+            try:
+                result = self.vault.clear_all_clips(ids)
+            except Exception:  # noqa: BLE001
+                # soft_delete_many rolls the whole batch back, so the vault
+                # is genuinely unchanged; say so instead of implying a
+                # partial clear the user would then go hunting for.
+                self._show_toast(
+                    "Clear all clips failed. No clips were moved and your vault is unchanged."
+                )
+                self.refresh()
+                return
+            self._report_clear_all_clips_result(result)
+
+        from .dialogs import ClearAllClipsDialog
+        ClearAllClipsDialog(self, total_count=len(ids), on_confirm=_run)
+
+    def _report_clear_all_clips_result(self, result: Any) -> None:
+        moved = result.succeeded_count
+        skipped = result.skipped_count
+        if moved == 0:
+            self._show_toast("No clips were moved.")
+        elif skipped:
+            self._show_toast(
+                f"Moved {moved} clip{'s' if moved != 1 else ''} to Recently Removed "
+                f"({skipped} already removed). They can be restored from Recently Removed."
+            )
+        else:
+            self._show_toast(
+                f"Moved {moved} clip{'s' if moved != 1 else ''} to Recently Removed. "
+                "They can be restored from Recently Removed."
+            )
         self._selection_scope.clear()
         self.refresh()
 

@@ -1493,3 +1493,76 @@ class PermanentDeleteAllDialog(ctk.CTkToplevel):
             return
         self.destroy()
         self._on_confirm()
+
+
+class ClearAllClipsDialog(ctk.CTkToplevel):
+    """Single-step confirmation for "Clear all clips (move to Recently
+    Removed)".
+
+    One step, not two, because the action is recoverable: it only sets
+    ``deleted_at``, and every cleared clip stays restorable from Recently
+    Removed. The two-stage typed-phrase gate is reserved for the
+    irreversible command (``PermanentDeleteAllDialog``); using it here
+    would train users to type past the confirmation that actually
+    matters.
+
+    The exact clip count is stated in the body, the wording says where
+    the clips go and that they can be restored, and the action button is
+    wired to a real click only -- never Return/Space -- with keyboard
+    focus placed on Cancel so no keypress can confirm by itself. Escape
+    and window close cancel safely.
+    """
+
+    def __init__(self, master, *, total_count: int, on_confirm: Callable[[], None]):
+        super().__init__(master)
+        self.title("Move all clips to Recently Removed")
+        self.geometry("480x290")
+        self.resizable(False, False)
+        self._on_confirm = on_confirm
+
+        plural = "s" if total_count != 1 else ""
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=18, pady=18)
+
+        ctk.CTkLabel(
+            body,
+            text=(
+                f"Move all {total_count} clip{plural} to Recently Removed?\n\n"
+                f"{total_count} clip{plural} will leave All Clips and appear in "
+                "Recently Removed.\n\n"
+                "These clips can be restored until they are permanently removed.\n"
+                "Nothing is deleted from disk: no clip content, no image files, "
+                "and no favorites or collections are destroyed by this action.\n\n"
+                "Cache Vault keeps capturing new clips normally afterwards."
+            ),
+            justify="left", anchor="w", wraplength=440,
+        ).pack(fill="x", pady=(0, 16))
+
+        btns = ctk.CTkFrame(body, fg_color="transparent")
+        btns.pack(fill="x", side="bottom")
+        move_btn = ctk.CTkButton(
+            btns, text="Move All", height=32, command=self._finish,
+            **theme.primary_button(),
+        )
+        move_btn.pack(side="right")
+        cancel_btn = ctk.CTkButton(
+            btns, text="Cancel", height=32, command=self._cancel,
+            **theme.secondary_button(),
+        )
+        cancel_btn.pack(side="right", padx=(8, 0))
+
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda e: self._cancel())
+
+        _bring_to_front(self, master, modal=True, center_on=(480, 290))
+        try:
+            cancel_btn.focus_set()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _cancel(self) -> None:
+        self.destroy()
+
+    def _finish(self) -> None:
+        self.destroy()
+        self._on_confirm()

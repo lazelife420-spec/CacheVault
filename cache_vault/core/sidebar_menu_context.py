@@ -44,6 +44,7 @@ CMD_REMOVE_FAVORITE_MARKS = "remove_favorite_marks"
 CMD_RENAME_COLLECTION = "rename_collection"
 CMD_EXPORT_COLLECTION = "export_collection"
 CMD_EMPTY_COLLECTION = "empty_collection"
+CMD_CLEAR_ALL_CLIPS = "clear_all_clips"
 CMD_RESTORE_SELECTED = "restore_selected"
 CMD_RESTORE_ALL = "restore_all"
 CMD_PERMANENTLY_DELETE_SELECTED = "permanently_delete_selected"
@@ -266,6 +267,23 @@ def _all_clips_matrix(ctx: SidebarInvocationContext) -> list[MenuCommand]:
         out.append(_disabled(reason, CMD_EXPORT_CURRENT_VIEW, "Export current view"))
 
     out.append(_enabled(CMD_SCAN_CLEANUP_SUGGESTIONS, "Scan for cleanup suggestions"))
+
+    # View-wide and recoverable, so -- like Restore all / Empty collection --
+    # it does not require the row to be active; it re-resolves its ids from
+    # the database at execution time. The label names the destination instead
+    # of stopping at "Clear all", because this codebase never lets a bulk
+    # command imply more or less than it does.
+    if ctx.item_count:
+        out.append(_enabled(
+            CMD_CLEAR_ALL_CLIPS,
+            f"Clear all {ctx.item_count} clip{'s' if ctx.item_count != 1 else ''} "
+            "(move to Recently Removed)",
+        ))
+    else:
+        out.append(_disabled(
+            "no items", CMD_CLEAR_ALL_CLIPS, "Clear all clips (move to Recently Removed)",
+        ))
+
     out.append(_enabled(CMD_PROPERTIES, _properties_label(ctx)))
     return out
 
