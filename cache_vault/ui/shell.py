@@ -40,7 +40,7 @@ from ..core.paste_delivery import (
     restore_clipboard_text,
     snapshot_clipboard_text,
 )
-from ..core.storage import FILTER_HOME, FILTER_SEARCH_ALL
+from ..core.storage import FILTER_ALL, FILTER_HOME, FILTER_SEARCH_ALL
 from ..core.mobile.bridge import MobileBridge
 from ..core.mobile.mobile_access_controller import MobileAccessController
 from ..core.vault import Vault
@@ -541,6 +541,8 @@ class CacheVaultApp(ctk.CTk):
             "<Control-a>": lambda e: self._keyboard_select_all(e),
             "<Control-A>": lambda e: self._keyboard_select_all(e),
             "<Control-Shift-A>": lambda e: self._keyboard_select_all_matching(e),
+            "<Control-l>": lambda e: self._focus_clips_search(e),
+            "<Control-L>": lambda e: self._focus_clips_search(e),
             "<Delete>": lambda e: self._keyboard_remove_selected(e),
             "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
             "<Menu>": lambda e: self._keyboard_open_context_menu(e),
@@ -1051,6 +1053,13 @@ class CacheVaultApp(ctk.CTk):
         )
         self._selection_hint_label.pack(side="left", padx=(6, 0))
         self._update_selected_action_strip(None)
+
+    def _focus_clips_search(self, _event=None):
+        """Make the primary All Clips search surface reachable by keyboard."""
+        if self._filters.active != FILTER_ALL:
+            self._navigate_filter(FILTER_ALL)
+        self.after_idle(self._clips_search.focus_set)
+        return "break"
 
     def _control_strip_callbacks(self) -> dict:
         return {
@@ -2165,6 +2174,48 @@ class CacheVaultApp(ctk.CTk):
             self._list.grid()
         self._update_inspector_visibility()
 
+    def _update_clip_surface_chrome(
+        self, active: str, total_clips: int, query,
+    ) -> None:
+        """Keep All Clips title, status, and actions in one coherent hierarchy."""
+        if active != FILTER_ALL:
+            return
+
+        noun = "clip" if total_clips == 1 else "clips"
+        subtitle = (
+            f"{total_clips} matching {noun}"
+            if query is not None and query.text.strip()
+            else f"{total_clips} {noun}"
+        )
+        chips = [
+            "Active clips",
+            f"View: {'Grid' if self._view_mode == 'grid' else 'Cards'}",
+        ]
+        if self._type_filter:
+            chips.append(f"Type: {self._type_var.get()}")
+        if self._sort_var.get() != "Newest Added":
+            chips.append(f"Sort: {self._sort_var.get()}")
+        if query is not None and query.text.strip():
+            chips.insert(0, "Search active")
+        self._page_header.set_content(self._filters.active_label, subtitle)
+        self._page_header.set_status_chips(chips)
+        if total_clips:
+            self._page_header.set_actions(
+                secondary_text="Clear all…",
+                secondary_cmd=self._clear_all_from_header,
+            )
+        else:
+            self._page_header.set_actions()
+
+    def _clear_all_from_header(self) -> None:
+        """Expose the recoverable clear action without changing its safety path."""
+        if not self._guard_unlocked():
+            return
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            self, FILTER_ALL,
+        )
+        self._sidebar_clear_all_clips(ctx)
+
     def _show_vault_screen(self, key: str) -> None:
         self._home.grid_remove()
         self._list.grid_remove()
@@ -2783,6 +2834,7 @@ class CacheVaultApp(ctk.CTk):
                 more_count = total_clips - len(clips)
                 clip_noun = "clip" if total_clips == 1 else "clips"
                 self._page_header.set_content(self._filters.active_label, f"{total_clips} {clip_noun}")
+                self._update_clip_surface_chrome(active, total_clips, query)
                 self._visible_clip_ids = [c.id for c in clips]
                 empty_msg = self._empty_message(active, clips, query)
                 view = self._grid if self._view_mode == "grid" else self._list
