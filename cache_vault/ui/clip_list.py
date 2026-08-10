@@ -63,6 +63,7 @@ class ClipList(ctk.CTkScrollableFrame):
         self._last_empty_message: str | None = None
         self._last_group_by: str | None = None
         self._render_job: str | None = None
+        self._render_generation: int = 0
         self._more_count: int = 0
         self._more_label: ctk.CTkLabel | None = None
         self._empty_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -141,6 +142,7 @@ class ClipList(ctk.CTkScrollableFrame):
         super().destroy()
 
     def cancel_render(self) -> None:
+        self._render_generation += 1
         if self._render_job:
             try:
                 self.after_cancel(self._render_job)
@@ -150,22 +152,20 @@ class ClipList(ctk.CTkScrollableFrame):
 
     def render_batched(
         self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None,
-        more_count: int = 0, on_complete: Callable[[], None] | None = None,
+        more_count: int = 0, on_complete: Callable[[], None] | None = None, generation: int = 0,
     ) -> None:
         """``on_complete``, if given, fires once every batch has actually
         been built (not right after this call returns -- rendering itself
-        is chunked across ``after(10, ...)`` ticks so the UI thread never
-        blocks on a large list, so a caller that needs to act on the
-        *complete* set of rendered rows -- e.g. repainting a "select all
-        matching" selection's visual state after a same-context refresh
-        -- must wait for this rather than acting immediately after the
-        call, which would only see the first batch's rows.
+        is chunked across ``after(5, ...)`` ticks so the UI thread never
+        blocks on a large list). Generation tokens guarantee that stale
+        render jobs from superseded queries/refreshes cancel immediately.
         """
         self.clear()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
         self._more_count = more_count
+        gen = self._render_generation
 
         if not clips:
             for w in self._empty_container.winfo_children():
@@ -187,7 +187,7 @@ class ClipList(ctk.CTkScrollableFrame):
                 on_complete()
             return
 
-        batch_size = 15
+        batch_size = 8
         if group_by:
             from ..core import grouping
             groups = grouping.group_clips(clips, group_by)
@@ -197,21 +197,23 @@ class ClipList(ctk.CTkScrollableFrame):
                 if (group_by, title) not in self._collapsed_groups:
                     for clip in members:
                         flat_pending.append(("clip", clip))
-            self._render_next_batch_flat(flat_pending, 0, batch_size, on_complete)
+            self._render_next_batch_flat(flat_pending, 0, batch_size, on_complete, gen)
         else:
-            self._render_next_batch(clips, 0, batch_size, on_complete)
+            self._render_next_batch(clips, 0, batch_size, on_complete, gen)
 
     def _render_next_batch(
         self, clips: list[Clip], start_idx: int, batch_size: int,
-        on_complete: Callable[[], None] | None = None,
+        on_complete: Callable[[], None] | None = None, gen: int = 0,
     ) -> None:
+        if gen != self._render_generation:
+            return
         end_idx = min(start_idx + batch_size, len(clips))
         for i in range(start_idx, end_idx):
             self._rows.append(self._build_row(clips[i]))
 
         if end_idx < len(clips):
             self._render_job = self.after(
-                10, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete),
+                5, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete, gen),
             )
         else:
             self._render_job = None
@@ -221,8 +223,10 @@ class ClipList(ctk.CTkScrollableFrame):
 
     def _render_next_batch_flat(
         self, pending: list[tuple[str, any]], start_idx: int, batch_size: int,
-        on_complete: Callable[[], None] | None = None,
+        on_complete: Callable[[], None] | None = None, gen: int = 0,
     ) -> None:
+        if gen != self._render_generation:
+            return
         end_idx = min(start_idx + batch_size, len(pending))
         for i in range(start_idx, end_idx):
             kind, data = pending[i]
@@ -233,7 +237,7 @@ class ClipList(ctk.CTkScrollableFrame):
 
         if end_idx < len(pending):
             self._render_job = self.after(
-                10, lambda: self._render_next_batch_flat(pending, end_idx, batch_size, on_complete),
+                5, lambda: self._render_next_batch_flat(pending, end_idx, batch_size, on_complete, gen),
             )
         else:
             self._render_job = None

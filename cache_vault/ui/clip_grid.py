@@ -77,6 +77,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._rows_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._rows_frame.pack(fill="both", expand=True, padx=4)
         self._render_job: str | None = None
+        self._render_generation: int = 0
         self._more_count: int = 0
         self._more_label: ctk.CTkLabel | None = None
         self._empty_container = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
@@ -170,6 +171,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         super().destroy()
 
     def cancel_render(self) -> None:
+        self._render_generation += 1
         if self._render_job:
             try:
                 self.after_cancel(self._render_job)
@@ -179,7 +181,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
 
     def render_batched(
         self, clips: list[Clip], *, empty_message: str | None = None, more_count: int = 0,
-        on_complete: Callable[[], None] | None = None,
+        on_complete: Callable[[], None] | None = None, generation: int = 0,
     ) -> None:
         """``on_complete``, if given, fires once every batch has actually
         been built -- see ClipList.render_batched's docstring for why a
@@ -187,6 +189,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         after this call returns."""
         self.clear()
         self._more_count = more_count
+        gen = self._render_generation
         if not clips:
             for w in self._empty_container.winfo_children():
                 w.destroy()
@@ -207,20 +210,22 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 on_complete()
             return
 
-        batch_size = 20
-        self._render_next_batch(clips, 0, batch_size, on_complete)
+        batch_size = 8
+        self._render_next_batch(clips, 0, batch_size, on_complete, gen)
 
     def _render_next_batch(
         self, clips: list[Clip], start_idx: int, batch_size: int,
-        on_complete: Callable[[], None] | None = None,
+        on_complete: Callable[[], None] | None = None, gen: int = 0,
     ) -> None:
+        if gen != self._render_generation:
+            return
         end_idx = min(start_idx + batch_size, len(clips))
         for i in range(start_idx, end_idx):
             self._build_row(clips[i])
 
         if end_idx < len(clips):
             self._render_job = self.after(
-                10, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete),
+                5, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete, gen),
             )
         else:
             self._render_job = None
