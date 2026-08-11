@@ -229,7 +229,20 @@ class ClipGrid(ctk.CTkScrollableFrame):
             return
 
         batch_size = 8
-        self._render_next_batch(clips, 0, batch_size, on_complete, gen)
+        # Build first row synchronously so content appears immediately;
+        # remaining rows are batched via after(5) for responsiveness.
+        self._build_row(clips[0])
+        if len(clips) > 1:
+            self._render_job = self.after(
+                5, lambda: self._render_next_batch(
+                    clips, 1, batch_size, on_complete, gen),
+            )
+        else:
+            self._render_job = None
+            self._show_more_footer()
+            self._render_superseded = None
+            if on_complete is not None:
+                on_complete()
 
     def _render_next_batch(
         self, clips: list[Clip], start_idx: int, batch_size: int,

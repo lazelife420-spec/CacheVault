@@ -2770,26 +2770,33 @@ class CacheVaultApp(ctk.CTk):
         try:
             from ..core import storage as S
 
-            summary = self.vault.dashboard_summary(counts=counts)
-            counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
-            counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
-            counts[NAV_MOBILE_INBOX] = summary.get("mobile_inbox", 0)
-            counts[NAV_EDITABLE_COPIES] = summary.get("editable_copies", 0)
-            counts[NAV_HTML_BUNDLES] = summary.get("html_bundles", 0)
-            counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
-            counts[NAV_VAULT_MACROS] = len(self._macro_store.load_all())
-            self._filters.update_counts(counts)
-            self._filters.update_collections(self.vault.list_collections())
-            self._filters.update_safes(self.vault.list_safes())
-            self._filters.update_founder_status(licensing.load_license())
+            def _apply_dashboard_updates(counts):
+                """Populate counts, filters, collections, safes — toolbar/sidebar
+                chrome.  Only called once per snapshot, and may be deferred
+                until after first content appears in the clip-content path."""
+                summary = self.vault.dashboard_summary(counts=counts)
+                counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
+                counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
+                counts[NAV_MOBILE_INBOX] = summary.get("mobile_inbox", 0)
+                counts[NAV_EDITABLE_COPIES] = summary.get("editable_copies", 0)
+                counts[NAV_HTML_BUNDLES] = summary.get("html_bundles", 0)
+                counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
+                counts[NAV_VAULT_MACROS] = len(self._macro_store.load_all())
+                self._filters.update_counts(counts)
+                self._filters.update_collections(self.vault.list_collections())
+                self._filters.update_safes(self.vault.list_safes())
+                self._filters.update_founder_status(licensing.load_license())
+                return summary
 
             if active in NAV_SCREEN_KEYS:
+                summary = _apply_dashboard_updates(counts)
                 self._list.clear()
                 self._grid.clear()
                 self._show_vault_screen(active)
                 clip_count = summary.get("all", 0)
                 self._finish_active_refresh(rendered_signature)
             elif active == FILTER_HOME:
+                summary = _apply_dashboard_updates(counts)
                 self._list.clear()
                 self._grid.clear()
                 self._show_home()
@@ -2837,15 +2844,15 @@ class CacheVaultApp(ctk.CTk):
                 clip_count = summary.get("all", 0)
                 self._finish_active_refresh(rendered_signature)
             else:
-                self._show_clips()
-                more_count = total_clips - len(clips)
-                clip_noun = "clip" if total_clips == 1 else "clips"
-                self._page_header.set_content(self._filters.active_label, f"{total_clips} {clip_noun}")
-                self._update_clip_surface_chrome(active, total_clips, query)
+                # Build the first row immediately so content is visible ASAP.
+                # Toolbar/chrome updates happen after — they update the
+                # header/sidebar but don't affect which clip rows appear.
                 self._visible_clip_ids = [c.id for c in clips]
                 empty_msg = self._empty_message(active, clips, query)
                 view = self._grid if self._view_mode == "grid" else self._list
-                (self._list if self._view_mode == "grid" else self._grid).clear()
+                other = self._list if self._view_mode == "grid" else self._grid
+                more_count = total_clips - len(clips)
+                other.clear()
 
                 if self._selection_scope.mode == "matching":
                     def on_complete(v=view, sig=rendered_signature):  # noqa: E731
@@ -2896,7 +2903,20 @@ class CacheVaultApp(ctk.CTk):
                     clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
                     self._update_selected_action_strip(clip)
                     self._preview.show(clip)
+
+                # Now make the view visible and update toolbar/chrome.
+                # The first row is already built; _show_clips maps the parent
+                # so the row becomes visible immediately.
+                self._show_clips()
+                clip_noun = "clip" if total_clips == 1 else "clips"
+                self._page_header.set_content(self._filters.active_label, f"{total_clips} {clip_noun}")
+                self._update_clip_surface_chrome(active, total_clips, query)
                 clip_count = total_clips
+
+                # Dashboard/filter updates are deferred until after the first
+                # clip row is already on screen — they update navbar/sidebar
+                # chrome, not clip content.
+                summary = _apply_dashboard_updates(counts)
 
             summary["shown"] = clip_count
             summary["default_safe"] = self.vault.settings.default_safe_id

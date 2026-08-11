@@ -37,9 +37,10 @@ class TestLargeVaultRenderBatching(unittest.TestCase):
         on_select = MagicMock()
         clip_list = ClipList(self.root, on_select=on_select)
         
-        # render_batched with batch_size = 8 should render initial 8 rows synchronously
+        # First row renders synchronously for responsive first-content;
+        # remaining rows are batched via after(5).
         clip_list.render_batched(clips)
-        self.assertEqual(len(clip_list._rows), 8)
+        self.assertEqual(len(clip_list._rows), 1)
         self.assertIsNotNone(clip_list._render_job)
         clip_list.destroy()
 
@@ -67,8 +68,8 @@ class TestLargeVaultRenderBatching(unittest.TestCase):
         gen2 = clip_list._render_generation
 
         self.assertNotEqual(gen1, gen2)
-        # Verify rows reflect second clip set's first batch
-        self.assertEqual(len(clip_list._rows), 8)
+        # Verify rows reflect second clip set's first row
+        self.assertEqual(len(clip_list._rows), 1)
         clip_list.destroy()
 
     def test_clip_list_cancel_render_clears_job(self):
