@@ -78,6 +78,8 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._rows_frame.pack(fill="both", expand=True, padx=4)
         self._render_job: str | None = None
         self._render_generation: int = 0
+        self._render_superseded: Callable[[], None] | None = None
+        self._render_owner_generation: int = -1
         self._more_count: int = 0
         self._more_label: ctk.CTkLabel | None = None
         self._empty_container = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
@@ -171,6 +173,9 @@ class ClipGrid(ctk.CTkScrollableFrame):
         super().destroy()
 
     def cancel_render(self) -> None:
+        """Abandon any in-flight batch chain, telling the render's owner via
+        ``on_superseded`` -- see ClipList.cancel_render for why losing that
+        signal deadlocks every later refresh."""
         self._render_generation += 1
         if self._render_job:
             try:
@@ -178,18 +183,30 @@ class ClipGrid(ctk.CTkScrollableFrame):
             except Exception: # noqa: BLE001
                 pass
             self._render_job = None
+        superseded = self._render_superseded
+        self._render_superseded = None
+        if superseded is not None:
+            superseded()
 
     def render_batched(
         self, clips: list[Clip], *, empty_message: str | None = None, more_count: int = 0,
         on_complete: Callable[[], None] | None = None, generation: int = 0,
+        on_superseded: Callable[[], None] | None = None,
     ) -> None:
         """``on_complete``, if given, fires once every batch has actually
         been built -- see ClipList.render_batched's docstring for why a
         caller needing the complete rendered set can't just act right
-        after this call returns."""
+        after this call returns, and for the ``generation`` /
+        ``on_superseded`` contract."""
+        if generation < self._render_owner_generation:
+            if on_superseded is not None:
+                on_superseded()
+            return
+        self._render_owner_generation = generation
         self.clear()
         self._more_count = more_count
         gen = self._render_generation
+        self._render_superseded = on_superseded
         if not clips:
             for w in self._empty_container.winfo_children():
                 w.destroy()
@@ -206,6 +223,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
             return
@@ -230,6 +248,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         else:
             self._render_job = None
             self._show_more_footer()
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
 

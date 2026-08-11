@@ -2655,6 +2655,43 @@ class CacheVaultApp(ctk.CTk):
             return
         self.refresh()
 
+    def _abandon_active_refresh(self) -> None:
+        """Called when a batched render is superseded before its last batch.
+
+        That render's on_complete can never fire, so render ownership is
+        released here instead. Without it _render_active stays True forever and
+        refresh() only records _pending_refresh_signature -- whose sole consumer
+        is _finish_active_refresh() -- so Search during a large-vault render
+        would freeze the view part-way through the previous query, keeping its
+        stale header counts and busy state.
+
+        The pending signature is deliberately kept rather than consumed here:
+        when the supersede came from a newer refresh, that refresh claims
+        ownership on this same tick and consumes it normally.
+        _resume_abandoned_refresh only steps in when nothing claimed ownership
+        -- which is reachable without any refresh at all, e.g. clicking a
+        date-group header (ClipList._toggle_group -> render -> clear ->
+        cancel_render) or the lock surface, both of which cancel the chain
+        without going through refresh(). It defers to idle so an abandon
+        raised from inside a render can't re-enter render_batched underneath
+        its own caller.
+        """
+        if not self._render_active:
+            return
+        self._render_active = False
+        if self._pending_refresh_signature is not None:
+            self.after_idle(self._resume_abandoned_refresh)
+
+    def _resume_abandoned_refresh(self) -> None:
+        if not self._alive() or self._render_active:
+            return
+        pending = self._pending_refresh_signature
+        if pending is None:
+            return
+        self._pending_refresh_signature = None
+        if pending != self._current_refresh_signature():
+            self.refresh(immediate=True)
+
     def _refresh_worker_loop(self) -> None:
         """The one persistent background thread for this app instance.
         Processes refresh-snapshot requests one at a time, in the order
@@ -2818,6 +2855,7 @@ class CacheVaultApp(ctk.CTk):
                         self._grid.render_batched(
                             clips, empty_message=empty_msg, more_count=more_count,
                             on_complete=on_complete, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                     else:
                         self._list.render_batched(
@@ -2826,6 +2864,7 @@ class CacheVaultApp(ctk.CTk):
                             group_by=self._group_by_for_view(active, query),
                             more_count=more_count,
                             on_complete=on_complete, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                 else:
                     self._selected_clip_ids = [
@@ -2840,6 +2879,7 @@ class CacheVaultApp(ctk.CTk):
                         self._grid.render_batched(
                             clips, empty_message=empty_msg, more_count=more_count,
                             on_complete=_finish, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                         self._grid.set_selected(self._selected_clip_id)
                     else:
@@ -2850,6 +2890,7 @@ class CacheVaultApp(ctk.CTk):
                             group_by=self._group_by_for_view(active, query),
                             more_count=more_count,
                             on_complete=_finish, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                         self._list.set_selected(self._selected_clip_id)
                     clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None

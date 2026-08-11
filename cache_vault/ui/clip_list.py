@@ -64,6 +64,8 @@ class ClipList(ctk.CTkScrollableFrame):
         self._last_group_by: str | None = None
         self._render_job: str | None = None
         self._render_generation: int = 0
+        self._render_superseded: Callable[[], None] | None = None
+        self._render_owner_generation: int = -1
         self._more_count: int = 0
         self._more_label: ctk.CTkLabel | None = None
         self._empty_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -142,6 +144,14 @@ class ClipList(ctk.CTkScrollableFrame):
         super().destroy()
 
     def cancel_render(self) -> None:
+        """Abandon any in-flight batch chain.
+
+        An abandoned chain can never reach its ``on_complete``, so the render's
+        owner is told through ``on_superseded`` instead: exactly one of the two
+        callbacks fires for every ``render_batched`` call. Dropping both is what
+        stranded the shell's _render_active flag, which deadlocked every later
+        refresh and left the view frozen part-way through the old query.
+        """
         self._render_generation += 1
         if self._render_job:
             try:
@@ -149,23 +159,41 @@ class ClipList(ctk.CTkScrollableFrame):
             except Exception: # noqa: BLE001
                 pass
             self._render_job = None
+        superseded = self._render_superseded
+        self._render_superseded = None
+        if superseded is not None:
+            superseded()
 
     def render_batched(
         self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None,
         more_count: int = 0, on_complete: Callable[[], None] | None = None, generation: int = 0,
+        on_superseded: Callable[[], None] | None = None,
     ) -> None:
         """``on_complete``, if given, fires once every batch has actually
         been built (not right after this call returns -- rendering itself
         is chunked across ``after(5, ...)`` ticks so the UI thread never
         blocks on a large list). Generation tokens guarantee that stale
         render jobs from superseded queries/refreshes cancel immediately.
+
+        ``generation`` is the caller's authoritative refresh generation; a
+        snapshot older than the one already on screen is refused outright so
+        a late-arriving worker result cannot repaint over newer results.
+        ``on_superseded`` fires instead of ``on_complete`` whenever this
+        render is refused or abandoned, so the caller never loses the
+        completion signal it uses to release render ownership.
         """
+        if generation < self._render_owner_generation:
+            if on_superseded is not None:
+                on_superseded()
+            return
+        self._render_owner_generation = generation
         self.clear()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
         self._more_count = more_count
         gen = self._render_generation
+        self._render_superseded = on_superseded
 
         if not clips:
             for w in self._empty_container.winfo_children():
@@ -183,6 +211,7 @@ class ClipList(ctk.CTkScrollableFrame):
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
             return
@@ -218,6 +247,7 @@ class ClipList(ctk.CTkScrollableFrame):
         else:
             self._render_job = None
             self._show_more_footer()
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
 
@@ -242,6 +272,7 @@ class ClipList(ctk.CTkScrollableFrame):
         else:
             self._render_job = None
             self._show_more_footer()
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
 
