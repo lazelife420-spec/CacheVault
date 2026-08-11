@@ -226,32 +226,27 @@ class ClipList(ctk.CTkScrollableFrame):
                 if (group_by, title) not in self._collapsed_groups:
                     for clip in members:
                         flat_pending.append(("clip", clip))
-            # Build the first header and first clip synchronously so clip
-            # content appears immediately. The remaining items are batched
-            # via after(5) for responsiveness.
-            kind0, data0 = flat_pending[0]
-            if kind0 == "header":
-                self._build_group_header(*data0)
-            else:
-                self._rows.append(self._build_row(data0))
+            # Build forward from the start through the leading group
+            # header(s) up to and including the first clip, so real clip
+            # content is on screen synchronously rather than waiting for the
+            # first after(5) batch. Nothing is skipped, and the synchronous
+            # burst is capped at one batch so an all-collapsed list (every
+            # entry a header) still yields to the event loop.
+            idx = 0
+            limit = min(len(flat_pending), max(1, batch_size))
+            while idx < limit:
+                kind, data = flat_pending[idx]
+                idx += 1
+                if kind == "header":
+                    self._build_group_header(*data)
+                else:
+                    self._rows.append(self._build_row(data))
+                    break
 
-            # Find the first clip entry (may be past one or more headers).
-            first_clip = 1
-            while (first_clip < len(flat_pending)
-                   and flat_pending[first_clip][0] != "clip"):
-                first_clip += 1
-
-            if first_clip < len(flat_pending):
-                _, clip_data = flat_pending[first_clip]
-                self._rows.append(self._build_row(clip_data))
-                schedule_from = first_clip + 1
-            else:
-                schedule_from = 1
-
-            if schedule_from < len(flat_pending):
+            if idx < len(flat_pending):
                 self._render_job = self.after(
                     5, lambda: self._render_next_batch_flat(
-                        flat_pending, schedule_from, batch_size,
+                        flat_pending, idx, batch_size,
                         on_complete, gen),
                 )
             else:

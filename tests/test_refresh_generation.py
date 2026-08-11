@@ -28,6 +28,21 @@ class _MustNotTouch:
         raise AssertionError(f"guard did not short-circuit -- accessed vault.{name}")
 
 
+class _MustNotIterate:
+    """Stands in for the `clips` snapshot payload. Projecting clips is the
+    first real work the clip-content branch performs, so iterating this is
+    proof the apply got past the generation guard.
+
+    self.vault alone can no longer serve as that marker on this branch:
+    dashboard/sidebar population (the only vault access) is deliberately
+    deferred until after the first clip row is built, so vault is now
+    touched *after* the clip projection rather than before it.
+    """
+
+    def __iter__(self):
+        raise AssertionError("guard did not short-circuit -- iterated clips")
+
+
 def _app_stub(*, alive: bool = True, generation: int = 0):
     app = object.__new__(CacheVaultApp)
     app._refresh_generation = generation
@@ -98,7 +113,7 @@ def test_current_generation_snapshot_reaches_real_work(monkeypatch):
     _apply_refresh_snapshot catches and crash-logs exceptions from its body
     rather than raising (so one screen's bug can't take down the pump
     loop), so "reached real work" is observed via write_crash firing with
-    the _MustNotTouch sentinel's message, not via a raised exception.
+    the _MustNotIterate sentinel's message, not via a raised exception.
     """
     app = _app_stub(generation=7)
     app._refresh_workers_in_flight = 1
@@ -106,11 +121,11 @@ def test_current_generation_snapshot_reaches_real_work(monkeypatch):
     import cache_vault.ui.shell as shell_mod
     monkeypatch.setattr(shell_mod, "write_crash", lambda tag, exc: crashes.append((tag, exc)))
 
-    app._apply_refresh_snapshot(7, "all", None, {}, None, None)
+    app._apply_refresh_snapshot(7, "all", None, {}, _MustNotIterate(), None)
 
     assert app._refresh_workers_in_flight == 0, "counter decrements before the guard check"
-    assert len(crashes) == 1 and "vault." in str(crashes[0][1]), (
-        "a matching generation must reach real work (self.vault access), "
+    assert len(crashes) == 1 and "iterated clips" in str(crashes[0][1]), (
+        "a matching generation must reach real work (clip projection), "
         "not be silently discarded"
     )
 
@@ -164,6 +179,6 @@ def test_overlapping_refreshes_only_the_newest_ever_reaches_real_work(monkeypatc
     assert crashes == []
 
     # Generation 2 (current) arrives last and must reach real work.
-    app._apply_refresh_snapshot(2, "all", None, {}, None, None)
+    app._apply_refresh_snapshot(2, "all", None, {}, _MustNotIterate(), None)
     assert app._refresh_workers_in_flight == 0
-    assert len(crashes) == 1 and "vault." in str(crashes[0][1])
+    assert len(crashes) == 1 and "iterated clips" in str(crashes[0][1])
