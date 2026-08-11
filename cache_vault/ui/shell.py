@@ -2545,14 +2545,21 @@ class CacheVaultApp(ctk.CTk):
     def refresh(self, *, immediate: bool = False) -> None:
         """Debounced refresh — collapses rapid-fire calls into one actual render.
 
-        When a user searches, changes filters, or navigates, pending batch jobs
-        and superseded queries are preempted immediately so the new view renders
-        without delay.
+        While a refresh is actively rendering (worker query in flight, or
+        its resulting widget batch still being built across after() ticks),
+        a new call does not cancel and restart it.  Cancelling here would
+        discard already-built rows and force a second full DB query + widget
+        rebuild for what is often the exact same visible content.  Instead
+        the latest requested state is recorded as one pending trailing
+        request; when the active render finishes (_finish_active_refresh),
+        exactly one more refresh runs, and only if that pending state is
+        materially different from what was just rendered.
         """
         if not self._alive():
             return
-
-        self._cancel_all_refreshes()
+        if self._render_active:
+            self._pending_refresh_signature = self._current_refresh_signature()
+            return
 
         if hasattr(self, "_refresh_job") and self._refresh_job:
             try:
@@ -2565,7 +2572,6 @@ class CacheVaultApp(ctk.CTk):
             self._refresh_generation = 0
         self._refresh_generation += 1
 
-        self._render_active = True
         self._set_refreshing(True)
 
         if immediate:
