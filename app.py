@@ -124,9 +124,11 @@ def main() -> int:
         return _run_contained_selftest()
 
     from cache_vault.core.settings import Settings
+    from cache_vault.ui.font_patch import install_main_thread_font_finalizer_guard
     from cache_vault.ui.scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
 
     _settings = Settings.load()
+    install_main_thread_font_finalizer_guard()
     install_windows_scroll_patch(lambda: scroll_config_from_settings(_settings))
 
     from cache_vault.core.single_instance import claim_or_exit

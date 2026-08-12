@@ -98,6 +98,7 @@ from .vault_screens import VaultScreenHost
 from .vault_lock import VaultControlStrip, VaultLockScreen
 from . import theme
 from .crashlog import write_crash
+from .font_patch import install_main_thread_font_finalizer_guard
 from .scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
 from .win_scroll import refresh_windows_scroll_cache
 from .page_header import PageHeader
@@ -358,6 +359,9 @@ class CacheVaultApp(ctk.CTk):
         self._macro_store = MacroStore()
         self._macro_registry = MacroSafeRegistry(self.vault.settings)
 
+        # Must be installed before any font is discarded: a font finalized on
+        # a background thread calls Tk off-thread and hangs the refresh.
+        install_main_thread_font_finalizer_guard()
         install_windows_scroll_patch(
             lambda: scroll_config_from_settings(self.vault.settings),
         )
