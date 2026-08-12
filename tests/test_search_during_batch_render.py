@@ -200,16 +200,15 @@ def _pump_until(app, predicate, seconds=15.0):
 def _abandon_render_at(app, view, row):
     """Fire ``action`` from inside the chain, once ``row`` rows are built."""
     state = {"fired": False}
-    build_row = view._build_row
+    on_rendered = view._on_row_rendered
 
     def wrapper(clip):
-        result = build_row(clip)
+        on_rendered(clip)
         if not state["fired"] and len(view._render_order) >= row:
             state["fired"] = True
             view.cancel_render()
-        return result
 
-    view._build_row = wrapper
+    view._on_row_rendered = wrapper
     return state
 
 
@@ -277,19 +276,18 @@ def test_collapsing_a_group_mid_render_does_not_strand_refresh_state(tmp_path):
         app._list._build_group_header = header_spy
 
         state = {"fired": False}
-        build_row = app._list._build_row
+        on_rendered = app._list._on_row_rendered
 
         def wrapper(clip):
-            result = build_row(clip)
+            on_rendered(clip)
             if not state["fired"] and titles and len(app._list._render_order) >= ABANDON_AT_ROW:
                 state["fired"] = True
                 app._list._toggle_group(*titles[0])
-            return result
 
-        app._list._build_row = wrapper
+        app._list._on_row_rendered = wrapper
         app.refresh(immediate=True)
         pumped = _pump_until(app, lambda: state["fired"])
-        app._list._build_row = build_row
+        app._list._on_row_rendered = on_rendered
         app._list._build_group_header = build_group_header
         if not pumped:
             pytest.skip("this vault produced no grouped clip-list render to collapse")
@@ -329,21 +327,20 @@ def test_search_during_active_batch_render_shows_only_the_new_query(tmp_path):
 
         # Search lands while the (capped) All Clips render is mid-chain.
         state = {"fired": False}
-        build_row = app._list._build_row
+        on_rendered = app._list._on_row_rendered
 
         def wrapper(clip):
-            result = build_row(clip)
+            on_rendered(clip)
             if not state["fired"] and len(app._list._render_order) >= ABANDON_AT_ROW:
                 state["fired"] = True
                 app._search_var.set(term)
                 app.refresh(immediate=True)
-            return result
 
-        app._list._build_row = wrapper
+        app._list._on_row_rendered = wrapper
         app.refresh(immediate=True)
         assert _pump_until(app, lambda: state["fired"]), "search never landed mid-render"
 
-        app._list._build_row = build_row
+        app._list._on_row_rendered = on_rendered
         _settle(app)
 
         expected = [c.id for c in vault.list_clips(app._build_query(),

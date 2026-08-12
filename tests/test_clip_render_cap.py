@@ -161,7 +161,7 @@ def test_large_history_is_capped(tmp_path):
         with mock.patch.object(
             vault, "list_clips", wraps=vault.list_clips,
         ) as list_clips_mock, mock.patch.object(
-            app._list, "_build_row", wraps=app._list._build_row,
+            app._list, "_on_row_rendered", wraps=app._list._on_row_rendered,
         ) as build_row_mock, mock.patch.object(
             vault, "capture", wraps=vault.capture,
         ) as capture_mock:
