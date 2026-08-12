@@ -76,6 +76,11 @@ class ClipComposerDialog(ctk.CTkToplevel):
         # second click (or a repeated event) on any of them must not run a
         # second combine.
         self._action_started = False
+        self._closing = False
+        self._master_ref = master
+        # A failure notice must outlive the next state sync; the transient
+        # empty-buffer hint must not.
+        self._status_sticky = False
 
         ctk.CTkLabel(
             self,
@@ -138,11 +143,49 @@ class ClipComposerDialog(ctk.CTkToplevel):
         _bring_to_front(self, master, modal=True, center_on=(760, 560))
 
     def destroy(self) -> None:
+        """Close without racing CustomTkinter's own pending focus restore.
+
+        Same defect, and same containment, as EditClipTextDialog.destroy():
+        CTkToplevel's Windows titlebar workaround schedules
+        ``after(10, widget.focus)`` against whatever had focus, and if this
+        dialog is already torn down when that fires, Tk raises "bad window path
+        name" from the after() dispatcher. A native run of the real Combine
+        dialog put exactly that traceback in crash.log, so withdraw
+        immediately (the dialog disappears at once), hand focus back to the
+        parent, and defer the teardown past CustomTkinter's ~20ms chain.
+        """
+        if self._closing:
+            return
+        self._closing = True
         try:
             self.grab_release()
         except Exception:  # noqa: BLE001 - grab may already be gone
             pass
-        super().destroy()
+        try:
+            if self.winfo_exists():
+                self.withdraw()
+        except Exception:  # noqa: BLE001 - window may already be gone
+            pass
+        try:
+            master = self._master_ref
+            if master is not None and master.winfo_exists():
+                master.focus_set()
+        except Exception:  # noqa: BLE001 - parent may be gone/closing too
+            pass
+        try:
+            if self.winfo_exists():
+                self.after(50, self._finalize_destroy)
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        self._finalize_destroy()
+
+    def _finalize_destroy(self) -> None:
+        try:
+            if self.winfo_exists():
+                super().destroy()
+        except Exception:  # noqa: BLE001 - already gone
+            pass
 
     def _reset_from_mode(self, mode: str) -> None:
         text = compose_text(self._parts, mode)
@@ -181,10 +224,19 @@ class ClipComposerDialog(ctk.CTkToplevel):
                 button.configure(state=state)
             except Exception:  # noqa: BLE001 - button may be gone mid-teardown
                 pass
-        if state == "normal":
+        if state == "normal" and not self._status_sticky:
             self._set_status("")
 
-    def _set_status(self, message: str) -> None:
+    def _set_status(self, message: str, *, sticky: bool = False) -> None:
+        """Show a line under the buffer.
+
+        ``sticky`` marks a message that a later state sync must not silently
+        clear. Without it, an action-failure notice was wiped the moment
+        ``_action_failed`` called ``_sync_action_states``, so the dialog stayed
+        open after a withheld save with no visible reason why -- observed in a
+        native run of the real dialog.
+        """
+        self._status_sticky = sticky and bool(message)
         try:
             self._status.configure(text=message)
         except Exception:  # noqa: BLE001 - label may be gone mid-teardown
@@ -195,6 +247,7 @@ class ClipComposerDialog(ctk.CTkToplevel):
         the action as busy. Returns the text to act on, or None to stay open."""
         if self._action_started:
             return None
+        self._set_status("")  # drop any notice left by a previous attempt
         text = self._text()
         if not text.strip():
             self._set_status("Nothing to combine yet — the text above is empty.")
@@ -216,7 +269,7 @@ class ClipComposerDialog(ctk.CTkToplevel):
             button.configure(state="normal", text=restore_text)
         except Exception:  # noqa: BLE001
             pass
-        self._set_status(message)
+        self._set_status(message, sticky=True)
         self._sync_action_states()
 
     def _run_action(self, callback, text: str, button, label: str, verb: str) -> None:

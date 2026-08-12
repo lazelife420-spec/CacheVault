@@ -259,6 +259,113 @@ def test_callback_returning_none_still_counts_as_success(tk_root):
     assert not _alive(dialog)
 
 
+# --- the failure has to be visible --------------------------------------------
+# Found by a native run of the real dialog: after a withheld save the dialog
+# correctly stayed open, but the status line was empty, because _action_failed
+# set the message and then _sync_action_states cleared it again. The user was
+# left with a dialog that had simply refused to close, with no reason given.
+
+def test_withheld_save_leaves_a_visible_reason(tk_root):
+    dialog = _make(tk_root, on_save_clip=lambda _t: False)
+    dialog._save_clip()
+    _pump(tk_root)
+    try:
+        status = dialog._status.cget("text")
+        assert status.strip(), "the dialog must say why it stayed open"
+        assert "still here" in status
+    finally:
+        dialog.destroy()
+
+
+def test_failed_copy_leaves_a_visible_reason(tk_root):
+    def boom(_text):
+        raise RuntimeError("clipboard unavailable")
+
+    dialog = _make(tk_root, on_copy=boom)
+    with pytest.raises(RuntimeError):
+        dialog._copy()
+    _pump(tk_root)
+    try:
+        assert dialog._status.cget("text").strip()
+    finally:
+        dialog.destroy()
+
+
+def test_editing_does_not_erase_the_failure_notice(tk_root):
+    """A state sync triggered by ordinary editing must not wipe the notice."""
+    dialog = _make(tk_root, on_save_clip=lambda _t: False)
+    dialog._save_clip()
+    _pump(tk_root)
+    try:
+        dialog._body.insert("end", " more text")
+        dialog._on_body_edited()
+        _pump(tk_root)
+        assert dialog._status.cget("text").strip()
+    finally:
+        dialog.destroy()
+
+
+def test_a_new_attempt_clears_the_previous_notice(tk_root):
+    results = [False, True]
+    dialog = _make(tk_root, on_save_clip=lambda _t: results.pop(0))
+    dialog._save_clip()
+    _pump(tk_root)
+    assert dialog._status.cget("text").strip()
+    dialog._save_clip()
+    _pump(tk_root)
+    assert not _alive(dialog), "the retry succeeded, so it closed"
+
+
+def test_empty_buffer_hint_still_clears_once_there_is_text(tk_root):
+    dialog = _make(tk_root)
+    try:
+        dialog._body.delete("1.0", "end")
+        dialog._on_body_edited()
+        dialog._copy()
+        assert dialog._status.cget("text").strip()
+        dialog._body.insert("1.0", "text again")
+        dialog._on_body_edited()
+        _pump(tk_root)
+        assert dialog._status.cget("text") == ""
+    finally:
+        dialog.destroy()
+
+
+# --- teardown must not raise into the crash log -------------------------------
+
+def test_close_does_not_raise_stale_focus_error(tk_root):
+    """A native run logged "bad window path name .!clipcomposerdialog" from
+    CustomTkinter's own deferred focus restore firing after teardown."""
+    errors = []
+    original = tk_root.report_callback_exception
+    tk_root.report_callback_exception = lambda _e, val, _tb: errors.append(val)
+    try:
+        dialog = _make(tk_root)
+        _pump(tk_root, 0.3)
+        dialog.destroy()
+        _pump(tk_root, 0.4)
+    finally:
+        tk_root.report_callback_exception = original
+    assert not any("bad window path name" in str(e) for e in errors), errors
+
+
+def test_repeated_destroy_is_idempotent(tk_root):
+    dialog = _make(tk_root)
+    dialog.destroy()
+    dialog.destroy()
+    dialog.destroy()
+    _pump(tk_root, 0.3)
+    assert dialog._closing is True
+
+
+def test_destroy_releases_the_grab(tk_root):
+    dialog = _make(tk_root)
+    _pump(tk_root, 0.3)
+    dialog.destroy()
+    _pump(tk_root, 0.3)
+    assert tk_root.grab_current() is None
+
+
 # --- closing is not combining -------------------------------------------------
 
 def test_close_does_not_combine(tk_root):

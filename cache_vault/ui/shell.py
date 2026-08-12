@@ -104,6 +104,17 @@ from .win_scroll import refresh_windows_scroll_cache
 from .page_header import PageHeader
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
+# How long to leave the pasted clip on the clipboard before putting the user's
+# previous clipboard back. The target consumes the synthetic Ctrl+V
+# asynchronously (measured at ~0.17s after delivery against a real Windows
+# target), so restoring immediately makes it paste the *previous* clipboard.
+CLIPBOARD_RESTORE_DELAY_MS = 400
+# restore_clipboard_text has its own bounded OpenClipboard retry (~0.4s). If
+# another process holds the clipboard for longer than that the restore fails,
+# which must not silently leave the pasted clip sitting on the user's
+# clipboard: try again, then say so.
+CLIPBOARD_RESTORE_RETRY_MS = 600
+CLIPBOARD_RESTORE_ATTEMPTS = 3
 
 # Each rendered clip row is a deep CustomTkinter widget tree (~45 Tk widgets,
 # each a Windows USER object/HWND). Windows caps USER objects at ~10,000 per
@@ -5352,7 +5363,10 @@ class CacheVaultApp(ctk.CTk):
             existing = getattr(self, "_quick_paste", None)
             if existing is not None:
                 try:
-                    if existing.winfo_exists():
+                    # A popup that is mid-teardown still reports winfo_exists()
+                    # for the ~50ms its deferred destroy takes; refocusing that
+                    # one does nothing and would swallow the hotkey press.
+                    if existing.winfo_exists() and not getattr(existing, "_closing", False):
                         existing.focus_popup()
                         return
                 except Exception:  # noqa: BLE001
@@ -5437,7 +5451,8 @@ class CacheVaultApp(ctk.CTk):
             if content is None:
                 Toast(self, "Nothing available to paste.")
                 return
-            self._monitor.note_local_copy(clipboard_out.write_via_tk(self, content))
+            pasted_payload = clipboard_out.write_via_tk(self, content)
+            self._monitor.note_local_copy(pasted_payload)
             pasted_text = True
             item_type = clip.content_type or clip.classification or "text"
 
@@ -5464,22 +5479,68 @@ class CacheVaultApp(ctk.CTk):
                 delivery_ok = result.ok
                 reason = result.reason
                 target_title = result.target_title
-                if settings.restore_clipboard_after_paste and pasted_text:
-                    restore_clipboard_text(prior_clipboard)
+                will_restore = (
+                    settings.restore_clipboard_after_paste
+                    and pasted_text
+                    and delivery_ok
+                )
+                if will_restore:
+                    self._schedule_clipboard_restore(pasted_payload, prior_clipboard)
                 self._finish_paste(
                     clip, delivery_ok, item_type, target_title, reason,
-                    clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+                    clipboard_restored=will_restore,
                 )
 
             self.after(80, _deliver)
             return
 
-        if settings.restore_clipboard_after_paste and pasted_text and delivery_ok:
-            restore_clipboard_text(prior_clipboard)
+        # Nothing was delivered on this path, so there is no paste to restore
+        # "after". Restoring here wiped the clip the user had just chosen: with
+        # auto-paste off and restore on, Quick Paste put the clip on the
+        # clipboard and then immediately replaced it with the previous value
+        # again, leaving the feature a no-op (reproduced 3/3 natively). The clip
+        # has to stay on the clipboard for the user to paste it themselves.
         self._finish_paste(
             clip, delivery_ok, item_type, target_title, reason,
-            clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+            clipboard_restored=False,
         )
+
+    def _schedule_clipboard_restore(self, pasted_payload, prior_clipboard,
+                                    attempt: int = 1) -> None:
+        """Put the user's previous clipboard back, but not before the target
+        has actually consumed the paste.
+
+        deliver_ctrl_v only *sends* Ctrl+V; the target processes it
+        asynchronously. Restoring on the next line therefore raced the paste and
+        lost: measured against a real Windows target, the restore completed at
+        +0.170s while the target read the clipboard at +0.34s, so what got
+        pasted was the user's previous clipboard rather than the chosen clip --
+        5/5 trials, and 5/5 again with the restore suppressed pasting the clip
+        correctly. A blocking sleep does not fix it (it stalls the foreground
+        handoff too); the wait has to leave the event loop running.
+
+        The payload check keeps a late restore from overwriting something the
+        user copied while we were waiting.
+        """
+        def _restore() -> None:
+            if not self._alive():
+                return
+            current = snapshot_clipboard_text()
+            if current is not None and current != pasted_payload:
+                return
+            if restore_clipboard_text(prior_clipboard):
+                return
+            if attempt < CLIPBOARD_RESTORE_ATTEMPTS:
+                self._schedule_clipboard_restore(
+                    pasted_payload, prior_clipboard, attempt=attempt + 1)
+                return
+            self.vault.events.record(
+                "clipboard_restore_failed", None, {"attempts": attempt})
+            Toast(self, "Couldn't put your previous clipboard back - "
+                        "the pasted clip is still on the clipboard.")
+
+        delay = CLIPBOARD_RESTORE_DELAY_MS if attempt == 1 else CLIPBOARD_RESTORE_RETRY_MS
+        self.after(delay, _restore)
 
     def _quick_paste_text_for_action(self, clip, action: str) -> str | None:
         if clip.classification == models.CLASS_LINK:

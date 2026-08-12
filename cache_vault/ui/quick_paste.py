@@ -116,6 +116,7 @@ class QuickPaste(ctk.CTkToplevel):
         # so we assert focus on a short delay (and again, in case Windows'
         # foreground lock swallowed the first attempt).
         self._closing = False
+        self._destroying = False
         self._settled = False
         self.after(20, self.focus_popup)
         self.after(140, self.focus_popup)
@@ -268,12 +269,43 @@ class QuickPaste(ctk.CTkToplevel):
             pass
 
     def destroy(self) -> None:
+        """Hide now, tear down once CustomTkinter's own callbacks have run.
+
+        Same race as EditClipTextDialog/ClipComposerDialog: CTkToplevel's
+        Windows titlebar workaround (triggered off resizable() above) schedules
+        after(10, widget.focus) against whatever had focus, and the popup is
+        normally destroyed the instant a clip is chosen. A native Quick Paste
+        run left "bad window path name .!quickpaste" in crash.log from exactly
+        that callback. Withdrawing first means the popup still disappears
+        immediately from the user's point of view.
+        """
+        if getattr(self, "_destroying", False):
+            return
+        self._destroying = True
         self._closing = True
         try:
             self.grab_release()
         except Exception:  # noqa: BLE001
             pass
-        super().destroy()
+        try:
+            if self.winfo_exists():
+                self.withdraw()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if self.winfo_exists():
+                self.after(50, self._finalize_destroy)
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        self._finalize_destroy()
+
+    def _finalize_destroy(self) -> None:
+        try:
+            if self.winfo_exists():
+                super().destroy()
+        except Exception:  # noqa: BLE001 - already gone
+            pass
 
     def _cursor_geometry(self, w: int, h: int) -> str:
         """Place the popup at the mouse cursor, clamped to the screen."""
