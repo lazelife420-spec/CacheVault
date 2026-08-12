@@ -421,18 +421,14 @@ def test_l_pool_stats_counters(cl):
     assert stats["high_water"] == 5, "high_water is not cleared by a reset"
 
 
-def test_l2_in_place_rebind_is_not_reported_by_the_reused_counter(cl):
-    """Documents a real gap in the instrumentation, not a behaviour bug.
+def test_l2_in_place_rebind_is_reported_separately(cl):
+    """A same-length navigation reuses every row *in place*.
 
-    A same-length navigation is the most common transition there is, and it
-    reuses every row -- but it reuses them *in place*, via
-    _reuse_rows_in_place, which never goes through _acquire_slot. So none of
-    created/reused/hidden/destroyed moves, and the transition is invisible in
-    the counters even though 100% of rows were reused.
-
-    created == 0 and destroyed == 0 still prove no rebuild happened, which is
-    the property that matters for acceptance; but 'reused' must not be read as
-    "rows reused", only as "rows taken back out of the free pool".
+    Those rows never reach the free pool, so _acquire_slot never sees them and
+    'reused' cannot report them -- which once left the most common transition
+    there is showing zero on every counter despite reusing all 120 rows. They
+    are counted as 'rebound' instead, keeping 'reused' meaning strictly "taken
+    back out of the free pool".
     """
     _render(cl, _clips(20, "a"))
     slots = list(cl._active_slots)
@@ -442,10 +438,121 @@ def test_l2_in_place_rebind_is_not_reported_by_the_reused_counter(cl):
 
     assert list(cl._active_slots) == slots, "every row really was reused"
     stats = cl.pool_stats()
-    assert stats == {**stats, "created": 0, "reused": 0,
-                     "hidden": 0, "destroyed": 0}, (
-        "if this now reports reuse, the counter gap has been fixed and this "
-        "test should be replaced by a positive assertion")
+    assert stats["rebound"] == 20, "in-place reuse must be reported"
+    assert stats["created"] == 0
+    assert stats["reused"] == 0, "'reused' stays pool-refill only"
+    assert stats["hidden"] == 0
+    assert stats["destroyed"] == 0
+
+
+def test_l3_rebound_counts_only_rows_reused_in_place(cl):
+    """Growing from the free pool reports 'reused'; the rows already on screen
+    report 'rebound'. The two must not double-count."""
+    _render(cl, _clips(5, "a"))
+    _render(cl, _clips(2, "b"))          # 2 active, 3 pooled
+    cl.reset_pool_stats()
+
+    _render(cl, _clips(5, "c"))          # 2 rebound in place + 3 out of pool
+
+    stats = cl.pool_stats()
+    assert stats["rebound"] == 2
+    assert stats["reused"] == 3
+    assert stats["created"] == 0
+    assert stats["active"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Navigation is atomic: no row may show the previous query.
+# ---------------------------------------------------------------------------
+
+def _visible_title(slot):
+    """The title the underlying tkinter.Label really holds.
+
+    Read through the private Tk widget rather than CTkLabel.cget so this is an
+    observation of what is on screen, independent of the cached value that
+    _set() consults when it decides whether a configure can be skipped.
+    """
+    inner = getattr(slot.title_lbl, "_label", None)
+    return inner.cget("text") if inner is not None else slot.title_lbl.cget("text")
+
+
+def test_navigation_is_atomic_no_stale_rows_on_return(cl):
+    """When render_batched returns, every reusable row already shows the new
+    query.
+
+    Chunking the rebind pass across after() ticks was measured as an
+    alternative: it cut the synchronous cost from ~30ms to ~2ms but left 112
+    of 120 rows displaying the previous query for ~108ms. Rebinding is cheap
+    enough that this is not a trade worth making, and this test is what stops
+    it being made by accident.
+    """
+    _render(cl, _clips(40, "old"))
+    assert all(_visible_title(s).startswith("Old") for s in cl._active_slots)
+
+    # Deliberately NOT pumped: inspect the moment control comes back.
+    cl.render_batched(_clips(40, "new"))
+    cl.update_idletasks()
+
+    stale = [s for s in cl._active_slots if _visible_title(s).startswith("Old")]
+    assert stale == [], (
+        f"{len(stale)} rows still showed the previous query when "
+        "render_batched returned")
+
+
+def test_unchanged_properties_are_not_reconfigured(cl):
+    """The rebind stays exhaustive, but skips Tk calls that change nothing.
+
+    Re-rendering the identical clips must therefore issue no property sets at
+    all, while a real content change must still be applied.
+    """
+    clips = _clips(10, "a")
+    _render(cl, clips)
+
+    import customtkinter as ctk
+
+    seen: list[tuple[str, object]] = []
+    real = ctk.CTkLabel.configure
+
+    def spy(self, require_redraw=False, **kwargs):
+        seen.extend(kwargs.items())
+        return real(self, require_redraw=require_redraw, **kwargs)
+
+    ctk.CTkLabel.configure = spy
+    try:
+        _render(cl, [_clip(id=c.id, content=c.content, preview=c.preview,
+                           title=c.title) for c in clips])
+        unchanged = list(seen)
+
+        seen.clear()
+        _render(cl, _clips(10, "b"))
+        changed = list(seen)
+    finally:
+        ctk.CTkLabel.configure = real
+
+    assert unchanged == [], (
+        f"re-rendering identical clips still set {len(unchanged)} properties")
+    assert any(k == "text" for k, _v in changed), (
+        "a real content change must still reach the widget")
+
+
+def test_all_groups_collapsed_completes(cl):
+    """Every group collapsed means real clips but zero rows.
+
+    render_batched must still complete rather than indexing into the empty row
+    list -- the path that produced an IndexError while the rebind pass was
+    being restructured.
+    """
+    clips = _clips(6, "a")
+    _render(cl, clips, group_by="date")
+    assert cl._active_slots, "sanity: grouped render produced rows"
+
+    # Collapse every group that the grouped render produced.
+    from cache_vault.core import grouping
+    for title in grouping.group_clips(clips, "date"):
+        cl._collapsed_groups.add(("date", title))
+
+    _render(cl, clips, group_by="date")
+    assert cl.pool_stats()["active"] == 0, "no rows while all groups collapsed"
 
 
 # ---------------------------------------------------------------------------

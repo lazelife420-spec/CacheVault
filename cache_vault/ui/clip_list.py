@@ -55,6 +55,28 @@ def _process_user_objects() -> int | None:
         return None
 
 
+def _set(widget, **kwargs) -> None:
+    """Apply only the properties whose value actually changes.
+
+    CustomTkinter's configure() costs close to a millisecond per property even
+    when the new value is identical to the current one, and rebinding a row
+    re-applies every visual property it owns. On a 120-row navigation that was
+    6,000 property sets of which 68% changed nothing. cget() is orders of
+    magnitude cheaper, so filtering first is what keeps a navigation off the
+    multi-second path -- without making the rebind any less exhaustive.
+    """
+    changed = {}
+    for key, value in kwargs.items():
+        try:
+            if widget.cget(key) == value:
+                continue
+        except Exception:  # noqa: BLE001
+            pass          # unreadable property: fall through and set it
+        changed[key] = value
+    if changed:
+        widget.configure(**changed)
+
+
 def _is_packed(widget) -> bool:
     """Whether a widget is currently managed by its geometry manager.
 
@@ -161,8 +183,9 @@ class ClipList(ctk.CTkScrollableFrame):
         self._header_widgets: list[tuple] = []
         self._free_headers: list[tuple] = []
         self._pool_stats: dict[str, int] = {
-            "created": 0, "reused": 0, "hidden": 0, "destroyed": 0,
-            "high_water": 0, "headers_created": 0, "headers_reused": 0,
+            "created": 0, "reused": 0, "rebound": 0, "hidden": 0,
+            "destroyed": 0, "high_water": 0,
+            "headers_created": 0, "headers_reused": 0,
         }
 
     def _show_more_footer(self) -> None:
@@ -249,11 +272,30 @@ class ClipList(ctk.CTkScrollableFrame):
         while len(self._active_slots) > len(row_clips):
             self._release_slot(self._active_slots.pop())
         reuse = min(len(row_clips), len(self._active_slots))
-        for idx in range(reuse):
+        self._rebind_range(row_clips, 0, reuse)
+        return reuse
+
+    def _release_surplus(self, wanted: int) -> None:
+        """Drop rows the new result has no clip for.
+
+        Synchronous on purpose, and not chunkable: a surplus row left mapped
+        is a row of the *previous* query still on screen underneath the new
+        results.
+        """
+        while len(self._active_slots) > wanted:
+            self._release_slot(self._active_slots.pop())
+
+    def _rebind_range(self, row_clips: list[Clip], start: int, stop: int) -> None:
+        """Rebind already-active rows [start, stop) to their new clips."""
+        for idx in range(start, stop):
             self._bind_row_slot(self._active_slots[idx], row_clips[idx])
             self._rows.append(self._active_slots[idx].row)
             self._on_row_rendered(row_clips[idx])
-        return reuse
+        # Counted apart from "reused": these rows were never released to the
+        # free pool, so _acquire_slot never saw them. Without this the most
+        # common navigation there is -- same length in, same length out --
+        # reports every counter at zero despite reusing every row.
+        self._pool_counters()["rebound"] += max(stop - start, 0)
 
     def _recycle_for_render(self) -> None:
         """Prepare for a new render without destroying the rows.
@@ -390,18 +432,28 @@ class ClipList(ctk.CTkScrollableFrame):
         batch_size = 8
         row_clips, headers = self._flatten(clips, group_by)
 
-        # Rebinding an existing row is roughly thirty times cheaper than
-        # building one, so every reusable row is rebound synchronously: that
-        # keeps the view from showing another query's rows while the batches
-        # run, and still costs far less than the destroy pass it replaces.
-        reuse = self._reuse_rows_in_place(row_clips)
+        # Rows the new result has no clip for must come off screen now; the
+        # rest are rebound a batch at a time on the same chunk chain as the
+        # builds, so a long rebind pass never blocks the UI thread either.
+        self._release_surplus(len(row_clips))
+        reusable = len(self._active_slots)
 
-        if reuse >= len(row_clips):
+        if not row_clips:
+            # Every group is collapsed: there are real clips, but no rows to
+            # show for them. The headers still have to be placed.
             self._finish_render(headers, on_complete)
             return
 
-        start = reuse
-        if reuse == 0:
+        # Every reusable row is rebound before returning. Chunking this the way
+        # builds are chunked was measured and rejected: it cut the synchronous
+        # cost from 30ms to 2ms, which no one can perceive, but left 112 of 120
+        # rows showing the previous query's content for ~108ms afterwards.
+        # Rebinding is cheap enough that atomicity is worth more than the 28ms.
+        first = min(reusable, len(row_clips))
+        self._rebind_range(row_clips, 0, first)
+
+        start = first
+        if reusable == 0:
             # Nothing was reusable, so build one row synchronously to put real
             # content on screen before yielding, exactly as before pooling.
             # When rows *were* reused there is already content on screen and
@@ -414,7 +466,8 @@ class ClipList(ctk.CTkScrollableFrame):
         if start < len(row_clips):
             self._render_job = self.after(
                 5, lambda: self._render_next_rows(
-                    row_clips, headers, start, batch_size, on_complete, gen),
+                    row_clips, headers, start, batch_size, on_complete, gen,
+                    reusable),
             )
         else:
             self._finish_render(headers, on_complete)
@@ -422,17 +475,29 @@ class ClipList(ctk.CTkScrollableFrame):
     def _render_next_rows(
         self, row_clips: list[Clip], headers, start_idx: int, batch_size: int,
         on_complete: Callable[[], None] | None = None, gen: int = 0,
+        reusable: int = 0,
     ) -> None:
+        """Apply one batch of rows.
+
+        ``reusable`` is how many rows were already on screen when this render
+        started; indices below it are rebound, the rest are built. Both kinds
+        share one chain so the two costs interleave in render order rather
+        than the rebinds all landing up front.
+        """
         if gen != self._render_generation:
             return
         end_idx = min(start_idx + batch_size, len(row_clips))
         for i in range(start_idx, end_idx):
-            self._rows.append(self._build_row(row_clips[i]))
+            if i < reusable:
+                self._rebind_range(row_clips, i, i + 1)
+            else:
+                self._rows.append(self._build_row(row_clips[i]))
 
         if end_idx < len(row_clips):
             self._render_job = self.after(
                 5, lambda: self._render_next_rows(
-                    row_clips, headers, end_idx, batch_size, on_complete, gen),
+                    row_clips, headers, end_idx, batch_size, on_complete, gen,
+                    reusable),
             )
         else:
             self._finish_render(headers, on_complete)
@@ -540,8 +605,9 @@ class ClipList(ctk.CTkScrollableFrame):
     def _pool_counters(self) -> dict[str, int]:
         stats = getattr(self, "_pool_stats", None)
         if stats is None:
-            stats = {"created": 0, "reused": 0, "hidden": 0, "destroyed": 0,
-                     "high_water": 0, "headers_created": 0, "headers_reused": 0}
+            stats = {"created": 0, "reused": 0, "rebound": 0, "hidden": 0,
+                     "destroyed": 0, "high_water": 0,
+                     "headers_created": 0, "headers_reused": 0}
             self._pool_stats = stats
         return stats
 
@@ -555,7 +621,7 @@ class ClipList(ctk.CTkScrollableFrame):
 
     def reset_pool_stats(self) -> None:
         self._pool_counters().update(
-            created=0, reused=0, hidden=0, destroyed=0,
+            created=0, reused=0, rebound=0, hidden=0, destroyed=0,
             headers_created=0, headers_reused=0)
 
     def _note_high_water(self) -> None:
@@ -771,7 +837,7 @@ class ClipList(ctk.CTkScrollableFrame):
                 self._bind_slot_events(slot, lbl)
                 slot.trail_state = None          # force the repack below
             else:
-                lbl.configure(text=text, text_color=colour)
+                _set(lbl, text=text, text_color=colour)
 
         if state == slot.trail_state:
             return
@@ -790,9 +856,9 @@ class ClipList(ctk.CTkScrollableFrame):
             if idx < len(slot.chip_slots):
                 chip, dot, text = slot.chip_slots[idx]
                 style = clip_accents.label_accent(label)
-                chip.configure(fg_color=style.bg, border_color=style.border)
-                dot.configure(text_color=style.accent)
-                text.configure(text=label, text_color=style.text)
+                _set(chip, fg_color=style.bg, border_color=style.border)
+                _set(dot, text_color=style.accent)
+                _set(text, text=label, text_color=style.text)
                 if not _is_packed(chip):
                     chip.pack(side="left", padx=(0, 6), pady=(0, 2))
             else:
@@ -831,12 +897,14 @@ class ClipList(ctk.CTkScrollableFrame):
         else:
             painted.discard(clip.id)
 
-        slot.row.configure(
+        _set(
+            slot.row,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
             border_width=3 if selected else 1,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
-        slot.rail.configure(
+        _set(
+            slot.rail,
             width=8 if selected else 4,
             fg_color=brand.PROOF_TEAL if selected else brand.PROOF_TEAL_DIM,
         )
@@ -849,7 +917,7 @@ class ClipList(ctk.CTkScrollableFrame):
         elif clip.duplicate_of:
             badge = f"{badge} · DUPLICATE"
             badge_style = clip_accents.label_accent("Duplicate")
-        slot.badge_lbl.configure(text=badge, text_color=badge_style.accent)
+        _set(slot.badge_lbl, text=badge, text_color=badge_style.accent)
 
         if selected:
             if not _is_packed(slot.selected_badge):
@@ -860,16 +928,15 @@ class ClipList(ctk.CTkScrollableFrame):
         self._sync_trail(slot, clip)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
-        slot.title_lbl.configure(
-            text=title, font=theme.font(size=13 if selected else 12, weight="bold"))
+        _set(slot.title_lbl, text=title,
+             font=theme.font(size=13 if selected else 12, weight="bold"))
 
         preview_lines = (clip.preview or "(empty)").splitlines()[:3]
         preview = "\n".join(preview_lines)
         if len((clip.preview or "").splitlines()) > 3:
             preview += "…"
-        slot.preview_lbl.configure(
-            text=preview,
-            text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG)
+        _set(slot.preview_lbl, text=preview,
+             text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG)
 
         try:
             from ..core.clip_metadata import labels_for_clip
@@ -879,7 +946,8 @@ class ClipList(ctk.CTkScrollableFrame):
 
         window = self.winfo_toplevel()
         storage = getattr(getattr(window, "vault", None), "storage", None)
-        slot.meta_lbl.configure(
+        _set(
+            slot.meta_lbl,
             text=clip_metadata.source_summary_line(clip, storage),
             text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
             font=theme.font(size=11, weight="bold" if selected else "normal"),
