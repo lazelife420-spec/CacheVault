@@ -111,7 +111,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 self._header, text=label, height=30,
                 fg_color="transparent", hover_color=theme.nav_hover_bg(),
                 text_color=brand.STAMP_GOLD, anchor="w",
-                font=ctk.CTkFont(size=11, weight="bold"),
+                font=theme.font(size=11, weight="bold"),
                 command=lambda k=key: self._sort_by(k),
             )
             btn.grid(row=0, column=col, sticky="ew", padx=2, pady=2)
@@ -272,7 +272,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             self._current_group = group
             header = ctk.CTkLabel(
                 self._rows_frame, text=group,
-                font=ctk.CTkFont(size=12, weight="bold"),
+                font=theme.font(size=12, weight="bold"),
                 text_color=brand.STAMP_GOLD, anchor="w",
             )
             header.pack(fill="x", padx=10, pady=(12, 4))
@@ -294,7 +294,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             text = values[key]
             lbl = ctk.CTkLabel(
                 row, text=text, anchor="w",
-                font=ctk.CTkFont(size=12 if key == "name" else 11, weight="bold" if key == "name" else "normal"),
+                font=theme.font(size=12 if key == "name" else 11, weight="bold" if key == "name" else "normal"),
                 text_color=brand.PROOF_TEAL if key == "name" and selected else brand.MUTED_FG,
             )
             lbl.grid(row=0, column=col, sticky="ew", padx=8, pady=8)

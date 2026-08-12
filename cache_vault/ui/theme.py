@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+import tkinter
+import weakref
 from pathlib import Path
 
 import customtkinter as ctk
@@ -94,14 +96,85 @@ def status_badge_fg(verified: bool = False) -> str:
     return brand.PROOF_TEAL if verified else brand.STAMP_GOLD
 
 
+# Per-interpreter font caches. A CTkFont is bound to the Tk interpreter that
+# was current when it was created, so a font from a destroyed root must never
+# be handed to a widget under a new one ("application has been destroyed").
+_FONT_CACHE_BY_ROOT: "weakref.WeakKeyDictionary[object, dict[tuple, ctk.CTkFont]]" = (
+    weakref.WeakKeyDictionary()
+)
+# Strong refs to every font ever handed out, held for process lifetime on
+# purpose: see (1) in font(). Dropping one makes it garbage, which is exactly
+# the finalizer hazard the cache exists to avoid. Bounded by
+# (roots x variants), a handful in the app and ~one per root under test.
+_FONT_KEEPALIVE: list[ctk.CTkFont] = []
+
+
+def font(
+    *,
+    family: str | None = None,
+    size: int | None = None,
+    weight: str | None = None,
+) -> ctk.CTkFont:
+    """Return a shared CTkFont for this (family, size, weight).
+
+    Row/card builders ask for the same handful of font variants thousands of
+    times per render.  Two reasons these must be cached rather than
+    constructed per widget:
+
+    1.  Every CTkFont is a tkinter.font.Font whose __del__ calls into Tk
+        ("font delete").  Discarded fonts are therefore Tk work performed on
+        whichever thread the garbage collector happens to run on, and
+        tkinter.font.Font.__del__ swallows the resulting error rather than
+        raising -- so an off-main-thread finalizer does not fail loudly, it
+        blocks on the Tcl interpreter.  A render that orphans ~1,300 fonts
+        while the refresh worker is mid-query can land that finalizer on the
+        worker thread and hang the refresh (observed as "refresh did not
+        settle", worker stuck inside storage.counts).  A cached font is never
+        garbage, so the finalizer never runs.
+    2.  Constructing one costs a Tcl "font create" round-trip per widget.
+
+    Sharing an instance across widgets is safe: CTk widgets register a size
+    callback on the font in __init__ and deregister it in destroy(), so the
+    callback list tracks live widgets only.  Callers must not mutate the
+    returned font via configure() -- assign a different font instead.
+    """
+    root = tkinter._default_root
+    per_root = _FONT_CACHE_BY_ROOT.get(root)
+    if per_root is None:
+        per_root = {}
+        try:
+            _FONT_CACHE_BY_ROOT[root] = per_root
+        except TypeError:
+            # No root yet (or not weak-referenceable): fall back to an
+            # uncached font rather than binding it to the wrong interpreter.
+            per_root = None
+
+    key = (family, size, weight)
+    if per_root is not None:
+        cached = per_root.get(key)
+        if cached is not None:
+            return cached
+
+    kwargs = {}
+    if family is not None:
+        kwargs["family"] = family
+    if size is not None:
+        kwargs["size"] = size
+    if weight is not None:
+        kwargs["weight"] = weight
+    created = ctk.CTkFont(**kwargs)
+    _FONT_KEEPALIVE.append(created)
+    if per_root is not None:
+        per_root[key] = created
+    return created
+
+
 def body_font(size: int = 12) -> ctk.CTkFont:
-    import customtkinter as ctk
-    return ctk.CTkFont(size=size)
+    return font(size=size)
 
 
 def mono_font(size: int = 11) -> ctk.CTkFont:
-    import customtkinter as ctk
-    return ctk.CTkFont(family="Consolas", size=size)
+    return font(family="Consolas", size=size)
 
 
 def segmented_active(**extra) -> dict:

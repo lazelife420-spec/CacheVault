@@ -333,7 +333,7 @@ class ClipList(ctk.CTkScrollableFrame):
             fg_color="transparent",
             hover_color=style.bg,
             text_color=style.text,
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=theme.font(size=11, weight="bold"),
             command=lambda gb=group_by, t=title: self._toggle_group(gb, t),
         )
         btn.pack(side="left", fill="x", expand=True)
@@ -390,14 +390,14 @@ class ClipList(ctk.CTkScrollableFrame):
             badge_style = clip_accents.label_accent("Duplicate")
 
         ctk.CTkLabel(
-            top, text=badge, font=ctk.CTkFont(size=10, weight="bold"),
+            top, text=badge, font=theme.font(size=10, weight="bold"),
             text_color=badge_style.accent,
         ).pack(side="left")
 
         badge_lbl = ctk.CTkLabel(
             top,
             text="SELECTED",
-            font=ctk.CTkFont(size=10, weight="bold"),
+            font=theme.font(size=10, weight="bold"),
             text_color=brand.FOUNDRY_BLACK,
             fg_color=brand.PROOF_TEAL,
             corner_radius=999,
@@ -410,19 +410,19 @@ class ClipList(ctk.CTkScrollableFrame):
         trail = ctk.CTkFrame(top, fg_color="transparent")
         trail.pack(side="right")
         if clip.is_pinned:
-            ctk.CTkLabel(trail, text="★", font=ctk.CTkFont(size=12),
+            ctk.CTkLabel(trail, text="★", font=theme.font(size=12),
                          text_color=theme.proof_badge_fg()).pack(side="left", padx=2)
         if clip.collection:
-            ctk.CTkLabel(trail, text=clip.collection[:16], font=ctk.CTkFont(size=9),
+            ctk.CTkLabel(trail, text=clip.collection[:16], font=theme.font(size=9),
                          text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
         if clip.content_hash:
-            ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=10),
+            ctk.CTkLabel(trail, text="⬢", font=theme.font(size=10),
                          text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
         title_lbl = ctk.CTkLabel(
             body, text=title, anchor="w",
-            font=ctk.CTkFont(size=13 if selected else 12, weight="bold"),
+            font=theme.font(size=13 if selected else 12, weight="bold"),
             text_color=brand.RECEIPT_WHITE,
         )
         title_lbl.pack(fill="x", padx=2)
@@ -434,7 +434,7 @@ class ClipList(ctk.CTkScrollableFrame):
             preview += "…"
         ctk.CTkLabel(
             body, text=preview, anchor="w", justify="left", wraplength=420,
-            font=ctk.CTkFont(size=11),
+            font=theme.font(size=11),
             text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
         ).pack(fill="x", padx=2, pady=(2, 4))
 
@@ -459,7 +459,7 @@ class ClipList(ctk.CTkScrollableFrame):
             text=meta_str,
             anchor="w",
             text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
-            font=ctk.CTkFont(size=11, weight="bold" if selected else "normal"),
+            font=theme.font(size=11, weight="bold" if selected else "normal"),
         )
         meta_lbl.pack(fill="x", padx=2, pady=(0, 8))
         self._meta_label_by_id[clip.id] = meta_lbl
@@ -488,14 +488,14 @@ class ClipList(ctk.CTkScrollableFrame):
             chip,
             text="●",
             width=10,
-            font=ctk.CTkFont(size=7),
+            font=theme.font(size=7),
             text_color=style.accent,
         ).pack(side="left", padx=(5, 2), pady=2)
         ctk.CTkLabel(
             chip,
             text=label,
             anchor="w",
-            font=ctk.CTkFont(size=9),
+            font=theme.font(size=9),
             text_color=style.text,
         ).pack(side="left", padx=(0, 6), pady=2)
 
@@ -670,12 +670,12 @@ class ClipList(ctk.CTkScrollableFrame):
             self._meta_label_by_id = {}
         title_lbl = self._title_label_by_id.get(clip_id)
         if title_lbl is not None:
-            title_lbl.configure(font=ctk.CTkFont(size=13 if is_selected else 12, weight="bold"))
+            title_lbl.configure(font=theme.font(size=13 if is_selected else 12, weight="bold"))
         meta_lbl = self._meta_label_by_id.get(clip_id)
         if meta_lbl is not None:
             meta_lbl.configure(
                 text_color=brand.RECEIPT_WHITE if is_selected else brand.MUTED_FG,
-                font=ctk.CTkFont(size=11, weight="bold" if is_selected else "normal"),
+                font=theme.font(size=11, weight="bold" if is_selected else "normal"),
             )
 
         # Dynamic action bar management
