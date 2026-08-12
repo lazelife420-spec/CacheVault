@@ -2,12 +2,15 @@ from cache_vault.core import multi_link
 from cache_vault.ui.clip_workflows import compose_text
 
 
-def test_detect_multi_link_payload_preserves_order_and_trim():
-    payload = multi_link.detect_multi_link_payload(
-        "\n https://a.test/file1.zip \nhttps://b.test/file2.zip  \n"
-    )
+def test_detect_multi_link_payload_preserves_order_and_raw_text():
+    # raw_text is the paste exactly as it arrived: it feeds the receipt clip that
+    # is documented as the original raw paste, so trimming it there lost the
+    # blank lines and indentation the receipt exists to preserve. Trimming
+    # remains a detection aid only, which the extracted urls still show.
+    raw = "\n https://a.test/file1.zip \nhttps://b.test/file2.zip  \n"
+    payload = multi_link.detect_multi_link_payload(raw)
     assert payload is not None
-    assert payload.raw_text == "https://a.test/file1.zip \nhttps://b.test/file2.zip"
+    assert payload.raw_text == raw
     assert payload.urls == (
         "https://a.test/file1.zip",
         "https://b.test/file2.zip",

@@ -23,13 +23,42 @@ class PasteResult:
     target_title: str = ""
 
 
+_CLIPBOARD_OPEN_ATTEMPTS = 20
+_CLIPBOARD_OPEN_DELAY = 0.02
+
+
+def _open_clipboard() -> bool:
+    """Open the clipboard, retrying while another process holds it.
+
+    Windows allows exactly one owner at a time, so a single OpenClipboard call
+    fails whenever anything else -- including Tk releasing its own ownership
+    during teardown -- happens to hold it at that instant. A single attempt made
+    the snapshot/restore pair around a paste silently give up and leave the
+    user's clipboard holding pasted clip content instead of what they had.
+    """
+    if not _HAS_WIN32:
+        return False
+    import win32clipboard  # type: ignore
+
+    for attempt in range(_CLIPBOARD_OPEN_ATTEMPTS):
+        try:
+            win32clipboard.OpenClipboard()
+            return True
+        except Exception:  # noqa: BLE001 - held elsewhere; wait and retry
+            if attempt == _CLIPBOARD_OPEN_ATTEMPTS - 1:
+                return False
+            time.sleep(_CLIPBOARD_OPEN_DELAY)
+    return False
+
+
 def _read_clipboard_text() -> str | None:
     if not _HAS_WIN32:
         return None
     try:
         import win32clipboard  # type: ignore
 
-        win32clipboard.OpenClipboard()
+        if not _open_clipboard():
+            return None
         try:
             if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
                 return win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
@@ -45,12 +74,19 @@ def snapshot_clipboard_text() -> str | None:
 
 
 def restore_clipboard_text(text: str | None) -> bool:
+    """Put a previously snapshotted clipboard string back, byte for byte.
+
+    Deliberately does not go through the canonical-newline conversion that
+    ``set_clipboard_text`` applies: this restores something the user (or another
+    app) owned, so it must come back exactly as it was found.
+    """
     if not _HAS_WIN32 or text is None:
         return False
     try:
         import win32clipboard  # type: ignore
 
-        win32clipboard.OpenClipboard()
+        if not _open_clipboard():
+            return False
         try:
             win32clipboard.EmptyClipboard()
             win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
@@ -144,15 +180,28 @@ def deliver_ctrl_v(hwnd, *, delay_s: float = 0.08) -> PasteResult:
 
 
 def set_clipboard_text(text: str) -> bool:
+    """Put ``text`` on the clipboard for a subsequent paste.
+
+    SetClipboardData is byte-faithful, so text carrying bare LF line breaks
+    would arrive in Windows edit controls with its lines run together. The
+    canonical CRLF form is written instead, matching what the Tk copy path
+    produces -- otherwise the same clip pasted through Quick Paste and copied
+    through the UI would differ. Use ``restore_clipboard_text`` (which does not
+    convert) when putting a captured snapshot back.
+    """
     if not _HAS_WIN32:
         return False
     try:
         import win32clipboard  # type: ignore
 
-        win32clipboard.OpenClipboard()
+        from .clipboard_out import canonical_clipboard_text
+
+        if not _open_clipboard():
+            return False
         try:
             win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+            win32clipboard.SetClipboardData(
+                win32con.CF_UNICODETEXT, canonical_clipboard_text(text))
         finally:
             win32clipboard.CloseClipboard()
         return True

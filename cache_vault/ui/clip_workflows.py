@@ -14,18 +14,41 @@ from .textbox import CacheVaultTextbox
 
 
 def compose_text(parts: list[str], mode: str) -> str:
-    cleaned = [(part or "").strip() for part in parts if (part or "").strip()]
-    if not cleaned:
+    """Join several clips' texts for the Combine surface.
+
+    Separator contract: each source clip's own text survives exactly -- interior
+    line breaks, blank lines, indentation, runs of spaces and tabs are all left
+    alone. The only characters removed are line breaks at a part's outer edges,
+    because those would merge with the separator and make the boundary between
+    two clips ambiguous; spaces and tabs at the edges are kept. Parts that are
+    entirely whitespace contribute nothing.
+
+    ``newline`` puts exactly one line break between clips and ``blank_line``
+    exactly one empty line, so the boundary is deterministic regardless of how
+    the source clips happened to end. ``numbered`` and ``markdown_bullets``
+    prefix a part's first line only -- prepending to the whole string leaves
+    every continuation line untouched, so a multi-line clip is never reflowed.
+
+    Previously every part was ``.strip()``ed, which silently deleted each clip's
+    leading/trailing blank lines and indentation.
+    """
+    kept: list[str] = []
+    for part in parts or []:
+        text = part or ""
+        if not text.strip():
+            continue
+        kept.append(text.strip("\r\n"))
+    if not kept:
         return ""
     if mode == "newline":
-        return "\n".join(cleaned)
+        return "\n".join(kept)
     if mode == "blank_line":
-        return "\n\n".join(cleaned)
+        return "\n\n".join(kept)
     if mode == "numbered":
-        return "\n".join(f"{idx}. {part}" for idx, part in enumerate(cleaned, start=1))
+        return "\n".join(f"{idx}. {part}" for idx, part in enumerate(kept, start=1))
     if mode == "markdown_bullets":
-        return "\n".join(f"- {part}" for part in cleaned)
-    return "\n\n".join(cleaned)
+        return "\n".join(f"- {part}" for part in kept)
+    return "\n\n".join(kept)
 
 
 class ClipComposerDialog(ctk.CTkToplevel):
@@ -34,9 +57,12 @@ class ClipComposerDialog(ctk.CTkToplevel):
         master,
         *,
         parts: list[str],
-        on_copy: Callable[[str], None],
-        on_save_clip: Callable[[str], None],
-        on_save_macro: Callable[[str], None],
+        # An action callback may report failure either by raising or by
+        # returning False; the dialog then stays open with the edited text.
+        # Any other return value (including None) counts as success.
+        on_copy: Callable[[str], object],
+        on_save_clip: Callable[[str], object],
+        on_save_macro: Callable[[str], object],
     ):
         super().__init__(master)
         self.title("Combined Clip Preview")
@@ -46,7 +72,10 @@ class ClipComposerDialog(ctk.CTkToplevel):
         self._on_copy = on_copy
         self._on_save_clip = on_save_clip
         self._on_save_macro = on_save_macro
-        self._save_started = False
+        # One guard for all three actions, not just the two save buttons: a
+        # second click (or a repeated event) on any of them must not run a
+        # second combine.
+        self._action_started = False
 
         ctk.CTkLabel(
             self,
@@ -70,14 +99,20 @@ class ClipComposerDialog(ctk.CTkToplevel):
 
         self._body = CacheVaultTextbox(self, wrap="word", font=theme.body_font(12))
         self._body.pack(fill="both", expand=True, padx=18, pady=(0, 12))
-        self._reset_from_mode("blank_line")
+
+        self._status = ctk.CTkLabel(
+            self, text="", text_color=brand.STAMP_GOLD, anchor="w",
+            font=theme.body_font(11),
+        )
+        self._status.pack(fill="x", padx=18, pady=(0, 4))
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.pack(fill="x", padx=18, pady=(0, 16))
-        ctk.CTkButton(
+        self._copy_btn = ctk.CTkButton(
             actions, text="Copy Combined Text",
             command=self._copy, **theme.primary_button(),
-        ).pack(side="left", padx=(0, 8))
+        )
+        self._copy_btn.pack(side="left", padx=(0, 8))
         self._save_clip_btn = ctk.CTkButton(
             actions, text="Save as New Clip",
             command=self._save_clip, **theme.secondary_button(),
@@ -92,6 +127,13 @@ class ClipComposerDialog(ctk.CTkToplevel):
             actions, text="Close",
             command=self.destroy, **theme.secondary_button(),
         ).pack(side="right")
+
+        # Populated only now that the action buttons exist, because filling the
+        # body re-evaluates whether they can run.
+        self._reset_from_mode("blank_line")
+        for sequence in ("<KeyRelease>", "<<Paste>>", "<<Cut>>", "<<Undo>>", "<<Redo>>"):
+            self._body.bind(sequence, self._on_body_edited)
+
         self.bind("<Escape>", lambda _e: self.destroy())
         _bring_to_front(self, master, modal=True, center_on=(760, 560))
 
@@ -106,40 +148,130 @@ class ClipComposerDialog(ctk.CTkToplevel):
         text = compose_text(self._parts, mode)
         self._body.delete("1.0", "end")
         self._body.insert("1.0", text)
+        self._sync_action_states()
+
+    def _on_body_edited(self, _event=None) -> None:
+        self._sync_action_states()
 
     def _text(self) -> str:
-        return self._body.get("1.0", "end").strip()
+        """The edited buffer, minus only the single trailing newline that Tk's
+        ``get("1.0", "end")`` always appends.
+
+        This used to ``.strip()``, which also deleted the user's own leading and
+        trailing blank lines and any trailing spaces -- content they had either
+        typed or deliberately kept from the source clips.
+        """
+        text = self._body.get("1.0", "end")
+        if text.endswith("\n"):
+            text = text[:-1]
+        return text
+
+    def has_composable_text(self) -> bool:
+        """True when there is something worth copying or saving."""
+        return bool(self._text().strip())
+
+    def _sync_action_states(self) -> None:
+        """Disable the actions while the buffer holds nothing but whitespace, so
+        the primary action can't appear to succeed with no content."""
+        if self._action_started:
+            return
+        state = "normal" if self.has_composable_text() else "disabled"
+        for button in (self._copy_btn, self._save_clip_btn, self._save_macro_btn):
+            try:
+                button.configure(state=state)
+            except Exception:  # noqa: BLE001 - button may be gone mid-teardown
+                pass
+        if state == "normal":
+            self._set_status("")
+
+    def _set_status(self, message: str) -> None:
+        try:
+            self._status.configure(text=message)
+        except Exception:  # noqa: BLE001 - label may be gone mid-teardown
+            pass
+
+    def _begin_action(self, button, busy_text: str) -> str | None:
+        """Shared preamble: refuse empty content, refuse a second run, and show
+        the action as busy. Returns the text to act on, or None to stay open."""
+        if self._action_started:
+            return None
+        text = self._text()
+        if not text.strip():
+            self._set_status("Nothing to combine yet — the text above is empty.")
+            self._sync_action_states()
+            return None
+        self._action_started = True
+        try:
+            button.configure(state="disabled", text=busy_text)
+            self.update_idletasks()
+        except Exception:  # noqa: BLE001
+            pass
+        return text
+
+    def _action_failed(self, button, restore_text: str, message: str) -> None:
+        """Keep the dialog usable after a failed action rather than closing over
+        the user's edited text."""
+        self._action_started = False
+        try:
+            button.configure(state="normal", text=restore_text)
+        except Exception:  # noqa: BLE001
+            pass
+        self._set_status(message)
+        self._sync_action_states()
+
+    def _run_action(self, callback, text: str, button, label: str, verb: str) -> None:
+        """Run one composer action and close only if it actually succeeded.
+
+        A callback that raises, or that reports failure by returning False (the
+        vault declining a capture, say), leaves the dialog open with the edited
+        text intact and the button ready to retry.
+        """
+        try:
+            succeeded = callback(text)
+        except Exception:  # noqa: BLE001 - keep the composed text recoverable
+            self._action_failed(
+                button, label,
+                f"{verb} failed — your combined text is still here.",
+            )
+            raise
+        if succeeded is False:
+            self._action_failed(
+                button, label,
+                f"{verb} didn't complete — your combined text is still here.",
+            )
+            return
+        self.destroy()
 
     def _copy(self) -> None:
-        text = self._text()
-        if text:
-            self._on_copy(text)
+        text = self._begin_action(self._copy_btn, "Copying...")
+        if text is None:
+            return
+        self._run_action(
+            self._on_copy, text, self._copy_btn, "Copy Combined Text", "Copy")
 
     def _save_clip(self) -> None:
-        text = self._text()
-        if text and not self._save_started:
-            self._save_started = True
-            self._save_clip_btn.configure(state="disabled", text="Saving...")
-            self.update_idletasks()
-            try:
-                self._on_save_clip(text)
-            finally:
-                self.destroy()
+        text = self._begin_action(self._save_clip_btn, "Saving...")
+        if text is None:
+            return
+        self._run_action(
+            self._on_save_clip, text, self._save_clip_btn,
+            "Save as New Clip", "Save")
 
     def _save_macro(self) -> None:
-        text = self._text()
-        if text and not self._save_started:
-            self._save_started = True
-            self._save_macro_btn.configure(state="disabled", text="Saving...")
-            self.update_idletasks()
-            try:
-                self._on_save_macro(text)
-            finally:
-                self.destroy()
+        text = self._begin_action(self._save_macro_btn, "Saving...")
+        if text is None:
+            return
+        self._run_action(
+            self._on_save_macro, text, self._save_macro_btn,
+            "Save to Snippet Macro", "Save")
 
 
 class EditClipTextDialog(ctk.CTkToplevel):
-    def __init__(self, master, *, title: str, initial_text: str, on_save: Callable[[str], None]):
+    def __init__(
+        self, master, *, title: str, initial_text: str,
+        # Returning False (or raising) keeps the dialog open with the edits.
+        on_save: Callable[[str], object],
+    ):
         super().__init__(master)
         self.title(title)
         self.geometry("720x520")
@@ -233,15 +365,34 @@ class EditClipTextDialog(ctk.CTkToplevel):
             pass
 
     def _save(self) -> None:
-        text = self._body.get("1.0", "end").strip()
-        if text and not self._save_started:
+        # Only the single trailing newline Tk's get("1.0", "end") appends is
+        # removed; .strip() also deleted the user's own leading/trailing blank
+        # lines and trailing spaces from the text they were editing.
+        text = self._body.get("1.0", "end")
+        if text.endswith("\n"):
+            text = text[:-1]
+        if text.strip() and not self._save_started:
             self._save_started = True
             self._save_btn.configure(state="disabled", text="Saving...")
             self.update_idletasks()
             try:
-                self._on_save(text)
-            finally:
-                self.destroy()
+                saved = self._on_save(text)
+            except Exception:  # noqa: BLE001 - keep the user's edits recoverable
+                # Closing from a finally: block discarded the edited text even
+                # when the save had failed.
+                self._restore_after_failed_save()
+                raise
+            if saved is False:
+                self._restore_after_failed_save()
+                return
+            self.destroy()
+
+    def _restore_after_failed_save(self) -> None:
+        self._save_started = False
+        try:
+            self._save_btn.configure(state="normal", text="Save as New Clip")
+        except Exception:  # noqa: BLE001 - button may be gone mid-teardown
+            pass
 
 
 class MultiLinkPasteDialog(ctk.CTkToplevel):

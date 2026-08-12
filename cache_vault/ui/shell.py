@@ -24,7 +24,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 from .. import brand
-from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, selection, vault_lock
+from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, clipboard_out, copy_clean, drag_export, models, multi_link, search, selection, vault_lock
 from ..core import sidebar_menu_context as smc
 from .. import feature_gate
 from .. import licensing
@@ -207,8 +207,7 @@ class CacheVaultApp(ctk.CTk):
             tb_str = "".join(traceback.format_exception(exc, val, tb))
 
             def _copy():
-                self.clipboard_clear()
-                self.clipboard_append(tb_str)
+                clipboard_out.write_via_tk(self, tb_str)
                 messagebox.showinfo("Copied", "Error traceback copied to clipboard.", parent=dialog)
 
             def _open_log():
@@ -1275,13 +1274,22 @@ class CacheVaultApp(ctk.CTk):
             return
         batch_actions.bulk_copy(self)
 
-    def _copy_generated_text(self, text: str, toast: str) -> None:
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+    def _copy_generated_text(self, text: str, toast: str) -> bool:
+        # note_local_copy is told the string the clipboard actually holds, not
+        # the source text: they differ whenever line breaks are involved, and
+        # the mismatch made the monitor re-capture our own copy as a new clip.
+        copied = clipboard_out.write_via_tk(self, text)
+        self._monitor.note_local_copy(copied)
         self._show_toast(toast)
+        return True
 
-    def _save_generated_clip(self, text: str, safe_id: str | None = None) -> None:
+    def _save_generated_clip(self, text: str, safe_id: str | None = None) -> bool:
+        """Returns whether the clip was actually stored.
+
+        The composer/edit dialogs close only on a truthy result, so a capture the
+        vault declined leaves the dialog open with the user's text instead of
+        silently discarding it.
+        """
         clip = self.vault.capture(
             text,
             source_app=brand.PRODUCT_NAME,
@@ -1289,12 +1297,15 @@ class CacheVaultApp(ctk.CTk):
             safe_id=safe_id,
             force=True,
         )
-        if clip is not None:
-            self.refresh()
-            self._on_clip_select(clip)
-            self._show_toast("Saved as a new clip.")
+        if clip is None:
+            self._show_toast("That clip could not be saved.")
+            return False
+        self.refresh()
+        self._on_clip_select(clip)
+        self._show_toast("Saved as a new clip.")
+        return True
 
-    def _save_generated_macro(self, text: str) -> None:
+    def _save_generated_macro(self, text: str) -> bool:
         clip = self.vault.capture(
             text,
             source_app=brand.PRODUCT_NAME,
@@ -1303,8 +1314,10 @@ class CacheVaultApp(ctk.CTk):
             force=True,
         )
         if clip is None:
-            return
+            self._show_toast("That snippet macro could not be saved.")
+            return False
         self._send_to_macro_safe(clip.id)
+        return True
 
     def _bulk_export_proof(self) -> None:
         if self._block_if_matching_active("Export"):
@@ -3816,9 +3829,8 @@ class CacheVaultApp(ctk.CTk):
         content = self.vault.copied_again(clip_id)
         if content is None:
             return
-        self.clipboard_clear()
-        self.clipboard_append(content)
-        self._monitor.note_local_copy(content)
+        copied = clipboard_out.write_via_tk(self, content)
+        self._monitor.note_local_copy(copied)
 
     def _open_clip_link(self, clip_id: str) -> None:
         import webbrowser
@@ -3839,9 +3851,7 @@ class CacheVaultApp(ctk.CTk):
                 f"created={clip.created_at} last_used={clip.date_used} "
                 f"use_count={clip.use_count} sensitive={clip.is_sensitive} "
                 f"hash={clip.content_hash[:12]}")
-        self.clipboard_clear()
-        self.clipboard_append(meta)
-        self._monitor.note_local_copy(meta)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, meta))
 
     def _copy_path(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
@@ -3859,9 +3869,7 @@ class CacheVaultApp(ctk.CTk):
         if text is None:
             self._show_toast("That Copy Clean format is not available for this item.")
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, text))
         self.vault.events.record(
             copy_clean.EVENT_ITEM_COPIED_CLEAN,
             clip_id,
@@ -3906,9 +3914,7 @@ class CacheVaultApp(ctk.CTk):
         if not self._guard_unlocked():
             return
         text = copy_clean.receipt_summary(row)
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, text))
         self.vault.events.record(
             copy_clean.EVENT_RECEIPT_SUMMARY_COPIED,
             getattr(row, "clip_id", None),
@@ -4555,9 +4561,7 @@ class CacheVaultApp(ctk.CTk):
     def _copy_text(self, text: str, notice: str = "Copied.") -> None:
         if not self._guard_unlocked():
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, text))
         self._show_toast(notice)
 
     def _open_clip_path(self, clip_id: str) -> None:
@@ -5420,9 +5424,7 @@ class CacheVaultApp(ctk.CTk):
             if content is None:
                 Toast(self, "Nothing available to copy.")
                 return
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self._monitor.note_local_copy(content)
+            self._monitor.note_local_copy(clipboard_out.write_via_tk(self, content))
             self.vault.events.record(
                 "quick_paste_copy_only",
                 clip.id,
@@ -5435,9 +5437,7 @@ class CacheVaultApp(ctk.CTk):
             if content is None:
                 Toast(self, "Nothing available to paste.")
                 return
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self._monitor.note_local_copy(content)
+            self._monitor.note_local_copy(clipboard_out.write_via_tk(self, content))
             pasted_text = True
             item_type = clip.content_type or clip.classification or "text"
 
@@ -5622,9 +5622,7 @@ class CacheVaultApp(ctk.CTk):
         if not path_text:
             Toast(self, "No path available to copy.")
             return
-        self.clipboard_clear()
-        self.clipboard_append(path_text)
-        self._monitor.note_local_copy(path_text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, path_text))
         self.vault.events.record(
             "quick_paste_copy_only",
             clip.id,

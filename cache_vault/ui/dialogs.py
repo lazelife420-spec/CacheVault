@@ -7,7 +7,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import startup, vault_lock
+from ..core import clipboard_out, startup, vault_lock
 from ..core.hotkey import DEFAULT_HOTKEY_BINDINGS, diagnose_hotkey_spec, normalize_hotkey
 from ..core.settings import Settings
 from . import theme
@@ -1247,13 +1247,12 @@ class EventLogDialog(ctk.CTkToplevel):
 
     def _copy_receipt(self) -> None:
         if self._selected:
-            self.clipboard_clear()
-            self.clipboard_append(self._format_receipt_copy_fn(self._selected))
+            clipboard_out.write_via_tk(
+                self, self._format_receipt_copy_fn(self._selected))
 
     def _copy_hash(self) -> None:
         if self._selected and self._selected.proof_hash:
-            self.clipboard_clear()
-            self.clipboard_append(self._selected.proof_hash)
+            clipboard_out.write_via_tk(self, self._selected.proof_hash)
 
     def _export_selected(self) -> None:
         if not self._selected:
