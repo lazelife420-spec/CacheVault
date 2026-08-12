@@ -10,7 +10,8 @@ from tkinter import filedialog, messagebox
 from ..core import models, image_assets, copy_clean, editable_copies
 from ..core.selection import analyze_selection
 from ..core.formatter import format_batch_links
-from .dialogs import SafePickerDialog
+from .crashlog import write_crash
+from .dialogs import MoveToCollectionDialog, SafePickerDialog
 
 
 def bulk_copy(window) -> None:
@@ -460,3 +461,135 @@ def bulk_export_bundle(window) -> None:
 
 def bulk_copy_text_links(window) -> None:
     bulk_copy_format(window, "plain")
+
+
+def run_atomic_bulk_mutation(window, fn, ids, *, action_label: str):
+    """Calls an atomic bulk-mutation primitive (vault.restore_many /
+    vault.remove_from_history_many) and turns a raised exception into
+    a visible error toast instead of letting a caller compute a
+    success count from a call that never actually committed. Because
+    those primitives are atomic (storage.restore_many/
+    soft_delete_many: one transaction, full rollback on any
+    exception), there is no partial-success state to report here --
+    either this returns the committed BulkMutationResult, or it
+    returns None and nothing in the database changed.
+    """
+    try:
+        return fn(ids)
+    except Exception as exc:  # noqa: BLE001
+        write_crash(f"bulk_{action_label.lower().replace(' ', '_')}", exc)
+        window._show_toast(f"{action_label} failed -- no clips were changed.")
+        return None
+
+
+def bulk_toggle_favorite(window, favorite: bool) -> None:
+    label = "Favorite" if favorite else "Remove Favorite"
+    if window._block_if_matching_active(label):
+        return
+    if not window._guard_unlocked():
+        return
+    from ..core.selection import dedupe_preserve_order
+
+    ids = dedupe_preserve_order(window._selected_clip_ids)
+    if not ids:
+        return
+    for cid in ids:
+        window.vault.set_favorite(cid, favorite)
+    window.refresh()
+    verb = "Favorited" if favorite else "Removed favorite mark from"
+    window._show_toast(f"{verb} {len(ids)} clip(s).")
+
+
+def bulk_restore(window) -> None:
+    if window._block_if_matching_active("Restore"):
+        return
+    if not window._guard_unlocked():
+        return
+    from ..core.selection import dedupe_preserve_order
+
+    ids = dedupe_preserve_order(window._selected_clip_ids)
+    if not ids:
+        return
+    result = run_atomic_bulk_mutation(window, window.vault.restore_many, ids, action_label="Restore")
+    if result is None:
+        return
+    window._clear_selection()
+    window.refresh()
+    window._show_toast(f"Restored {result.succeeded_count} clip(s).")
+
+
+def bulk_add_to_collection(window) -> None:
+    if window._block_if_matching_active("Add to Collection"):
+        return
+    if not window._guard_unlocked():
+        return
+    from ..core.selection import dedupe_preserve_order
+
+    ids = dedupe_preserve_order(window._selected_clip_ids)
+    if not ids:
+        return
+    existing = [c["name"] for c in window.vault.list_collections()]
+
+    def save(name: str) -> None:
+        for cid in ids:
+            window.vault.set_collection(cid, name)
+        window.refresh()
+        window._show_toast(f"Added {len(ids)} clip(s) to '{name}'.")
+
+    MoveToCollectionDialog(window, None, existing, on_save=save)
+
+
+def _current_collection_name(window) -> str | None:
+    from ..core.storage import COLLECTION_PREFIX
+
+    active = window._filters.active
+    if isinstance(active, str) and active.startswith(COLLECTION_PREFIX):
+        return active[len(COLLECTION_PREFIX):]
+    return None
+
+
+def bulk_remove_from_collection(window) -> None:
+    """Clears only the current single-assignment collection label
+    (clips.collection) from selected clips that actually belong to
+    it -- never removes the clip itself, never touches favorites or
+    any other metadata. See clear_collection() in clip_context.py
+    for the sidebar/whole-collection equivalent."""
+    name = _current_collection_name(window)
+    if name is None:
+        return
+    if window._block_if_matching_active("Remove from Collection"):
+        return
+    if not window._guard_unlocked():
+        return
+    from ..core.selection import dedupe_preserve_order
+
+    ids = dedupe_preserve_order(window._selected_clip_ids)
+    if not ids:
+        return
+    count = 0
+    for cid in ids:
+        clip = window.vault.storage.get_clip(cid)
+        if clip is not None and clip.collection == name:
+            window.vault.set_collection(cid, None)
+            count += 1
+    window.refresh()
+    window._show_toast(f"Removed {count} clip(s) from '{name}'. Clips remain in the vault.")
+
+
+def bulk_permanently_delete(window, ids: list[str]) -> None:
+    """Recently Removed item/bulk menu only -- ``clip_menu_items``
+    only offers this command when every targeted clip was already
+    soft-deleted at menu-build time. The deletion plan re-validates
+    ``deleted_at`` for each id again right here at execution time
+    regardless, so a clip restored in the meantime is skipped, not
+    deleted (same staleness contract as the sidebar's equivalent
+    commands).
+    """
+    if not window._guard_unlocked():
+        return
+    from ..core.selection import dedupe_preserve_order
+
+    ids = dedupe_preserve_order(ids)
+    if not ids:
+        return
+    window._confirm_and_permanently_delete(ids)

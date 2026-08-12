@@ -1247,133 +1247,30 @@ class CacheVaultApp(ctk.CTk):
         )
 
     def _bulk_permanently_delete(self, ids: list[str]) -> None:
-        """Recently Removed item/bulk menu only -- ``clip_menu_items``
-        only offers this command when every targeted clip was already
-        soft-deleted at menu-build time. The deletion plan re-validates
-        ``deleted_at`` for each id again right here at execution time
-        regardless, so a clip restored in the meantime is skipped, not
-        deleted (same staleness contract as the sidebar's equivalent
-        commands).
-        """
-        if not self._guard_unlocked():
-            return
-        from ..core.selection import dedupe_preserve_order
-
-        ids = dedupe_preserve_order(ids)
-        if not ids:
-            return
-        self._confirm_and_permanently_delete(ids)
+        """Recently Removed item/bulk menu only. See
+        ``batch_actions.bulk_permanently_delete`` for the staleness
+        contract this delegates to."""
+        batch_actions.bulk_permanently_delete(self, ids)
 
     # --- Commit 2: additional visible-mode bulk selection commands ---------
     # (Copy/Export/Move-to-Recently-Removed already existed above; these
     # fill in the rest of core/menu_context.py's command_matrix.)
 
     def _bulk_toggle_favorite(self, favorite: bool) -> None:
-        label = "Favorite" if favorite else "Remove Favorite"
-        if self._block_if_matching_active(label):
-            return
-        if not self._guard_unlocked():
-            return
-        from ..core.selection import dedupe_preserve_order
-
-        ids = dedupe_preserve_order(self._selected_clip_ids)
-        if not ids:
-            return
-        for cid in ids:
-            self.vault.set_favorite(cid, favorite)
-        self.refresh()
-        verb = "Favorited" if favorite else "Removed favorite mark from"
-        self._show_toast(f"{verb} {len(ids)} clip(s).")
-
-    def _run_atomic_bulk_mutation(self, fn, ids, *, action_label: str):
-        """Calls an atomic bulk-mutation primitive (vault.restore_many /
-        vault.remove_from_history_many) and turns a raised exception into
-        a visible error toast instead of letting a caller compute a
-        success count from a call that never actually committed. Because
-        those primitives are atomic (storage.restore_many/
-        soft_delete_many: one transaction, full rollback on any
-        exception), there is no partial-success state to report here --
-        either this returns the committed BulkMutationResult, or it
-        returns None and nothing in the database changed.
-        """
-        try:
-            return fn(ids)
-        except Exception as exc:  # noqa: BLE001
-            write_crash(f"bulk_{action_label.lower().replace(' ', '_')}", exc)
-            self._show_toast(f"{action_label} failed -- no clips were changed.")
-            return None
+        batch_actions.bulk_toggle_favorite(self, favorite)
 
     def _bulk_restore(self) -> None:
-        if self._block_if_matching_active("Restore"):
-            return
-        if not self._guard_unlocked():
-            return
-        from ..core.selection import dedupe_preserve_order
-
-        ids = dedupe_preserve_order(self._selected_clip_ids)
-        if not ids:
-            return
-        result = self._run_atomic_bulk_mutation(self.vault.restore_many, ids, action_label="Restore")
-        if result is None:
-            return
-        self._clear_selection()
-        self.refresh()
-        self._show_toast(f"Restored {result.succeeded_count} clip(s).")
+        batch_actions.bulk_restore(self)
 
     def _bulk_add_to_collection(self) -> None:
-        if self._block_if_matching_active("Add to Collection"):
-            return
-        if not self._guard_unlocked():
-            return
-        from ..core.selection import dedupe_preserve_order
-
-        ids = dedupe_preserve_order(self._selected_clip_ids)
-        if not ids:
-            return
-        existing = [c["name"] for c in self.vault.list_collections()]
-
-        def save(name: str) -> None:
-            for cid in ids:
-                self.vault.set_collection(cid, name)
-            self.refresh()
-            self._show_toast(f"Added {len(ids)} clip(s) to '{name}'.")
-
-        MoveToCollectionDialog(self, None, existing, on_save=save)
-
-    def _current_collection_name(self) -> str | None:
-        from ..core.storage import COLLECTION_PREFIX
-
-        active = self._filters.active
-        if isinstance(active, str) and active.startswith(COLLECTION_PREFIX):
-            return active[len(COLLECTION_PREFIX):]
-        return None
+        batch_actions.bulk_add_to_collection(self)
 
     def _bulk_remove_from_collection(self) -> None:
         """Clears only the current single-assignment collection label
         (clips.collection) from selected clips that actually belong to
-        it -- never removes the clip itself, never touches favorites or
-        any other metadata. See clear_collection() in clip_context.py
-        for the sidebar/whole-collection equivalent."""
-        name = self._current_collection_name()
-        if name is None:
-            return
-        if self._block_if_matching_active("Remove from Collection"):
-            return
-        if not self._guard_unlocked():
-            return
-        from ..core.selection import dedupe_preserve_order
-
-        ids = dedupe_preserve_order(self._selected_clip_ids)
-        if not ids:
-            return
-        count = 0
-        for cid in ids:
-            clip = self.vault.storage.get_clip(cid)
-            if clip is not None and clip.collection == name:
-                self.vault.set_collection(cid, None)
-                count += 1
-        self.refresh()
-        self._show_toast(f"Removed {count} clip(s) from '{name}'. Clips remain in the vault.")
+        it. See ``batch_actions.bulk_remove_from_collection`` for the
+        full contract."""
+        batch_actions.bulk_remove_from_collection(self)
 
     def _invert_visible_selection(self) -> None:
         """Selects every currently-rendered (visible) row that is NOT
@@ -1472,8 +1369,8 @@ class CacheVaultApp(ctk.CTk):
         if resolution is None:
             return
         ids = resolution.resolve_all_ids()
-        result = self._run_atomic_bulk_mutation(
-            self.vault.remove_from_history_many, ids, action_label="Move to Recently Removed",
+        result = batch_actions.run_atomic_bulk_mutation(
+            self, self.vault.remove_from_history_many, ids, action_label="Move to Recently Removed",
         )
         if result is None:
             return
@@ -1488,7 +1385,7 @@ class CacheVaultApp(ctk.CTk):
         if resolution is None:
             return
         ids = resolution.resolve_all_ids()
-        result = self._run_atomic_bulk_mutation(self.vault.restore_many, ids, action_label="Restore")
+        result = batch_actions.run_atomic_bulk_mutation(self, self.vault.restore_many, ids, action_label="Restore")
         if result is None:
             return
         self._clear_selection()
