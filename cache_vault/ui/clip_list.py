@@ -51,6 +51,11 @@ class ClipList(ctk.CTkScrollableFrame):
         self._selected_id: str | None = None
         # Multi-selection: full set plus the rendered order and the range anchor.
         self._selected_ids: set[str] = set()
+        # Mirror of which rows are currently *painted* selected on screen, as
+        # opposed to which ids are logically selected. _repaint_selection uses
+        # the difference between the two so it only touches rows whose
+        # appearance actually has to change.
+        self._painted_selected_ids: set[str] = set()
         self._render_order: list[str] = []
         self._anchor_id: str | None = None
         self._rail_by_id: dict[str, ctk.CTkFrame] = {}
@@ -131,6 +136,7 @@ class ClipList(ctk.CTkScrollableFrame):
                 widget.destroy()
         self._rows.clear()
         self._row_by_id.clear()
+        self._painted_ids().clear()  # nothing is painted once rows are gone
         self._rail_by_id.clear()
         self._selected_badge_by_id.clear()
         self._action_bar_by_id.clear()
@@ -352,6 +358,13 @@ class ClipList(ctk.CTkScrollableFrame):
 
     def _build_row(self, clip: Clip) -> ctk.CTkFrame:
         selected = clip.id in self._selected_ids or clip.id == self._selected_id
+        # A freshly built row is painted with its selected presentation here, so
+        # the painted mirror has to learn about it without a repaint pass.
+        painted = self._painted_ids()
+        if selected:
+            painted.add(clip.id)
+        else:
+            painted.discard(clip.id)
         row = ctk.CTkFrame(
             self, corner_radius=8,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
@@ -637,6 +650,13 @@ class ClipList(ctk.CTkScrollableFrame):
         row = self._row_by_id.get(clip_id)
         if row is None:
             return
+        # Recorded here rather than in the callers so the mirror cannot drift:
+        # this is the single place a row's selected appearance is applied.
+        painted = self._painted_ids()
+        if is_selected:
+            painted.add(clip_id)
+        else:
+            painted.discard(clip_id)
         row.configure(
             fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
             border_width=3 if is_selected else 1,
@@ -698,10 +718,44 @@ class ClipList(ctk.CTkScrollableFrame):
                 if action_bar.winfo_ismapped():
                     action_bar.pack_forget()
 
+    def _painted_ids(self) -> set[str]:
+        """The painted-selection mirror, created on demand.
+
+        Guarded like the other per-row maps in this class because instances are
+        also built without __init__ (``object.__new__``). Every row painted
+        after this point is recorded, so the mirror becomes authoritative from
+        here on; _repaint_selection handles the case where it did not exist yet.
+        """
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            painted = set()
+            self._painted_selected_ids = painted
+        return painted
+
     def _repaint_selection(self) -> None:
-        for clip_id in self._row_by_id:
-            is_selected = clip_id in self._selected_ids
-            self._update_row_visuals(clip_id, is_selected)
+        """Repaint only the rows whose selected state actually changes.
+
+        Painting every rendered row instead costs a full configure pass per row
+        (row frame, rail, badge, title font, meta font/colour, action bar) even
+        when the selection is unchanged or empty -- which is the common case on
+        navigation, where the whole view is then discarded anyway. The rows that
+        must change are exactly the symmetric difference between what is painted
+        and what is selected.
+        """
+        rows = self._row_by_id
+        desired = self._selected_ids
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            # Mirror never initialised, so what is on screen is unknown: repaint
+            # everything, exactly as this method used to. Only instances built
+            # without __init__ reach this. The mirror is accurate afterwards.
+            for clip_id in list(rows):
+                self._update_row_visuals(clip_id, clip_id in desired)
+            return
+        for clip_id in (desired ^ painted) & rows.keys():
+            self._update_row_visuals(clip_id, clip_id in desired)
+        # Ids whose rows no longer exist can never need repainting again.
+        self._painted_selected_ids = painted & rows.keys()
 
     def set_selected(self, clip_id: str | None) -> None:
         previous_id = self._selected_id

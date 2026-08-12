@@ -67,6 +67,9 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._selected_id: str | None = None
         # Multi-selection: full set plus rendered order and the range anchor.
         self._selected_ids: set[str] = set()
+        # Which rows are currently *painted* selected — see
+        # ClipList._painted_selected_ids; both views obey the same contract.
+        self._painted_selected_ids: set[str] = set()
         self._render_order: list[str] = []
         self._anchor_id: str | None = None
         self._row_by_id: dict[str, ctk.CTkFrame] = {}
@@ -163,6 +166,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             if w is not self._empty_container:
                 w.destroy()
         self._row_by_id.clear()
+        self._painted_ids().clear()  # nothing is painted once rows are gone
         self._name_label_by_id.clear()
         self._render_order.clear()
         self._current_group = None
@@ -278,6 +282,13 @@ class ClipGrid(ctk.CTkScrollableFrame):
             header.pack(fill="x", padx=10, pady=(12, 4))
 
         selected = clip.id in self._selected_ids or clip.id == self._selected_id
+        # Built with its selected presentation already applied, so the painted
+        # mirror must learn about it without a repaint pass.
+        painted = self._painted_ids()
+        if selected:
+            painted.add(clip.id)
+        else:
+            painted.discard(clip.id)
         row = ctk.CTkFrame(
             self._rows_frame, corner_radius=6, height=40,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
@@ -431,19 +442,51 @@ class ClipGrid(ctk.CTkScrollableFrame):
             ordered = [cid for cid in order if cid in self._selected_ids]
             callback(ordered)
 
-    def _repaint_selection(self) -> None:
-        for clip_id, row in self._row_by_id.items():
-            is_selected = clip_id in self._selected_ids
-            row.configure(
-                fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                border_width=2 if is_selected else 1,
-                border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+    def _painted_ids(self) -> set[str]:
+        """The painted-selection mirror, created on demand -- instances are also
+        built without __init__ (``object.__new__``). Mirrors ClipList."""
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            painted = set()
+            self._painted_selected_ids = painted
+        return painted
+
+    def _update_row_visuals(self, clip_id: str, is_selected: bool) -> None:
+        """Apply one row's selected presentation. Single place a card's
+        selected appearance changes, so the painted mirror cannot drift."""
+        row = self._row_by_id.get(clip_id)
+        if row is None:
+            return
+        painted = self._painted_ids()
+        if is_selected:
+            painted.add(clip_id)
+        else:
+            painted.discard(clip_id)
+        row.configure(
+            fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
+            border_width=2 if is_selected else 1,
+            border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+        )
+        name_label = self._name_label_by_id.get(clip_id)
+        if name_label is not None:
+            name_label.configure(
+                text_color=brand.PROOF_TEAL if is_selected else brand.MUTED_FG,
             )
-            name_label = self._name_label_by_id.get(clip_id)
-            if name_label is not None:
-                name_label.configure(
-                    text_color=brand.PROOF_TEAL if is_selected else brand.MUTED_FG,
-                )
+
+    def _repaint_selection(self) -> None:
+        """Repaint only the rows whose selected state actually changes --
+        see ClipList._repaint_selection for why the full pass is wasteful."""
+        rows = self._row_by_id
+        desired = self._selected_ids
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            # Unknown painted state -- repaint everything, as this used to.
+            for clip_id in list(rows):
+                self._update_row_visuals(clip_id, clip_id in desired)
+            return
+        for clip_id in (desired ^ painted) & rows.keys():
+            self._update_row_visuals(clip_id, clip_id in desired)
+        self._painted_selected_ids = painted & rows.keys()
 
     def set_selected(self, clip_id: str | None) -> None:
         previous_id = self._selected_id
@@ -453,12 +496,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         if clip_id is not None:
             self._apply_selection(previous_id, clip_id)
         elif previous_id:
-            row = self._row_by_id.get(previous_id)
-            if row is not None:
-                row.configure(fg_color=brand.ROW_BG, border_width=1)
-            name_label = self._name_label_by_id.get(previous_id)
-            if name_label is not None:
-                name_label.configure(text_color=brand.MUTED_FG)
+            self._update_row_visuals(previous_id, False)
 
     def _context(self, event, clip: Clip) -> None:
         # Right-clicking inside an existing multi-selection keeps the set so
@@ -488,26 +526,12 @@ class ClipGrid(ctk.CTkScrollableFrame):
         for clip_id in {previous_id, selected_id}:
             if not clip_id:
                 continue
-            row = self._row_by_id.get(clip_id)
-            if row is not None:
-                is_selected = clip_id == selected_id
-                if is_selected:
-                    row.configure(
-                        fg_color=brand.ROW_SELECTED_BG,
-                        border_width=2,
-                        border_color=brand.PROOF_TEAL,
-                    )
+            is_selected = clip_id == selected_id
+            self._update_row_visuals(clip_id, is_selected)
+            if is_selected:
+                row = self._row_by_id.get(clip_id)
+                if row is not None:
                     self._safe_see(row)
-                else:
-                    row.configure(
-                        fg_color=brand.ROW_BG,
-                        border_width=1,
-                    )
-            name_label = self._name_label_by_id.get(clip_id)
-            if name_label is not None:
-                name_label.configure(
-                    text_color=brand.PROOF_TEAL if clip_id == selected_id else brand.MUTED_FG,
-                )
 
     def _safe_see(self, widget) -> None:
         try:
