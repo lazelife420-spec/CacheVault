@@ -1593,6 +1593,8 @@ class CacheVaultApp(ctk.CTk):
             handler()
 
     def _keyboard_focus_is_text_input(self, event=None) -> bool:
+        if getattr(self, "_quick_paste", None) and self._quick_paste.winfo_exists():
+            return True
         widget = getattr(event, "widget", None)
         if widget is None:
             return False
@@ -5014,7 +5016,7 @@ class CacheVaultApp(ctk.CTk):
         if action == ACTION_COPY_ONLY:
             content = self._quick_paste_text_for_action(clip, ACTION_COPY_ONLY)
             if content is None:
-                Toast(self, "Nothing available to copy.")
+                self._notify_quick_paste_or_toast("Nothing available to copy.")
                 return
             self._monitor.note_local_copy(clipboard_out.write_via_tk(self, content))
             self.vault.events.record(
@@ -5022,12 +5024,12 @@ class CacheVaultApp(ctk.CTk):
                 clip.id,
                 self._quick_paste_receipt_details(clip, "copy_only"),
             )
-            Toast(self, "Copied to clipboard")
+            self._notify_quick_paste_or_toast("Copied to clipboard")
             return
         else:
             content = self._quick_paste_text_for_action(clip, action)
             if content is None:
-                Toast(self, "Nothing available to paste.")
+                self._notify_quick_paste_or_toast("Nothing available to paste.")
                 return
             pasted_payload = clipboard_out.write_via_tk(self, content)
             self._monitor.note_local_copy(pasted_payload)
@@ -5256,10 +5258,17 @@ class CacheVaultApp(ctk.CTk):
         )
         self._photo_viewer_window.present()
 
+    def _notify_quick_paste_or_toast(self, text: str) -> None:
+        qp = getattr(self, "_quick_paste", None)
+        if qp and qp.winfo_exists():
+            qp.show_status_feedback(text)
+        else:
+            Toast(self, text)
+
     def _quick_paste_copy_path(self, clip) -> None:
         path_text = clip.content or ""
         if not path_text:
-            Toast(self, "No path available to copy.")
+            self._notify_quick_paste_or_toast("No path available to copy.")
             return
         self._monitor.note_local_copy(clipboard_out.write_via_tk(self, path_text))
         self.vault.events.record(
@@ -5267,7 +5276,7 @@ class CacheVaultApp(ctk.CTk):
             clip.id,
             self._quick_paste_receipt_details(clip, "copy_path"),
         )
-        Toast(self, "Copied path to clipboard.")
+        self._notify_quick_paste_or_toast("Copied path to clipboard.")
 
     def _quick_paste_receipt_details(
         self,

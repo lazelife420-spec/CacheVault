@@ -150,3 +150,26 @@ def test_quick_paste_copy_avoids_forbidden_claims():
 
     for claim in ("cloud sync", "encrypted safes", "final release", "bank-grade", "military-grade"):
         assert claim not in source
+
+
+def test_quick_paste_key_bindings_return_break_and_guard_main_window():
+    from cache_vault.ui.quick_paste import QuickPaste
+    from cache_vault.ui.shell import CacheVaultApp
+
+    init_source = inspect.getsource(QuickPaste.__init__)
+    focus_guard_source = inspect.getsource(CacheVaultApp._keyboard_focus_is_text_input)
+
+    assert "return \"break\"" in init_source
+    assert "_bind_break" in init_source
+    assert "_quick_paste.winfo_exists()" in focus_guard_source
+
+
+def test_quick_paste_copy_uses_status_feedback_instead_of_toplevel_toast():
+    from cache_vault.ui.quick_paste import QuickPaste
+    from cache_vault.ui.shell import CacheVaultApp
+
+    qp_source = inspect.getsource(QuickPaste.show_status_feedback)
+    notify_source = inspect.getsource(CacheVaultApp._notify_quick_paste_or_toast)
+
+    assert "show_status_feedback" in qp_source
+    assert "qp.show_status_feedback(text)" in notify_source

@@ -64,12 +64,14 @@ class QuickPaste(ctk.CTkToplevel):
         # Close on Esc or when the popup loses focus (click elsewhere).
         self.bind("<FocusOut>", self._on_focus_out)
 
-        header = ctk.CTkLabel(
+        self._header_label = ctk.CTkLabel(
             self, anchor="w",
             text=f"{brand.QUICK_PASTE_HEADER}   —   {brand.QUICK_PASTE_HINT}",
             font=ctk.CTkFont(size=11), text_color=brand.PROOF_TEAL,
         )
-        header.pack(fill="x", padx=12, pady=(10, 4))
+        self._header_label.pack(fill="x", padx=12, pady=(10, 4))
+        self._status_reset_job: str | None = None
+
         self._search = ctk.CTkEntry(
             self,
             textvariable=self._query_var,
@@ -83,33 +85,27 @@ class QuickPaste(ctk.CTkToplevel):
         self._list.pack(fill="both", expand=True, padx=8, pady=(0, 10))
         self._render_rows()
 
-        # Key bindings.
-        self.bind("<Up>", lambda _e: self._move(-1))
-        self.bind("<Down>", lambda _e: self._move(1))
-        self.bind("<Home>", lambda _e: self._edge(0))
-        self.bind("<End>", lambda _e: self._edge(len(self._rows) - 1))
-        self.bind("<Return>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
-        self.bind("<KP_Enter>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
-        self.bind("<Control-Return>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
-        self.bind("<Control-KP_Enter>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
-        self.bind("<Shift-Return>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
-        self.bind("<Shift-KP_Enter>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
-        self.bind("<Escape>", lambda _e: self._cancel())
-        for n in range(1, 10):
-            self.bind(str(n), lambda _e, k=n - 1: self._choose(k, ACTION_PRIMARY))
-            self._search.bind(str(n), lambda _e, k=n - 1: self._choose(k, ACTION_PRIMARY))
-        for widget in (self._search,):
-            widget.bind("<Up>", lambda _e: self._move(-1))
-            widget.bind("<Down>", lambda _e: self._move(1))
-            widget.bind("<Home>", lambda _e: self._edge(0))
-            widget.bind("<End>", lambda _e: self._edge(len(self._rows) - 1))
-            widget.bind("<Return>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
-            widget.bind("<KP_Enter>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
-            widget.bind("<Control-Return>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
-            widget.bind("<Control-KP_Enter>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
-            widget.bind("<Shift-Return>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
-            widget.bind("<Shift-KP_Enter>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
-            widget.bind("<Escape>", lambda _e: self._cancel())
+        # Key bindings. Returning "break" prevents event propagation to main window bind_all.
+        def _bind_break(widget, sequence, func):
+            def _handler(_e):
+                func(_e)
+                return "break"
+            widget.bind(sequence, _handler)
+
+        for w in (self, self._search):
+            _bind_break(w, "<Up>", lambda _e: self._move(-1))
+            _bind_break(w, "<Down>", lambda _e: self._move(1))
+            _bind_break(w, "<Home>", lambda _e: self._edge(0))
+            _bind_break(w, "<End>", lambda _e: self._edge(len(self._rows) - 1))
+            _bind_break(w, "<Return>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
+            _bind_break(w, "<KP_Enter>", lambda _e: self._choose(self._index, ACTION_PRIMARY))
+            _bind_break(w, "<Control-Return>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
+            _bind_break(w, "<Control-KP_Enter>", lambda _e: self._choose(self._index, ACTION_COPY_ONLY))
+            _bind_break(w, "<Shift-Return>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
+            _bind_break(w, "<Shift-KP_Enter>", lambda _e: self._choose(self._index, ACTION_ALTERNATE))
+            _bind_break(w, "<Escape>", lambda _e: self._cancel())
+            for n in range(1, 10):
+                _bind_break(w, str(n), lambda _e, k=n - 1: self._choose(k, ACTION_PRIMARY))
 
         # Grab keyboard focus so the bindings fire immediately. The popup is
         # often launched from a global hotkey while another app is foreground,
@@ -219,6 +215,30 @@ class QuickPaste(ctk.CTkToplevel):
         self._closing = True
         self.destroy()
 
+    def show_status_feedback(self, text: str) -> None:
+        """Show status feedback inside the Quick Paste header when copy-and-stay runs."""
+        if self._closing or not self.winfo_exists():
+            return
+        if hasattr(self, "_header_label") and self._header_label.winfo_exists():
+            self._header_label.configure(text=f"✓ {text}")
+            if getattr(self, "_status_reset_job", None):
+                try:
+                    self.after_cancel(self._status_reset_job)
+                except Exception:  # noqa: BLE001
+                    pass
+            self._status_reset_job = self.after(
+                1800,
+                lambda: self._reset_header_text() if self.winfo_exists() else None
+            )
+
+    def _reset_header_text(self) -> None:
+        if self._closing or not self.winfo_exists():
+            return
+        if hasattr(self, "_header_label") and self._header_label.winfo_exists():
+            self._header_label.configure(
+                text=f"{brand.QUICK_PASTE_HEADER}   —   {brand.QUICK_PASTE_HINT}"
+            )
+
     def _choose(self, i: int, action: str = ACTION_PRIMARY) -> None:
         if self._closing:
             return
@@ -235,6 +255,7 @@ class QuickPaste(ctk.CTkToplevel):
             # briefly touched the clipboard owner.
             self._on_choose(clip, action)
             if self.winfo_exists():
+                self.focus_popup()
                 self.after(10, self.focus_popup)
             return
         # Paste-into-app (or one-shot) action: close first so our keyboard grab

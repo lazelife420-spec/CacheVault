@@ -1026,3 +1026,35 @@ def test_regression_cli_device_unaffected_by_compat_gate(vault, mobile_bridge):
         "GET", "/mobile/v1/status", _auth(device.device_id, token))
     assert code == 200
     assert "compatible" not in body
+
+
+def test_endpoint_migration_retains_pairing_without_repairing(vault, mobile_bridge):
+    """Pairing identity (deviceId + token) is independent of network endpoint.
+
+    When desktop LAN IP or port changes (e.g., DHCP migration from .11 to .12),
+    rediscovering the desktop PC endpoint allows browsing and sending without
+    re-pairing.
+    """
+    _enable(vault)
+    device, token = mobile_bridge.pair_device("s23-test-device", "Galaxy S23")
+    headers = _auth(device.device_id, token)
+
+    # Initial endpoint request (e.g. 192.168.0.11:8742)
+    code_status, body_status = mobile_bridge.handle("GET", "/mobile/v1/status", headers, remote_ip="192.168.0.11")
+    assert code_status == 200
+
+    # Endpoint migration occurs (desktop moves to 192.168.0.12)
+    code_clips, body_clips = mobile_bridge.handle("GET", "/mobile/v1/clips", headers, remote_ip="192.168.0.12")
+    assert code_clips == 200
+
+    # Send-to-PC from new endpoint succeeds with original credentials
+    send_payload = {
+        "content": "Migration validation payload",
+        "device_id": device.device_id,
+        "device_name": device.device_name,
+    }
+    code_send, body_send = mobile_bridge.handle(
+        "POST", "/mobile/v1/inbox/send", headers, body=send_payload, remote_ip="192.168.0.12"
+    )
+    assert code_send == 200
+    assert body_send["success"] is True

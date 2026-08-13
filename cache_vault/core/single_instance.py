@@ -9,10 +9,13 @@ _MUTEX_NAME = "Local\\CacheVaultSingleInstance_v1"
 _mutex_handle = None
 
 
-def _raise_existing_window() -> None:
-    """Best-effort: restore an already-running Cache Vault main window."""
+def _raise_existing_window() -> bool:
+    """Best-effort: restore an already-running Cache Vault main window.
+
+    Returns True if a window was found and restored; False otherwise.
+    """
     if not sys.platform.startswith("win"):
-        return
+        return False
     try:
         import ctypes
 
@@ -36,9 +39,10 @@ def _raise_existing_window() -> None:
         for hwnd in found:
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             user32.SetForegroundWindow(hwnd)
-            return
+            return True
+        return False
     except Exception:  # noqa: BLE001
-        return
+        return False
 
 
 def claim_or_exit() -> None:
@@ -53,7 +57,8 @@ def claim_or_exit() -> None:
         global _mutex_handle
         _mutex_handle = kernel32.CreateMutexW(None, True, _MUTEX_NAME)
         if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            _raise_existing_window()
+            if _raise_existing_window():
+                raise SystemExit(0)
             user32.MessageBoxW(
                 0,
                 "Cache Vault is already running.\n"
