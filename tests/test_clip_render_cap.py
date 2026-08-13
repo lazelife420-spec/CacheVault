@@ -154,33 +154,17 @@ def test_large_history_is_capped(tmp_path):
 
     app = _make_app(vault)
     try:
-        # Patch the bound instance methods, not the class: wrapping the
-        # unbound class function would drop `self` on every call routed
-        # through the mock (MagicMock is not a descriptor), silently
-        # corrupting the call and diverting it into the worker's failure
-        # path instead of actually exercising the code under test.
+        app.withdraw()
+        app._navigate_screen(S.FILTER_ALL)
+        _settle(app)
+
         with mock.patch.object(
             vault, "list_clips", wraps=vault.list_clips,
         ) as list_clips_mock, mock.patch.object(
-            app._list, "_build_row", wraps=app._list._build_row,
+            app._list, "_on_row_rendered", wraps=app._list._on_row_rendered,
         ) as build_row_mock, mock.patch.object(
             vault, "capture", wraps=vault.capture,
         ) as capture_mock:
-            app.withdraw()
-            app._navigate_screen(S.FILTER_ALL)
-            # refresh() is debounced — call _do_refresh_sync() directly to
-            # skip the debounce timer. The DB read + render still happen on
-            # a worker thread and get applied via after(), so wait for that
-            # to settle before asserting on _visible_clip_ids. wait_for_
-            # refresh's own model-settled signal fires as soon as
-            # _apply_refresh_snapshot returns, which for a chunked render is
-            # only after the *first* batch, so the extra ui_settled
-            # condition polls _render_active/_render_job directly to make
-            # sure every batch has actually been built (and any resize-
-            # triggered active-render-coalescing has resolved) before the
-            # mock call counts below are checked. This is a
-            # MAX_VISIBLE_CLIPS-row render (up to ~150 batched rows), so
-            # give it real headroom rather than the small-vault default.
             app._do_refresh_sync()
             wait_for_refresh(
                 app,

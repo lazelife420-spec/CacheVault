@@ -15,6 +15,106 @@ from .page_scaffold import build_clip_empty_state
 
 _MISSING = object()
 
+# The shell queries clip views with limit=MAX_VISIBLE_CLIPS, so a view can never
+# be asked for a 121st row and the pool never needs to grow past it. Kept as a
+# literal rather than imported from shell to avoid a UI import cycle;
+# test_clip_list_row_pool asserts the two constants agree.
+ROW_POOL_CAP = 120
+
+# Every retained Tk widget costs a process USER object on Windows, and
+# ClipList.clear() exists precisely to give those back. Measured on the
+# 1,611-clip fixture: a populated 120-row list already costs 7,422 of the
+# 10,000 this process is allowed, and a row driven to its largest shape costs
+# 67 USER rather than the 54 an average row costs. Releasing a row while the
+# process is above this ceiling destroys it instead of pooling it, so pooling
+# can never leave the process heavier at rest than the app already is with the
+# list on screen.
+POOL_USER_CEILING = 7500
+
+_GR_USEROBJECTS = 1
+
+
+def _process_user_objects() -> int | None:
+    """USER objects charged to this process, or None where that is unknowable.
+
+    None (non-Windows, or the call failing) means the ceiling does not apply,
+    rather than silently behaving as though the process were empty.
+    """
+    try:
+        import ctypes  # noqa: PLC0415
+        from ctypes import wintypes  # noqa: PLC0415
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        user32.GetGuiResources.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        user32.GetGuiResources.restype = wintypes.DWORD
+        return int(user32.GetGuiResources(kernel32.GetCurrentProcess(),
+                                          _GR_USEROBJECTS))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _set(widget, **kwargs) -> None:
+    """Apply only the properties whose value actually changes.
+
+    CustomTkinter's configure() costs close to a millisecond per property even
+    when the new value is identical to the current one, and rebinding a row
+    re-applies every visual property it owns. On a 120-row navigation that was
+    6,000 property sets of which 68% changed nothing. cget() is orders of
+    magnitude cheaper, so filtering first is what keeps a navigation off the
+    multi-second path -- without making the rebind any less exhaustive.
+    """
+    changed = {}
+    for key, value in kwargs.items():
+        try:
+            if widget.cget(key) == value:
+                continue
+        except Exception:  # noqa: BLE001
+            pass          # unreadable property: fall through and set it
+        changed[key] = value
+    if changed:
+        widget.configure(**changed)
+
+
+def _is_packed(widget) -> bool:
+    """Whether a widget is currently managed by its geometry manager.
+
+    winfo_ismapped() answers a different question: it is False for a packed
+    widget whose ancestors have not been drawn yet, which is exactly the state
+    rows are in while a batch is still building.
+    """
+    try:
+        return bool(widget.winfo_manager())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+class _RowSlot:
+    """One reusable row widget tree plus every handle needed to rebind it.
+
+    Holding the sub-widget references here is what makes rebinding possible at
+    all: without them a row could only be re-read by walking winfo_children(),
+    which is both slow and positional. ``clip`` is the single source of truth
+    for which clip this tree currently represents -- the event bindings are
+    installed once at creation and read it at event time, so rebinding never
+    has to reinstall (or accumulate) handlers.
+    """
+
+    __slots__ = ("row", "rail", "badge_lbl", "selected_badge", "trail",
+                 "star_lbl", "collection_lbl", "hash_lbl", "title_lbl",
+                 "preview_lbl", "chips_frame", "chip_slots", "meta_lbl",
+                 "action_bar", "clip", "action_bar_clip_id", "trail_state")
+
+    def __init__(self, **widgets) -> None:
+        for name in self.__slots__:
+            setattr(self, name, widgets.get(name))
+        self.chip_slots = []
+        self.clip = None
+        self.action_bar_clip_id = None
+        self.trail_state = None
+
+
 
 def _get_authoritative_selected_ids(widget) -> set[str]:
     """Retrieve authoritative selected clip IDs from the top-level shell if present,
@@ -51,6 +151,11 @@ class ClipList(ctk.CTkScrollableFrame):
         self._selected_id: str | None = None
         # Multi-selection: full set plus the rendered order and the range anchor.
         self._selected_ids: set[str] = set()
+        # Mirror of which rows are currently *painted* selected on screen, as
+        # opposed to which ids are logically selected. _repaint_selection uses
+        # the difference between the two so it only touches rows whose
+        # appearance actually has to change.
+        self._painted_selected_ids: set[str] = set()
         self._render_order: list[str] = []
         self._anchor_id: str | None = None
         self._rail_by_id: dict[str, ctk.CTkFrame] = {}
@@ -63,9 +168,25 @@ class ClipList(ctk.CTkScrollableFrame):
         self._last_empty_message: str | None = None
         self._last_group_by: str | None = None
         self._render_job: str | None = None
+        self._render_generation: int = 0
+        self._render_superseded: Callable[[], None] | None = None
+        self._render_owner_generation: int = -1
         self._more_count: int = 0
         self._more_label: ctk.CTkLabel | None = None
         self._empty_container = ctk.CTkFrame(self, fg_color="transparent")
+        # --- row pool -----------------------------------------------------
+        # _active_slots are mapped, in display order; _free_slots are retained
+        # but unmapped. Rows are reused positionally, so a navigation that
+        # renders the same number of rows performs no pack or destroy work.
+        self._active_slots: list[_RowSlot] = []
+        self._free_slots: list[_RowSlot] = []
+        self._header_widgets: list[tuple] = []
+        self._free_headers: list[tuple] = []
+        self._pool_stats: dict[str, int] = {
+            "created": 0, "reused": 0, "rebound": 0, "hidden": 0,
+            "destroyed": 0, "high_water": 0,
+            "headers_created": 0, "headers_reused": 0,
+        }
 
     def _show_more_footer(self) -> None:
         if self._more_count <= 0:
@@ -84,13 +205,107 @@ class ClipList(ctk.CTkScrollableFrame):
         self._more_label.pack(pady=(8, 14))
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None) -> None:
-        self.cancel_render()
+        self._recycle_for_render()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
-        for widget in list(self.winfo_children()):
-            if widget is not self._empty_container:
-                widget.destroy()
+
+        if not clips:
+            # An empty result reuses nothing, so the rows still on screen must
+            # be released -- otherwise the previous query's rows stay visible
+            # behind the empty state.
+            while self._active_slots:
+                self._release_slot(self._active_slots.pop())
+            self._render_empty_state(empty_message)
+            return
+
+        row_clips, headers = self._flatten(clips, group_by)
+        self._reuse_rows_in_place(row_clips)
+        for idx in range(len(self._active_slots), len(row_clips)):
+            self._rows.append(self._build_row(row_clips[idx]))
+        self._sync_headers(headers)
+        self._show_more_footer()
+        self._note_high_water()
+
+    def _render_empty_state(self, empty_message: str | None) -> None:
+        for w in self._empty_container.winfo_children():
+            w.destroy()
+        shell = self.winfo_toplevel()
+        active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+        est = build_clip_empty_state(
+            self._empty_container,
+            active_filter=active_filter,
+            empty_message=empty_message,
+            clear_filters=getattr(shell, "_clear_filters", None),
+            save_clipboard=getattr(shell, "_manual_save_clipboard", None),
+        )
+        est.pack(fill="both", expand=True)
+        self._empty_container.pack(fill="both", expand=True, pady=20)
+
+    def _flatten(self, clips: list[Clip], group_by: str | None):
+        """Split a render into the flat row sequence and the headers over it.
+
+        Each header records the row index it belongs in front of, which is what
+        lets headers be positioned with pack(before=...) without disturbing a
+        single row.
+        """
+        if not group_by:
+            return list(clips), []
+        from ..core import grouping
+        groups = grouping.group_clips(clips, group_by)
+        row_clips: list[Clip] = []
+        headers: list[tuple[str, str, int, int]] = []
+        for title, members in groups.items():
+            headers.append((group_by, title, len(members), len(row_clips)))
+            if (group_by, title) not in self._collapsed_groups:
+                row_clips.extend(members)
+        return row_clips, headers
+
+    def _reuse_rows_in_place(self, row_clips: list[Clip]) -> int:
+        """Rebind the rows that already exist, without moving any of them.
+
+        Surplus rows are released first so a shorter result can never leave a
+        stale row on screen, and the rows that remain keep their exact position
+        in the packing order -- which is why a same-length navigation performs
+        no geometry work at all.
+        """
+        while len(self._active_slots) > len(row_clips):
+            self._release_slot(self._active_slots.pop())
+        reuse = min(len(row_clips), len(self._active_slots))
+        self._rebind_range(row_clips, 0, reuse)
+        return reuse
+
+    def _release_surplus(self, wanted: int) -> None:
+        """Drop rows the new result has no clip for.
+
+        Synchronous on purpose, and not chunkable: a surplus row left mapped
+        is a row of the *previous* query still on screen underneath the new
+        results.
+        """
+        while len(self._active_slots) > wanted:
+            self._release_slot(self._active_slots.pop())
+
+    def _rebind_range(self, row_clips: list[Clip], start: int, stop: int) -> None:
+        """Rebind already-active rows [start, stop) to their new clips."""
+        for idx in range(start, stop):
+            self._bind_row_slot(self._active_slots[idx], row_clips[idx])
+            self._rows.append(self._active_slots[idx].row)
+            self._on_row_rendered(row_clips[idx])
+        # Counted apart from "reused": these rows were never released to the
+        # free pool, so _acquire_slot never saw them. Without this the most
+        # common navigation there is -- same length in, same length out --
+        # reports every counter at zero despite reusing every row.
+        self._pool_counters()["rebound"] += max(stop - start, 0)
+
+    def _recycle_for_render(self) -> None:
+        """Prepare for a new render without destroying the rows.
+
+        Rows stay where they are, still mapped; only the id-keyed maps that are
+        about to be rebuilt are dropped. This is what replaces clear() on the
+        clip-view-to-clip-view path, and it is the whole reason navigation no
+        longer destroys thousands of widgets.
+        """
+        self.cancel_render()
         self._rows.clear()
         self._row_by_id.clear()
         self._rail_by_id.clear()
@@ -99,168 +314,279 @@ class ClipList(ctk.CTkScrollableFrame):
         self._title_label_by_id.clear()
         self._meta_label_by_id.clear()
         self._render_order.clear()
+        self._painted_ids().clear()
+        for header in self._header_widgets:
+            self._free_header(header)
+        self._header_widgets = []
+        if (self._more_label is not None and self._more_label.winfo_exists()
+                and _is_packed(self._more_label)):
+            self._more_label.pack_forget()
         self._empty_container.pack_forget()
 
-        if not clips:
-            for w in self._empty_container.winfo_children():
-                w.destroy()
+    def clear(self) -> None:
+        """Destroy all rendered rows and reset tracking without building an
+        empty-state placeholder.
 
-            shell = self.winfo_toplevel()
-            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
+        On Windows every Tk widget consumes a process USER object, and the
+        app keeps this view alive (hidden) even when another view/screen is
+        showing. Freeing the rows while hidden keeps the process-wide USER
+        object count away from the ~10k cap that otherwise surfaces as
+        "No more menus can be allocated"; refresh() rebuilds this view on
+        return.
 
-            est = build_clip_empty_state(
-                self._empty_container,
-                active_filter=active_filter,
-                empty_message=empty_message,
-                clear_filters=getattr(shell, "_clear_filters", None),
-                save_clipboard=getattr(shell, "_manual_save_clipboard", None),
-            )
-            est.pack(fill="both", expand=True)
-            self._empty_container.pack(fill="both", expand=True, pady=20)
-            return
-
-        for clip in clips:
-            self._rows.append(self._build_row(clip))
-        self._show_more_footer()
+        This is also the pool's disposal path. Retaining pooled rows here
+        would defeat the whole point of the method, so the shell's existing
+        calls -- for screens, for Home, and for the inactive view -- still
+        hand every USER object back. Reuse is deliberately confined to the
+        clip-view-to-clip-view transition, via _recycle_for_render.
+        """
+        self.cancel_render()
+        self.dispose_pool()
+        for widget in list(self.winfo_children()):
+            if widget is not self._empty_container:
+                widget.destroy()
+        self._rows.clear()
+        self._row_by_id.clear()
+        self._painted_ids().clear()  # nothing is painted once rows are gone
+        self._rail_by_id.clear()
+        self._selected_badge_by_id.clear()
+        self._action_bar_by_id.clear()
+        self._title_label_by_id.clear()
+        self._meta_label_by_id.clear()
+        self._render_order.clear()
+        self._more_label = None
+        self._empty_container.pack_forget()
 
     def destroy(self) -> None:
         self.cancel_render()
+        self.dispose_pool()
         super().destroy()
 
     def cancel_render(self) -> None:
+        """Abandon any in-flight batch chain.
+
+        An abandoned chain can never reach its ``on_complete``, so the render's
+        owner is told through ``on_superseded`` instead: exactly one of the two
+        callbacks fires for every ``render_batched`` call. Dropping both is what
+        stranded the shell's _render_active flag, which deadlocked every later
+        refresh and left the view frozen part-way through the old query.
+        """
+        self._render_generation += 1
         if self._render_job:
             try:
                 self.after_cancel(self._render_job)
             except Exception: # noqa: BLE001
                 pass
             self._render_job = None
+        superseded = self._render_superseded
+        self._render_superseded = None
+        if superseded is not None:
+            superseded()
 
     def render_batched(
         self, clips: list[Clip], *, empty_message: str | None = None, group_by: str | None = None,
-        more_count: int = 0, on_complete: Callable[[], None] | None = None,
+        more_count: int = 0, on_complete: Callable[[], None] | None = None, generation: int = 0,
+        on_superseded: Callable[[], None] | None = None,
     ) -> None:
         """``on_complete``, if given, fires once every batch has actually
         been built (not right after this call returns -- rendering itself
-        is chunked across ``after(10, ...)`` ticks so the UI thread never
-        blocks on a large list, so a caller that needs to act on the
-        *complete* set of rendered rows -- e.g. repainting a "select all
-        matching" selection's visual state after a same-context refresh
-        -- must wait for this rather than acting immediately after the
-        call, which would only see the first batch's rows.
+        is chunked across ``after(5, ...)`` ticks so the UI thread never
+        blocks on a large list). Generation tokens guarantee that stale
+        render jobs from superseded queries/refreshes cancel immediately.
+
+        ``generation`` is the caller's authoritative refresh generation; a
+        snapshot older than the one already on screen is refused outright so
+        a late-arriving worker result cannot repaint over newer results.
+        ``on_superseded`` fires instead of ``on_complete`` whenever this
+        render is refused or abandoned, so the caller never loses the
+        completion signal it uses to release render ownership.
+
+        Rows already on screen are rebound in place rather than destroyed and
+        rebuilt; only rows this view does not yet have are constructed, and
+        those are still chunked.
         """
-        self.cancel_render()
+        if generation < self._render_owner_generation:
+            if on_superseded is not None:
+                on_superseded()
+            return
+        self._render_owner_generation = generation
+        self._recycle_for_render()
         self._last_clips = list(clips)
         self._last_empty_message = empty_message
         self._last_group_by = group_by
         self._more_count = more_count
-
-        for widget in list(self.winfo_children()):
-            if widget is not self._empty_container:
-                widget.destroy()
-        self._rows.clear()
-        self._row_by_id.clear()
-        self._rail_by_id.clear()
-        self._selected_badge_by_id.clear()
-        self._action_bar_by_id.clear()
-        self._title_label_by_id.clear()
-        self._meta_label_by_id.clear()
-        self._render_order.clear()
-        self._empty_container.pack_forget()
+        gen = self._render_generation
+        self._render_superseded = on_superseded
 
         if not clips:
-            for w in self._empty_container.winfo_children():
-                w.destroy()
-
-            shell = self.winfo_toplevel()
-            active_filter = getattr(shell._filters, "active", "") if hasattr(shell, "_filters") else ""
-
-            est = build_clip_empty_state(
-                self._empty_container,
-                active_filter=active_filter,
-                empty_message=empty_message,
-                clear_filters=getattr(shell, "_clear_filters", None),
-                save_clipboard=getattr(shell, "_manual_save_clipboard", None),
-            )
-            est.pack(fill="both", expand=True)
-            self._empty_container.pack(fill="both", expand=True, pady=20)
+            # No rows can be reused by an empty result, so the pooled rows are
+            # released rather than left mapped behind the empty state.
+            while self._active_slots:
+                self._release_slot(self._active_slots.pop())
+            self._render_empty_state(empty_message)
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
             return
 
-        batch_size = 15
-        if group_by:
-            from ..core import grouping
-            groups = grouping.group_clips(clips, group_by)
-            flat_pending: list[tuple[str, list[Clip] | Clip]] = []
-            for title, members in groups.items():
-                flat_pending.append(("header", (group_by, title, len(members))))
-                if (group_by, title) not in self._collapsed_groups:
-                    for clip in members:
-                        flat_pending.append(("clip", clip))
-            self._render_next_batch_flat(flat_pending, 0, batch_size, on_complete)
-        else:
-            self._render_next_batch(clips, 0, batch_size, on_complete)
+        batch_size = 8
+        row_clips, headers = self._flatten(clips, group_by)
 
-    def _render_next_batch(
-        self, clips: list[Clip], start_idx: int, batch_size: int,
-        on_complete: Callable[[], None] | None = None,
-    ) -> None:
-        end_idx = min(start_idx + batch_size, len(clips))
-        for i in range(start_idx, end_idx):
-            self._rows.append(self._build_row(clips[i]))
+        # Rows the new result has no clip for must come off screen now; the
+        # rest are rebound a batch at a time on the same chunk chain as the
+        # builds, so a long rebind pass never blocks the UI thread either.
+        self._release_surplus(len(row_clips))
+        reusable = len(self._active_slots)
 
-        if end_idx < len(clips):
+        if not row_clips:
+            # Every group is collapsed: there are real clips, but no rows to
+            # show for them. The headers still have to be placed.
+            self._finish_render(headers, on_complete)
+            return
+
+        # Every reusable row is rebound before returning. Chunking this the way
+        # builds are chunked was measured and rejected: it cut the synchronous
+        # cost from 30ms to 2ms, which no one can perceive, but left 112 of 120
+        # rows showing the previous query's content for ~108ms afterwards.
+        # Rebinding is cheap enough that atomicity is worth more than the 28ms.
+        first = min(reusable, len(row_clips))
+        self._rebind_range(row_clips, 0, first)
+
+        start = first
+        if reusable == 0:
+            # Nothing was reusable, so build one row synchronously to put real
+            # content on screen before yielding, exactly as before pooling.
+            # When rows *were* reused there is already content on screen and
+            # forcing an extra build would only delay the first yield.
+            self._rows.append(self._build_row(row_clips[0]))
+            start = 1
+        # Place the headers that can be placed now, so the first content on
+        # screen carries its own group heading rather than acquiring it later.
+        self._sync_headers(headers, up_to_row_index=len(self._active_slots) - 1)
+        if start < len(row_clips):
             self._render_job = self.after(
-                10, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete),
+                5, lambda: self._render_next_rows(
+                    row_clips, headers, start, batch_size, on_complete, gen,
+                    reusable),
             )
         else:
-            self._render_job = None
-            self._show_more_footer()
-            if on_complete is not None:
-                on_complete()
+            self._finish_render(headers, on_complete)
 
-    def _render_next_batch_flat(
-        self, pending: list[tuple[str, any]], start_idx: int, batch_size: int,
-        on_complete: Callable[[], None] | None = None,
+    def _render_next_rows(
+        self, row_clips: list[Clip], headers, start_idx: int, batch_size: int,
+        on_complete: Callable[[], None] | None = None, gen: int = 0,
+        reusable: int = 0,
     ) -> None:
-        end_idx = min(start_idx + batch_size, len(pending))
+        """Apply one batch of rows.
+
+        ``reusable`` is how many rows were already on screen when this render
+        started; indices below it are rebound, the rest are built. Both kinds
+        share one chain so the two costs interleave in render order rather
+        than the rebinds all landing up front.
+        """
+        if gen != self._render_generation:
+            return
+        end_idx = min(start_idx + batch_size, len(row_clips))
         for i in range(start_idx, end_idx):
-            kind, data = pending[i]
-            if kind == "header":
-                self._build_group_header(*data)
+            if i < reusable:
+                self._rebind_range(row_clips, i, i + 1)
             else:
-                self._rows.append(self._build_row(data))
+                self._rows.append(self._build_row(row_clips[i]))
 
-        if end_idx < len(pending):
+        if end_idx < len(row_clips):
             self._render_job = self.after(
-                10, lambda: self._render_next_batch_flat(pending, end_idx, batch_size, on_complete),
+                5, lambda: self._render_next_rows(
+                    row_clips, headers, end_idx, batch_size, on_complete, gen,
+                    reusable),
             )
         else:
-            self._render_job = None
-            self._show_more_footer()
-            if on_complete is not None:
-                on_complete()
+            self._finish_render(headers, on_complete)
+
+    def _finish_render(self, headers, on_complete: Callable[[], None] | None) -> None:
+        self._sync_headers(headers)
+        self._render_job = None
+        self._show_more_footer()
+        self._render_superseded = None
+        self._note_high_water()
+        if on_complete is not None:
+            on_complete()
+
+    # --- group headers ----------------------------------------------------
+
+    def _free_header(self, header):
+        """Unmap and blank a group header so it can be reused safely."""
+        frame, _rail, _btn = header
+        if _is_packed(frame):
+            frame.pack_forget()
+        if _rail.winfo_exists():
+            _rail.configure(fg_color=brand.PROOF_TEAL_DIM)
+        if _btn.winfo_exists():
+            _btn.configure(text="")
+        self._free_headers.append(header)
+
+    def _acquire_header(self):
+        stats = self._pool_counters()
+        while self._free_headers:
+            header = self._free_headers.pop()
+            if header[0].winfo_exists():
+                stats["headers_reused"] += 1
+                return header
+        stats["headers_created"] += 1
+        frame = ctk.CTkFrame(self, fg_color="transparent")
+        rail = ctk.CTkFrame(frame, width=3, height=24, corner_radius=2)
+        rail.pack(side="left", fill="y", padx=(0, 6))
+        btn = ctk.CTkButton(frame, text="", anchor="w", height=24,
+                            fg_color="transparent",
+                            font=theme.font(size=11, weight="bold"))
+        btn.pack(side="left", fill="x", expand=True)
+        return (frame, rail, btn)
+
+    def _sync_headers(self, headers, up_to_row_index: int = 1_000_000) -> None:
+        """Place the missing group headers, without touching existing ones.
+
+        Rows are reused positionally and must keep their place in the packing
+        order, so headers are inserted relative to them with pack(before=...).
+        ``up_to_row_index`` limits headers to those whose anchor row is at or
+        before this position; the synchronous phase passes the current row count
+        so only leading headers are built before yielding, and _finish_render
+        fills in the rest.
+        """
+        idx = 0
+        for group_by, title, count, row_index in headers:
+            if row_index > up_to_row_index:
+                break
+            if idx < len(self._header_widgets):
+                # Already placed. Just ensure the position is correct.
+                frame = self._header_widgets[idx][0]
+                target = (self._active_slots[row_index].row
+                          if row_index < len(self._active_slots) else None)
+                if target is not None and target.winfo_exists():
+                    try:
+                        frame.pack(before=target)
+                    except Exception:  # noqa: BLE001
+                        pass
+                idx += 1
+                continue
+            target = (self._active_slots[row_index].row
+                      if row_index < len(self._active_slots) else None)
+            self._build_group_header(group_by, title, count)
+            if target is not None and target.winfo_exists():
+                self._header_widgets[-1][0].pack(before=target)
+            idx += 1
 
     def _build_group_header(self, group_by: str, title: str, count: int) -> None:
+        """Append one group header at the end of the current sequence."""
+        frame, rail, btn = self._acquire_header()
         style = clip_accents.group_header_accent(group_by, title)
         collapsed = (group_by, title) in self._collapsed_groups
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=8, pady=(10, 2))
-        rail = ctk.CTkFrame(header, width=3, height=24, fg_color=style.accent, corner_radius=2)
-        rail.pack(side="left", fill="y", padx=(0, 6))
-        label = f"{'▸' if collapsed else '▾'} {title} ({count})"
-        btn = ctk.CTkButton(
-            header,
-            text=label,
-            anchor="w",
-            height=24,
-            fg_color="transparent",
-            hover_color=style.bg,
-            text_color=style.text,
-            font=ctk.CTkFont(size=11, weight="bold"),
+        rail.configure(fg_color=style.accent)
+        btn.configure(
+            text=f"{'▸' if collapsed else '▾'} {title} ({count})",
+            hover_color=style.bg, text_color=style.text,
             command=lambda gb=group_by, t=title: self._toggle_group(gb, t),
         )
-        btn.pack(side="left", fill="x", expand=True)
+        frame.pack(fill="x", padx=8, pady=(10, 2))
+        self._header_widgets.append((frame, rail, btn))
 
     def _toggle_group(self, group_by: str, title: str) -> None:
         key = (group_by, title)
@@ -274,154 +600,399 @@ class ClipList(ctk.CTkScrollableFrame):
             group_by=self._last_group_by,
         )
 
-    def _build_row(self, clip: Clip) -> ctk.CTkFrame:
+    # --- row pool ---------------------------------------------------------
+
+    def _pool_counters(self) -> dict[str, int]:
+        stats = getattr(self, "_pool_stats", None)
+        if stats is None:
+            stats = {"created": 0, "reused": 0, "rebound": 0, "hidden": 0,
+                     "destroyed": 0, "high_water": 0,
+                     "headers_created": 0, "headers_reused": 0}
+            self._pool_stats = stats
+        return stats
+
+    def pool_stats(self) -> dict[str, int]:
+        """Row lifecycle counters, for benchmarks and tests."""
+        stats = dict(self._pool_counters())
+        stats["active"] = len(self._active_slots)
+        stats["free"] = len(self._free_slots)
+        stats["retained"] = stats["active"] + stats["free"]
+        return stats
+
+    def reset_pool_stats(self) -> None:
+        self._pool_counters().update(
+            created=0, reused=0, rebound=0, hidden=0, destroyed=0,
+            headers_created=0, headers_reused=0)
+
+    def _note_high_water(self) -> None:
+        stats = self._pool_counters()
+        retained = len(self._active_slots) + len(self._free_slots)
+        if retained > stats["high_water"]:
+            stats["high_water"] = retained
+
+    def _acquire_slot(self) -> _RowSlot:
+        stats = self._pool_counters()
+        while self._free_slots:
+            slot = self._free_slots.pop()
+            if slot.row is not None and slot.row.winfo_exists():
+                stats["reused"] += 1
+                return slot
+            stats["destroyed"] += 1
+        slot = self._create_row_slot()
+        stats["created"] += 1
+        return slot
+
+    def _release_slot(self, slot: _RowSlot) -> None:
+        """Unmap a row and keep it for reuse -- unless keeping it would breach
+        the pool cap or the USER-object ceiling, in which case destroy it.
+
+        The ceiling is what stops a pool whose rows have each drifted to their
+        largest shape from leaving the process heavier at rest than the app
+        already is with the list on screen.
+        """
+        slot.clip = None
+        try:
+            slot.row.pack_forget()
+            self._blank_slot(slot)
+        except Exception:  # noqa: BLE001
+            self._destroy_slot(slot)
+            return
+        user = _process_user_objects()
+        if (len(self._free_slots) >= ROW_POOL_CAP
+                or (user is not None and user > POOL_USER_CEILING)):
+            self._destroy_slot(slot)
+            return
+        self._free_slots.append(slot)
+        self._pool_counters()["hidden"] += 1
+
+    def _blank_slot(self, slot: _RowSlot) -> None:
+        """Strip a released row of the clip it was showing.
+
+        Unmapping alone is not enough. A pooled row keeps whatever text it was
+        last given, and that text stays readable by anything that walks the
+        widget tree -- so a vault that locks, or a filter that hides a private
+        clip, would leave the clip's title, preview and metadata sitting in a
+        hidden row. A released row has to be inert, not merely invisible.
+        """
+        for label in (slot.title_lbl, slot.preview_lbl, slot.meta_lbl,
+                      slot.badge_lbl):
+            if label is not None and label.winfo_exists():
+                label.configure(text="")
+        for key in self._TRAIL_ORDER:
+            lbl = getattr(slot, f"{key}_lbl")
+            if lbl is not None and lbl.winfo_exists():
+                if _is_packed(lbl):
+                    lbl.pack_forget()
+                lbl.configure(text="")
+        slot.trail_state = ()
+        for chip, _dot, text in slot.chip_slots:
+            if _is_packed(chip):
+                chip.pack_forget()
+            if text.winfo_exists():
+                text.configure(text="")
+        if slot.action_bar is not None and slot.action_bar.winfo_exists():
+            if _is_packed(slot.action_bar):
+                slot.action_bar.pack_forget()
+            for child in slot.action_bar.winfo_children():
+                child.destroy()
+        slot.action_bar_clip_id = None
+        if slot.selected_badge is not None and _is_packed(slot.selected_badge):
+            slot.selected_badge.pack_forget()
+
+    def _destroy_slot(self, slot: _RowSlot) -> None:
+        self._pool_counters()["destroyed"] += 1
+        try:
+            slot.row.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+        slot.clip = None
+        slot.chip_slots = []
+
+    def dispose_pool(self) -> None:
+        """Destroy every row this view owns, pooled or shown.
+
+        The real destruction path: shutdown, and whenever the view stops being
+        the active clip view. Without it a retained pool would hold its USER
+        objects while a screen is on display, which is what clear() exists to
+        prevent.
+        """
+        while self._active_slots:
+            self._destroy_slot(self._active_slots.pop())
+        while self._free_slots:
+            self._destroy_slot(self._free_slots.pop())
+        for header in list(self._header_widgets) + list(self._free_headers):
+            try:
+                header.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        self._header_widgets = []
+        self._free_headers = []
+
+    def _create_row_slot(self) -> _RowSlot:
+        """Build one empty row tree.
+
+        Nothing here may depend on a particular clip: every clip-owned value is
+        applied by _bind_row_slot, so one tree can serve any clip.
+        """
+        row = ctk.CTkFrame(self, corner_radius=8, fg_color=brand.ROW_BG,
+                           border_width=1, border_color=brand.ROW_BG)
+        frame = ctk.CTkFrame(row, fg_color="transparent")
+        frame.pack(fill="x")
+        rail = ctk.CTkFrame(frame, width=4, fg_color=brand.PROOF_TEAL_DIM,
+                            corner_radius=6)
+        rail.pack(side="left", fill="y", padx=(0, 8), pady=8)
+        body = ctk.CTkFrame(frame, fg_color="transparent")
+        body.pack(side="left", fill="both", expand=True, pady=4, padx=(0, 6))
+
+        top = ctk.CTkFrame(body, fg_color="transparent")
+        top.pack(fill="x", padx=2, pady=(6, 0))
+        badge_lbl = ctk.CTkLabel(top, text="",
+                                 font=theme.font(size=10, weight="bold"))
+        badge_lbl.pack(side="left")
+        selected_badge = ctk.CTkLabel(
+            top, text="SELECTED", font=theme.font(size=10, weight="bold"),
+            text_color=brand.FOUNDRY_BLACK, fg_color=brand.PROOF_TEAL,
+            corner_radius=999, padx=10, pady=2,
+        )
+        trail = ctk.CTkFrame(top, fg_color="transparent")
+        trail.pack(side="right")
+
+        title_lbl = ctk.CTkLabel(body, text="", anchor="w",
+                                 font=theme.font(size=12, weight="bold"),
+                                 text_color=brand.RECEIPT_WHITE)
+        title_lbl.pack(fill="x", padx=2)
+        preview_lbl = ctk.CTkLabel(body, text="", anchor="w", justify="left",
+                                   wraplength=420, font=theme.font(size=11),
+                                   text_color=brand.MUTED_FG)
+        preview_lbl.pack(fill="x", padx=2, pady=(2, 4))
+        chips_frame = ctk.CTkFrame(body, fg_color="transparent")
+        chips_frame.pack(fill="x", padx=2, pady=(0, 6))
+        meta_lbl = ctk.CTkLabel(body, text="", anchor="w",
+                                text_color=brand.MUTED_FG,
+                                font=theme.font(size=11))
+        meta_lbl.pack(fill="x", padx=2, pady=(0, 8))
+        action_bar = ctk.CTkFrame(body, fg_color="transparent")
+
+        slot = _RowSlot(
+            row=row, rail=rail, badge_lbl=badge_lbl,
+            selected_badge=selected_badge, trail=trail, title_lbl=title_lbl,
+            preview_lbl=preview_lbl, chips_frame=chips_frame,
+            meta_lbl=meta_lbl, action_bar=action_bar,
+        )
+        self._bind_slot_events(slot, row)
+        return slot
+
+    def _bind_slot_events(self, slot: _RowSlot, widget) -> None:
+        """Install the click handlers once, for the life of the widget.
+
+        They resolve the clip through the slot at event time, so rebinding a
+        row to another clip needs no rebinding of handlers -- which is also
+        what stops handlers accumulating on a reused row.
+        """
+        widget.bind("<Button-1>", lambda e, s=slot: self._slot_click(e, s), add="+")
+        widget.bind("<Control-Button-1>", lambda e, s=slot: self._slot_click(e, s), add="+")
+        widget.bind("<Shift-Button-1>", lambda e, s=slot: self._slot_click(e, s), add="+")
+        widget.bind("<Double-Button-1>", lambda e, s=slot: self._slot_double_click(e, s), add="+")
+        widget.bind("<Button-3>", lambda e, s=slot: self._slot_context(e, s), add="+")
+        for child in widget.winfo_children():
+            self._bind_slot_events(slot, child)
+
+    def _slot_click(self, event, slot: _RowSlot) -> str:
+        clip = slot.clip
+        if clip is None:
+            return "break"
+        return self._click(event, clip)
+
+    def _slot_double_click(self, event, slot: _RowSlot) -> str:
+        clip = slot.clip
+        if clip is None:
+            return "break"
+        return self._double_click(event, clip)
+
+    def _slot_context(self, event, slot: _RowSlot) -> None:
+        clip = slot.clip
+        if clip is not None:
+            self._context(event, clip)
+
+    _TRAIL_ORDER = ("star", "collection", "hash")
+
+    def _sync_trail(self, slot: _RowSlot, clip: Clip) -> None:
+        wanted: list[tuple[str, str, str]] = []
+        if clip.is_pinned:
+            wanted.append(("star", "★", theme.proof_badge_fg()))
+        if clip.collection:
+            wanted.append(("collection", clip.collection[:16], brand.STAMP_GOLD))
+        if clip.content_hash:
+            wanted.append(("hash", "⬢", brand.STAMP_GOLD))
+        state = tuple(key for key, _t, _c in wanted)
+
+        for key, text, colour in wanted:
+            attr = f"{key}_lbl"
+            lbl = getattr(slot, attr)
+            if lbl is None or not lbl.winfo_exists():
+                size = {"star": 12, "collection": 9, "hash": 10}[key]
+                lbl = ctk.CTkLabel(slot.trail, text=text,
+                                   font=theme.font(size=size), text_color=colour)
+                setattr(slot, attr, lbl)
+                self._bind_slot_events(slot, lbl)
+                slot.trail_state = None          # force the repack below
+            else:
+                _set(lbl, text=text, text_color=colour)
+
+        if state == slot.trail_state:
+            return
+        # The set changed, so repack in canonical order: pack() appends, and
+        # re-adding one label alone would place it after the others.
+        for key in self._TRAIL_ORDER:
+            lbl = getattr(slot, f"{key}_lbl")
+            if lbl is not None and lbl.winfo_exists() and _is_packed(lbl):
+                lbl.pack_forget()
+        for key, _t, _c in wanted:
+            getattr(slot, f"{key}_lbl").pack(side="left", padx=2)
+        slot.trail_state = state
+
+    def _sync_chips(self, slot: _RowSlot, labels: list[str]) -> None:
+        for idx, label in enumerate(labels):
+            if idx < len(slot.chip_slots):
+                chip, dot, text = slot.chip_slots[idx]
+                style = clip_accents.label_accent(label)
+                _set(chip, fg_color=style.bg, border_color=style.border)
+                _set(dot, text_color=style.accent)
+                _set(text, text=label, text_color=style.text)
+                if not _is_packed(chip):
+                    chip.pack(side="left", padx=(0, 6), pady=(0, 2))
+            else:
+                slot.chip_slots.append(self._make_chip(slot, label))
+        for idx in range(len(labels), len(slot.chip_slots)):
+            chip = slot.chip_slots[idx][0]
+            if _is_packed(chip):
+                chip.pack_forget()
+
+    def _make_chip(self, slot: _RowSlot, label: str):
+        style = clip_accents.label_accent(label)
+        chip = ctk.CTkFrame(slot.chips_frame, fg_color=style.bg, border_width=1,
+                            border_color=style.border, corner_radius=6)
+        chip.pack(side="left", padx=(0, 6), pady=(0, 2))
+        dot = ctk.CTkLabel(chip, text="●", width=10, font=theme.font(size=7),
+                           text_color=style.accent)
+        dot.pack(side="left", padx=(5, 2), pady=2)
+        text = ctk.CTkLabel(chip, text=label, anchor="w", font=theme.font(size=9),
+                            text_color=style.text)
+        text.pack(side="left", padx=(0, 6), pady=2)
+        self._bind_slot_events(slot, chip)
+        return (chip, dot, text)
+
+    def _bind_row_slot(self, slot: _RowSlot, clip: Clip) -> None:
+        """Replace every piece of clip-owned state on a pooled row.
+
+        Anything a row shows or acts on has to be reassigned here; a value left
+        over from the previous occupant is a rebind bug, so this is deliberately
+        exhaustive rather than incremental.
+        """
+        slot.clip = clip
         selected = clip.id in self._selected_ids or clip.id == self._selected_id
-        row = ctk.CTkFrame(
-            self, corner_radius=8,
+        painted = self._painted_ids()
+        if selected:
+            painted.add(clip.id)
+        else:
+            painted.discard(clip.id)
+
+        _set(
+            slot.row,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
             border_width=3 if selected else 1,
             border_color=brand.PROOF_TEAL if selected else brand.ROW_BG,
         )
-        row.pack(fill="x", padx=4, pady=2)
-        self._row_by_id[clip.id] = row
-        self._render_order.append(clip.id)
-
-        frame = ctk.CTkFrame(row, fg_color="transparent")
-        frame.pack(fill="x")
-        rail = ctk.CTkFrame(
-            frame,
+        _set(
+            slot.rail,
             width=8 if selected else 4,
             fg_color=brand.PROOF_TEAL if selected else brand.PROOF_TEAL_DIM,
-            corner_radius=6,
         )
-        rail.pack(side="left", fill="y", padx=(0, 8), pady=8)
-        self._rail_by_id[clip.id] = rail
-        body = ctk.CTkFrame(frame, fg_color="transparent")
-        body.pack(side="left", fill="both", expand=True, pady=4, padx=(0, 6))
 
         badge = clip_metadata.format_label(clip.classification, clip.content_type).upper()
-        if clip.is_sensitive:
-            badge = "SENSITIVE"
-        elif clip.duplicate_of:
-            badge = f"{badge} · DUPLICATE"
-
-        top = ctk.CTkFrame(body, fg_color="transparent")
-        top.pack(fill="x", padx=2, pady=(6, 0))
         badge_style = clip_accents.type_accent(clip.classification, clip.content_type)
         if clip.is_sensitive:
+            badge = "SENSITIVE"
             badge_style = clip_accents.label_accent("Sensitive")
         elif clip.duplicate_of:
+            badge = f"{badge} · DUPLICATE"
             badge_style = clip_accents.label_accent("Duplicate")
+        _set(slot.badge_lbl, text=badge, text_color=badge_style.accent)
 
-        ctk.CTkLabel(
-            top, text=badge, font=ctk.CTkFont(size=10, weight="bold"),
-            text_color=badge_style.accent,
-        ).pack(side="left")
-
-        badge_lbl = ctk.CTkLabel(
-            top,
-            text="SELECTED",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            text_color=brand.FOUNDRY_BLACK,
-            fg_color=brand.PROOF_TEAL,
-            corner_radius=999,
-            padx=10,
-            pady=2,
-        )
-        self._selected_badge_by_id[clip.id] = badge_lbl
         if selected:
-            badge_lbl.pack(side="left", padx=(8, 0))
-        trail = ctk.CTkFrame(top, fg_color="transparent")
-        trail.pack(side="right")
-        if clip.is_pinned:
-            ctk.CTkLabel(trail, text="★", font=ctk.CTkFont(size=12),
-                         text_color=theme.proof_badge_fg()).pack(side="left", padx=2)
-        if clip.collection:
-            ctk.CTkLabel(trail, text=clip.collection[:16], font=ctk.CTkFont(size=9),
-                         text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
-        if clip.content_hash:
-            ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=10),
-                         text_color=brand.STAMP_GOLD).pack(side="left", padx=2)
+            if not _is_packed(slot.selected_badge):
+                slot.selected_badge.pack(side="left", padx=(8, 0))
+        elif _is_packed(slot.selected_badge):
+            slot.selected_badge.pack_forget()
+
+        self._sync_trail(slot, clip)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
-        title_lbl = ctk.CTkLabel(
-            body, text=title, anchor="w",
-            font=ctk.CTkFont(size=13 if selected else 12, weight="bold"),
-            text_color=brand.RECEIPT_WHITE,
-        )
-        title_lbl.pack(fill="x", padx=2)
-        self._title_label_by_id[clip.id] = title_lbl
+        _set(slot.title_lbl, text=title,
+             font=theme.font(size=13 if selected else 12, weight="bold"))
 
         preview_lines = (clip.preview or "(empty)").splitlines()[:3]
         preview = "\n".join(preview_lines)
         if len((clip.preview or "").splitlines()) > 3:
             preview += "…"
-        ctk.CTkLabel(
-            body, text=preview, anchor="w", justify="left", wraplength=420,
-            font=ctk.CTkFont(size=11),
-            text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
-        ).pack(fill="x", padx=2, pady=(2, 4))
+        _set(slot.preview_lbl, text=preview,
+             text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG)
 
-        # Labels/chips
         try:
             from ..core.clip_metadata import labels_for_clip
-            labels = labels_for_clip(clip)
-            chips = ctk.CTkFrame(body, fg_color="transparent")
-            chips.pack(fill="x", padx=2, pady=(0, 6))
-            for lab in labels[:4]:
-                self._build_chip(chips, lab)
-        except Exception:
-            pass
+            self._sync_chips(slot, list(labels_for_clip(clip))[:4])
+        except Exception:  # noqa: BLE001
+            self._sync_chips(slot, [])
 
-        # Single clean metadata row
         window = self.winfo_toplevel()
         storage = getattr(getattr(window, "vault", None), "storage", None)
-        meta_str = clip_metadata.source_summary_line(clip, storage)
-
-        meta_lbl = ctk.CTkLabel(
-            body,
-            text=meta_str,
-            anchor="w",
+        _set(
+            slot.meta_lbl,
+            text=clip_metadata.source_summary_line(clip, storage),
             text_color=brand.RECEIPT_WHITE if selected else brand.MUTED_FG,
-            font=ctk.CTkFont(size=11, weight="bold" if selected else "normal"),
+            font=theme.font(size=11, weight="bold" if selected else "normal"),
         )
-        meta_lbl.pack(fill="x", padx=2, pady=(0, 8))
-        self._meta_label_by_id[clip.id] = meta_lbl
 
-        # Inline Action Bar
-        action_bar = ctk.CTkFrame(body, fg_color="transparent")
-        self._action_bar_by_id[clip.id] = action_bar
+        # Action buttons are the most USER-expensive optional part of a row, so
+        # a pooled row never carries another clip's set: they are rebuilt for
+        # the selected row and dropped entirely otherwise.
         if selected:
-            action_bar.pack(fill="x", padx=2, pady=(4, 4))
-            self._fill_action_bar(action_bar, clip)
+            if not _is_packed(slot.action_bar):
+                slot.action_bar.pack(fill="x", padx=2, pady=(4, 4))
+            self._fill_action_bar(slot.action_bar, clip)
+            slot.action_bar_clip_id = clip.id
+        else:
+            if _is_packed(slot.action_bar):
+                slot.action_bar.pack_forget()
+            if slot.action_bar_clip_id is not None:
+                for child in slot.action_bar.winfo_children():
+                    child.destroy()
+                slot.action_bar_clip_id = None
 
-        self._bind_clip_events(row, clip)
-        return row
+        self._row_by_id[clip.id] = slot.row
+        self._rail_by_id[clip.id] = slot.rail
+        self._selected_badge_by_id[clip.id] = slot.selected_badge
+        self._action_bar_by_id[clip.id] = slot.action_bar
+        self._title_label_by_id[clip.id] = slot.title_lbl
+        self._meta_label_by_id[clip.id] = slot.meta_lbl
+        self._render_order.append(clip.id)
 
-    def _build_chip(self, parent, label: str) -> None:
-        style = clip_accents.label_accent(label)
-        chip = ctk.CTkFrame(
-            parent,
-            fg_color=style.bg,
-            border_width=1,
-            border_color=style.border,
-            corner_radius=6,
-        )
-        chip.pack(side="left", padx=(0, 6), pady=(0, 2))
-        ctk.CTkLabel(
-            chip,
-            text="●",
-            width=10,
-            font=ctk.CTkFont(size=7),
-            text_color=style.accent,
-        ).pack(side="left", padx=(5, 2), pady=2)
-        ctk.CTkLabel(
-            chip,
-            text=label,
-            anchor="w",
-            font=ctk.CTkFont(size=9),
-            text_color=style.text,
-        ).pack(side="left", padx=(0, 6), pady=2)
+    def _build_row(self, clip: Clip) -> ctk.CTkFrame:
+        """Append one row for ``clip``, reusing a pooled tree when one exists."""
+        slot = self._acquire_slot()
+        self._bind_row_slot(slot, clip)
+        slot.row.pack(fill="x", padx=4, pady=2)
+        self._active_slots.append(slot)
+        self._note_high_water()
+        self._on_row_rendered(clip)
+        return slot.row
+
+    def _on_row_rendered(self, clip: Clip) -> None:
+        """No-op hook that fires for every row, whether newly built or rebound.
+
+        Tests that need to inspect or abandon a render mid-chain can wrap this
+        without breaking the `_slot` pass-through used by the pooling path.
+        """
 
     def _bind_clip_events(self, widget, clip: Clip) -> None:
         widget.bind("<Button-1>", lambda e, c=clip: self._click(e, c), add="+")
@@ -561,6 +1132,13 @@ class ClipList(ctk.CTkScrollableFrame):
         row = self._row_by_id.get(clip_id)
         if row is None:
             return
+        # Recorded here rather than in the callers so the mirror cannot drift:
+        # this is the single place a row's selected appearance is applied.
+        painted = self._painted_ids()
+        if is_selected:
+            painted.add(clip_id)
+        else:
+            painted.discard(clip_id)
         row.configure(
             fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
             border_width=3 if is_selected else 1,
@@ -594,12 +1172,12 @@ class ClipList(ctk.CTkScrollableFrame):
             self._meta_label_by_id = {}
         title_lbl = self._title_label_by_id.get(clip_id)
         if title_lbl is not None:
-            title_lbl.configure(font=ctk.CTkFont(size=13 if is_selected else 12, weight="bold"))
+            title_lbl.configure(font=theme.font(size=13 if is_selected else 12, weight="bold"))
         meta_lbl = self._meta_label_by_id.get(clip_id)
         if meta_lbl is not None:
             meta_lbl.configure(
                 text_color=brand.RECEIPT_WHITE if is_selected else brand.MUTED_FG,
-                font=ctk.CTkFont(size=11, weight="bold" if is_selected else "normal"),
+                font=theme.font(size=11, weight="bold" if is_selected else "normal"),
             )
 
         # Dynamic action bar management
@@ -622,10 +1200,44 @@ class ClipList(ctk.CTkScrollableFrame):
                 if action_bar.winfo_ismapped():
                     action_bar.pack_forget()
 
+    def _painted_ids(self) -> set[str]:
+        """The painted-selection mirror, created on demand.
+
+        Guarded like the other per-row maps in this class because instances are
+        also built without __init__ (``object.__new__``). Every row painted
+        after this point is recorded, so the mirror becomes authoritative from
+        here on; _repaint_selection handles the case where it did not exist yet.
+        """
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            painted = set()
+            self._painted_selected_ids = painted
+        return painted
+
     def _repaint_selection(self) -> None:
-        for clip_id in self._row_by_id:
-            is_selected = clip_id in self._selected_ids
-            self._update_row_visuals(clip_id, is_selected)
+        """Repaint only the rows whose selected state actually changes.
+
+        Painting every rendered row instead costs a full configure pass per row
+        (row frame, rail, badge, title font, meta font/colour, action bar) even
+        when the selection is unchanged or empty -- which is the common case on
+        navigation, where the whole view is then discarded anyway. The rows that
+        must change are exactly the symmetric difference between what is painted
+        and what is selected.
+        """
+        rows = self._row_by_id
+        desired = self._selected_ids
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            # Mirror never initialised, so what is on screen is unknown: repaint
+            # everything, exactly as this method used to. Only instances built
+            # without __init__ reach this. The mirror is accurate afterwards.
+            for clip_id in list(rows):
+                self._update_row_visuals(clip_id, clip_id in desired)
+            return
+        for clip_id in (desired ^ painted) & rows.keys():
+            self._update_row_visuals(clip_id, clip_id in desired)
+        # Ids whose rows no longer exist can never need repainting again.
+        self._painted_selected_ids = painted & rows.keys()
 
     def set_selected(self, clip_id: str | None) -> None:
         previous_id = self._selected_id

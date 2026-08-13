@@ -10,7 +10,7 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
 from .. import brand
-from ..core import app_receipt
+from ..core import app_receipt, clipboard_out
 from ..feature_gate import founder_feature_label
 from .. import licensing
 from . import theme
@@ -237,8 +237,7 @@ class FounderDialog(ctk.CTkToplevel):
                 parent=self,
             )
             return
-        self.clipboard_clear()
-        self.clipboard_append(url)
+        clipboard_out.write_via_tk(self, url)
         messagebox.showinfo("Purchase Link", "Purchase link copied to clipboard.", parent=self)
 
     def _export_app_receipt(self) -> None:

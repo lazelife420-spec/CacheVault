@@ -856,6 +856,39 @@ class Vault:
             self.events.record(models.EVENT_DELETED, cid, {"action": "remove_from_history"})
         return result
 
+    def clear_all_clips(self, clip_ids):
+        """Move every currently-active clip to Recently Removed.
+
+        Deliberately a thin wrapper over ``remove_from_history_many`` --
+        there is no second bulk-move implementation. That means this
+        inherits the whole existing contract: one transaction, full
+        rollback on any exception (so a failure leaves the vault exactly
+        as it was, never half-cleared), per-clip ``EVENT_DELETED`` rows
+        recorded only after a real commit, and ids that raced to
+        already-removed reported in ``.skipped`` rather than silently
+        dropped.
+
+        Recoverable by design: only ``clips.deleted_at`` is set. No clip
+        row, ``clip_assets`` row, managed asset file, collection label,
+        or favorite flag is touched, so every cleared clip can be
+        restored from Recently Removed, and capture continues to work
+        because nothing the ingest path depends on was removed.
+
+        Adds one summary receipt on top of the per-clip events so the
+        ledger shows the bulk action as a single reviewable entry.
+        """
+        from .clear_all_receipts import record_clear_all_clips_receipt
+
+        result = self.remove_from_history_many(clip_ids)
+        if result.succeeded_count:
+            record_clear_all_clips_receipt(
+                self.events,
+                moved_count=result.succeeded_count,
+                skipped_count=result.skipped_count,
+                clip_ids=list(result.succeeded),
+            )
+        return result
+
     def restore(self, clip_id: str) -> None:
         """Restore a clip from Recently Removed back into history."""
         self.storage.restore(clip_id)

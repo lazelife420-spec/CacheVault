@@ -67,6 +67,9 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._selected_id: str | None = None
         # Multi-selection: full set plus rendered order and the range anchor.
         self._selected_ids: set[str] = set()
+        # Which rows are currently *painted* selected — see
+        # ClipList._painted_selected_ids; both views obey the same contract.
+        self._painted_selected_ids: set[str] = set()
         self._render_order: list[str] = []
         self._anchor_id: str | None = None
         self._row_by_id: dict[str, ctk.CTkFrame] = {}
@@ -77,6 +80,9 @@ class ClipGrid(ctk.CTkScrollableFrame):
         self._rows_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._rows_frame.pack(fill="both", expand=True, padx=4)
         self._render_job: str | None = None
+        self._render_generation: int = 0
+        self._render_superseded: Callable[[], None] | None = None
+        self._render_owner_generation: int = -1
         self._more_count: int = 0
         self._more_label: ctk.CTkLabel | None = None
         self._empty_container = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
@@ -108,7 +114,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
                 self._header, text=label, height=30,
                 fg_color="transparent", hover_color=theme.nav_hover_bg(),
                 text_color=brand.STAMP_GOLD, anchor="w",
-                font=ctk.CTkFont(size=11, weight="bold"),
+                font=theme.font(size=11, weight="bold"),
                 command=lambda k=key: self._sort_by(k),
             )
             btn.grid(row=0, column=col, sticky="ew", padx=2, pady=2)
@@ -126,13 +132,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             self._on_sort(self._sort_key)
 
     def render(self, clips: list[Clip], *, empty_message: str | None = None) -> None:
-        self.cancel_render()
-        for w in self._rows_frame.winfo_children():
-            if w is not self._empty_container:
-                w.destroy()
-        self._row_by_id.clear()
-        self._name_label_by_id.clear()
-        self._render_order.clear()
+        self.clear()
         if not clips:
             for w in self._empty_container.winfo_children():
                 w.destroy()
@@ -153,36 +153,64 @@ class ClipGrid(ctk.CTkScrollableFrame):
         for clip in clips:
             self._build_row(clip)
 
+    def clear(self) -> None:
+        """Destroy all rendered rows and reset tracking without building an
+        empty-state placeholder.
+
+        See ClipList.clear: frees this view's Tk/USER objects while it is
+        hidden so the process-wide count stays clear of the Windows ~10k
+        cap. refresh() rebuilds the view on return.
+        """
+        self.cancel_render()
+        for w in self._rows_frame.winfo_children():
+            if w is not self._empty_container:
+                w.destroy()
+        self._row_by_id.clear()
+        self._painted_ids().clear()  # nothing is painted once rows are gone
+        self._name_label_by_id.clear()
+        self._render_order.clear()
+        self._current_group = None
+        self._empty_container.pack_forget()
+
     def destroy(self) -> None:
         self.cancel_render()
         super().destroy()
 
     def cancel_render(self) -> None:
+        """Abandon any in-flight batch chain, telling the render's owner via
+        ``on_superseded`` -- see ClipList.cancel_render for why losing that
+        signal deadlocks every later refresh."""
+        self._render_generation += 1
         if self._render_job:
             try:
                 self.after_cancel(self._render_job)
             except Exception: # noqa: BLE001
                 pass
             self._render_job = None
+        superseded = self._render_superseded
+        self._render_superseded = None
+        if superseded is not None:
+            superseded()
 
     def render_batched(
         self, clips: list[Clip], *, empty_message: str | None = None, more_count: int = 0,
-        on_complete: Callable[[], None] | None = None,
+        on_complete: Callable[[], None] | None = None, generation: int = 0,
+        on_superseded: Callable[[], None] | None = None,
     ) -> None:
         """``on_complete``, if given, fires once every batch has actually
         been built -- see ClipList.render_batched's docstring for why a
         caller needing the complete rendered set can't just act right
-        after this call returns."""
-        self.cancel_render()
+        after this call returns, and for the ``generation`` /
+        ``on_superseded`` contract."""
+        if generation < self._render_owner_generation:
+            if on_superseded is not None:
+                on_superseded()
+            return
+        self._render_owner_generation = generation
+        self.clear()
         self._more_count = more_count
-        for w in self._rows_frame.winfo_children():
-            if w is not self._empty_container:
-                w.destroy()
-        self._row_by_id.clear()
-        self._name_label_by_id.clear()
-        self._render_order.clear()
-        self._current_group = None
-        self._empty_container.pack_forget()
+        gen = self._render_generation
+        self._render_superseded = on_superseded
         if not clips:
             for w in self._empty_container.winfo_children():
                 w.destroy()
@@ -199,28 +227,45 @@ class ClipGrid(ctk.CTkScrollableFrame):
             )
             est.pack(fill="both", expand=True)
             self._empty_container.pack(fill="both", expand=True, pady=20)
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
             return
 
-        batch_size = 20
-        self._render_next_batch(clips, 0, batch_size, on_complete)
+        batch_size = 8
+        # Build first row synchronously so content appears immediately;
+        # remaining rows are batched via after(5) for responsiveness.
+        self._build_row(clips[0])
+        if len(clips) > 1:
+            self._render_job = self.after(
+                5, lambda: self._render_next_batch(
+                    clips, 1, batch_size, on_complete, gen),
+            )
+        else:
+            self._render_job = None
+            self._show_more_footer()
+            self._render_superseded = None
+            if on_complete is not None:
+                on_complete()
 
     def _render_next_batch(
         self, clips: list[Clip], start_idx: int, batch_size: int,
-        on_complete: Callable[[], None] | None = None,
+        on_complete: Callable[[], None] | None = None, gen: int = 0,
     ) -> None:
+        if gen != self._render_generation:
+            return
         end_idx = min(start_idx + batch_size, len(clips))
         for i in range(start_idx, end_idx):
             self._build_row(clips[i])
 
         if end_idx < len(clips):
             self._render_job = self.after(
-                10, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete),
+                5, lambda: self._render_next_batch(clips, end_idx, batch_size, on_complete, gen),
             )
         else:
             self._render_job = None
             self._show_more_footer()
+            self._render_superseded = None
             if on_complete is not None:
                 on_complete()
 
@@ -231,12 +276,19 @@ class ClipGrid(ctk.CTkScrollableFrame):
             self._current_group = group
             header = ctk.CTkLabel(
                 self._rows_frame, text=group,
-                font=ctk.CTkFont(size=12, weight="bold"),
+                font=theme.font(size=12, weight="bold"),
                 text_color=brand.STAMP_GOLD, anchor="w",
             )
             header.pack(fill="x", padx=10, pady=(12, 4))
 
         selected = clip.id in self._selected_ids or clip.id == self._selected_id
+        # Built with its selected presentation already applied, so the painted
+        # mirror must learn about it without a repaint pass.
+        painted = self._painted_ids()
+        if selected:
+            painted.add(clip.id)
+        else:
+            painted.discard(clip.id)
         row = ctk.CTkFrame(
             self._rows_frame, corner_radius=6, height=40,
             fg_color=brand.ROW_SELECTED_BG if selected else brand.ROW_BG,
@@ -253,7 +305,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
             text = values[key]
             lbl = ctk.CTkLabel(
                 row, text=text, anchor="w",
-                font=ctk.CTkFont(size=12 if key == "name" else 11, weight="bold" if key == "name" else "normal"),
+                font=theme.font(size=12 if key == "name" else 11, weight="bold" if key == "name" else "normal"),
                 text_color=brand.PROOF_TEAL if key == "name" and selected else brand.MUTED_FG,
             )
             lbl.grid(row=0, column=col, sticky="ew", padx=8, pady=8)
@@ -390,19 +442,51 @@ class ClipGrid(ctk.CTkScrollableFrame):
             ordered = [cid for cid in order if cid in self._selected_ids]
             callback(ordered)
 
-    def _repaint_selection(self) -> None:
-        for clip_id, row in self._row_by_id.items():
-            is_selected = clip_id in self._selected_ids
-            row.configure(
-                fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
-                border_width=2 if is_selected else 1,
-                border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+    def _painted_ids(self) -> set[str]:
+        """The painted-selection mirror, created on demand -- instances are also
+        built without __init__ (``object.__new__``). Mirrors ClipList."""
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            painted = set()
+            self._painted_selected_ids = painted
+        return painted
+
+    def _update_row_visuals(self, clip_id: str, is_selected: bool) -> None:
+        """Apply one row's selected presentation. Single place a card's
+        selected appearance changes, so the painted mirror cannot drift."""
+        row = self._row_by_id.get(clip_id)
+        if row is None:
+            return
+        painted = self._painted_ids()
+        if is_selected:
+            painted.add(clip_id)
+        else:
+            painted.discard(clip_id)
+        row.configure(
+            fg_color=brand.ROW_SELECTED_BG if is_selected else brand.ROW_BG,
+            border_width=2 if is_selected else 1,
+            border_color=brand.PROOF_TEAL if is_selected else brand.ROW_BG,
+        )
+        name_label = self._name_label_by_id.get(clip_id)
+        if name_label is not None:
+            name_label.configure(
+                text_color=brand.PROOF_TEAL if is_selected else brand.MUTED_FG,
             )
-            name_label = self._name_label_by_id.get(clip_id)
-            if name_label is not None:
-                name_label.configure(
-                    text_color=brand.PROOF_TEAL if is_selected else brand.MUTED_FG,
-                )
+
+    def _repaint_selection(self) -> None:
+        """Repaint only the rows whose selected state actually changes --
+        see ClipList._repaint_selection for why the full pass is wasteful."""
+        rows = self._row_by_id
+        desired = self._selected_ids
+        painted = getattr(self, "_painted_selected_ids", None)
+        if painted is None:
+            # Unknown painted state -- repaint everything, as this used to.
+            for clip_id in list(rows):
+                self._update_row_visuals(clip_id, clip_id in desired)
+            return
+        for clip_id in (desired ^ painted) & rows.keys():
+            self._update_row_visuals(clip_id, clip_id in desired)
+        self._painted_selected_ids = painted & rows.keys()
 
     def set_selected(self, clip_id: str | None) -> None:
         previous_id = self._selected_id
@@ -412,12 +496,7 @@ class ClipGrid(ctk.CTkScrollableFrame):
         if clip_id is not None:
             self._apply_selection(previous_id, clip_id)
         elif previous_id:
-            row = self._row_by_id.get(previous_id)
-            if row is not None:
-                row.configure(fg_color=brand.ROW_BG, border_width=1)
-            name_label = self._name_label_by_id.get(previous_id)
-            if name_label is not None:
-                name_label.configure(text_color=brand.MUTED_FG)
+            self._update_row_visuals(previous_id, False)
 
     def _context(self, event, clip: Clip) -> None:
         # Right-clicking inside an existing multi-selection keeps the set so
@@ -447,26 +526,12 @@ class ClipGrid(ctk.CTkScrollableFrame):
         for clip_id in {previous_id, selected_id}:
             if not clip_id:
                 continue
-            row = self._row_by_id.get(clip_id)
-            if row is not None:
-                is_selected = clip_id == selected_id
-                if is_selected:
-                    row.configure(
-                        fg_color=brand.ROW_SELECTED_BG,
-                        border_width=2,
-                        border_color=brand.PROOF_TEAL,
-                    )
+            is_selected = clip_id == selected_id
+            self._update_row_visuals(clip_id, is_selected)
+            if is_selected:
+                row = self._row_by_id.get(clip_id)
+                if row is not None:
                     self._safe_see(row)
-                else:
-                    row.configure(
-                        fg_color=brand.ROW_BG,
-                        border_width=1,
-                    )
-            name_label = self._name_label_by_id.get(clip_id)
-            if name_label is not None:
-                name_label.configure(
-                    text_color=brand.PROOF_TEAL if clip_id == selected_id else brand.MUTED_FG,
-                )
 
     def _safe_see(self, widget) -> None:
         try:

@@ -7,7 +7,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import models
+from ..core import clipboard_out, models
 from ..core.lan_ip import advanced_lan_ipv4, list_lan_ipv4, recommended_lan_ipv4
 from ..core.mobile.connection_doctor import connection_doctor_text
 from ..core.mobile.models import (
@@ -31,8 +31,7 @@ from .pairing_help import (
 
 
 def _copy_to_clipboard(master: ctk.CTk, text: str) -> None:
-    master.clipboard_clear()
-    master.clipboard_append(text)
+    clipboard_out.write_via_tk(master, text)
 
 
 class PairAndroidDialog(ctk.CTkToplevel):

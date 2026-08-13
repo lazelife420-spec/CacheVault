@@ -36,6 +36,7 @@ def dispatch_sidebar_command(window, key: str, ctx: Any) -> None:
         smc.CMD_RENAME_COLLECTION,
         smc.CMD_EMPTY_COLLECTION,
         smc.CMD_PERMANENTLY_DELETE_ALL,
+        smc.CMD_CLEAR_ALL_CLIPS,
     ):
         window._show_toast("Sidebar context changed; command aborted.")
         return

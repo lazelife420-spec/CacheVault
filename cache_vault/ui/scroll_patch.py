@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from typing import Callable
 
+import customtkinter
 from customtkinter import CTkScrollableFrame, CTkTextbox
 
 from .win_scroll import (
@@ -18,7 +19,46 @@ from .win_scroll import (
     vertical_text_units,
 )
 
-_original_frame_wheel = CTkScrollableFrame._mouse_wheel_all
+# Class-level private CustomTkinter APIs the wheel patch depends on. These are
+# the only attributes verifiable without constructing a widget; instance-only
+# members the patch also uses (``_parent_canvas`` on CTkScrollableFrame,
+# ``_textbox`` on CTkTextbox) are created in ``__init__`` and therefore cannot
+# be inspected without a Tk root, so they are intentionally excluded here.
+_REQUIRED_SCROLLFRAME_ATTRS = ("_mouse_wheel_all", "_check_if_valid_scroll")
+
+
+class ScrollPatchIncompatibleError(RuntimeError):
+    """Installed CustomTkinter lacks a private API the wheel-scroll patch requires."""
+
+
+def verify_scroll_patch_compatibility(scroll_frame_cls=CTkScrollableFrame, version=None) -> None:
+    """Verify the installed CustomTkinter exposes the private CTkScrollableFrame
+    APIs the Windows wheel-scroll patch relies on.
+
+    Inspection only: never creates a Tk root and never installs the patch. Only
+    the class-level private attributes the patch actually uses are checked (see
+    ``_REQUIRED_SCROLLFRAME_ATTRS``).
+
+    Raises ScrollPatchIncompatibleError, naming the detected version and every
+    missing attribute, when the API is incompatible.
+    """
+    if version is None:
+        version = getattr(customtkinter, "__version__", "unknown")
+    missing = [a for a in _REQUIRED_SCROLLFRAME_ATTRS if not hasattr(scroll_frame_cls, a)]
+    if missing:
+        raise ScrollPatchIncompatibleError(
+            "Incompatible CustomTkinter for the Cache Vault mouse-wheel patch: "
+            f"detected version {version!r} is missing required CTkScrollableFrame "
+            f"attribute(s): {', '.join(missing)}. "
+            "Cache Vault pins customtkinter==6.0.0 (see requirements.txt); "
+            "install that version to restore wheel scrolling."
+        )
+
+
+# Captured defensively so an incompatible CustomTkinter surfaces the clear
+# ScrollPatchIncompatibleError from verify_scroll_patch_compatibility() rather
+# than a raw AttributeError at import time.
+_original_frame_wheel = getattr(CTkScrollableFrame, "_mouse_wheel_all", None)
 _original_textbox_init = CTkTextbox.__init__
 _patch_installed = False
 
@@ -35,7 +75,7 @@ def _shift_pressed() -> bool:
 
 
 def _patched_frame_wheel(self, event):
-    if not self.check_if_master_is_canvas(event.widget):
+    if not self._check_if_valid_scroll(event.widget):
         return
     cfg = current_scroll_config()
     if not cfg.use_windows_settings or not sys.platform.startswith("win"):
@@ -114,6 +154,7 @@ def _patched_textbox_init(self, *args, **kwargs):
 def install_windows_scroll_patch(config_supplier: Callable[[], ScrollConfig]) -> None:
     """Patch CTk scroll widgets once per process."""
     global _patch_installed
+    verify_scroll_patch_compatibility()
     set_scroll_config_supplier(config_supplier)
     refresh_windows_scroll_cache()
     if _patch_installed:

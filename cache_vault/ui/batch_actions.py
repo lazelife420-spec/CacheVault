@@ -7,7 +7,7 @@ from pathlib import Path
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-from ..core import models, image_assets, copy_clean, editable_copies
+from ..core import models, image_assets, clipboard_out, copy_clean, editable_copies
 from ..core.selection import analyze_selection
 from ..core.formatter import format_batch_links
 from .crashlog import write_crash
@@ -133,9 +133,7 @@ def bulk_copy_format(window, format_name: str) -> None:
         else:
             combined = "\n\n".join(parts)
 
-    window.clipboard_clear()
-    window.clipboard_append(combined)
-    window._monitor.note_local_copy(combined)
+    window._monitor.note_local_copy(clipboard_out.write_via_tk(window, combined))
 
     if summary.selection_class == "link_only":
         if format_name == "plain":
@@ -386,9 +384,7 @@ def bulk_copy_paths(window) -> None:
         return
 
     combined = "\n".join(paths)
-    window.clipboard_clear()
-    window.clipboard_append(combined)
-    window._monitor.note_local_copy(combined)
+    window._monitor.note_local_copy(clipboard_out.write_via_tk(window, combined))
     window._show_toast(f"Copied {len(paths)} file paths to clipboard.")
 
     # Record event/receipt

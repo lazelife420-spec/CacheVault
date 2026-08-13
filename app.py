@@ -39,6 +39,14 @@ def _selftest() -> int:
         bridge = MobileBridge(vault)
         assert bridge.allowed_routes()  # mobile stack importable in frozen builds
 
+        # Verify the bundled CustomTkinter exposes the private APIs the Windows
+        # wheel-scroll patch depends on. This is inspection-only (no Tk root, no
+        # patch install), and closes the gap where a packaged EXE could ship an
+        # incompatible CustomTkinter that only crashed on the first wheel event.
+        from cache_vault.ui.scroll_patch import verify_scroll_patch_compatibility
+
+        verify_scroll_patch_compatibility()
+
         # Licensing / Ed25519 must work in frozen builds (Founder MVP gate).
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from cache_vault import licensing
@@ -116,9 +124,11 @@ def main() -> int:
         return _run_contained_selftest()
 
     from cache_vault.core.settings import Settings
+    from cache_vault.ui.font_patch import install_main_thread_font_finalizer_guard
     from cache_vault.ui.scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
 
     _settings = Settings.load()
+    install_main_thread_font_finalizer_guard()
     install_windows_scroll_patch(lambda: scroll_config_from_settings(_settings))
 
     from cache_vault.core.single_instance import claim_or_exit

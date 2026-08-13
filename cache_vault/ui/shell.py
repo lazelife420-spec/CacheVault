@@ -24,7 +24,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 from .. import brand
-from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, copy_clean, drag_export, models, multi_link, search, selection, vault_lock
+from ..core import capture_debug, clip_accents, clip_metadata, cleanup_receipts, cleanup_suggestions, clipboard_out, copy_clean, drag_export, models, multi_link, search, selection, vault_lock
 from ..core import sidebar_menu_context as smc
 from .. import feature_gate
 from .. import licensing
@@ -40,7 +40,7 @@ from ..core.paste_delivery import (
     restore_clipboard_text,
     snapshot_clipboard_text,
 )
-from ..core.storage import FILTER_HOME, FILTER_SEARCH_ALL
+from ..core.storage import FILTER_ALL, FILTER_HOME, FILTER_SEARCH_ALL
 from ..core.mobile.bridge import MobileBridge
 from ..core.mobile.mobile_access_controller import MobileAccessController
 from ..core.vault import Vault
@@ -52,6 +52,7 @@ from .dialogs import (
 )
 from . import batch_actions
 from . import clip_context
+from . import icon
 from . import sidebar_actions
 from . import sidebar_context
 try:
@@ -98,11 +99,23 @@ from .vault_screens import VaultScreenHost
 from .vault_lock import VaultControlStrip, VaultLockScreen
 from . import theme
 from .crashlog import write_crash
+from .font_patch import install_main_thread_font_finalizer_guard
 from .scroll_patch import install_windows_scroll_patch, scroll_config_from_settings
 from .win_scroll import refresh_windows_scroll_cache
 from .page_header import PageHeader
 
 EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
+# How long to leave the pasted clip on the clipboard before putting the user's
+# previous clipboard back. The target consumes the synthetic Ctrl+V
+# asynchronously (measured at ~0.17s after delivery against a real Windows
+# target), so restoring immediately makes it paste the *previous* clipboard.
+CLIPBOARD_RESTORE_DELAY_MS = 400
+# restore_clipboard_text has its own bounded OpenClipboard retry (~0.4s). If
+# another process holds the clipboard for longer than that the restore fails,
+# which must not silently leave the pasted clip sitting on the user's
+# clipboard: try again, then say so.
+CLIPBOARD_RESTORE_RETRY_MS = 600
+CLIPBOARD_RESTORE_ATTEMPTS = 3
 
 # Each rendered clip row is a deep CustomTkinter widget tree (~45 Tk widgets,
 # each a Windows USER object/HWND). Windows caps USER objects at ~10,000 per
@@ -133,6 +146,12 @@ _FOUNDER_NAV_GATES: dict[str, str] = {
 
 
 class CacheVaultApp(ctk.CTk):
+    # Label for the page-level All Clips Refresh affordance. The ⟳ glyph is the
+    # visible refresh icon (same monochrome-symbol language as the ◈/⟳ marks
+    # already used in the chrome); the word keeps it accessible and testable.
+    _REFRESH_LABEL = "⟳ Refresh"
+    _REFRESH_BUSY_LABEL = "⟳ Refreshing…"
+
     def report_callback_exception(self, exc, val, tb):  # noqa: N802 - Tk API
         """Log Tk callback failures instead of failing silently."""
         err = val if isinstance(val, BaseException) else Exception(val)
@@ -200,8 +219,7 @@ class CacheVaultApp(ctk.CTk):
             tb_str = "".join(traceback.format_exception(exc, val, tb))
 
             def _copy():
-                self.clipboard_clear()
-                self.clipboard_append(tb_str)
+                clipboard_out.write_via_tk(self, tb_str)
                 messagebox.showinfo("Copied", "Error traceback copied to clipboard.", parent=dialog)
 
             def _open_log():
@@ -352,6 +370,9 @@ class CacheVaultApp(ctk.CTk):
         self._macro_store = MacroStore()
         self._macro_registry = MacroSafeRegistry(self.vault.settings)
 
+        # Must be installed before any font is discarded: a font finalized on
+        # a background thread calls Tk off-thread and hangs the refresh.
+        install_main_thread_font_finalizer_guard()
         install_windows_scroll_patch(
             lambda: scroll_config_from_settings(self.vault.settings),
         )
@@ -535,6 +556,8 @@ class CacheVaultApp(ctk.CTk):
             "<Control-a>": lambda e: self._keyboard_select_all(e),
             "<Control-A>": lambda e: self._keyboard_select_all(e),
             "<Control-Shift-A>": lambda e: self._keyboard_select_all_matching(e),
+            "<Control-l>": lambda e: self._focus_clips_search(e),
+            "<Control-L>": lambda e: self._focus_clips_search(e),
             "<Delete>": lambda e: self._keyboard_remove_selected(e),
             "<Shift-F10>": lambda e: self._keyboard_open_context_menu(e),
             "<Menu>": lambda e: self._keyboard_open_context_menu(e),
@@ -875,13 +898,82 @@ class CacheVaultApp(ctk.CTk):
         self._used_var = ctk.StringVar(value="Any")
         self._type_var = ctk.StringVar(value="All Types")
 
-        self._clips_search = ctk.CTkEntry(
+        # --- Search field -----------------------------------------------------
+        # The default CTkEntry surface matches the IRON_GRAY toolbar panel
+        # (#1A1F26), so an unstyled entry reads as an empty divider rather
+        # than an interactive control (UX finding: All Clips search control
+        # difficult to discover). Wrap it in a differentiated, outlined well
+        # with a visible magnifier icon and a clear focus state. Search
+        # semantics, the bound StringVar/callback, and the toolbar layout are
+        # unchanged.
+        self._search_field_wrap = ctk.CTkFrame(
             self._toolbar_row1,
-            textvariable=self._search_var,
-            placeholder_text="Search saved clips…  (type:link  source:cursor)",
+            fg_color=brand.BLACK_METAL,
+            border_width=1,
+            border_color=brand.VAULT_BORDER,
+            corner_radius=6,
             height=32,
         )
-        self._clips_search.pack(fill="x", padx=6, pady=4)
+        self._search_field_wrap.pack(fill="x", padx=6, pady=4)
+
+        # Visible magnifier icon. The PhotoImage is bound to this app's own
+        # Tk root (master=self) and retained on the instance so it lives
+        # exactly as long as this window. A CTkImage is deliberately NOT used
+        # here: CTkImage binds its internal photo to Tk._default_root, which
+        # triggers "pyimageN doesn't exist" across the many app
+        # construction/teardown cycles in the test suite (and any other
+        # multi-root process). The glyph matches the app's monochrome-symbol
+        # language (cf. the ⟳/◈ marks used elsewhere).
+        self._search_icon_photo = None
+        self._search_icon_label = None
+        _icon_pil = icon.search_icon_pil(18)
+        if _icon_pil is not None:
+            from PIL import ImageTk
+            self._search_icon_photo = ImageTk.PhotoImage(_icon_pil, master=self)
+            self._search_icon_label = tk.Label(
+                self._search_field_wrap,
+                image=self._search_icon_photo,
+                text="",
+                bg=brand.BLACK_METAL,
+                highlightthickness=0,
+                borderwidth=0,
+            )
+            self._search_icon_label.pack(side="left", padx=(8, 4))
+
+        self._clips_search = ctk.CTkEntry(
+            self._search_field_wrap,
+            textvariable=self._search_var,
+            placeholder_text="Search clips…  (type:link  source:cursor)",
+            height=32,
+            fg_color="transparent",
+            border_width=0,
+        )
+        self._clips_search.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        # Visible placeholder cue. CTkEntry's own placeholder_text never renders
+        # here because CTk only activates it when no textvariable is bound
+        # (see CTkEntry._activate_placeholder) and this field binds
+        # ``_search_var``. That silent gap was part of the discoverability
+        # defect, so drive an explicit overlay label that reads "Search clips…"
+        # while the field is empty and unfocused. Clicking it focuses the entry.
+        self._search_placeholder = tk.Label(
+            self._search_field_wrap,
+            text="Search clips…",
+            bg=brand.BLACK_METAL,
+            fg=brand.MUTED_TEXT,
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self._search_placeholder.bind("<Button-1>", lambda _e: self._clips_search.focus_set())
+
+        # Clear focus affordance: lift the well outline to Proof Teal while the
+        # search input has focus, restore the restrained border on blur, and
+        # keep the placeholder cue in sync with focus/text state.
+        self._clips_search.bind("<FocusIn>", self._on_search_focus_in)
+        self._clips_search.bind("<FocusOut>", self._on_search_focus_out)
+        self._search_var.trace_add("write", lambda *_: self._update_search_placeholder())
+        self._search_placeholder_focused = False
+        self._update_search_placeholder()
         # Cross-view search banner — visible when search is active.
         # Matches FEATURE_DIRECTION: "search runs across all clips — live history AND Recently Removed"
         self._search_scope_banner = ctk.CTkLabel(
@@ -916,6 +1008,23 @@ class CacheVaultApp(ctk.CTk):
             ],
             command=self._on_type_filter,
         ).pack(side="left", padx=2)
+
+        # Page-level Refresh control. Exposes the EXISTING refresh() path
+        # (debounced; single persistent background worker; overlap-guarded by
+        # _render_active/_refresh_generation) as a visible, supported
+        # affordance — the packaged UI previously had no way to invoke it.
+        # Deliberately lives on row2 with Sort/Type (page-level controls) and
+        # is visually distinct from the Cards/Grid view toggle on row3, so the
+        # refresh action is never confused with switching views. It calls
+        # refresh(); it does not add a second refresh implementation. Its
+        # busy/disabled state is driven in lockstep with the refresh indicator
+        # by _set_refreshing().
+        self._refresh_btn = ctk.CTkButton(
+            self._toolbar_row2, text=self._REFRESH_LABEL, width=112, height=28,
+            command=self._on_refresh_clicked, **theme.secondary_button(),
+        )
+        self._refresh_btn.pack(side="right", padx=(2, 8))
+        tooltip.bind_tooltip(self._refresh_btn, "Refresh")
 
         # Narrow-width containment guard: packed first (side="right") so it
         # stays the true rightmost element of the row regardless of whether
@@ -959,6 +1068,13 @@ class CacheVaultApp(ctk.CTk):
         )
         self._selection_hint_label.pack(side="left", padx=(6, 0))
         self._update_selected_action_strip(None)
+
+    def _focus_clips_search(self, _event=None):
+        """Make the primary All Clips search surface reachable by keyboard."""
+        if self._filters.active != FILTER_ALL:
+            self._navigate_filter(FILTER_ALL)
+        self.after_idle(self._clips_search.focus_set)
+        return "break"
 
     def _control_strip_callbacks(self) -> dict:
         return {
@@ -1170,13 +1286,22 @@ class CacheVaultApp(ctk.CTk):
             return
         batch_actions.bulk_copy(self)
 
-    def _copy_generated_text(self, text: str, toast: str) -> None:
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+    def _copy_generated_text(self, text: str, toast: str) -> bool:
+        # note_local_copy is told the string the clipboard actually holds, not
+        # the source text: they differ whenever line breaks are involved, and
+        # the mismatch made the monitor re-capture our own copy as a new clip.
+        copied = clipboard_out.write_via_tk(self, text)
+        self._monitor.note_local_copy(copied)
         self._show_toast(toast)
+        return True
 
-    def _save_generated_clip(self, text: str, safe_id: str | None = None) -> None:
+    def _save_generated_clip(self, text: str, safe_id: str | None = None) -> bool:
+        """Returns whether the clip was actually stored.
+
+        The composer/edit dialogs close only on a truthy result, so a capture the
+        vault declined leaves the dialog open with the user's text instead of
+        silently discarding it.
+        """
         clip = self.vault.capture(
             text,
             source_app=brand.PRODUCT_NAME,
@@ -1184,12 +1309,15 @@ class CacheVaultApp(ctk.CTk):
             safe_id=safe_id,
             force=True,
         )
-        if clip is not None:
-            self.refresh()
-            self._on_clip_select(clip)
-            self._show_toast("Saved as a new clip.")
+        if clip is None:
+            self._show_toast("That clip could not be saved.")
+            return False
+        self.refresh()
+        self._on_clip_select(clip)
+        self._show_toast("Saved as a new clip.")
+        return True
 
-    def _save_generated_macro(self, text: str) -> None:
+    def _save_generated_macro(self, text: str) -> bool:
         clip = self.vault.capture(
             text,
             source_app=brand.PRODUCT_NAME,
@@ -1198,8 +1326,10 @@ class CacheVaultApp(ctk.CTk):
             force=True,
         )
         if clip is None:
-            return
+            self._show_toast("That snippet macro could not be saved.")
+            return False
         self._send_to_macro_safe(clip.id)
+        return True
 
     def _bulk_export_proof(self) -> None:
         if self._block_if_matching_active("Export"):
@@ -1970,6 +2100,48 @@ class CacheVaultApp(ctk.CTk):
             self._list.grid()
         self._update_inspector_visibility()
 
+    def _update_clip_surface_chrome(
+        self, active: str, total_clips: int, query,
+    ) -> None:
+        """Keep All Clips title, status, and actions in one coherent hierarchy."""
+        if active != FILTER_ALL:
+            return
+
+        noun = "clip" if total_clips == 1 else "clips"
+        subtitle = (
+            f"{total_clips} matching {noun}"
+            if query is not None and query.text.strip()
+            else f"{total_clips} {noun}"
+        )
+        chips = [
+            "Active clips",
+            f"View: {'Grid' if self._view_mode == 'grid' else 'Cards'}",
+        ]
+        if self._type_filter:
+            chips.append(f"Type: {self._type_var.get()}")
+        if self._sort_var.get() != "Newest Added":
+            chips.append(f"Sort: {self._sort_var.get()}")
+        if query is not None and query.text.strip():
+            chips.insert(0, "Search active")
+        self._page_header.set_content(self._filters.active_label, subtitle)
+        self._page_header.set_status_chips(chips)
+        if total_clips:
+            self._page_header.set_actions(
+                secondary_text="Clear all…",
+                secondary_cmd=self._clear_all_from_header,
+            )
+        else:
+            self._page_header.set_actions()
+
+    def _clear_all_from_header(self) -> None:
+        """Expose the recoverable clear action without changing its safety path."""
+        if not self._guard_unlocked():
+            return
+        ctx = sidebar_context.build_sidebar_invocation_context_for_window(
+            self, FILTER_ALL,
+        )
+        self._sidebar_clear_all_clips(ctx)
+
     def _show_vault_screen(self, key: str) -> None:
         self._home.grid_remove()
         self._list.grid_remove()
@@ -2254,48 +2426,84 @@ class CacheVaultApp(ctk.CTk):
                     frame._refresh()
         self.refresh()
 
-    def refresh(self) -> None:
+    def _on_refresh_clicked(self) -> None:
+        """Handler for the page-level Refresh control.
+
+        Invokes the existing supported refresh path only. Overlap protection is
+        the engine's job (refresh() coalesces a call made while a render is
+        active into a single pending request and never spins up a second
+        worker), so this deliberately adds no locking of its own -- it must not
+        become a second refresh implementation.
+        """
+        if not self._alive():
+            return
+        self.refresh()
+
+    def _set_refreshing(self, active: bool, *, error: bool = False) -> None:
+        """Single choke point for refresh busy/idle presentation.
+
+        Drives the existing non-blocking PageHeader indicator AND the page-level
+        Refresh control together so the two can never drift: while a refresh is
+        in flight the control shows a busy label and is disabled (which also
+        makes an overlapping click impossible), and it returns to normal once
+        the refresh settles -- on success or on the honest failure path, where
+        the header keeps showing "Refresh failed — showing previous results".
+        """
+        self._page_header.set_refreshing(active, error=error)
+        # Read via __dict__ rather than getattr(): CTk/tkinter override
+        # __getattr__ to delegate unknown names to self.tk, so a plain
+        # getattr(self, "_refresh_btn", None) does NOT return the default when
+        # the attribute is absent (e.g. an early call, or the bare
+        # object.__new__ stubs in tests/test_refresh_generation.py) -- it
+        # recurses into self.tk and raises RecursionError. __dict__.get stays
+        # a simple instance-attribute lookup.
+        btn = self.__dict__.get("_refresh_btn")
+        if btn is None:
+            return
+        try:
+            if active:
+                btn.configure(state="disabled", text=self._REFRESH_BUSY_LABEL)
+            else:
+                btn.configure(state="normal", text=self._REFRESH_LABEL)
+        except Exception:  # noqa: BLE001 - widget may be mid-teardown
+            pass
+
+    def refresh(self, *, immediate: bool = False) -> None:
         """Debounced refresh — collapses rapid-fire calls into one actual render.
 
         While a refresh is actively rendering (worker query in flight, or
-        its resulting widget batch still being built across after(10, ...)
-        ticks), a new call does not cancel and restart it. Cancelling here
-        used to discard already-built rows and force a second full DB
-        query + widget rebuild for what was often the exact same visible
-        content -- observed directly: window-resize/layout-mode refresh()
-        calls landing while a 120-row capped history was still rendering
-        produced 149 row builds for a list that only ever holds 120.
-        Instead the latest requested state is recorded as one pending
-        trailing request; when the active render finishes
-        (_finish_active_refresh), exactly one more refresh runs, and only
-        if that pending state is materially different from what was just
-        rendered.
+        its resulting widget batch still being built across after() ticks),
+        a new call does not cancel and restart it.  Cancelling here would
+        discard already-built rows and force a second full DB query + widget
+        rebuild for what is often the exact same visible content.  Instead
+        the latest requested state is recorded as one pending trailing
+        request; when the active render finishes (_finish_active_refresh),
+        exactly one more refresh runs, and only if that pending state is
+        materially different from what was just rendered.
         """
         if not self._alive():
             return
         if self._render_active:
             self._pending_refresh_signature = self._current_refresh_signature()
             return
+
         if hasattr(self, "_refresh_job") and self._refresh_job:
-            self.after_cancel(self._refresh_job)
-        # Bump the generation so any in-flight batched renders from a prior
-        # refresh know they are stale and should not touch the UI.
+            try:
+                self.after_cancel(self._refresh_job)
+            except Exception:  # noqa: BLE001
+                pass
+            self._refresh_job = None
+
         if not hasattr(self, "_refresh_generation"):
             self._refresh_generation = 0
         self._refresh_generation += 1
 
-        # Deliberately no destructive clear here (and none in
-        # _do_refresh_sync before the snapshot is ready): the previous
-        # refresh's content stays on screen, with a small non-blocking
-        # indicator (see PageHeader.set_refreshing), until fresh data has
-        # actually been fetched. Clearing the list up front -- even before
-        # the debounce timer fires -- was the direct cause of the reported
-        # "list goes blank, then the window hangs" behavior: the vault scan
-        # that used to run synchronously right after now runs off-thread,
-        # but the blank flash came from this method, not from that scan.
-        self._page_header.set_refreshing(True)
+        self._set_refreshing(True)
 
-        self._refresh_job = self.after(50, self._do_refresh_sync)
+        if immediate:
+            self._do_refresh_sync()
+        else:
+            self._refresh_job = self.after(50, self._do_refresh_sync)
 
     def _do_refresh_sync(self) -> None:
         """Kicks off a refresh: DB reads happen on the background refresh
@@ -2373,6 +2581,43 @@ class CacheVaultApp(ctk.CTk):
             return
         self.refresh()
 
+    def _abandon_active_refresh(self) -> None:
+        """Called when a batched render is superseded before its last batch.
+
+        That render's on_complete can never fire, so render ownership is
+        released here instead. Without it _render_active stays True forever and
+        refresh() only records _pending_refresh_signature -- whose sole consumer
+        is _finish_active_refresh() -- so Search during a large-vault render
+        would freeze the view part-way through the previous query, keeping its
+        stale header counts and busy state.
+
+        The pending signature is deliberately kept rather than consumed here:
+        when the supersede came from a newer refresh, that refresh claims
+        ownership on this same tick and consumes it normally.
+        _resume_abandoned_refresh only steps in when nothing claimed ownership
+        -- which is reachable without any refresh at all, e.g. clicking a
+        date-group header (ClipList._toggle_group -> render -> clear ->
+        cancel_render) or the lock surface, both of which cancel the chain
+        without going through refresh(). It defers to idle so an abandon
+        raised from inside a render can't re-enter render_batched underneath
+        its own caller.
+        """
+        if not self._render_active:
+            return
+        self._render_active = False
+        if self._pending_refresh_signature is not None:
+            self.after_idle(self._resume_abandoned_refresh)
+
+    def _resume_abandoned_refresh(self) -> None:
+        if not self._alive() or self._render_active:
+            return
+        pending = self._pending_refresh_signature
+        if pending is None:
+            return
+        self._pending_refresh_signature = None
+        if pending != self._current_refresh_signature():
+            self.refresh(immediate=True)
+
     def _refresh_worker_loop(self) -> None:
         """The one persistent background thread for this app instance.
         Processes refresh-snapshot requests one at a time, in the order
@@ -2395,23 +2640,18 @@ class CacheVaultApp(ctk.CTk):
         the Tk thread via _call_on_main -- nothing here may construct,
         configure, or destroy a widget.
         """
+        if gen != self._refresh_generation:
+            self._refresh_workers_in_flight = max(0, self._refresh_workers_in_flight - 1)
+            return
         try:
             with self.vault.storage.reader_connection() as reader:
                 counts = self.vault.counts(conn=reader)
+                if gen != self._refresh_generation:
+                    self._refresh_workers_in_flight = max(0, self._refresh_workers_in_flight - 1)
+                    return
                 clips = None
                 total_clips = None
                 if query is not None:
-                    # A real reader connection is dedicated to this worker
-                    # (never touched by the main thread), so an explicit
-                    # transaction safely pins one snapshot for the page of
-                    # rows and the total count together. The `:memory:`
-                    # fallback hands back the shared self.conn instead
-                    # (see reader_connection) -- holding an explicit BEGIN
-                    # open on that from a background thread would contend
-                    # with the main thread's own reads/writes on the same
-                    # connection (observed as multi-second stalls, ~SQLite's
-                    # default busy-timeout), so skip it there and accept the
-                    # tiny consistency window; it's test-only.
                     dedicated_reader = reader is not self.vault.storage.conn
                     if dedicated_reader:
                         reader.execute("BEGIN")
@@ -2424,10 +2664,6 @@ class CacheVaultApp(ctk.CTk):
                         if dedicated_reader:
                             reader.execute("ROLLBACK")
         except Exception as exc:  # noqa: BLE001
-            # `except ... as exc` implicitly deletes `exc` when this block
-            # exits, but the lambda below only runs later, on the main
-            # thread -- capture it in a plain local first or the closure
-            # raises NameError instead of ever reaching _apply_refresh_failure.
             failure = exc
             self._call_on_main(lambda: self._apply_refresh_failure(gen, failure))
             return
@@ -2440,13 +2676,7 @@ class CacheVaultApp(ctk.CTk):
         if gen != self._refresh_generation or not self._alive():
             return  # superseded by a newer refresh, or the window is gone
         write_crash("refresh", exc)
-        # Data collection itself failed (e.g. the vault DB couldn't be
-        # read) -- existing list/grid content is untouched (nothing here
-        # destroys it), just flag it as stale rather than pretending it's
-        # current.
-        self._page_header.set_refreshing(False, error=True)
-        # Nothing was actually rendered, so any pending request always
-        # runs (no signature to compare against).
+        self._set_refreshing(False, error=True)
         self._finish_active_refresh()
 
     def _apply_refresh_snapshot(
@@ -2466,24 +2696,35 @@ class CacheVaultApp(ctk.CTk):
         try:
             from ..core import storage as S
 
-            summary = self.vault.dashboard_summary(counts=counts)
-            counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
-            counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
-            counts[NAV_MOBILE_INBOX] = summary.get("mobile_inbox", 0)
-            counts[NAV_EDITABLE_COPIES] = summary.get("editable_copies", 0)
-            counts[NAV_HTML_BUNDLES] = summary.get("html_bundles", 0)
-            counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
-            counts[NAV_VAULT_MACROS] = len(self._macro_store.load_all())
-            self._filters.update_counts(counts)
-            self._filters.update_collections(self.vault.list_collections())
-            self._filters.update_safes(self.vault.list_safes())
-            self._filters.update_founder_status(licensing.load_license())
+            def _apply_dashboard_updates(counts):
+                """Populate counts, filters, collections, safes — toolbar/sidebar
+                chrome.  Only called once per snapshot, and may be deferred
+                until after first content appears in the clip-content path."""
+                summary = self.vault.dashboard_summary(counts=counts)
+                counts[NAV_STAMPED_RECEIPTS] = summary.get("receipts", 0)
+                counts[NAV_MOBILE_ACCESS] = summary.get("paired_count", 0)
+                counts[NAV_MOBILE_INBOX] = summary.get("mobile_inbox", 0)
+                counts[NAV_EDITABLE_COPIES] = summary.get("editable_copies", 0)
+                counts[NAV_HTML_BUNDLES] = summary.get("html_bundles", 0)
+                counts[NAV_EXPORTS] = len(self.vault.list_export_events(500))
+                counts[NAV_VAULT_MACROS] = len(self._macro_store.load_all())
+                self._filters.update_counts(counts)
+                self._filters.update_collections(self.vault.list_collections())
+                self._filters.update_safes(self.vault.list_safes())
+                self._filters.update_founder_status(licensing.load_license())
+                return summary
 
             if active in NAV_SCREEN_KEYS:
+                summary = _apply_dashboard_updates(counts)
+                self._list.clear()
+                self._grid.clear()
                 self._show_vault_screen(active)
                 clip_count = summary.get("all", 0)
                 self._finish_active_refresh(rendered_signature)
             elif active == FILTER_HOME:
+                summary = _apply_dashboard_updates(counts)
+                self._list.clear()
+                self._grid.clear()
                 self._show_home()
                 capture_active = not summary.get("capture_paused")
                 status_text = "● Capture Active" if capture_active else "● Capture Paused"
@@ -2529,44 +2770,25 @@ class CacheVaultApp(ctk.CTk):
                 clip_count = summary.get("all", 0)
                 self._finish_active_refresh(rendered_signature)
             else:
-                self._show_clips()
-                # clips/total_clips were already fetched (paginated, in SQL)
-                # on the worker thread for this exact query + generation.
-                more_count = total_clips - len(clips)
-                clip_noun = "clip" if total_clips == 1 else "clips"
-                self._page_header.set_content(self._filters.active_label, f"{total_clips} {clip_noun}")
+                # Build the first row immediately so content is visible ASAP.
+                # Toolbar/chrome updates happen after — they update the
+                # header/sidebar but don't affect which clip rows appear.
                 self._visible_clip_ids = [c.id for c in clips]
                 empty_msg = self._empty_message(active, clips, query)
                 view = self._grid if self._view_mode == "grid" else self._list
+                other = self._list if self._view_mode == "grid" else self._grid
+                more_count = total_clips - len(clips)
+                other.clear()
 
                 if self._selection_scope.mode == "matching":
-                    # invalidate_if_stale already ran earlier in this same
-                    # refresh cycle (_do_refresh_sync) -- reaching here
-                    # still in "matching" mode means the context genuinely
-                    # didn't change, so every re-rendered row must keep
-                    # showing as selected, not collapse to one highlighted
-                    # row the way the else branch below does for plain
-                    # visible selection.
-                    #
-                    # Painting must wait for on_complete, not run right
-                    # after render_batched() returns: rendering is chunked
-                    # across after(10, ...) ticks (15/20 rows per tick), so
-                    # calling select_all() immediately would only see
-                    # whichever rows the first tick had already built,
-                    # painting a partial subset instead of every rendered
-                    # row. on_complete fires once the very last batch has
-                    # actually been constructed. _paint_matching_selection_
-                    # visuals's select_all() call then fires the normal
-                    # on_selection_change callback, which already updates
-                    # _selected_clip_ids/the bulk action strip/the preview
-                    # -- nothing further to do here.
                     def on_complete(v=view, sig=rendered_signature):  # noqa: E731
                         self._paint_matching_selection_visuals(v)
                         self._finish_active_refresh(sig)
                     if self._view_mode == "grid":
                         self._grid.render_batched(
                             clips, empty_message=empty_msg, more_count=more_count,
-                            on_complete=on_complete,
+                            on_complete=on_complete, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                     else:
                         self._list.render_batched(
@@ -2574,7 +2796,8 @@ class CacheVaultApp(ctk.CTk):
                             empty_message=empty_msg,
                             group_by=self._group_by_for_view(active, query),
                             more_count=more_count,
-                            on_complete=on_complete,
+                            on_complete=on_complete, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                 else:
                     self._selected_clip_ids = [
@@ -2588,7 +2811,8 @@ class CacheVaultApp(ctk.CTk):
                         self._grid.set_selected(self._selected_clip_id)
                         self._grid.render_batched(
                             clips, empty_message=empty_msg, more_count=more_count,
-                            on_complete=_finish,
+                            on_complete=_finish, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                         self._grid.set_selected(self._selected_clip_id)
                     else:
@@ -2598,13 +2822,27 @@ class CacheVaultApp(ctk.CTk):
                             empty_message=empty_msg,
                             group_by=self._group_by_for_view(active, query),
                             more_count=more_count,
-                            on_complete=_finish,
+                            on_complete=_finish, generation=gen,
+                            on_superseded=self._abandon_active_refresh,
                         )
                         self._list.set_selected(self._selected_clip_id)
                     clip = self.vault.storage.get_clip(self._selected_clip_id) if self._selected_clip_id else None
                     self._update_selected_action_strip(clip)
                     self._preview.show(clip)
+
+                # Now make the view visible and update toolbar/chrome.
+                # The first row is already built; _show_clips maps the parent
+                # so the row becomes visible immediately.
+                self._show_clips()
+                clip_noun = "clip" if total_clips == 1 else "clips"
+                self._page_header.set_content(self._filters.active_label, f"{total_clips} {clip_noun}")
+                self._update_clip_surface_chrome(active, total_clips, query)
                 clip_count = total_clips
+
+                # Dashboard/filter updates are deferred until after the first
+                # clip row is already on screen — they update navbar/sidebar
+                # chrome, not clip content.
+                summary = _apply_dashboard_updates(counts)
 
             summary["shown"] = clip_count
             summary["default_safe"] = self.vault.settings.default_safe_id
@@ -2612,10 +2850,10 @@ class CacheVaultApp(ctk.CTk):
             self._control_strip.update_state(summary)
             if self._locked():
                 self._lock_screen.lift()
-            self._page_header.set_refreshing(False)
+            self._set_refreshing(False)
         except Exception as exc:  # noqa: BLE001
             write_crash("refresh", exc)
-            self._page_header.set_refreshing(False, error=True)
+            self._set_refreshing(False, error=True)
             # Safety net: if the exception happened before any of the
             # branch-specific _finish_active_refresh() calls above ran (or
             # before an async render_batched's on_complete could ever
@@ -2961,6 +3199,40 @@ class CacheVaultApp(ctk.CTk):
             return
         self._capture_ctrl.arm_ignore_next()
         self._show_toast("Next copy will not be saved.")
+
+    def _on_search_focus_in(self, _event=None) -> None:
+        self._search_placeholder_focused = True
+        try:
+            self._search_field_wrap.configure(border_color=brand.PROOF_TEAL)
+        except Exception:  # noqa: BLE001 — cosmetic only, must not break focus
+            pass
+        self._update_search_placeholder()
+
+    def _on_search_focus_out(self, _event=None) -> None:
+        self._search_placeholder_focused = False
+        try:
+            self._search_field_wrap.configure(border_color=brand.VAULT_BORDER)
+        except Exception:  # noqa: BLE001 — cosmetic only, must not break focus
+            pass
+        self._update_search_placeholder()
+
+    def _update_search_placeholder(self) -> None:
+        """Show the "Search clips…" overlay only while the field is empty and
+        unfocused (standard placeholder behavior). Driven manually because
+        CTkEntry suppresses its own placeholder when a textvariable is bound."""
+        label = getattr(self, "_search_placeholder", None)
+        if label is None:
+            return
+        try:
+            empty = self._search_var.get() == ""
+            show = empty and not getattr(self, "_search_placeholder_focused", False)
+            if show:
+                # Sit just right of the magnifier icon, vertically centered.
+                label.place(relx=0, rely=0.5, x=34, anchor="w")
+            else:
+                label.place_forget()
+        except Exception:  # noqa: BLE001 — cosmetic only
+            pass
 
     def _on_search_changed(self, *_):
         if not self._alive():
@@ -3466,9 +3738,8 @@ class CacheVaultApp(ctk.CTk):
         content = self.vault.copied_again(clip_id)
         if content is None:
             return
-        self.clipboard_clear()
-        self.clipboard_append(content)
-        self._monitor.note_local_copy(content)
+        copied = clipboard_out.write_via_tk(self, content)
+        self._monitor.note_local_copy(copied)
 
     def _open_clip_link(self, clip_id: str) -> None:
         import webbrowser
@@ -3489,9 +3760,7 @@ class CacheVaultApp(ctk.CTk):
                 f"created={clip.created_at} last_used={clip.date_used} "
                 f"use_count={clip.use_count} sensitive={clip.is_sensitive} "
                 f"hash={clip.content_hash[:12]}")
-        self.clipboard_clear()
-        self.clipboard_append(meta)
-        self._monitor.note_local_copy(meta)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, meta))
 
     def _copy_path(self, clip_id: str) -> None:
         clip = self.vault.storage.get_clip(clip_id)
@@ -3509,9 +3778,7 @@ class CacheVaultApp(ctk.CTk):
         if text is None:
             self._show_toast("That Copy Clean format is not available for this item.")
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, text))
         self.vault.events.record(
             copy_clean.EVENT_ITEM_COPIED_CLEAN,
             clip_id,
@@ -3556,9 +3823,7 @@ class CacheVaultApp(ctk.CTk):
         if not self._guard_unlocked():
             return
         text = copy_clean.receipt_summary(row)
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, text))
         self.vault.events.record(
             copy_clean.EVENT_RECEIPT_SUMMARY_COPIED,
             getattr(row, "clip_id", None),
@@ -3722,6 +3987,61 @@ class CacheVaultApp(ctk.CTk):
     def _sidebar_restore_all(self, ctx: Any) -> None:
         sidebar_actions.sidebar_restore_all(self, ctx)
 
+    def _sidebar_clear_all_clips(self, ctx: Any) -> None:
+        """Move every currently-active clip to Recently Removed.
+
+        Re-resolves the ids from the database at execution time rather
+        than trusting the count frozen into the menu label, and never
+        consults the visible/matching selection -- this command is
+        view-wide by definition.
+        """
+        if ctx.target_query is None:
+            return
+        ids: list[str] = []
+        with self.vault.storage.clip_id_snapshot(ctx.target_query, batch_size=500) as (
+            count, batches,
+        ):
+            for batch in batches:
+                ids.extend(batch)
+        if not ids:
+            self._show_toast("There are no clips to clear.")
+            return
+
+        def _run() -> None:
+            try:
+                result = self.vault.clear_all_clips(ids)
+            except Exception:  # noqa: BLE001
+                # soft_delete_many rolls the whole batch back, so the vault
+                # is genuinely unchanged; say so instead of implying a
+                # partial clear the user would then go hunting for.
+                self._show_toast(
+                    "Clear all clips failed. No clips were moved and your vault is unchanged."
+                )
+                self.refresh()
+                return
+            self._report_clear_all_clips_result(result)
+
+        from .dialogs import ClearAllClipsDialog
+        ClearAllClipsDialog(self, total_count=len(ids), on_confirm=_run)
+
+    def _report_clear_all_clips_result(self, result: Any) -> None:
+        moved = result.succeeded_count
+        skipped = result.skipped_count
+        if moved == 0:
+            self._show_toast("No clips were moved.")
+        elif skipped:
+            self._show_toast(
+                f"Moved {moved} clip{'s' if moved != 1 else ''} to Recently Removed "
+                f"({skipped} already removed). They can be restored from Recently Removed."
+            )
+        else:
+            self._show_toast(
+                f"Moved {moved} clip{'s' if moved != 1 else ''} to Recently Removed. "
+                "They can be restored from Recently Removed."
+            )
+        self._selection_scope.clear()
+        self.refresh()
+
     def _sidebar_permanently_delete_selected(self, ctx: Any) -> None:
         sidebar_actions.sidebar_permanently_delete_selected(self, ctx)
 
@@ -3830,9 +4150,7 @@ class CacheVaultApp(ctk.CTk):
     def _copy_text(self, text: str, notice: str = "Copied.") -> None:
         if not self._guard_unlocked():
             return
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._monitor.note_local_copy(text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, text))
         self._show_toast(notice)
 
     def _open_clip_path(self, clip_id: str) -> None:
@@ -4623,7 +4941,10 @@ class CacheVaultApp(ctk.CTk):
             existing = getattr(self, "_quick_paste", None)
             if existing is not None:
                 try:
-                    if existing.winfo_exists():
+                    # A popup that is mid-teardown still reports winfo_exists()
+                    # for the ~50ms its deferred destroy takes; refocusing that
+                    # one does nothing and would swallow the hotkey press.
+                    if existing.winfo_exists() and not getattr(existing, "_closing", False):
                         existing.focus_popup()
                         return
                 except Exception:  # noqa: BLE001
@@ -4695,9 +5016,7 @@ class CacheVaultApp(ctk.CTk):
             if content is None:
                 Toast(self, "Nothing available to copy.")
                 return
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self._monitor.note_local_copy(content)
+            self._monitor.note_local_copy(clipboard_out.write_via_tk(self, content))
             self.vault.events.record(
                 "quick_paste_copy_only",
                 clip.id,
@@ -4710,9 +5029,8 @@ class CacheVaultApp(ctk.CTk):
             if content is None:
                 Toast(self, "Nothing available to paste.")
                 return
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self._monitor.note_local_copy(content)
+            pasted_payload = clipboard_out.write_via_tk(self, content)
+            self._monitor.note_local_copy(pasted_payload)
             pasted_text = True
             item_type = clip.content_type or clip.classification or "text"
 
@@ -4739,22 +5057,68 @@ class CacheVaultApp(ctk.CTk):
                 delivery_ok = result.ok
                 reason = result.reason
                 target_title = result.target_title
-                if settings.restore_clipboard_after_paste and pasted_text:
-                    restore_clipboard_text(prior_clipboard)
+                will_restore = (
+                    settings.restore_clipboard_after_paste
+                    and pasted_text
+                    and delivery_ok
+                )
+                if will_restore:
+                    self._schedule_clipboard_restore(pasted_payload, prior_clipboard)
                 self._finish_paste(
                     clip, delivery_ok, item_type, target_title, reason,
-                    clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+                    clipboard_restored=will_restore,
                 )
 
             self.after(80, _deliver)
             return
 
-        if settings.restore_clipboard_after_paste and pasted_text and delivery_ok:
-            restore_clipboard_text(prior_clipboard)
+        # Nothing was delivered on this path, so there is no paste to restore
+        # "after". Restoring here wiped the clip the user had just chosen: with
+        # auto-paste off and restore on, Quick Paste put the clip on the
+        # clipboard and then immediately replaced it with the previous value
+        # again, leaving the feature a no-op (reproduced 3/3 natively). The clip
+        # has to stay on the clipboard for the user to paste it themselves.
         self._finish_paste(
             clip, delivery_ok, item_type, target_title, reason,
-            clipboard_restored=settings.restore_clipboard_after_paste and delivery_ok,
+            clipboard_restored=False,
         )
+
+    def _schedule_clipboard_restore(self, pasted_payload, prior_clipboard,
+                                    attempt: int = 1) -> None:
+        """Put the user's previous clipboard back, but not before the target
+        has actually consumed the paste.
+
+        deliver_ctrl_v only *sends* Ctrl+V; the target processes it
+        asynchronously. Restoring on the next line therefore raced the paste and
+        lost: measured against a real Windows target, the restore completed at
+        +0.170s while the target read the clipboard at +0.34s, so what got
+        pasted was the user's previous clipboard rather than the chosen clip --
+        5/5 trials, and 5/5 again with the restore suppressed pasting the clip
+        correctly. A blocking sleep does not fix it (it stalls the foreground
+        handoff too); the wait has to leave the event loop running.
+
+        The payload check keeps a late restore from overwriting something the
+        user copied while we were waiting.
+        """
+        def _restore() -> None:
+            if not self._alive():
+                return
+            current = snapshot_clipboard_text()
+            if current is not None and current != pasted_payload:
+                return
+            if restore_clipboard_text(prior_clipboard):
+                return
+            if attempt < CLIPBOARD_RESTORE_ATTEMPTS:
+                self._schedule_clipboard_restore(
+                    pasted_payload, prior_clipboard, attempt=attempt + 1)
+                return
+            self.vault.events.record(
+                "clipboard_restore_failed", None, {"attempts": attempt})
+            Toast(self, "Couldn't put your previous clipboard back - "
+                        "the pasted clip is still on the clipboard.")
+
+        delay = CLIPBOARD_RESTORE_DELAY_MS if attempt == 1 else CLIPBOARD_RESTORE_RETRY_MS
+        self.after(delay, _restore)
 
     def _quick_paste_text_for_action(self, clip, action: str) -> str | None:
         if clip.classification == models.CLASS_LINK:
@@ -4897,9 +5261,7 @@ class CacheVaultApp(ctk.CTk):
         if not path_text:
             Toast(self, "No path available to copy.")
             return
-        self.clipboard_clear()
-        self.clipboard_append(path_text)
-        self._monitor.note_local_copy(path_text)
+        self._monitor.note_local_copy(clipboard_out.write_via_tk(self, path_text))
         self.vault.events.record(
             "quick_paste_copy_only",
             clip.id,

@@ -40,13 +40,21 @@ def extract_urls(text: str) -> tuple[str, ...]:
 
 
 def detect_multi_link_payload(text: str) -> MultiLinkPayload | None:
-    trimmed = _trim_outer_whitespace(text)
+    """Detect a multi-link paste.
+
+    ``raw_text`` keeps the paste exactly as it arrived. Trimming is only a
+    detection aid; the receipt clip written from ``raw_text`` is documented as
+    the original raw paste, so handing it pre-stripped text lost the blank lines
+    and indentation that made the paste worth keeping a receipt of.
+    """
+    original = text or ""
+    trimmed = _trim_outer_whitespace(original)
     if not trimmed:
         return None
     urls = extract_urls(trimmed)
     if len(urls) < 2:
         return None
-    return MultiLinkPayload(raw_text=trimmed, urls=urls)
+    return MultiLinkPayload(raw_text=original, urls=urls)
 
 
 def one_per_line(payload: MultiLinkPayload) -> str:
