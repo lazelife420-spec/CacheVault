@@ -27,7 +27,7 @@ class PcDiscovery(private val context: Context) {
                 override fun onDiscoveryStarted(serviceType: String) {}
 
                 override fun onServiceFound(info: NsdServiceInfo) {
-                    if (!info.serviceType.contains("_cachevault._tcp")) return
+                    if (!info.serviceType.contains("cachevault", ignoreCase = true)) return
                     nsd.resolveService(info, object : NsdManager.ResolveListener {
                         override fun onResolveFailed(s: NsdServiceInfo, code: Int) {}
 

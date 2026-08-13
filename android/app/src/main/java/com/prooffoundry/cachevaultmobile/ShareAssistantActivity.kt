@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.prooffoundry.cachevaultmobile.data.BridgeClient
 import com.prooffoundry.cachevaultmobile.data.BridgeError
 import com.prooffoundry.cachevaultmobile.data.ImageFileHelper
 import com.prooffoundry.cachevaultmobile.data.SensitiveText
@@ -56,15 +57,22 @@ class ShareAssistantActivity : ComponentActivity() {
                     isConnected = connected,
                     statusMessage = status,
                     onSendToPc = {
-                        if (pairing == null) {
+                        val initialPairing = app.pairingStore.load()
+                        if (initialPairing == null) {
                             status = getString(R.string.send_failed_not_connected)
                             return@SimpleShareScreen
                         }
                         scope.launch {
                             status = getString(R.string.sending_to_vault)
+                            var p = initialPairing
+                            if (!p.hasUsableHost()) {
+                                val healed = withContext(Dispatchers.IO) { app.bridgeRepository.discoverAndSelfHealEndpoint() }
+                                if (healed != null) p = healed
+                            }
                             try {
+                                val currentClient = BridgeClient(p)
                                 val resp = withContext(Dispatchers.IO) {
-                                    app.bridgeRepository.client().sendToPc(
+                                    currentClient.sendToPc(
                                         content = shared.text,
                                         itemType = if (shared.url != null) "url" else "text",
                                         sourceApp = "Android Share",
@@ -79,6 +87,26 @@ class ShareAssistantActivity : ComponentActivity() {
                             } catch (e: BridgeError.Disabled) {
                                 status = getString(R.string.send_failed_mobile_off)
                             } catch (e: Exception) {
+                                val healed = withContext(Dispatchers.IO) { app.bridgeRepository.discoverAndSelfHealEndpoint() }
+                                if (healed != null) {
+                                    val healedClient = BridgeClient(healed)
+                                    val retried = runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            healedClient.sendToPc(
+                                                content = shared.text,
+                                                itemType = if (shared.url != null) "url" else "text",
+                                                sourceApp = "Android Share",
+                                                sourceDeviceName = Build.MODEL,
+                                                sourceUrl = shared.url,
+                                                safeId = "default",
+                                            )
+                                        }
+                                    }.getOrNull()
+                                    if (retried != null) {
+                                        status = sendResultMessage(retried.success, retried.safeName, retried.error)
+                                        return@launch
+                                    }
+                                }
                                 status = getString(R.string.send_failed_connection)
                             }
                         }

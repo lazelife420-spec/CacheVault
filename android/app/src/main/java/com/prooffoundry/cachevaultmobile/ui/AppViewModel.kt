@@ -20,6 +20,7 @@ import com.prooffoundry.cachevaultmobile.data.VaultSectionCounts
 import com.prooffoundry.cachevaultmobile.data.VaultSectionKind
 import com.prooffoundry.cachevaultmobile.data.ImageAssetState
 import com.prooffoundry.cachevaultmobile.data.PairingConfig
+import com.prooffoundry.cachevaultmobile.data.PairingSanitize
 import com.prooffoundry.cachevaultmobile.data.PairingStore
 import com.prooffoundry.cachevaultmobile.data.UserMessages
 import kotlinx.coroutines.Dispatchers
@@ -265,23 +266,26 @@ class AppViewModel(
         }
         viewModelScope.launch {
             uiState = uiState.copy(loading = true)
-            // Try the already-known address directly first. It's a single HTTP
-            // round-trip to a host we've successfully connected to before, and
-            // far more reliable than mDNS/UDP broadcast discovery — which can be
-            // dropped by the AP, blocked by client isolation, or confused by
-            // extra network adapters on the phone or PC (VPNs, WSL/Hyper-V,
-            // etc.). Only fall back to discovery (for when the PC's IP actually
-            // changed) if the direct check fails.
-            val directStatus = runCatching {
-                withContext(Dispatchers.IO) { repository.verifyConnection(pairing) }
-            }.getOrNull()
+            var activePairing = pairing
+            if (!activePairing.hasUsableHost()) {
+                val healed = withContext(Dispatchers.IO) { repository.discoverAndSelfHealEndpoint() }
+                if (healed != null) activePairing = healed
+            }
+            val directStatus = if (activePairing.hasUsableHost()) {
+                runCatching {
+                    withContext(Dispatchers.IO) { repository.verifyConnection(activePairing) }
+                }.getOrNull()
+            } else null
+
             if (directStatus != null) {
                 uiState = uiState.copy(
+                    pcName = activePairing.pcLabel.ifBlank { directStatus.product },
+                    hostLabel = activePairing.pcLabel.ifBlank { activePairing.host },
                     pcFoundOffer = buildOffer(
                         DiscoveredPc(
-                            pairing.pcLabel.ifBlank { directStatus.product },
-                            pairing.host,
-                            pairing.port,
+                            activePairing.pcLabel.ifBlank { directStatus.product },
+                            activePairing.host,
+                            activePairing.port,
                         ),
                         null,
                     ),
@@ -290,30 +294,41 @@ class AppViewModel(
                 )
                 return@launch
             }
+
             val pc = runCatching {
                 withContext(Dispatchers.IO) { repository.discoverPc() }
             }.getOrNull()
-            if (pc != null) {
-                uiState = uiState.copy(
-                    pcFoundOffer = buildOffer(pc, null),
-                    showNoPcFound = false,
-                    loading = false,
+
+            if (pc != null && PairingSanitize.isUsableHost(pc.host)) {
+                val healedPairing = activePairing.copy(
+                    host = pc.host,
+                    port = pc.port,
+                    pcLabel = pc.displayName.ifBlank { activePairing.pcLabel },
                 )
-            } else {
-                // Discovery found no PC — the bridge is off, unreachable, or the
-                // phone changed networks. Without this, uiState never leaves its
-                // initial (loading=false, hasLoadedVault=false, error=null) shape
-                // and resolveConnectionState reads that as CHECKING forever, even
-                // though the check has already concluded and failed.
-                val msg = UserMessages.PC_UNREACHABLE
-                uiState = uiState.copy(
-                    loading = false,
-                    hasLoadedVault = true,
-                    error = msg,
-                    lastError = msg,
-                    status = null,
-                )
+                val verified = runCatching {
+                    withContext(Dispatchers.IO) { repository.verifyConnection(healedPairing) }
+                }.getOrNull()
+                if (verified != null) {
+                    repository.savePairing(healedPairing)
+                    uiState = uiState.copy(
+                        pcName = healedPairing.pcLabel,
+                        hostLabel = healedPairing.pcLabel.ifBlank { healedPairing.host },
+                        pcFoundOffer = buildOffer(pc, null),
+                        showNoPcFound = false,
+                        loading = false,
+                    )
+                    return@launch
+                }
             }
+
+            val msg = UserMessages.PC_UNREACHABLE
+            uiState = uiState.copy(
+                loading = false,
+                hasLoadedVault = true,
+                error = msg,
+                lastError = msg,
+                status = null,
+            )
         }
     }
 

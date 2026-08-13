@@ -10,6 +10,8 @@ data class PairingConfig(
     val autoConnectApproved: Boolean = false,
     val keepConnectedInBackground: Boolean = false,
 ) {
+    fun hasUsableHost(): Boolean = PairingSanitize.isUsableHost(host)
+
     companion object {
         fun sanitize(
             host: String,
@@ -37,6 +39,16 @@ data class PairingConfig(
 object PairingSanitize {
     fun sanitizeHost(host: String): String =
         host.trim().replace(Regex("\\s+"), "")
+
+    fun isUsableHost(host: String): Boolean {
+        val trimmed = host.trim()
+        if (trimmed.isBlank()) return false
+        if (trimmed.contains(" ") || trimmed.contains("Cache Vault", ignoreCase = true)) return false
+        if (!trimmed.contains(".") && !trimmed.contains(":")) return false
+        if (trimmed.matches(Regex("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"))) return true
+        if (trimmed.matches(Regex("^[a-zA-Z0-9.-]+$")) && !trimmed.startsWith("-")) return true
+        return false
+    }
 
     fun sanitizeDeviceId(deviceId: String): String =
         deviceId.trim().replace(Regex("\\s+"), "")
