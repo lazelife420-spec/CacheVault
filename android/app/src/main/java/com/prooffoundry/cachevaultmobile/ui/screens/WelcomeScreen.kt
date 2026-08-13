@@ -14,7 +14,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,14 +57,16 @@ fun WelcomeScreen(
         )
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = onConnectToPc,
+            onClick = onScanQr,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(56.dp)
+                .testTag("welcome_scan_qr")
+                .semantics { contentDescription = "welcome_scan_qr" },
             colors = ButtonDefaults.buttonColors(),
         ) {
             Text(
-                stringResource(R.string.connect_to_my_pc),
+                stringResource(R.string.scan_qr_code),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -70,25 +75,23 @@ fun WelcomeScreen(
             onClick = onFindPc,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(52.dp)
+                .testTag("welcome_find_pc")
+                .semantics { contentDescription = "welcome_find_pc" },
         ) {
             Text(stringResource(R.string.find_pc_wifi))
         }
-        OutlinedButton(
+        androidx.compose.material3.TextButton(
             onClick = onManualSetup,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .testTag("welcome_manual_setup")
+                .semantics { contentDescription = "welcome_manual_setup" },
         ) {
-            Text(stringResource(R.string.manual_setup))
-        }
-        OutlinedButton(
-            onClick = onScanQr,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-        ) {
-            Text(stringResource(R.string.scan_qr_code))
+            Text(
+                "Advanced: " + stringResource(R.string.manual_setup),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Spacer(Modifier.weight(1f))
         Text(

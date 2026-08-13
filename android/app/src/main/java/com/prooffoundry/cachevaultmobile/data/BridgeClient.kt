@@ -116,6 +116,7 @@ class BridgeClient(
         build: Int? = AppIdentity.APP_BUILD,
         protocol: Int = AppIdentity.PROTOCOL_VERSION,
         deviceModel: String? = null,
+        pairingToken: String? = null,
     ): PairDeviceGrant {
         val payload = PairDeviceRequest(
             deviceId = deviceId,
@@ -129,6 +130,7 @@ class BridgeClient(
             } else {
                 null
             },
+            pairingToken = pairingToken,
         )
         val json = moshi.adapter(PairDeviceRequest::class.java).toJson(payload)
         val body = json.toRequestBody("application/json".toMediaType())
@@ -342,6 +344,7 @@ class BridgeClient(
         val build: Int? = null,
         val protocol: Int? = null,
         val device: DeviceInfoJson? = null,
+        @Json(name = "pairing_token") val pairingToken: String? = null,
     )
 
     private data class PairDeviceResponseJson(

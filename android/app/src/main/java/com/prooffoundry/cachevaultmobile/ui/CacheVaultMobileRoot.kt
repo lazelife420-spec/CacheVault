@@ -167,7 +167,14 @@ fun CacheVaultMobileRoot(
             )
         }
         composable(Routes.QrScan) {
+            val qrPayloadExtra = (context as? android.app.Activity)?.intent?.getStringExtra("qr_payload").orEmpty()
             QrScanScreen(
+                initialPayload = qrPayloadExtra,
+                loading = vm.uiState.loading,
+                error = vm.uiState.error,
+                onPairQr = { payload ->
+                    vm.pairWithQrOffer(payload, ::goHomeAfterPair)
+                },
                 onManualSetup = { nav.navigate(Routes.ManualSetup) },
                 onBack = { nav.popBackStack() },
             )
@@ -317,8 +324,8 @@ fun CacheVaultMobileRoot(
             dismissButton = {
                 TextButton(onClick = {
                     vm.dismissPcOffer()
-                    openManualSetup()
-                }) { Text(stringResource(R.string.manual_setup)) }
+                    nav.navigate(Routes.QrScan)
+                }) { Text("Scan QR Code") }
             },
         )
     }

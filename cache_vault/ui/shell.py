@@ -4819,6 +4819,7 @@ class CacheVaultApp(ctk.CTk):
             bridge_running=self._mobile_bridge.is_running,
             get_doctor_report=self._mobile_doctor_report,
             has_active_devices=bool(self._mobile_bridge.active_devices()),
+            create_pairing_offer=self._mobile_bridge.create_pairing_offer,
         )
 
     def _mobile_doctor_report(self) -> dict:

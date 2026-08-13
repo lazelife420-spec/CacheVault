@@ -54,6 +54,9 @@ def _coerce_int(value) -> int | None:
 MAX_POST_BODY_BYTES = 20 * 1024 * 1024
 
 
+from .pairing_offer import PairingOffer, PairingOfferManager
+from ..lan_ip import list_lan_ipv4, recommended_lan_ipv4
+
 class MobileBridge:
     """Desktop-side read-only API for paired Android devices."""
 
@@ -62,10 +65,17 @@ class MobileBridge:
         self.vault = vault
         self.receipts = receipt_log or MobileReceiptLog()
         self.discovery = discovery or MobileDiscovery()
+        self.pairing_offers = PairingOfferManager()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._listen_host: str | None = None
         self._listen_port: int | None = None
+
+    def create_pairing_offer(self, host: str | None = None) -> PairingOffer:
+        if host is None:
+            host = recommended_lan_ipv4(list_lan_ipv4()) or "127.0.0.1"
+        port = self._listen_port or DEFAULT_MOBILE_PORT
+        return self.pairing_offers.create_offer(host=host, port=port)
 
     @property
     def is_running(self) -> bool:
@@ -658,6 +668,16 @@ class MobileBridge:
                                    payload: dict) -> tuple[int, dict]:
         if family != "/mobile/v1/pair-device":
             return 404, {"error": "not_found"}
+        pairing_token = str(payload.get("pairing_token") or payload.get("token") or "").strip()
+        if pairing_token:
+            ok, reason = self.pairing_offers.consume_offer(pairing_token)
+            if not ok:
+                return 400, {
+                    "error": "offer_expired_or_used",
+                    "reason": reason,
+                    "message": "Pairing offer has expired or already been consumed.",
+                }
+
         device_id = str(payload.get("device_id") or "").strip() or models.new_id()
         device_obj = payload.get("device") if isinstance(payload.get("device"), dict) else {}
         device_name = sanitize_device_name(

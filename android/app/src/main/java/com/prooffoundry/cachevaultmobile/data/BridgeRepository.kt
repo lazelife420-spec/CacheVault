@@ -100,6 +100,46 @@ class BridgeRepository(
         return verifyConnection(config)
     }
 
+    suspend fun pairWithQrOffer(
+        host: String,
+        port: Int,
+        pairingToken: String,
+        pcName: String = "Cache Vault Desktop",
+    ): BridgeStatus {
+        val client = BridgeClient(
+            PairingConfig(
+                host = host,
+                port = port,
+                deviceId = "",
+                token = "",
+            ),
+        )
+        val existingDeviceId = ConnectionPlanner.deviceIdForPairing(pairingStore.load()?.deviceId)
+        val grant = if (existingDeviceId != null) {
+            client.pairDevice(
+                deviceName = Build.MODEL,
+                deviceId = existingDeviceId,
+                deviceModel = Build.MODEL,
+                pairingToken = pairingToken,
+            )
+        } else {
+            client.pairDevice(
+                deviceName = Build.MODEL,
+                deviceModel = Build.MODEL,
+                pairingToken = pairingToken,
+            )
+        }
+        val config = PairingConfig.sanitize(
+            host = host,
+            port = port,
+            deviceId = grant.deviceId,
+            token = grant.token,
+            pcLabel = pcName,
+        )
+        savePairing(config)
+        return verifyConnection(config)
+    }
+
     suspend fun discoverPc(): DiscoveredPc? {
         val ctx = appContext ?: return null
         return discoveryFactory(ctx.applicationContext).findDesktop()

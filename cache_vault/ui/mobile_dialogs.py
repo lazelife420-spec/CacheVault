@@ -47,20 +47,23 @@ class PairAndroidDialog(ctk.CTkToplevel):
         get_doctor_report: Callable[[], dict] | None = None,
         on_revoke_all_and_pair: Callable[[str, str], tuple[str, str]] | None = None,
         has_active_devices: bool = False,
+        create_pairing_offer: Callable[[], Any] | None = None,
     ):
         super().__init__(master)
         self.title(f"{brand.TERM_MOBILE_ACCESS} — Pair Android Device")
-        self.geometry("540x780")
+        self.geometry("540x840")
         self.resizable(False, False)
         self._on_pair = on_pair
         self._on_revoke_all_and_pair = on_revoke_all_and_pair
         self._get_doctor_report = get_doctor_report
+        self._create_pairing_offer = create_pairing_offer
         self._port = int(port or DEFAULT_MOBILE_PORT)
         self._lan_ips = list_lan_ipv4()
         self._device_id: str | None = None
         self._token: str | None = None
         self._token_visible = False
         self._advanced_visible = False
+        self._active_offer = None
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=8, pady=8)
@@ -70,10 +73,46 @@ class PairAndroidDialog(ctk.CTkToplevel):
             anchor="w", padx=8, pady=(6, 4))
         ctk.CTkLabel(
             scroll,
-            text="Secure local connection — your phone browses clips on this PC only.",
+            text="Scan QR code from Cache Vault Mobile to connect instantly.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
             wraplength=500, font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=8, pady=(0, 8))
+
+        # QR Code Section
+        qr_frame = ctk.CTkFrame(scroll, fg_color=brand.SURFACE_BG)
+        qr_frame.pack(fill="x", padx=8, pady=(0, 10))
+
+        ctk.CTkLabel(
+            qr_frame, text="Scan with Phone (Recommended)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=brand.PROOF_TEAL,
+        ).pack(anchor="w", padx=12, pady=(10, 4))
+
+        self._qr_image_label = ctk.CTkLabel(qr_frame, text="")
+        self._qr_image_label.pack(anchor="center", padx=12, pady=6)
+
+        self._qr_sub_label = ctk.CTkLabel(
+            qr_frame,
+            text="Open Cache Vault Mobile -> Scan pairing QR\nOffer expires in 5:00",
+            anchor="center", justify="center", text_color=brand.MUTED_FG,
+            font=ctk.CTkFont(size=11),
+        )
+        self._qr_sub_label.pack(anchor="center", padx=12, pady=(0, 8))
+
+        qr_btn_row = ctk.CTkFrame(qr_frame, fg_color="transparent")
+        qr_btn_row.pack(anchor="center", padx=12, pady=(0, 10))
+
+        ctk.CTkButton(
+            qr_btn_row, text="Refresh QR Code", width=120, height=28,
+            command=self._generate_qr_offer, **theme.primary_button(),
+        ).pack(side="left", padx=4)
+
+        ctk.CTkButton(
+            qr_btn_row, text="Copy QR Payload", width=120, height=28,
+            command=self._copy_qr_payload, **theme.secondary_button(),
+        ).pack(side="left", padx=4)
+
+        self._generate_qr_offer()
 
         # Connection Doctor
         doctor_frame = ctk.CTkFrame(scroll, fg_color=brand.SURFACE_BG)
@@ -191,6 +230,33 @@ class PairAndroidDialog(ctk.CTkToplevel):
                       **theme.secondary_button()).pack(anchor="e", padx=8, pady=(0, 12))
         from .dialogs import _bring_to_front
         _bring_to_front(self, master, modal=True)
+
+    def _generate_qr_offer(self) -> None:
+        rec_ip = recommended_lan_ipv4(self._lan_ips) or "127.0.0.1"
+        if self._create_pairing_offer:
+            offer = self._create_pairing_offer()
+        else:
+            from ..core.mobile.pairing_offer import PairingOfferManager
+            mgr = PairingOfferManager()
+            offer = mgr.create_offer(host=rec_ip, port=self._port)
+
+        self._active_offer = offer
+        payload_str = offer.to_qr_payload()
+
+        try:
+            import qrcode
+            qr = qrcode.QRCode(version=1, box_size=5, border=2)
+            qr.add_data(payload_str)
+            qr.make(fit=True)
+            pil_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(180, 180))
+            self._qr_image_label.configure(image=ctk_img, text="")
+        except Exception:
+            self._qr_image_label.configure(image=None, text="[QR Code Display Available]")
+
+    def _copy_qr_payload(self) -> None:
+        if self._active_offer:
+            _copy_to_clipboard(self, self._active_offer.to_qr_payload())
 
     def _doctor_text(self, bridge_running: bool) -> str:
         if self._get_doctor_report:

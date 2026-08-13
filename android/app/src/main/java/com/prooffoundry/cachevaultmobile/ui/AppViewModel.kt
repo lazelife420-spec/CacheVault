@@ -351,6 +351,58 @@ class AppViewModel(
         )
     }
 
+    fun pairWithQrOffer(
+        qrPayloadJson: String,
+        onSuccess: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            uiState = uiState.copy(loading = true, error = null)
+            runCatching {
+                val jsonAdapter = com.squareup.moshi.Moshi.Builder()
+                    .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                    .build()
+                    .adapter(Map::class.java)
+                    .lenient()
+                val map = runCatching {
+                    @Suppress("UNCHECKED_CAST")
+                    jsonAdapter.fromJson(qrPayloadJson) as? Map<String, Any>
+                }.getOrNull()
+
+                val host = (map?.get("host") as? String)?.trim() ?: "192.168.0.16"
+                val port = (map?.get("port") as? Double)?.toInt() ?: (map?.get("port") as? Number)?.toInt() ?: 8742
+                val token = (map?.get("token") as? String)?.trim()
+                    ?: qrPayloadJson.substringAfter("token:").substringAfter("token=").substringBefore(",").substringBefore("}").trim(' ', '"', '\'')
+                val pcName = (map?.get("pc_name") as? String)?.trim() ?: "Cache Vault Desktop"
+                if (token.isBlank()) throw IllegalArgumentException("Missing token in QR payload")
+
+                withContext(Dispatchers.IO) {
+                    repository.pairWithQrOffer(host, port, token, pcName)
+                }
+            }.onSuccess { status ->
+                val pairing = repository.loadPairing()
+                uiState = uiState.copy(
+                    paired = true,
+                    status = status,
+                    pcName = pairing?.pcLabel.orEmpty(),
+                    hostLabel = pairing?.pcLabel.orEmpty().ifBlank { pairing?.host.orEmpty() },
+                    deviceId = pairing?.deviceId.orEmpty(),
+                    port = pairing?.port ?: 8742,
+                    loading = false,
+                    error = null,
+                    pairSuccessMessage = UserMessages.PAIRING_SAVED,
+                    lastSeenAt = pairing?.lastSeenAt,
+                )
+                refreshAll()
+                onSuccess()
+            }.onFailure { err ->
+                uiState = uiState.copy(
+                    loading = false,
+                    error = err.toUserMessage(),
+                )
+            }
+        }
+    }
+
     fun pair(
         host: String,
         port: Int,
