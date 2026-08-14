@@ -35,11 +35,15 @@ class TestSettingsHubIntegration(unittest.TestCase):
              patch('cache_vault.ui.shell.MultiHotkeyListener'), \
              patch('cache_vault.ui.shell.TrayController'), \
              patch('cache_vault.ui.shell.install_mouse_handler'), \
-             patch('cache_vault.ui.shell.install_windows_scroll_patch'), \
-             patch('cache_vault.ui.shell.CacheVaultApp._apply_window_icon'), \
              patch('cache_vault.ui.shell.CacheVaultApp.refresh'):
-            self.app = CacheVaultApp(vault=self.vault)
-            self.app.withdraw()
+            try:
+                self.app = CacheVaultApp(vault=self.vault)
+                self.app.withdraw()
+            except Exception as exc:
+                from tk_support import _tcl_unavailable
+                if _tcl_unavailable(exc):
+                    self.skipTest(str(exc))
+                raise
 
     def tearDown(self):
         try:
