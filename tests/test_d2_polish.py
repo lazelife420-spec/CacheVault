@@ -5,12 +5,17 @@ from datetime import datetime, timedelta, timezone
 from cache_vault.core import clip_metadata, models
 
 
+# Timestamps are stored in UTC and rendered in local time, so every expected
+# clock string below is derived via astimezone() rather than hard-coded. These
+# assertions therefore hold in any host timezone, including UTC.
+
+
 def test_human_timestamp_today():
     now = datetime.now(timezone.utc)
     iso = now.isoformat()
     result = clip_metadata.human_timestamp(iso)
     assert "Today ·" in result
-    assert now.strftime("%I:%M %p").lstrip("0") in result
+    assert now.astimezone().strftime("%I:%M %p").lstrip("0") in result
 
 
 def test_human_timestamp_yesterday():
@@ -18,21 +23,25 @@ def test_human_timestamp_yesterday():
     iso = yesterday.isoformat()
     result = clip_metadata.human_timestamp(iso)
     assert "Yesterday ·" in result
-    assert yesterday.strftime("%I:%M %p").lstrip("0") in result
+    assert yesterday.astimezone().strftime("%I:%M %p").lstrip("0") in result
 
 
 def test_human_timestamp_older_this_year():
     dt = datetime(2026, 6, 1, 10, 30, tzinfo=timezone.utc)
-    iso = dt.isoformat()
-    result = clip_metadata.human_timestamp(iso)
-    assert "Jun 01 · 10:30 AM" in result
+    local = dt.astimezone()
+    result = clip_metadata.human_timestamp(dt.isoformat())
+    expected = f"{local.strftime('%b %d')} · {local.strftime('%I:%M %p').lstrip('0')}"
+    assert expected in result
 
 
 def test_human_timestamp_previous_year():
     dt = datetime(2025, 12, 12, 9, 0, tzinfo=timezone.utc)
-    iso = dt.isoformat()
-    result = clip_metadata.human_timestamp(iso)
-    assert "Dec 12, 2025 · 9:00 AM" in result
+    local = dt.astimezone()
+    result = clip_metadata.human_timestamp(dt.isoformat())
+    expected = (
+        f"{local.strftime('%b %d, %Y')} · {local.strftime('%I:%M %p').lstrip('0')}"
+    )
+    assert expected in result
 
 
 def test_date_group_header_today():

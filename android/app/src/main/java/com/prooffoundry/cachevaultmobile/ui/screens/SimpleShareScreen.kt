@@ -14,12 +14,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -37,6 +41,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prooffoundry.cachevaultmobile.R
 
+/**
+ * Where a Send-to-PC attempt currently stands.
+ *
+ * Drives the primary button so one tap cannot become several in-flight sends:
+ * repeated taps against an unresponsive button previously created duplicate
+ * vault items on the desktop.
+ */
+enum class SendPhase { IDLE, SENDING, SENT, FAILED }
+
+/**
+ * True when a new send must be ignored.
+ *
+ * Single source of truth shared by the button's enabled state and the tap
+ * handler, so the two cannot drift apart. FAILED is deliberately not blocking:
+ * a failed send must stay retryable.
+ */
+fun SendPhase.blocksNewSend(): Boolean =
+    this == SendPhase.SENDING || this == SendPhase.SENT
+
 /** Simple Mode — large buttons, plain language, no technical jargon. */
 @Composable
 fun SimpleShareScreen(
@@ -51,9 +74,11 @@ fun SimpleShareScreen(
     onDismiss: () -> Unit,
     sensitiveReason: String? = null,
     imageLabel: String? = null,
+    phase: SendPhase = SendPhase.IDLE,
 ) {
     var showSensitiveWarning by remember { mutableStateOf(false) }
     val isImage = imageLabel != null
+    val isSending = phase == SendPhase.SENDING
 
     Column(
         modifier = Modifier
@@ -100,12 +125,16 @@ fun SimpleShareScreen(
         if (sensitiveReason != null) {
             SensitiveBadge(reason = sensitiveReason)
         }
-        statusMessage?.let {
-            Text(text = it, style = MaterialTheme.typography.titleMedium)
-        }
+        statusMessage?.let { StatusBanner(message = it, phase = phase) }
         PrimaryActionButton(
-            text = stringResource(R.string.send_to_cache_vault),
-            enabled = isConnected,
+            text = if (isSending) {
+                stringResource(R.string.sending_to_vault)
+            } else {
+                stringResource(R.string.send_to_cache_vault)
+            },
+            // Disabled once sent so a second tap cannot duplicate the item.
+            enabled = isConnected && !phase.blocksNewSend(),
+            showProgress = isSending,
             onClick = {
                 if (sensitiveReason != null) showSensitiveWarning = true else onSendToPc()
             },
@@ -149,10 +178,13 @@ fun SimpleShareScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    showSensitiveWarning = false
-                    onSendToPc()
-                }) { Text(stringResource(R.string.send_to_cache_vault)) }
+                TextButton(
+                    enabled = !phase.blocksNewSend(),
+                    onClick = {
+                        showSensitiveWarning = false
+                        onSendToPc()
+                    },
+                ) { Text(stringResource(R.string.send_to_cache_vault)) }
             },
             dismissButton = {
                 TextButton(onClick = { showSensitiveWarning = false }) { Text("Cancel") }
@@ -179,10 +211,45 @@ private fun SensitiveBadge(reason: String) {
     }
 }
 
+/**
+ * Result surface for a send attempt.
+ *
+ * Rendered as a filled banner rather than a bare line of text: the previous
+ * plain-text status sat above the button and was easy to miss, which left users
+ * unsure whether a send had succeeded.
+ */
+@Composable
+private fun StatusBanner(message: String, phase: SendPhase) {
+    val container = when (phase) {
+        SendPhase.SENT -> MaterialTheme.colorScheme.primaryContainer
+        SendPhase.FAILED -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val content = when (phase) {
+        SendPhase.SENT -> MaterialTheme.colorScheme.onPrimaryContainer
+        SendPhase.FAILED -> MaterialTheme.colorScheme.onErrorContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        color = container,
+        contentColor = content,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(14.dp),
+        )
+    }
+}
+
 @Composable
 private fun PrimaryActionButton(
     text: String,
     enabled: Boolean = true,
+    showProgress: Boolean = false,
     onClick: () -> Unit,
 ) {
     Button(
@@ -193,6 +260,14 @@ private fun PrimaryActionButton(
             .height(64.dp),
         colors = ButtonDefaults.buttonColors(),
     ) {
+        if (showProgress) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = LocalContentColor.current,
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+        }
         Text(text = text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
     }
 }

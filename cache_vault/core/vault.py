@@ -291,9 +291,9 @@ class Vault:
         sens = sensitive.detect(content)
         size_bytes = clip_metadata.size_bytes_for(content)
 
-        if self.settings.capture_paused:
-            return None
-
+        # No capture_paused check on purpose: that setting pauses passive
+        # clipboard monitoring. This path is an explicit, authenticated send
+        # from a paired device, so the user has already asked for this item.
         clip = Clip(
             content_hash=chash,
             content=content,
@@ -402,9 +402,8 @@ class Vault:
 
         if not image_bytes:
             return None
-        if self.settings.capture_paused:
-            return None
 
+        # No capture_paused check on purpose: see capture_mobile_share.
         resolved = self._resolve_safe(safe_id)
         if resolved is None:
             return None
