@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import tkinter as tk
 import customtkinter as ctk
 
 from .. import brand
