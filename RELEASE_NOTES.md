@@ -241,7 +241,15 @@ the full historical entry.
 - Windows executable is **unsigned**. Verify against `SHA256SUMS.txt` from the
   public `lazelife420-spec/CacheVault` release before running.
 
-## Verification
+> The two sections below (`Verification`, `Artifacts`) were written for the
+> **v0.1.6 release specifically** and were never updated as newer releases
+> (through the current `v0.2.0`) were prepended above them in this file. They
+> are historical, version-specific figures for that one release — **not**
+> current verification state. For `v0.2.0`'s own verification evidence, see
+> the "Device Verification" note under its section above; for its published
+> artifacts, see the live [GitHub Release](https://github.com/lazelife420-spec/CacheVault/releases/tag/v0.2.0).
+
+## Verification (v0.1.6 release, historical)
 
 | Check | Result |
 |---|---|
@@ -250,9 +258,9 @@ the full historical entry.
 | `app.py --selftest` | PASS |
 | GitHub Actions matrix | 3.12 ✓ · 3.13 ✓ |
 | Founder package smoke | PASS |
-| Published checksums | See `SHA256SUMS.txt` attached to this release. |
+| Published checksums | See `SHA256SUMS.txt` attached to the v0.1.6 release. |
 
-## Artifacts
+## Artifacts (v0.1.6 release, historical)
 
 - `CacheVault-v0.1.6-windows.zip`
 - `SHA256SUMS.txt`
