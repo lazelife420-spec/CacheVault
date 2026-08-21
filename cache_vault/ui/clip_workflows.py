@@ -158,6 +158,12 @@ class ClipComposerDialog(ctk.CTkToplevel):
             return
         self._closing = True
         try:
+            job = getattr(self, "_bring_to_front_job", None)
+            if job is not None:
+                self.after_cancel(job)
+        except Exception:  # noqa: BLE001 - job may have already fired
+            pass
+        try:
             self.grab_release()
         except Exception:  # noqa: BLE001 - grab may already be gone
             pass
@@ -387,6 +393,12 @@ class EditClipTextDialog(ctk.CTkToplevel):
         if self._closing:
             return
         self._closing = True
+        try:
+            job = getattr(self, "_bring_to_front_job", None)
+            if job is not None:
+                self.after_cancel(job)
+        except Exception:  # noqa: BLE001 - job may have already fired
+            pass
         try:
             self.grab_release()
         except Exception:  # noqa: BLE001 - grab may already be gone

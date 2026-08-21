@@ -62,11 +62,29 @@ def _bring_to_front(
     ``master`` instead of leaving it at whatever fixed/default position the
     window manager chose -- opt-in per caller (most existing callers of this
     helper rely on their current placement and aren't part of this change).
+
+    Most callers here destroy synchronously (no ``destroy()`` override), so
+    by the time this deferred callback could fire the widget is either still
+    fully alive or already fully gone -- ``deiconify()`` on a truly-destroyed
+    widget raises, caught below, so nothing is re-shown either way. But a
+    dialog with a *staged* teardown (``ClipComposerDialog``/
+    ``EditClipTextDialog`` in clip_workflows.py: withdraw immediately, real
+    destroy 50ms later) can be caught mid-stage -- still alive per
+    ``winfo_exists()``, but already closing. The explicit checks below guard
+    that window proactively, rather than relying on an incidental TclError
+    from calling into an already-torn-down widget; ``getattr(..., False)``
+    keeps this inert for every other caller, which never sets ``_closing``.
+    ``win._bring_to_front_job`` records the scheduled id so a caller with a
+    staged teardown can cancel it outright -- avoiding a callback left
+    pending against a hidden window even though this guard already makes
+    firing it harmless.
     """
     win.transient(master)
 
     def _raise() -> None:
         try:
+            if not win.winfo_exists() or getattr(win, "_closing", False):
+                return
             if center_on is not None:
                 _center_on_parent(win, master, *center_on)
             win.deiconify()
@@ -77,7 +95,7 @@ def _bring_to_front(
         except Exception:  # noqa: BLE001 - window may have closed
             pass
 
-    win.after(200, _raise)
+    win._bring_to_front_job = win.after(200, _raise)
 
 
 class AboutDialog(ctk.CTkToplevel):
