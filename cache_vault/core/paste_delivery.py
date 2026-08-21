@@ -25,15 +25,25 @@ class PasteResult:
 
 # OpenClipboard transiently fails whenever another window currently holds the
 # clipboard open — most notably the paste target itself, which briefly opens
-# the clipboard to read the delivered content right after a synthetic Ctrl+V.
-# That window is normally a handful of milliseconds. Retrying a short, bounded
-# number of times clears it without masking a genuinely unavailable clipboard.
+# the clipboard to read the delivered content right after a synthetic Ctrl+V
+# (normally a handful of milliseconds), but also longer-running contention
+# such as Tk releasing its own ownership during teardown. Retrying a short,
+# bounded number of times clears it without masking a genuinely unavailable
+# clipboard.
 #
 # Retry budget: up to _CLIPBOARD_OPEN_RETRY_ATTEMPTS attempts, with a sleep
-# only *between* attempts (never after the last one). For the defaults below
-# that is 4 sleeps of 15ms = 60ms maximum scheduled delay, not 5.
-_CLIPBOARD_OPEN_RETRY_ATTEMPTS = 5
-_CLIPBOARD_OPEN_RETRY_DELAY_S = 0.015  # 4 gaps x 15ms = 60ms max scheduled delay
+# only *between* attempts (never after the last one). Reconciled during the
+# clipboard-custody integration (Gate 5F-B) from two independently-tuned
+# values: this module's original 5 attempts / 15ms (measured against the
+# post-paste read-back race specifically) couldn't survive the longer,
+# separately-observed contention a baseline test encodes directly (a real
+# probe hit 5 *consecutive* OpenClipboard failures before succeeding --
+# see test_clipboard_custody_retry.py's docstring). 10 attempts / 20ms
+# (9 gaps = 180ms max) comfortably covers that observed case while staying
+# inside this module's own test_clipboard_open_retry.py range assertion
+# (2 <= attempts <= 10).
+_CLIPBOARD_OPEN_RETRY_ATTEMPTS = 10
+_CLIPBOARD_OPEN_RETRY_DELAY_S = 0.02  # 9 gaps x 20ms = 180ms max scheduled delay
 
 
 @dataclass(frozen=True)

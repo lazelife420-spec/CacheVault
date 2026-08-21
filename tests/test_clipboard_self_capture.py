@@ -180,6 +180,16 @@ def make_app(h, vault):
     app._guard_unlocked = lambda: True
     app._locked = lambda: False
     app._block_if_matching_active = lambda _name: False
+    # Adapted during the clipboard-custody integration (Gate 5F-B):
+    # _schedule_clipboard_restore's deferred _restore() calls self._alive(),
+    # which reads self._shutting_down (unguarded -- unlike the rest of
+    # destroy()-style chains in this codebase, this one attribute access
+    # isn't try/except-wrapped) and falls back to self.winfo_exists() (a real
+    # Tk method this bare object.__new__ stub doesn't have). Stub _alive
+    # directly rather than winfo_exists/_shutting_down individually, matching
+    # the same "override the method, not the internals" pattern already used
+    # for _guard_unlocked/_locked/_block_if_matching_active above.
+    app._alive = lambda: True
     app.clipboard_clear = lambda: None
     # Real Tk's clipboard_append renders the selection itself and inserts a
     # CR before every LF, unconditionally -- _tk_set_clipboard_text feeds it

@@ -77,7 +77,10 @@ def test_default_retry_window_is_small_and_bounded():
 
 def test_sleeps_only_between_attempts_never_after_the_last(monkeypatch):
     """5 attempts -> at most 4 sleeps (gaps between attempts), never 5.
-    For the shipped defaults that is 4 x 15ms = 60ms max, not 75ms."""
+    Was 4 x 15ms = 60ms for the original defaults; the delay was reconciled
+    to 20ms during the clipboard-custody integration (Gate 5F-B, see
+    _CLIPBOARD_OPEN_RETRY_DELAY_S's own comment in paste_delivery.py), so the
+    sum below is computed from the live constant rather than hardcoded."""
     sleep_calls: list[float] = []
     monkeypatch.setattr(paste_delivery.time, "sleep", lambda s: sleep_calls.append(s))
 
@@ -88,7 +91,7 @@ def test_sleeps_only_between_attempts_never_after_the_last(monkeypatch):
     assert clip.calls == 5
     assert len(sleep_calls) == 4, "must sleep only between attempts, never after the last"
     assert sleep_calls == [_CLIPBOARD_OPEN_RETRY_DELAY_S] * 4
-    assert sum(sleep_calls) == pytest.approx(0.06)
+    assert sum(sleep_calls) == pytest.approx(_CLIPBOARD_OPEN_RETRY_DELAY_S * 4)
 
 
 def test_no_sleep_when_first_attempt_succeeds(monkeypatch):

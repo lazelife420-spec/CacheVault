@@ -510,6 +510,25 @@ class ClipboardWriter:
 
     def restore_text(self, text: str | None, *, operation: str, via=None) -> bool:
         """Restore ``text`` with custody (snapshot/restore paste flows)."""
+        return self._restore_text_attempt(text, operation=operation, via=via).user_visible_success
+
+    def restore_text_commit(self, text: str | None, *, operation: str, via=None) -> tuple[bool, bool]:
+        """Restore ``text`` with custody, exposing both outcome signals as
+        ``(user_visible_success, custody_commit)``.
+
+        ``custody_commit`` is true whenever the content genuinely reached the
+        clipboard, even when ``user_visible_success`` is false (e.g. a
+        close-after-set failure) -- callers that need to decide whether a
+        failed restore is worth *retrying* must use this instead of the plain
+        bool from ``restore_text``: retrying a write that already landed
+        would risk a redundant second platform write on top of one that
+        already succeeded, which the underlying writer's own contract treats
+        as unsound (see ``_write_clipboard_text`` in paste_delivery.py).
+        """
+        attempt = self._restore_text_attempt(text, operation=operation, via=via)
+        return attempt.user_visible_success, attempt.custody_commit
+
+    def _restore_text_attempt(self, text: str | None, *, operation: str, via=None) -> "_AttemptResult":
         from . import capture_debug
 
         if text is None:
@@ -517,7 +536,7 @@ class ClipboardWriter:
                 "clipboard_restore_skipped",
                 f"operation={operation} reason=prior_clipboard_none",
             )
-            return False
+            return _AttemptResult(custody_commit=False, user_visible_success=False)
         write = via or self._restore_text
         token = self._suppressor.begin(
             operation=operation,
@@ -538,7 +557,7 @@ class ClipboardWriter:
             f"user_visible_success={attempt.user_visible_success} "
             f"sequence_before={sequence_before} sequence_after={sequence_after}",
         )
-        return attempt.user_visible_success
+        return attempt
 
     def write_image(self, png_bytes: bytes, *, operation: str, via=None) -> bool:
         """Write an image with custody; fingerprint matches the capture path."""

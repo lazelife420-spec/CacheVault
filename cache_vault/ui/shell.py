@@ -30,7 +30,7 @@ from .. import feature_gate
 from .. import licensing
 from ..core.clipboard import ClipboardMonitor, read_clipboard_payload
 from ..core.clipboard_custody import ClipboardWriteSuppressor, ClipboardWriter
-from ..core.clipboard_out import normalize_to_lf
+from ..core.clipboard_out import canonical_clipboard_text, normalize_to_lf
 from ..core.capture_rules import CaptureController
 from ..core.capture_receipts import record_armed_receipt, record_ignored_receipt
 from ..core.safes import SafeRegistry
@@ -112,10 +112,11 @@ EXPIRY_SWEEP_MS = 15_000  # run the expiry sweep every 15s
 # asynchronously (measured at ~0.17s after delivery against a real Windows
 # target), so restoring immediately makes it paste the *previous* clipboard.
 CLIPBOARD_RESTORE_DELAY_MS = 400
-# restore_clipboard_text has its own bounded OpenClipboard retry (~0.4s). If
-# another process holds the clipboard for longer than that the restore fails,
-# which must not silently leave the pasted clip sitting on the user's
-# clipboard: try again, then say so.
+# restore_clipboard_text has its own bounded OpenClipboard retry
+# (_CLIPBOARD_OPEN_RETRY_ATTEMPTS x _CLIPBOARD_OPEN_RETRY_DELAY_S, ~0.18s as
+# of the clipboard-custody integration). If another process holds the
+# clipboard for longer than that the restore fails, which must not silently
+# leave the pasted clip sitting on the user's clipboard: try again, then say so.
 CLIPBOARD_RESTORE_RETRY_MS = 600
 CLIPBOARD_RESTORE_ATTEMPTS = 3
 
@@ -4190,14 +4191,29 @@ class CacheVaultApp(ctk.CTk):
         monitor = getattr(self, "_monitor", None)
         note = getattr(monitor, "note_local_copy", None)
         if note is not None:
-            note(text)
+            # note_local_copy must be told what the clipboard actually holds,
+            # not the pre-write text: _tk_set_clipboard_text normalizes to LF
+            # and Tk inserts a CR before every LF, so the two differ whenever
+            # line breaks are involved (same reasoning as write_via_tk's own
+            # docstring, and the same fix as write_text's custody fingerprint
+            # in clipboard_custody.py -- this is the no-writer-wired fallback
+            # path those don't cover).
+            note(canonical_clipboard_text(text))
         return True
 
-    def _writer_restore_text(self, text: str | None, *, operation: str) -> bool:
+    def _writer_restore_text(self, text: str | None, *, operation: str) -> tuple[bool, bool]:
+        """Returns ``(user_visible_success, custody_commit)``. custody_commit
+        is true whenever the content genuinely reached the clipboard, even
+        when user_visible_success is false (e.g. a close-after-set failure)
+        -- see ClipboardWriter.restore_text_commit. The no-writer fallback
+        uses the legacy simple-bool contract, which collapses both signals
+        to the same value (there's no way to distinguish them with only one
+        bit of information)."""
         writer = self._clipboard_writer
         if writer is not None:
-            return writer.restore_text(text, operation=operation)
-        return restore_clipboard_text(text)
+            return writer.restore_text_commit(text, operation=operation)
+        ok = restore_clipboard_text(text)
+        return ok, ok
 
     def _writer_write_image(self, png: bytes, *, operation: str) -> bool:
         """Internal image write with self-capture custody when wired."""
@@ -5097,6 +5113,13 @@ class CacheVaultApp(ctk.CTk):
                 self._notify_quick_paste_or_toast("Nothing available to paste.")
                 return
             self._writer_write_text(content, operation="quick_paste_deliver")
+            # Every real writer (Tk or raw Win32) ends up placing canonical
+            # CRLF on the clipboard -- see write_text's fingerprint docstring
+            # in clipboard_custody.py. _schedule_clipboard_restore's
+            # payload-verification check needs to know that exact string, and
+            # _writer_write_text only returns success/failure, not the text,
+            # so it's recomputed here the same way the custody fingerprint is.
+            pasted_payload = canonical_clipboard_text(content)
             pasted_text = True
             item_type = clip.content_type or clip.classification or "text"
 
@@ -5128,19 +5151,41 @@ class CacheVaultApp(ctk.CTk):
                 # the clip the user chose before they get a chance to retry the
                 # paste manually. See the skip_delivery path below for the sibling
                 # bug this same condition prevents.
-                restore_ok = False
-                if (
+                #
+                # The restore itself is scheduled, not run here -- deliver_ctrl_v
+                # only *sends* Ctrl+V; the target processes it asynchronously.
+                # Restoring on the next line raced the paste and lost: measured
+                # against a real Windows target, an immediate restore completed
+                # at +0.170s while the target read the clipboard at +0.34s, so
+                # what got pasted was the prior clipboard, not the chosen clip --
+                # 5/5 trials. See _schedule_clipboard_restore for the full
+                # account and the verify-before-restore + retry-on-failure logic
+                # that fixes it.
+                #
+                # _finish_paste is deferred into on_done rather than called
+                # immediately with a prediction (Gate 5F-B): a close-after-set
+                # failure still commits custody but must be reported as
+                # restored=False, not a guessed True -- reporting a prediction
+                # here would silently lie about it. When no restore is needed
+                # at all, _finish_paste still fires immediately below.
+                will_restore = (
                     settings.restore_clipboard_after_paste
                     and pasted_text
                     and delivery_ok
-                ):
-                    restore_ok = self._writer_restore_text(
-                        prior_clipboard, operation="quick_paste_restore",
-                    )
-                self._finish_paste(
-                    clip, delivery_ok, item_type, target_title, reason,
-                    clipboard_restored=restore_ok,
                 )
+                if will_restore:
+                    self._schedule_clipboard_restore(
+                        pasted_payload, prior_clipboard,
+                        on_done=lambda restored: self._finish_paste(
+                            clip, delivery_ok, item_type, target_title, reason,
+                            clipboard_restored=restored,
+                        ),
+                    )
+                else:
+                    self._finish_paste(
+                        clip, delivery_ok, item_type, target_title, reason,
+                        clipboard_restored=False,
+                    )
 
             self.after(80, _deliver)
             return
@@ -5163,7 +5208,7 @@ class CacheVaultApp(ctk.CTk):
         )
 
     def _schedule_clipboard_restore(self, pasted_payload, prior_clipboard,
-                                    attempt: int = 1) -> None:
+                                    attempt: int = 1, on_done=None) -> None:
         """Put the user's previous clipboard back, but not before the target
         has actually consumed the paste.
 
@@ -5178,23 +5223,61 @@ class CacheVaultApp(ctk.CTk):
 
         The payload check keeps a late restore from overwriting something the
         user copied while we were waiting.
+
+        The actual write goes through _writer_restore_text (custody-protected)
+        rather than the raw restore_clipboard_text, so this deferred restore
+        doesn't get wrongly recaptured as a new external clip -- added during
+        the clipboard-custody integration (Gate 5F-B); the timing/verification/
+        retry logic above is otherwise unchanged from the original fix.
+
+        ``on_done(restored: bool)``, if given, fires exactly once with the
+        *actual* outcome once this settles (success, exhausted retries, a
+        payload mismatch, or the app going away) -- also added in Gate 5F-B,
+        so a caller that needs the real result (not the pre-delay prediction)
+        can defer reporting it instead of guessing. _writer_restore_text
+        returns (user_visible_success, custody_commit), keeping those two
+        signals distinct (a close-after-set failure still commits custody --
+        the content did reach the clipboard and must not be recaptured, and
+        must not be retried either -- but is correctly reported here as
+        restored=False, since the transaction didn't close cleanly); this
+        callback carries the user-visible half of that distinction through.
         """
+        def _done(restored: bool) -> None:
+            if on_done is not None:
+                on_done(restored)
+
         def _restore() -> None:
             if not self._alive():
+                _done(False)
                 return
             current = snapshot_clipboard_text()
             if current is not None and current != pasted_payload:
+                _done(False)
                 return
-            if restore_clipboard_text(prior_clipboard):
+            restored, custody_commit = self._writer_restore_text(
+                prior_clipboard, operation="quick_paste_restore")
+            if restored:
+                _done(True)
+                return
+            # A reported failure can still mean the content genuinely reached
+            # the clipboard (custody committed) but the transaction didn't
+            # close cleanly -- _write_clipboard_text's own docstring is
+            # explicit that a partial mutation must never be retried, only a
+            # clean non-contention failure class. Retrying here would risk a
+            # redundant second SetClipboardData on top of one that already
+            # succeeded, so only retry when nothing landed at all.
+            if custody_commit:
+                _done(False)
                 return
             if attempt < CLIPBOARD_RESTORE_ATTEMPTS:
                 self._schedule_clipboard_restore(
-                    pasted_payload, prior_clipboard, attempt=attempt + 1)
+                    pasted_payload, prior_clipboard, attempt=attempt + 1, on_done=on_done)
                 return
             self.vault.events.record(
                 "clipboard_restore_failed", None, {"attempts": attempt})
             Toast(self, "Couldn't put your previous clipboard back - "
                         "the pasted clip is still on the clipboard.")
+            _done(False)
 
         delay = CLIPBOARD_RESTORE_DELAY_MS if attempt == 1 else CLIPBOARD_RESTORE_RETRY_MS
         self.after(delay, _restore)

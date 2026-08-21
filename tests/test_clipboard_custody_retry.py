@@ -68,7 +68,17 @@ def fake_clipboard(monkeypatch):
             setattr(module, name, getattr(fake, name))
         monkeypatch.setitem(sys.modules, "win32clipboard", module)
         monkeypatch.setattr(paste_delivery, "_HAS_WIN32", True)
-        monkeypatch.setattr(paste_delivery, "_CLIPBOARD_OPEN_DELAY", 0)
+        # Adapted during the clipboard-custody integration (Gate 5F-B):
+        # _open_clipboard/_CLIPBOARD_OPEN_ATTEMPTS/_CLIPBOARD_OPEN_DELAY were
+        # replaced by _open_clipboard_with_retry/_CLIPBOARD_OPEN_RETRY_ATTEMPTS/
+        # _CLIPBOARD_OPEN_RETRY_DELAY_S, reconciled to a value that still
+        # survives this file's real-observed 5-consecutive-failure scenario.
+        # _open_clipboard_with_retry's delay_s is a default *parameter* value
+        # bound at function-definition time, not a dynamic module-global
+        # lookup like the old _open_clipboard's -- monkeypatching the module
+        # attribute alone wouldn't reach it, so patch time.sleep instead to
+        # keep these tests instant.
+        monkeypatch.setattr(paste_delivery.time, "sleep", lambda *_a, **_k: None)
         return fake
 
     return _install
@@ -84,7 +94,7 @@ def test_restore_retries_a_held_clipboard(fake_clipboard):
 def test_restore_gives_up_after_the_bounded_number_of_attempts(fake_clipboard):
     fake = fake_clipboard(fail=10_000)
     assert paste_delivery.restore_clipboard_text("text") is False
-    assert fake.open_attempts == paste_delivery._CLIPBOARD_OPEN_ATTEMPTS
+    assert fake.open_attempts == paste_delivery._CLIPBOARD_OPEN_RETRY_ATTEMPTS
     assert fake.is_open is False
 
 

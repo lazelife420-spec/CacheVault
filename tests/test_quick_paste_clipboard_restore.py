@@ -21,12 +21,31 @@ from types import SimpleNamespace
 import pytest
 
 from cache_vault.core import models
+from cache_vault.core.clipboard_out import canonical_clipboard_text
 from cache_vault.ui import shell as shell_mod
 from cache_vault.ui.shell import CacheVaultApp
 
 
 class FakeApp:
     """Only the surface _do_paste actually touches."""
+
+    # Adapted during the clipboard-custody integration (Gate 5F-B): _do_paste
+    # now writes through _writer_write_text/_writer_restore_text, which check
+    # self._clipboard_writer first. FakeApp has no real ClipboardWriter wired
+    # (it isn't a CacheVaultApp instance, so it doesn't inherit that class's
+    # own _clipboard_writer=None default either), so this is set explicitly
+    # to force the fallback path: _tk_set_clipboard_text (write) / the raw
+    # module-level restore_clipboard_text (restore) -- both of which the
+    # clipboard fixture below still intercepts, just via clipboard_clear/
+    # clipboard_append (instance methods) instead of the old module-level
+    # clipboard_out.write_via_tk call.
+    _clipboard_writer = None
+
+    def clipboard_clear(self) -> None:
+        pass
+
+    def clipboard_append(self, text: str) -> None:
+        pass
 
     def __init__(self, *, auto_paste=True, restore=True, target=1234):
         self.vault = SimpleNamespace(
@@ -72,6 +91,13 @@ class FakeApp:
         # Bound conditionally so this file still *runs* against a build without
         # the fix: those runs must fail on behaviour, not on collection.
         _schedule_clipboard_restore = CacheVaultApp._schedule_clipboard_restore
+    # Added during the clipboard-custody integration (Gate 5F-B): _do_paste
+    # and _schedule_clipboard_restore now route every write through these
+    # custody-aware helpers instead of calling clipboard_out/restore_clipboard_text
+    # module functions directly, so FakeApp needs them bound too.
+    _writer_write_text = CacheVaultApp._writer_write_text
+    _writer_restore_text = CacheVaultApp._writer_restore_text
+    _tk_set_clipboard_text = CacheVaultApp._tk_set_clipboard_text
 
     def run_scheduled(self):
         """Fire every pending callback, innermost first."""
@@ -86,16 +112,28 @@ def clipboard(monkeypatch):
     state = {"value": "PRIOR USER CLIPBOARD", "restores": [], "written": []}
 
     def _write(_widget, text):
-        state["value"] = text
-        state["written"].append(text)
-        return text
+        # _tk_set_clipboard_text feeds Tk LF-normalized text expecting Tk's
+        # own clipboard_append to insert a CR before every LF, producing
+        # canonical CRLF -- matching this with canonical_clipboard_text keeps
+        # _restore()'s pasted_payload verification check (also computed via
+        # canonical_clipboard_text, see shell.py) consistent with what a real
+        # write actually leaves on the clipboard.
+        canonical = canonical_clipboard_text(text)
+        state["value"] = canonical
+        state["written"].append(canonical)
+        return canonical
 
     def _restore(text):
         state["value"] = text
         state["restores"].append(text)
         return True
 
-    monkeypatch.setattr(shell_mod.clipboard_out, "write_via_tk", _write)
+    # _writer_write_text (with no real _clipboard_writer wired) falls through
+    # to _tk_set_clipboard_text -> self.clipboard_clear()/clipboard_append(text)
+    # -- intercept those instance methods instead of the old module-level
+    # clipboard_out.write_via_tk, which nothing on this path calls anymore.
+    monkeypatch.setattr(FakeApp, "clipboard_clear", lambda self: None)
+    monkeypatch.setattr(FakeApp, "clipboard_append", lambda self, text: _write(self, text))
     monkeypatch.setattr(shell_mod, "restore_clipboard_text", _restore)
     monkeypatch.setattr(shell_mod, "snapshot_clipboard_text", lambda: state["value"])
     monkeypatch.setattr(shell_mod, "hwnd_belongs_to_widget", lambda *_a: False)
@@ -131,7 +169,7 @@ def test_restore_is_deferred_not_run_beside_the_keystroke(clipboard, monkeypatch
     # the clip -- the target has not been given a chance to read it yet.
     deliver = app.scheduled.pop(0)
     deliver[1]()
-    assert clipboard["value"] == clip.content, (
+    assert clipboard["value"] == canonical_clipboard_text(clip.content), (
         "the clip must still be on the clipboard when the keystroke is sent")
     assert clipboard["restores"] == [], "the restore must not run inline"
     assert app.scheduled, "a deferred restore should have been scheduled"
@@ -177,7 +215,7 @@ def test_no_restore_when_delivery_failed(clipboard, monkeypatch):
     app._do_paste(clip)
     app.run_scheduled()
     assert clipboard["restores"] == []
-    assert clipboard["value"] == clip.content
+    assert clipboard["value"] == canonical_clipboard_text(clip.content)
     assert app.finished[-1]["clipboard_restored"] is False
 
 
@@ -249,7 +287,7 @@ def test_clip_survives_when_auto_paste_is_off(clipboard, monkeypatch):
     clip = _clip()
     app._do_paste(clip)
     app.run_scheduled()
-    assert clipboard["value"] == clip.content, (
+    assert clipboard["value"] == canonical_clipboard_text(clip.content), (
         "with auto-paste off the chosen clip is the entire point")
     assert clipboard["restores"] == []
     assert app.finished[-1]["clipboard_restored"] is False
@@ -261,5 +299,5 @@ def test_clip_survives_when_there_is_no_target_window(clipboard, monkeypatch):
     clip = _clip()
     app._do_paste(clip)
     app.run_scheduled()
-    assert clipboard["value"] == clip.content
+    assert clipboard["value"] == canonical_clipboard_text(clip.content)
     assert app.finished[-1]["reason"] == "no_target_window"
