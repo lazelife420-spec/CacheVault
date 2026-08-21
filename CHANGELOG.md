@@ -2,11 +2,18 @@
 
 ## Unreleased
 
-85 commits have landed on `master` since `v0.2.0` (2026-07-16 through
-2026-08-21) and have not been tagged or released. This section describes the
-current source tree, not a shipped or device-verified build — unlike the
-dated release sections below, nothing here has been through a physical-device
-or packaged-build verification pass yet.
+_No unreleased changes yet._
+
+## Cache Vault v0.2.1
+
+`/proof` unchanged this release. Stable not claimed.
+
+86+ commits landed on `master` since `v0.2.0` (2026-07-16 through 2026-08-21),
+none of them tagged or released until now. This release closes that gap: the
+work below plus a real correctness fix to the Mobile Access bridge's
+disabled-state force-stop path (see Fixed). Desktop and the Android
+companion are independently versioned and released separately; this entry
+covers the desktop side only.
 
 ### Added
 - **Vault Cleanup Suggestions** — a new read-only-first duplicate/cleanup
@@ -28,6 +35,11 @@ or packaged-build verification pass yet.
 - Android: full-screen image viewer with gallery swipe.
 
 ### Fixed
+- **Mobile Access bridge disabled-state race** — the force-stop path that
+  runs when Mobile Access is disabled while the bridge is still serving
+  requests now stops it synchronously before responding, closing a real
+  (if narrow) race where a caller could observe the bridge still running
+  immediately after being told it was stopped.
 - **Sidebar Options menu crash** — filter/navigation sidebar menu no longer
   crashes (salvage gate E1).
 - **Dialog teardown race** — dialogs no longer reactivate during teardown

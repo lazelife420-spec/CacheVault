@@ -1,3 +1,27 @@
+# Cache Vault v0.2.1 (pending — not yet built, packaged, or published)
+
+> **Status: release identity declared, artifacts not yet produced.** This
+> section describes the desktop version that canonical `master` will build
+> and ship as, decided in Release Closure Gate R2 (2026-08-21) to avoid
+> reissuing materially different content under the already-shipped `v0.2.0`
+> tag. No Windows or Android artifact has been built for `v0.2.1` yet, no
+> GitHub Release exists for it, and nothing below should be read as a
+> verified or device-tested claim — see `CHANGELOG.md`'s `v0.2.1` entry for
+> the itemized, evidence-grounded list this section summarizes. This section
+> will be replaced with real build/verification evidence once Release
+> Closure resumes packaging.
+
+## What is new in v0.2.1
+
+Closes the gap between the last real release (`v0.2.0`, 2026-07-16) and
+current canonical `master`: 86+ commits of desktop feature and fix work
+(Vault Cleanup Suggestions, context-aware context menus, mobile QR pairing,
+All Clips surface improvements, deleted-clip recovery, continued render-perf
+work), plus a real correctness fix to the Mobile Access bridge's
+disabled-state force-stop path. Full itemized list in `CHANGELOG.md`.
+
+---
+
 # Cache Vault v0.2.0
 
 **Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault
