@@ -1,0 +1,93 @@
+{
+  "gate": "Release Closure R4 - Remaining Publication Blockers",
+  "date": "2026-08-21",
+  "starting_canonical_sha": "b92d960bd7acd282516adebb7338ecffa51b86ab",
+  "branch": "release/closure-r4",
+  "rollback_tag": "pre-release-closure-r4-2026-08-21",
+  "custody": {
+    "master_confirmed": true,
+    "working_tree_clean": true,
+    "rollback_tags_intact_count": 9,
+    "preservation_branch_unchanged": true,
+    "r1_r2_r3_branches_reachable_and_untouched": true
+  },
+  "item1_android_signing_recovery": {
+    "primary_keystore_present": false,
+    "env_vars_present_shell": false,
+    "env_vars_present_user_registry": false,
+    "env_vars_present_machine_registry": false,
+    "backup1_local_gpg_present": false,
+    "backup2_documents_gpg_present": true,
+    "password_file_present": false,
+    "password_requested_or_entered": false,
+    "recovery_possible": true,
+    "recovery_requires": "project owner to supply .storepass at its documented path or run the documented gpg decrypt command themselves; not performed this session",
+    "documented_decrypted_keystore_sha256": "05e855f2095f030a74cee8448805349c84f1cec28e1fe9de81eb0803898c0afd",
+    "known_good_v0_2_0_cert_sha256_for_future_comparison": "c2eb5c42a684326ceba1289e65e9690ed71daf770de64e2b83a42bce04026a2c"
+  },
+  "item2_desktop_android_interop": {
+    "performed": false,
+    "blocker1": "no authoritative signed v0.2.1 APK exists",
+    "blocker2": "adb devices returned empty list - no physical Android test device connected this session"
+  },
+  "item3_stranger_windows_walkthrough": {
+    "retried_via_different_method": true,
+    "method": "File Explorer double-click launch (vs R3's Start-Process)",
+    "process_launched": true,
+    "process_pid": 21364,
+    "process_memory_mb": 88.8,
+    "process_crashed": false,
+    "consistent_with_tray_based_startup": true,
+    "interactive_gui_control_attempted": true,
+    "interactive_gui_control_result": "denied - process not resolvable as an installed/running application by session's GUI-automation tooling",
+    "same_limitation_as_r3_confirmed_independently": true,
+    "full_interactive_sequence_status": "REQUIRED_BEFORE_PUBLICATION",
+    "test_process_cleaned_up": true
+  },
+  "item4_stale_smoke_test_correction": {
+    "fixed": true,
+    "file_changed": "scripts/founder_package_smoke.ps1",
+    "product_code_changed": false,
+    "root_cause": "selftest containment hardening (already-canonical) always overrides LOCALAPPDATA, so an injected license.json was never seen by --selftest",
+    "fix_approach": "call cache_vault.licensing directly via python -c, matching the script's own pre-existing pattern for its proof-receipt-export step",
+    "proof_of_correctness": "corrected steps now correctly discriminate: forged license -> INVALID_SIGNATURE, real Founder license -> FOUNDER_VALID + is_feature_enabled=True",
+    "full_run_result": "4/4 PASS",
+    "git_diff_check": "clean"
+  },
+  "item5_public_surface_authority": {
+    "resolved_definitively": true,
+    "evidence_type": "explicit self-declaration in landing.html source, not just DNS/content inference",
+    "canonical_link_found": "https://cache-vault-landing.pages.dev/",
+    "og_url_found": "https://cache-vault-landing.pages.dev/",
+    "theprooffoundry_com_classification": "Cloudflare-fronted (DNS-confirmed), likely serves landing.html via Cloudflare Pages custom domain mapping",
+    "docs_index_html_classification": "LEGACY_ORPHANED",
+    "downloads_domain_classification": "deliberate GitHub-Releases mirror, explained in landing.html's own copy, not a mystery domain",
+    "downloads_domain_quote": "Downloads are mirrored through The Proof Foundry while GitHub access is unavailable for some visitors. The GitHub release remains the canonical source record.",
+    "landing_html_dangling_android_link": true,
+    "landing_html_dangling_android_link_target": "downloads.theprooffoundry.com/cachevault/v0.2.1/CacheVault-Mobile-v0.2.1-android.apk",
+    "recommended_authoritative_surface": "landing.html / Cloudflare Pages (reverses R2's docs/index.html recommendation)",
+    "recommendation_executed": false,
+    "website_files_edited": false,
+    "website_published": false
+  },
+  "item6_final_candidate": {
+    "rebuild_performed_this_gate": false,
+    "rebuild_deferred_reason": "chain is: canonicalize tracked R4 changes first, then rebuild once from the resulting canonical SHA - a later step",
+    "files_changed": ["scripts/founder_package_smoke.ps1", "CACHE_VAULT_RELEASE_CLOSURE_R4_AUDIT.md", "CACHE_VAULT_RELEASE_CLOSURE_R4_SUMMARY.json", "CACHE_VAULT_RELEASE_CLOSURE_R4_RECEIPT.md"],
+    "production_source_touched": false
+  },
+  "candidate_sha": null,
+  "pushed": false,
+  "v0_2_1_tag_created": false,
+  "v0_2_1_release_created": false,
+  "website_published": false,
+  "ready_for_publication_authorization": false,
+  "still_outstanding": [
+    "Android signing key decryption (needs project owner + password, out of session)",
+    "Authoritative signed Android v0.2.1 APK build",
+    "Desktop-Android interop test with physical device",
+    "Full interactive Windows stranger-install walkthrough",
+    "Project owner sign-off on public-surface authority recommendation",
+    "One final deterministic rebuild of Windows + Android from the eventual final canonical SHA"
+  ]
+}
