@@ -18,6 +18,7 @@ import sys
 import threading
 import traceback
 from pathlib import Path
+from typing import Any
 
 import customtkinter as ctk
 import tkinter as tk
@@ -1693,7 +1694,7 @@ class CacheVaultApp(ctk.CTk):
             self._duplicate_as_editable_clip(clip.id)
         return "break"
 
-    def _on_clip_double_click(self, clip: Clip) -> None:
+    def _on_clip_double_click(self, clip: models.Clip) -> None:
         if not self._guard_unlocked():
             return
         if clip.content_type == models.CONTENT_IMAGE:

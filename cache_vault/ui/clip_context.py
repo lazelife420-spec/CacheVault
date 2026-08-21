@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 import customtkinter as ctk
 from datetime import datetime
+from pathlib import Path
 
 from ..core import models, copy_clean, storage as S
 from ..core.contextmenu import clip_menu_items
@@ -355,7 +356,7 @@ def open_bulk_clip_menu(window, ids: list[str], x_root: int, y_root: int, *, ctx
     popup_menu(window, menu, x_root, y_root)
 
 
-def _add_single_item(window, menu, item, dispatch: dict, clips: list[Clip]) -> None:
+def _add_single_item(window, menu, item, dispatch: dict, clips: list[models.Clip]) -> None:
     if item.key.startswith("copy_clean:"):
         action = item.key.split(":", 1)[1]
         command = lambda a=action: window._copy_clean(clips[0].id, a) if clips else None
