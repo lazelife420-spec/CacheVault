@@ -82,6 +82,26 @@ def display(value: str | None, *, fallback: str = "—") -> str:
     return text if text else fallback
 
 
+def to_local(dt: datetime) -> datetime:
+    """Convert a stored timestamp to local wall-clock time for display.
+
+    Timestamps are stored in UTC. Formatting one without converting prints UTC
+    digits as though they were local. Naive values are treated as already
+    local and returned unchanged. ``astimezone()`` is idempotent, so a value
+    that is already local-aware is never shifted a second time.
+    """
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone()
+
+
+def _local_view(dt: datetime) -> tuple[datetime, datetime]:
+    """Return ``(dt, now)`` in a shared local frame for Today/Yesterday logic."""
+    if dt.tzinfo is None:
+        return dt, datetime.now()
+    return dt.astimezone(), datetime.now().astimezone()
+
+
 def human_timestamp(iso: str) -> str:
     """Format ISO timestamp into a human-readable string.
 
@@ -100,11 +120,7 @@ def human_timestamp(iso: str) -> str:
     except Exception:
         return iso[:16].replace("T", " ")
 
-    # Normalize 'now' to match dt's timezone-awareness
-    if dt.tzinfo is None:
-        now = datetime.now()
-    else:
-        now = datetime.now(dt.tzinfo)
+    dt, now = _local_view(dt)
 
     time_str = dt.strftime("%I:%M %p").lstrip("0")
     if now.date() == dt.date():
@@ -131,10 +147,7 @@ def date_group_header(iso: str) -> str:
     except Exception:
         return "Older"
 
-    if dt.tzinfo is None:
-        now = datetime.now()
-    else:
-        now = datetime.now(dt.tzinfo)
+    dt, now = _local_view(dt)
 
     if now.date() == dt.date():
         return "Today"
@@ -174,7 +187,7 @@ def format_captured_at(iso: str | None) -> str:
     dt = parse_iso(iso)
     if dt is None:
         return "Unknown time"
-    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    dt, now = _local_view(dt)
     if now.date() == dt.date():
         return f"Today {dt.strftime('%I:%M %p').lstrip('0')}"
     yesterday = now.date() - timedelta(days=1)

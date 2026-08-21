@@ -18,7 +18,9 @@ import com.prooffoundry.cachevaultmobile.data.BridgeError
 import com.prooffoundry.cachevaultmobile.data.ImageFileHelper
 import com.prooffoundry.cachevaultmobile.data.SensitiveText
 import com.prooffoundry.cachevaultmobile.data.SharedImage
+import com.prooffoundry.cachevaultmobile.ui.screens.SendPhase
 import com.prooffoundry.cachevaultmobile.ui.screens.SimpleShareScreen
+import com.prooffoundry.cachevaultmobile.ui.screens.blocksNewSend
 import com.prooffoundry.cachevaultmobile.ui.screens.copyCleanText
 import com.prooffoundry.cachevaultmobile.ui.screens.shareTextExternal
 import com.prooffoundry.cachevaultmobile.ui.theme.CacheVaultMobileTheme
@@ -47,6 +49,7 @@ class ShareAssistantActivity : ComponentActivity() {
         setContent {
             CacheVaultMobileTheme {
                 var status by remember { mutableStateOf<String?>(null) }
+                var phase by remember { mutableStateOf(SendPhase.IDLE) }
                 val scope = rememberCoroutineScope()
                 val connected = pairing != null
                 val label = pairing?.pcLabel?.ifBlank { pairing.host } ?: "your PC"
@@ -56,43 +59,28 @@ class ShareAssistantActivity : ComponentActivity() {
                     connectionLabel = label,
                     isConnected = connected,
                     statusMessage = status,
+                    phase = phase,
                     onSendToPc = {
-                        val initialPairing = app.pairingStore.load()
-                        if (initialPairing == null) {
-                            status = getString(R.string.send_failed_not_connected)
-                            return@SimpleShareScreen
-                        }
-                        scope.launch {
-                            status = getString(R.string.sending_to_vault)
-                            var p = initialPairing
-                            if (!p.hasUsableHost()) {
-                                val healed = withContext(Dispatchers.IO) { app.bridgeRepository.discoverAndSelfHealEndpoint() }
-                                if (healed != null) p = healed
-                            }
-                            try {
-                                val currentClient = BridgeClient(p)
-                                val resp = withContext(Dispatchers.IO) {
-                                    currentClient.sendToPc(
-                                        content = shared.text,
-                                        itemType = if (shared.url != null) "url" else "text",
-                                        sourceApp = "Android Share",
-                                        sourceDeviceName = Build.MODEL,
-                                        sourceUrl = shared.url,
-                                        safeId = "default",
-                                    )
-                                }
-                                status = sendResultMessage(resp.success, resp.safeName, resp.error)
-                            } catch (e: BridgeError.Unauthorized) {
-                                status = getString(R.string.send_failed_pairing)
-                            } catch (e: BridgeError.Disabled) {
-                                status = getString(R.string.send_failed_mobile_off)
-                            } catch (e: Exception) {
-                                val healed = withContext(Dispatchers.IO) { app.bridgeRepository.discoverAndSelfHealEndpoint() }
-                                if (healed != null) {
-                                    val healedClient = BridgeClient(healed)
-                                    val retried = runCatching {
-                                        withContext(Dispatchers.IO) {
-                                            healedClient.sendToPc(
+                        // Ignore taps while a send is running or already done:
+                        // repeated taps used to create duplicate vault items.
+                        if (!phase.blocksNewSend()) {
+                            val initialPairing = app.pairingStore.load()
+                            if (initialPairing == null) {
+                                status = getString(R.string.send_failed_not_connected)
+                                phase = SendPhase.FAILED
+                            } else {
+                                scope.launch {
+                                    phase = SendPhase.SENDING
+                                    status = getString(R.string.sending_to_vault)
+                                    var p = initialPairing
+                                    if (!p.hasUsableHost()) {
+                                        val healed = withContext(Dispatchers.IO) { app.bridgeRepository.discoverAndSelfHealEndpoint() }
+                                        if (healed != null) p = healed
+                                    }
+                                    try {
+                                        val currentClient = BridgeClient(p)
+                                        val resp = withContext(Dispatchers.IO) {
+                                            currentClient.sendToPc(
                                                 content = shared.text,
                                                 itemType = if (shared.url != null) "url" else "text",
                                                 sourceApp = "Android Share",
@@ -101,13 +89,40 @@ class ShareAssistantActivity : ComponentActivity() {
                                                 safeId = "default",
                                             )
                                         }
-                                    }.getOrNull()
-                                    if (retried != null) {
-                                        status = sendResultMessage(retried.success, retried.safeName, retried.error)
-                                        return@launch
+                                        status = sendResultMessage(resp.success, resp.safeName, resp.error)
+                                        phase = if (resp.success) SendPhase.SENT else SendPhase.FAILED
+                                    } catch (e: BridgeError.Unauthorized) {
+                                        status = getString(R.string.send_failed_pairing)
+                                        phase = SendPhase.FAILED
+                                    } catch (e: BridgeError.Disabled) {
+                                        status = getString(R.string.send_failed_mobile_off)
+                                        phase = SendPhase.FAILED
+                                    } catch (e: Exception) {
+                                        val healed = withContext(Dispatchers.IO) { app.bridgeRepository.discoverAndSelfHealEndpoint() }
+                                        if (healed != null) {
+                                            val healedClient = BridgeClient(healed)
+                                            val retried = runCatching {
+                                                withContext(Dispatchers.IO) {
+                                                    healedClient.sendToPc(
+                                                        content = shared.text,
+                                                        itemType = if (shared.url != null) "url" else "text",
+                                                        sourceApp = "Android Share",
+                                                        sourceDeviceName = Build.MODEL,
+                                                        sourceUrl = shared.url,
+                                                        safeId = "default",
+                                                    )
+                                                }
+                                            }.getOrNull()
+                                            if (retried != null) {
+                                                status = sendResultMessage(retried.success, retried.safeName, retried.error)
+                                                phase = if (retried.success) SendPhase.SENT else SendPhase.FAILED
+                                                return@launch
+                                            }
+                                        }
+                                        status = getString(R.string.send_failed_connection)
+                                        phase = SendPhase.FAILED
                                     }
                                 }
-                                status = getString(R.string.send_failed_connection)
                             }
                         }
                     },
@@ -138,6 +153,9 @@ class ShareAssistantActivity : ComponentActivity() {
                         if (shared == null) "Could not read image — unsupported type or over 10 MB." else null,
                     )
                 }
+                var phase by remember {
+                    mutableStateOf(if (shared == null) SendPhase.FAILED else SendPhase.IDLE)
+                }
                 val scope = rememberCoroutineScope()
                 val connected = pairing != null && shared != null
                 val label = pairing?.pcLabel?.ifBlank { pairing.host } ?: "your PC"
@@ -151,32 +169,42 @@ class ShareAssistantActivity : ComponentActivity() {
                     connectionLabel = label,
                     isConnected = connected,
                     statusMessage = status,
+                    phase = phase,
                     onSendToPc = {
-                        if (pairing == null || shared == null) {
-                            status = getString(R.string.send_failed_not_connected)
-                            return@SimpleShareScreen
-                        }
-                        scope.launch {
-                            status = getString(R.string.sending_image_to_vault)
-                            try {
-                                val resp = withContext(Dispatchers.IO) {
-                                    val b64 = Base64.encodeToString(shared.bytes, Base64.NO_WRAP)
-                                    app.bridgeRepository.client().sendImageToPc(
-                                        contentB64 = b64,
-                                        mimeType = shared.mimeType,
-                                        originalName = shared.name,
-                                        sourceApp = "Android Share",
-                                        sourceDeviceName = Build.MODEL,
-                                        safeId = "default",
-                                    )
+                        // Ignore taps while a send is running or already done.
+                        if (!phase.blocksNewSend()) {
+                            if (pairing == null || shared == null) {
+                                status = getString(R.string.send_failed_not_connected)
+                                phase = SendPhase.FAILED
+                            } else {
+                                scope.launch {
+                                    phase = SendPhase.SENDING
+                                    status = getString(R.string.sending_image_to_vault)
+                                    try {
+                                        val resp = withContext(Dispatchers.IO) {
+                                            val b64 = Base64.encodeToString(shared.bytes, Base64.NO_WRAP)
+                                            app.bridgeRepository.client().sendImageToPc(
+                                                contentB64 = b64,
+                                                mimeType = shared.mimeType,
+                                                originalName = shared.name,
+                                                sourceApp = "Android Share",
+                                                sourceDeviceName = Build.MODEL,
+                                                safeId = "default",
+                                            )
+                                        }
+                                        status = sendResultMessage(resp.success, resp.safeName, resp.error)
+                                        phase = if (resp.success) SendPhase.SENT else SendPhase.FAILED
+                                    } catch (e: BridgeError.Unauthorized) {
+                                        status = getString(R.string.send_failed_pairing)
+                                        phase = SendPhase.FAILED
+                                    } catch (e: BridgeError.Disabled) {
+                                        status = getString(R.string.send_failed_mobile_off)
+                                        phase = SendPhase.FAILED
+                                    } catch (e: Exception) {
+                                        status = getString(R.string.send_failed_connection)
+                                        phase = SendPhase.FAILED
+                                    }
                                 }
-                                status = sendResultMessage(resp.success, resp.safeName, resp.error)
-                            } catch (e: BridgeError.Unauthorized) {
-                                status = getString(R.string.send_failed_pairing)
-                            } catch (e: BridgeError.Disabled) {
-                                status = getString(R.string.send_failed_mobile_off)
-                            } catch (e: Exception) {
-                                status = getString(R.string.send_failed_connection)
                             }
                         }
                     },
