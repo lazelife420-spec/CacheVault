@@ -341,14 +341,23 @@ class MobileBridge:
 
         # Security invariant: if settings say disabled we MUST NOT be running.
         # If we somehow are, force-stop immediately before processing.
+        #
+        # This must be synchronous. handle() always runs on a
+        # ThreadingHTTPServer per-request worker thread (see the Handler
+        # class in _start() below) — never the Tk/GUI thread — so blocking
+        # here cannot freeze the UI. stop() itself already bounds its own
+        # blocking (a shutdown() call plus a 0.25s-timeout thread.join()),
+        # and the exact same stop() call is already made synchronously
+        # elsewhere in this codebase (MobileAccessController.disable(),
+        # invoked directly from GUI callbacks) with no issue. Dispatching
+        # this to an unwaited background thread let handle() return its
+        # 503 "disabled" response before the stop was guaranteed to have
+        # completed, so a caller could observe is_running still True
+        # immediately afterward — the exact race this invariant promises
+        # not to allow.
         if not self.vault.settings.mobile_access_enabled:
             if self.is_running:
-                import threading
-                threading.Thread(
-                    target=self.stop,
-                    name="mobile-bridge-force-stop",
-                    daemon=True,
-                ).start()
+                self.stop()
             rec = api_mod.reject_receipt(
                 path_only, action, "denied", "mobile_access_disabled",
                 remote_ip=remote_ip)
