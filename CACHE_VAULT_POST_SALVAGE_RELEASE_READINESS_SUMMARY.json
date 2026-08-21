@@ -1,0 +1,135 @@
+{
+  "audit_date": "2026-08-20",
+  "lane": "CLAUDE / CURRENT",
+  "canonical_sha": "45aac5f7c7a3d31187d27bbefc8f7efc491ae497",
+  "custody": {
+    "branch": "master",
+    "head_matches_expected": true,
+    "working_tree_clean": true,
+    "rollback_tags_intact": [
+      "pre-salvage-e1-filter-nav",
+      "pre-salvage-e2-dialog-teardown",
+      "pre-salvage-e3-annotation-import",
+      "pre-salvage-e4a-lan-ip"
+    ],
+    "preservation_branch_untouched": "preservation/pre-gate5f-dirty-2026-08-20",
+    "pushed_to_origin": false,
+    "commits_ahead_of_origin": 45,
+    "desktop_version": "0.2.0",
+    "android_version_name": "0.2.1",
+    "android_version_code": 8
+  },
+  "test_evidence": {
+    "full_suite_run_1": {"failed": 1, "passed": 2048, "skipped": 1, "errors": 0, "duration_s": 1511.46, "note": "concurrent pyinstaller build in progress"},
+    "full_suite_run_2": {"failed": 1, "passed": 2047, "skipped": 1, "errors": 1, "duration_s": 1488.99, "note": "zero competing background work"},
+    "failing_test": "tests/test_mobile_bridge.py::test_bridge_handle_stops_if_disabled",
+    "failing_test_isolated_result": "64 passed in test_mobile_bridge.py alone",
+    "failing_test_root_cause": "real_async_race_in_production_code",
+    "errored_test": "tests/test_pr_a_layout.py::test_breakpoint_resolution",
+    "errored_test_isolated_result": "1 passed",
+    "errored_test_root_cause": "transient_environment_tcl_library_file_access_failure_not_reproducible",
+    "selftest_dev_interpreter": "PASS",
+    "selftest_packaged_exe": "PASS",
+    "salvage_gate_focused_suites_all_green": true
+  },
+  "release_blockers": [
+    {
+      "id": "P1-1",
+      "title": "Mobile bridge disable-path force-stop is asynchronous, not synchronous as the code's own security-invariant comment claims",
+      "file": "cache_vault/core/mobile/bridge.py",
+      "function": "MobileBridge.handle",
+      "severity": "P1",
+      "reproducible": true,
+      "evidence": "Identical failure at the same assertion in two independent full 25-minute suite runs; passes reliably in isolation (low thread contention). Root cause confirmed by direct source read: handle() dispatches self.stop() to a daemon thread via threading.Thread(...).start() and returns the 503 response without joining it.",
+      "practical_exposure": "narrow - LAN-only, opt-in, off by default, most routes still require a valid pairing token",
+      "smallest_fix": "make the force-stop synchronous (direct self.stop() call, or a short join) before returning the 503",
+      "isolated_gate_possible": true
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "DOC-1",
+      "title": "README.md, CHANGELOG.md, RELEASE_NOTES.md, docs/CACHE_VAULT_FREE_VS_FOUNDER.md are stale on canonical master",
+      "classification": "documentation_trust_gap_not_code_defect",
+      "root_cause": "Gate 4's original fix (in the pre-Gate-5F canonicalization pass) was applied to the working tree only, never committed, and was later swept into the preservation/pre-gate5f-dirty-2026-08-20 stash during the Gate 5F dirty-tree quarantine. CANONICAL_PROJECT_RECORD.md section 20's 'DONE' classification is stale relative to actual git history.",
+      "verified_stale_claims": [
+        "README.md: '## Honest scope & limitations (v0.1.8)' header, two minor versions and 68+ commits stale",
+        "README.md: 'no Android/iOS client app is published yet' - false, a production-signed APK is a live v0.2.0 GitHub Release asset",
+        "CHANGELOG.md: 'Unreleased' section still says 'No unreleased changes yet' despite 68+ unreleased commits plus 4 salvage gates",
+        "RELEASE_NOTES.md: 'no public artifacts have been built yet, and no tag has been created' - flatly contradicted, v0.2.0 is tagged with 3 public assets",
+        "docs/CACHE_VAULT_FREE_VS_FOUNDER.md: 'Mobile bridge | No | No | Not claimed | Do not ship in this SKU' - contradicted by source, bridge is genuinely ungated"
+      ],
+      "recommended_action": "re-derive (not blindly reapply from stash) and commit fresh corrections against the current post-E1-E4a tree"
+    },
+    {
+      "id": "POLISH-1",
+      "title": "dist/SHA256SUMS.txt stale, still hashes old v0.1.9 zip",
+      "classification": "polish",
+      "note": "cosmetic local dev artifact; the real release pipeline (package_release.ps1) regenerates this correctly, independently verified in an earlier gate"
+    },
+    {
+      "id": "EXTERNAL-1",
+      "title": "GitHub Actions CI/Release automation still disabled at the account level",
+      "classification": "blocked_external_requirement",
+      "note": "not a repo defect, not fixable from this codebase, carried forward unchanged from the original canonicalization pass's Gate 2"
+    }
+  ],
+  "mobile_companion": {
+    "android_apk_live_release_asset": true,
+    "pairing_persists_across_restart": true,
+    "pairing_persistence_mechanism": "EncryptedSharedPreferences AES-256-SIV/GCM",
+    "qr_and_mdns_paths_wired": true,
+    "e4a_unified_qr_and_mdns_selection_logic": true,
+    "android_discovery_has_multi_address_fallback": false,
+    "android_discovery_fallback_note": "known, accepted, documented limitation - not a defect",
+    "e4b_reopening_justified_by_evidence_found_this_pass": false
+  },
+  "data_safety": {
+    "atomic_writes_confirmed": true,
+    "quarantine_on_corrupt_confirmed": true,
+    "two_tier_soft_hard_delete_confirmed": true,
+    "destructive_action_confirmations": "single-step with anti-accidental-focus for selected items, two-step for delete-all",
+    "export_semantics_match_readme_claims": true,
+    "reproducible_data_loss_path_found": false
+  },
+  "packaging": {
+    "fresh_build_on_e4a_tree": "PASS",
+    "packaged_selftest": "PASS",
+    "exe_metadata_verification": "PASS all 12 checks",
+    "version_consistent": true,
+    "windows_code_signing": "not signed, explicitly and publicly disclosed policy",
+    "android_code_signing": "production-signed, apksigner verified (carried forward, not re-verified this pass)"
+  },
+  "product_scores_out_of_10": {
+    "core_utility": 8,
+    "reliability": 8,
+    "data_safety": 9,
+    "ux_coherence": 7,
+    "feature_discoverability": 7,
+    "performance": 7,
+    "mobile_integration": 7,
+    "proof_receipt_differentiation": 8,
+    "distribution_readiness": 6,
+    "overall_product_readiness": 7
+  },
+  "verdict": "READY WITH MINOR FIXES",
+  "recommended_next_gate": [
+    "Gate A: recommit the quarantined README/CHANGELOG/RELEASE_NOTES/Free-Founder documentation truth correction (re-derived fresh against the current tree, not blindly reapplied from the stash)",
+    "Gate B: fix the mobile-bridge disable-path async race (P1-1), regression-first, same pattern as E1-E4a"
+  ],
+  "do_not_touch": [
+    "E1, E2, E3, E4a (closed, canonical, proven, no reproducible regression found this pass)",
+    "E4b (correctly deferred, no new evidence found justifying reopening)",
+    "Command Center scope (frozen at Phase 1, confirmed untouched)",
+    "Vault Lock / Safes encryption framing",
+    "Core capture/classify/sensitive pipeline",
+    "GitHub Actions account-level block (not repo-fixable)",
+    "Signing-custody doc safety classification (carried forward PROVEN SAFE)",
+    "preservation/pre-gate5f-dirty-2026-08-20 branch/stash and all four rollback tags"
+  ],
+  "gui_walkthrough_performed_this_pass": false,
+  "gui_walkthrough_skip_reason": "Cache Vault is a tray app potentially holding real live user clipboard data; live GUI automation risked touching production data mid-audit. Relied on extensive existing real-runtime proof documented in CANONICAL_PROJECT_RECORD.md plus this pass's own live selftest/pytest/packaging verification.",
+  "source_modified_this_pass": false,
+  "e4b_implemented_this_pass": false,
+  "master_pushed_this_pass": false
+}
