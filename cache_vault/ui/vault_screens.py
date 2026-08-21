@@ -7,9 +7,10 @@ from typing import Callable
 import customtkinter as ctk
 
 from .. import brand
-from ..core import clip_metadata, clipboard_out, models
+from ..core import clip_metadata, models
 from ..core.editable_copies import load_bundle_meta
 from . import theme
+from .clipboard_write import write_text_via_app
 from .guide_copy import (
     EMPTY_EXPORTS,
     EMPTY_MOBILE_INBOX,
@@ -917,7 +918,7 @@ class VaultScreenHost(ctk.CTkFrame):
 
                 def _copy_addr(addr=address):
                     try:
-                        clipboard_out.write_via_tk(self._mobile_body, addr)
+                        write_text_via_app(self._mobile_body, addr, operation="copy_pairing_address")
                     except Exception:  # noqa: BLE001
                         pass
 

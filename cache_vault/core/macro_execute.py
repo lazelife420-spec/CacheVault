@@ -120,6 +120,7 @@ class MacroExecutor:
         *,
         on_notice: NoticeFn | None = None,
         confirm_sensitive: Callable[[str], bool] | None = None,
+        clipboard_writer=None,
     ):
         self.settings = settings
         self.store = store
@@ -127,6 +128,10 @@ class MacroExecutor:
         self.events = events
         self.on_notice = on_notice
         self.confirm_sensitive = confirm_sensitive
+        # Slice A custody: when the composition root provides the shared
+        # ClipboardWriter, macro clipboard output/restore is registered so the
+        # monitor never recaptures it. None preserves the legacy direct calls.
+        self._clipboard_writer = clipboard_writer
 
     def _notice(self, msg: str) -> None:
         if self.on_notice:
@@ -240,7 +245,11 @@ class MacroExecutor:
             prior_clipboard = snapshot_clipboard_text()
 
         if output_mode == OUTPUT_CLIPBOARD_PASTE:
-            if not set_clipboard_text(expanded):
+            if self._clipboard_writer is not None:
+                wrote_clipboard = self._clipboard_writer.write_text(expanded, operation="macro_output")
+            else:
+                wrote_clipboard = set_clipboard_text(expanded)
+            if not wrote_clipboard:
                 result = ExecuteResult(
                     ok=False, reason="clipboard_set_failed",
                     macro_id=macro.id, macro_name=macro.name,
@@ -258,7 +267,12 @@ class MacroExecutor:
             clipboard_restored = False
             if target_hwnd and paste.ok and restore:
                 time.sleep(0.12)
-                clipboard_restored = restore_clipboard_text(prior_clipboard)
+                if self._clipboard_writer is not None:
+                    clipboard_restored = self._clipboard_writer.restore_text(
+                        prior_clipboard, operation="macro_restore",
+                    )
+                else:
+                    clipboard_restored = restore_clipboard_text(prior_clipboard)
         elif output_mode == OUTPUT_KEYSTROKE:
             if not getattr(self.settings, "macro_keystroke_enabled", True):
                 result = ExecuteResult(

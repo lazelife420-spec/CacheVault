@@ -10,10 +10,11 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
 from .. import brand
-from ..core import app_receipt, clipboard_out
+from ..core import app_receipt
 from ..feature_gate import founder_feature_label
 from .. import licensing
 from . import theme
+from .clipboard_write import write_text_via_app
 from .dialogs import _bring_to_front
 from .textbox import CacheVaultTextbox
 
@@ -237,7 +238,7 @@ class FounderDialog(ctk.CTkToplevel):
                 parent=self,
             )
             return
-        clipboard_out.write_via_tk(self, url)
+        write_text_via_app(self, url, operation="copy_founder_purchase_link")
         messagebox.showinfo("Purchase Link", "Purchase link copied to clipboard.", parent=self)
 
     def _export_app_receipt(self) -> None:

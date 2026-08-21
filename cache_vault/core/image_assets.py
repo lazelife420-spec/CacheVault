@@ -10,6 +10,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from . import models
+
 
 @dataclass
 class ClipAssetRecord:
@@ -92,6 +94,26 @@ def dib_to_png(dib: bytes) -> tuple[bytes, int, int]:
         rgb.save(out, format="PNG")
         w, h = rgb.size
         return out.getvalue(), w, h
+
+
+def canonical_image_fingerprint(png_bytes: bytes) -> str | None:
+    """Return a stable fingerprint for image custody matching.
+
+    Windows CF_DIB discards alpha and stores opaque RGB pixels. The monitor
+    reads the DIB and converts it back to PNG, so a source PNG and its
+    clipboard round-trip can have different byte encodings. This helper
+    simulates that round-trip and hashes the canonical RGB pixel buffer
+    (mode, width, height, decoded bytes) so the writer and monitor agree.
+    """
+    try:
+        dib = png_to_dib(png_bytes)
+        captured_png, width, height = dib_to_png(dib)
+        with Image.open(BytesIO(captured_png)) as img:
+            rgb = img.convert("RGB")
+            pixels = rgb.tobytes()
+        return models.bytes_hash(f"RGB:{width}:{height}:".encode() + pixels)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def png_dimensions(png: bytes) -> tuple[int, int]:

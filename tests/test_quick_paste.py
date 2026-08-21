@@ -68,7 +68,7 @@ def test_quick_paste_image_action_copies_only_no_auto_paste():
     image_source = inspect.getsource(CacheVaultApp._quick_paste_image_action)
     do_paste_source = inspect.getsource(CacheVaultApp._do_paste)
 
-    assert "write_clipboard_png" in image_source
+    assert "_writer_write_image" in image_source
     assert "deliver_ctrl_v" not in image_source
     assert brand.TOAST_VAULT_IMAGE_COPIED in image_source or "TOAST_VAULT_IMAGE_COPIED" in image_source
     assert "after(80" in do_paste_source

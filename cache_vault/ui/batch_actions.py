@@ -7,7 +7,7 @@ from pathlib import Path
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-from ..core import models, image_assets, clipboard_out, copy_clean, editable_copies
+from ..core import models, image_assets, copy_clean, editable_copies
 from ..core.selection import analyze_selection
 from ..core.formatter import format_batch_links
 from .crashlog import write_crash
@@ -133,7 +133,7 @@ def bulk_copy_format(window, format_name: str) -> None:
         else:
             combined = "\n\n".join(parts)
 
-    window._monitor.note_local_copy(clipboard_out.write_via_tk(window, combined))
+    window._writer_write_text(combined, operation="batch_copy_combined")
 
     if summary.selection_class == "link_only":
         if format_name == "plain":
@@ -219,9 +219,7 @@ def bulk_copy_images(window) -> None:
         window._show_toast("Failed to copy screenshot.")
         return
 
-    from ..core import image_assets
-    if image_assets.write_clipboard_png(png):
-        window._monitor.note_local_copy_image(png)
+    if window._writer_write_image(png, operation="batch_copy_image"):
         if len(image_ids) > 1:
             window._show_toast(f"Copied primary image to clipboard; use Save PNGs or Export ZIP for the remaining {len(image_ids) - 1} images.")
         else:
@@ -384,7 +382,7 @@ def bulk_copy_paths(window) -> None:
         return
 
     combined = "\n".join(paths)
-    window._monitor.note_local_copy(clipboard_out.write_via_tk(window, combined))
+    window._writer_write_text(combined, operation="batch_copy_paths")
     window._show_toast(f"Copied {len(paths)} file paths to clipboard.")
 
     # Record event/receipt
