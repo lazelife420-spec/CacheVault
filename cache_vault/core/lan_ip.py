@@ -7,28 +7,59 @@ import threading
 import time
 
 
-def _private_sort_key(ip: str) -> tuple[int, str]:
-  """Prefer typical home LAN ranges (192.168, then 10., then 172.16-31)."""
+def _private_sort_key(ip: str, preferred: str | None = None) -> tuple:
+  """Prefer typical home LAN ranges (192.168, then 10., then 172.16-31);
+  within a tier, ``preferred`` (the OS's own outbound-routing choice, if it
+  falls in that tier) sorts first, then by actual numeric octet value --
+  not lexicographic string order, which put "192.168.10.1" ahead of
+  "192.168.2.1" because '1' < '2' as characters.
+
+  ``preferred`` only ever breaks a tie *within* a tier; it never overrides
+  tier ranking. An out-of-tier ``preferred`` (e.g. a full-tunnel VPN's
+  virtual-adapter address) therefore cannot become a new guaranteed-wrong
+  pick -- the best in-tier candidate still wins on tier alone. See
+  CACHE_VAULT_E4_LAN_IP_DESIGN_PROPOSAL.md for the full analysis; a same-
+  tier VPN address (e.g. a corporate VPN issuing 10.x while the real LAN is
+  also 10.x) is not distinguishable from a real adapter by this heuristic
+  alone -- an accepted, documented limitation, not silently unhandled.
+  """
   parts = ip.split(".")
   if len(parts) != 4:
-    return (9, ip)
-  first, second = int(parts[0]), int(parts[1])
+    return (9, True, (0, 0, 0, 0))
+  try:
+    octets = (int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]))
+  except ValueError:
+    return (9, True, (0, 0, 0, 0))
+  first, second = octets[0], octets[1]
+  not_preferred = ip != preferred
   if first == 192 and second == 168:
-    return (0, ip)
+    return (0, not_preferred, octets)
   if first == 10:
-    return (1, ip)
+    return (1, not_preferred, octets)
   if first == 172 and 16 <= second <= 31:
-    return (2, ip)
-  return (3, ip)
+    return (2, not_preferred, octets)
+  return (3, not_preferred, octets)
 
 
 def list_lan_ipv4() -> list[str]:
-    """Return unique private-ish IPv4 addresses for this PC."""
+    """Return unique private-ish IPv4 addresses for this PC.
+
+    The address the OS itself would use to reach the internet (the
+    getsockname() result of a UDP "connect" to 8.8.8.8:80 -- no packet is
+    actually sent) is tracked and, when present, sorts first *within its
+    own tier* -- see _private_sort_key. This resolves what was otherwise an
+    arbitrary same-tier ordering between, e.g., a real Wi-Fi adapter and a
+    VMware/VirtualBox host-only adapter (both common on developer machines)
+    without letting an out-of-tier address (e.g. a full-tunnel VPN's
+    virtual adapter) override a genuinely better-tier candidate.
+    """
+    preferred: str | None = None
     found: set[str] = set()
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))
-            found.add(s.getsockname()[0])
+            preferred = s.getsockname()[0]
+            found.add(preferred)
     except OSError:
         pass
     try:
@@ -39,7 +70,7 @@ def list_lan_ipv4() -> list[str]:
             found.add(addr)
     except OSError:
         pass
-    return sorted(found, key=_private_sort_key)
+    return sorted(found, key=lambda ip: _private_sort_key(ip, preferred))
 
 
 PENDING_TEXT = "Detecting…"
