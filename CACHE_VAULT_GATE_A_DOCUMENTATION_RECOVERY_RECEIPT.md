@@ -33,7 +33,7 @@ Also cross-referenced `CANONICAL_PROJECT_RECORD.md` §20 ("Finish Gate 4 receipt
 | `README.md` | VERIFIED CURRENT | Recovered as-is from preservation diff; matches `CANONICAL_PROJECT_RECORD.md` §20's claim table exactly |
 | `docs/CACHE_VAULT_FREE_VS_FOUNDER.md` | VERIFIED CURRENT | Recovered as-is; independently re-confirmed no `is_feature_enabled`/`_require_founder`/`is_founder_unlocked` gate exists anywhere in `cache_vault/core/mobile/` or `cache_vault/core/vault.py` |
 | `CHANGELOG.md` | VERIFIED CURRENT, RE-DERIVED for updated scope | Preservation diff only had `## Unreleased` empty→populated as a stub in the merge-base; the actual curated text came from `CANONICAL_PROJECT_RECORD.md`'s recorded description of what Gate 4 wrote. Re-derived: commit count updated 68→85, date range extended through 2026-08-21, and the four E1–E4a salvage fixes (filter-nav crash, dialog-teardown race, annotation/import correctness, LAN-IP tie-break) added — none of these existed when the original 68-commit draft was written |
-| `RELEASE_NOTES.md` | NOT SUPPORTED (recovery) → RE-DERIVED from scratch | Never touched in the preservation branch at all. Only the flatly-contradicted top blockquote ("no public artifacts have been built yet, and no tag has been created") was corrected, independently re-verified via `gh release view v0.2.0` (live release, 3 assets: APK, Windows zip, `SHA256SUMS.txt`) |
+| `RELEASE_NOTES.md` | NOT SUPPORTED (recovery) → RE-DERIVED from scratch, two passes | Never touched in the preservation branch at all. Pass 1: corrected the flatly-contradicted top blockquote ("no public artifacts have been built yet, and no tag has been created"), independently re-verified via `gh release view v0.2.0` (live release, 3 assets: APK, Windows zip, `SHA256SUMS.txt`). Pass 2 (post-review): the trailing Trust/Verification/Artifacts block still carried v0.1.6-era numbers with no version label, reading as current state — relabeled `Verification`/`Artifacts` as `(v0.1.6 release, historical)` with a note pointing to v0.2.0's own evidence; no new numbers invented, no new verification run |
 | `CANONICAL_PROJECT_RECORD.md` | Corrected false DONE state | Annotated every place the record claimed Gate 4's doc fixes were `FIXED`/`DONE` when they were never actually committed (§7 items 3–4, §9 item 3–4, §12, §20 header, §1 cross-reference). Historical narrative preserved, not rewritten — correction notes added, dated and pointing at this receipt |
 
 ## Stale claims removed
@@ -58,41 +58,57 @@ Also cross-referenced `CANONICAL_PROJECT_RECORD.md` §20 ("Finish Gate 4 receipt
 
 ## Unsupported claims rejected / not attempted
 
-- Did **not** touch the trailing Trust/Verification/Artifacts section at the bottom of `RELEASE_NOTES.md`, which still cites v0.1.6-era numbers (803 pytest, `CacheVault-v0.1.6-windows.zip`). This is real staleness but lower-confidence to fix within this bounded pass (would require re-verifying current pytest count, GH Actions matrix, and artifact naming for v0.2.0) — flagged in `CANONICAL_PROJECT_RECORD.md` as still open, not silently dropped.
 - Did **not** re-measure the CHANGELOG's "593 ms → 220 ms" render-latency claim; kept the number (real, corroborated by row-pooling/viewport-batching work existing in the record and in branch history) but the CHANGELOG entry now explicitly discloses it is "not independently re-measured outside development," matching the audit's own hedge on this exact figure rather than presenting it as fully audited fact.
 - Did **not** invent any future roadmap claims, did not touch Command Center framing, did not alter core clipboard/storage behavior claims (left as previously verified).
+
+## Final correction (post-review): RELEASE_NOTES.md historical-verification block
+
+A reviewer flagged that the trailing Trust/Verification/Artifacts block at the bottom of `RELEASE_NOTES.md` — written for the v0.1.6 release, never updated as v0.1.7 through v0.2.0 sections were prepended above it — still read as *current* canonical verification state (`803 pytest`, `CacheVault-v0.1.6-windows.zip`) despite the file's newest section being v0.2.0. Correct call: leaving it unlabeled after a documentation-truth gate would have been a contradiction, not a leftover.
+
+**Minimal fix applied** (no new numbers invented, no new verification campaign run):
+- `## Verification` → `## Verification (v0.1.6 release, historical)`
+- `## Artifacts` → `## Artifacts (v0.1.6 release, historical)`
+- Added a short qualifying note ahead of both, pointing to v0.2.0's own "Device Verification" section and its live GitHub Release for current evidence.
+- The `## Trust` bullets immediately above (local-first, no telemetry, offline license check, unsigned Windows exe) were left untouched — those are general, still-true product claims, not v0.1.6-specific figures.
+
+Committed as `4111797e3da555ba0e131a85cfa9167465b180b` on `docs/gate-a-documentation-recovery`.
 
 ## Candidate commit
 
 - Parent: `921c5992f92869c35b41aa0fccfb94d1806e9511` (post-housekeeping baseline)
-- Candidate: `ecaa4d116d10f188f6cbdf294069a3cb75717c13` on branch `docs/gate-a-documentation-recovery`
-- 5 files changed, 137 insertions(+), 19 deletions(-)
+- **Final candidate: `41117797e3da555ba0e131a85cfa9167465b180b`** on branch `docs/gate-a-documentation-recovery`
+- Three commits on top of the baseline:
+  1. `ecaa4d116d10f188f6cbdf294069a3cb75717c13` — the documentation corrections (5 files, 137 insertions, 19 deletions)
+  2. `0863df1a8a14fc4dfbf896193b4f404160aafad4` — this receipt (1 file, 98 insertions)
+  3. `41117797e3da555ba0e131a85cfa9167465b180b` — the RELEASE_NOTES.md historical-verification-block correction (1 file, 11 insertions, 3 deletions)
+- Parent chain confirmed to descend purely from the housekeeping baseline: `git merge-base --is-ancestor 921c599 41117797...` → **YES**
 
 ## Validation results
 
 | Check | Result |
 |---|---|
-| `git status --porcelain` after commit | Clean |
-| `git diff --check` (whitespace) | Clean |
+| `git status --porcelain` after final commit | Clean |
+| `git diff --check` (whitespace) | Clean, on both the original 5-file diff and the final RELEASE_NOTES.md correction |
 | Grep for known stale strings (`v0.1.8`, `No unreleased changes yet`, the old RELEASE_NOTES blockquote, the old Free/Founder mobile-bridge row) | All gone from live content (one hit remains, inside the Free/Founder doc's own "Correction" section, intentionally quoting the old text for context) |
-| `python scripts/scan_claims.py` | 10 findings — **all pre-existing, none in the 4 files this gate edited** except `RELEASE_NOTES.md:4` ("No cloud" intro line, pre-existing, untouched by this gate's edit at lines 7–10) |
-| `python scripts/scan_secrets.py` | 13 findings — **all pre-existing**, none inside `README.md`, `CHANGELOG.md`, or `docs/CACHE_VAULT_FREE_VS_FOUNDER.md`; `CANONICAL_PROJECT_RECORD.md` hits are all at pre-existing lines this gate did not add |
-| Production source (`cache_vault/`, `android/`) diff | Empty — confirmed untouched |
+| `python scripts/scan_claims.py` | 10 findings — **all pre-existing**; `RELEASE_NOTES.md`'s only hit is line 4 ("No cloud" intro line), pre-existing and untouched by any of this gate's edits |
+| `python scripts/scan_secrets.py` | 13 findings — **all pre-existing**, zero inside `README.md`, `CHANGELOG.md`, `docs/CACHE_VAULT_FREE_VS_FOUNDER.md`, or `RELEASE_NOTES.md`; `CANONICAL_PROJECT_RECORD.md` hits are all at pre-existing lines this gate did not add |
+| Production source (`cache_vault/`, `android/`) diff | Empty — confirmed untouched after every commit in this gate, including the final correction |
 | `preservation/pre-gate5f-dirty-2026-08-20` | Unchanged: `4f5b3488a965342fafb9e7be6b0fe8d754d27e6f` |
 | E1–E4a rollback tags | All 4 present and unchanged |
+| Fast-forward eligibility | `git merge-base --is-ancestor master docs/gate-a-documentation-recovery` → **YES**, pure fast-forward from `921c599` to `41117797...` |
 
 ## Rollback state
 
 - `pre-gate-a-documentation-recovery-2026-08-21` tags the pre-Gate-A baseline (`921c599`).
 - Housekeeping commit (`921c599`) is a separate, earlier commit directly on `master` — if it needs to be rolled back independently, `git reset --hard 45aac5f7c7a3d31187d27bbefc8f7efc491ae497` returns to the original pre-audit-file canonical.
-- Gate A's own commit (`ecaa4d1`) lives only on `docs/gate-a-documentation-recovery`; `master` has not been advanced past `921c599`.
+- All three Gate A commits (`ecaa4d1`, `0863df1`, `41117797...`) live only on `docs/gate-a-documentation-recovery`; `master` has not been advanced past `921c599`.
 
 ## Production source confirmation
 
-**Confirmed: zero production Python or Android source files were touched in this gate.** `git diff --stat` against `cache_vault/` and `android/` is empty for both the housekeeping commit and the Gate A commit.
+**Confirmed: zero production Python or Android source files were touched anywhere in this gate**, including the final RELEASE_NOTES.md correction. `git diff --stat` against `cache_vault/` and `android/` is empty for the housekeeping commit and all three Gate A commits.
 
 ## Fast-forward eligibility
 
-`git merge-base --is-ancestor master docs/gate-a-documentation-recovery` → **YES**. `docs/gate-a-documentation-recovery` is a single commit directly ahead of current `master` (`921c599`) — canonicalization can be a pure fast-forward merge, no rebase needed.
+`git merge-base --is-ancestor master docs/gate-a-documentation-recovery` → **YES**. `docs/gate-a-documentation-recovery` is three commits directly ahead of current `master` (`921c599`) — canonicalization can be a pure fast-forward merge to `41117797e3da555ba0e131a85cfa9167465b180b`, no rebase needed.
 
 **Not pushed. Not merged. Not fast-forwarded to `master`.** Awaiting separate authorization.
