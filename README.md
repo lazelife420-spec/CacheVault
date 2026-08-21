@@ -227,20 +227,22 @@ auto-paste behaviour are configurable in Settings; the hotkey re-registers
 live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
 dedicated message-loop thread (requires pywin32).
 
-## Honest scope & limitations (v0.1.8)
+## Honest scope & limitations (current, v0.2.0)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
 global quick-paste hotkey (`Ctrl+Shift+V`) with auto-paste, local event log,
 screenshot capture, **desktop photo viewer** (zoom/pan/navigate image clips),
 multi-select batch copy/export, Proof Manifest exports,
-Snippet Macros, Safes, Collections, mobile LAN bridge (developer mode),
+Snippet Macros, Safes, Collections, an opt-in LAN-only mobile bridge with a
+published, production-signed Android companion (**CacheVault Mobile**),
 browser extension companion (developer mode).
 
 **Not implemented (by design, for this release):** cloud sync, accounts,
 published browser extension (extension exists in developer mode — not yet in
-the Chrome Web Store), published mobile app (LAN bridge exists but no
-Android/iOS client app is published yet), OCR, AI classification, remote
+the Chrome Web Store), an app-store mobile listing (the Android companion —
+CacheVault Mobile — is published as a signed APK attached to GitHub Releases,
+not on the Play Store; no iOS client exists), OCR, AI classification, remote
 backup, content encryption.
 
 ### Browser Extension (Developer Mode)
@@ -257,14 +259,16 @@ token you generate in Cache Vault Desktop Settings → Mobile Access.
 
 **This is developer/internal only — do not distribute as a packaged extension yet.**
 
-### Mobile LAN Bridge (Developer Mode)
+### Mobile LAN Bridge
 
 Cache Vault Desktop can receive clips from mobile devices over your local network.
 Settings → Mobile Access → Enable → pair a device with a one-time token. The bridge
 accepts `POST /mobile/v1/inbox/send` on `127.0.0.1:8742` (loopback only when no
 routable LAN is configured). Every transfer is logged as a stamped receipt.
 
-No mobile app is published yet. The bridge is documented for developers building a client.
+**CacheVault Mobile**, the Android companion, is published as a production-signed
+APK attached to [GitHub Releases](https://github.com/lazelife420-spec/CacheVault/releases) —
+it is not on the Play Store, and no iOS client exists.
 
 **Tradeoffs to be honest about:**
 

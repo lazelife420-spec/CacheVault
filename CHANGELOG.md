@@ -2,7 +2,68 @@
 
 ## Unreleased
 
-_No unreleased changes yet._
+85 commits have landed on `master` since `v0.2.0` (2026-07-16 through
+2026-08-21) and have not been tagged or released. This section describes the
+current source tree, not a shipped or device-verified build — unlike the
+dated release sections below, nothing here has been through a physical-device
+or packaged-build verification pass yet.
+
+### Added
+- **Vault Cleanup Suggestions** — a new read-only-first duplicate/cleanup
+  scan engine (Stage A), decision persistence (Stage B), mutation + receipt
+  (Stage C), a full desktop UI (Stage D), and a performance/correctness pass
+  (Stage E), followed by real GUI-QA-caught fixes (ignore-scope handling,
+  mutation protections, keeper defense-in-depth extended to repeated-text
+  groups).
+- **Context-aware context menus (v1)** — safe empty-collection handling and
+  guarded permanent deletion, later hardened into reliably-behaving native Tk
+  context menus.
+- **Mobile QR pairing** — a QR-code pairing onboarding flow with a documented
+  security contract, plus CameraX + ML Kit QR camera scanning on the Android
+  companion and the matching `qrcode` dependency on desktop.
+- **All Clips surface** — a page-level Refresh control, a more discoverable
+  search control, and safe, recoverable Clear All Clips.
+- **Deleted-clip recovery** — a freelist decoder and import API for restoring
+  cleared clips, with focused tests.
+- Android: full-screen image viewer with gallery swipe.
+
+### Fixed
+- **Sidebar Options menu crash** — filter/navigation sidebar menu no longer
+  crashes (salvage gate E1).
+- **Dialog teardown race** — dialogs no longer reactivate during teardown
+  (salvage gate E2).
+- **Annotation / import correctness** — resolved incorrect behavior in
+  annotation and import handling (salvage gate E3).
+- **LAN-IP selection ordering** — unified selection ordering and fixed a
+  numeric tie-break in LAN-IP detection (salvage gate E4a).
+- Quick Paste: repaired copy-focus contract and a bounded second-launch exit.
+- Mobile: repaired send-to-pc endpoint persistence and self-healing
+  discovery; fixed a cold-launch reconnect issue on Android.
+- A cluster of Tk UI lifecycle/teardown hardening fixes surfaced by an
+  expanding test suite: toast, textbox-scrollbar, and root-titlebar-icon
+  callbacks now cancel cleanly on teardown; font finalizers stay off
+  background threads; refresh-completion signals and active-render
+  coalescing no longer get lost or regressed under the newer
+  viewport-batching optimization; clip detail panel stays contained at
+  narrow widths; group-header scanning no longer skips the first clip.
+- Packaged-build scrolling and menu lifecycle stabilized; CustomTkinter
+  pinned with a wheel-API compatibility guard.
+- Test-suite isolation hardening: SQLite sandboxes now release cleanly on
+  teardown, macro-dialog and macro-execution fixtures no longer leak state
+  across tests, and standalone-profile/selftest writes are isolated from the
+  real user profile.
+
+### Changed
+- Continued large-vault rendering performance work beyond what shipped in
+  v0.2.0: row-pooling of ClipList widget trees across navigations, generation
+  -cancellation with 8-item batch viewporting, shared font-object reuse in
+  the render hot path, and selective repaint of only rows whose selected
+  state changed — measured first-content latency drop from ~593 ms to
+  ~220 ms on a 1,609-clip vault (per this changelog's own account; not
+  independently re-measured outside development).
+- Internal refactor: sidebar command execution and vault-mutating bulk
+  actions extracted out of `shell.py`'s original monolithic structure (no
+  intended user-visible behavior change).
 
 ## Cache Vault v0.2.0
 

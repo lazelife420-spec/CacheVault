@@ -5,9 +5,10 @@ with a local-network Android companion. Same-Wi-Fi access only. No cloud
 account. No subscription.
 
 > `/proof` is unchanged unless separately approved. Nothing in this document
-> is a "stable" claim beyond what is explicitly stated below. This is a
-> release-candidate draft: no public artifacts have been built yet, and no
-> tag has been created.
+> is a "stable" claim beyond what is explicitly stated below. `v0.2.0` is
+> tagged and published as a live GitHub Release with three public artifacts
+> (`CacheVault-Mobile-v0.2.0-android.apk`, `CacheVault-v0.2.0-windows.zip`,
+> `SHA256SUMS.txt`).
 
 ## What is new in v0.2.0
 
