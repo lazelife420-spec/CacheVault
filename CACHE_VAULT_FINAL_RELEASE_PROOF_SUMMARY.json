@@ -52,8 +52,8 @@
     "public_key_size_bits": 4096,
     "first_build_attempt": {
       "result": "unsigned_output",
-      "cause": "likely stale Gradle daemon not picking up fresh environment variables",
-      "diagnosed_not_assumed": true,
+      "cause": "evidence-supported diagnosis (not directly proven): stale Gradle daemon environment reuse; the daemon's actual captured environment was never inspected",
+      "diagnosed_not_assumed": false,
       "output_metadata_outputFile": "app-release-unsigned.apk",
       "apksigner_result": "DOES NOT VERIFY - Missing META-INF/MANIFEST.MF"
     },

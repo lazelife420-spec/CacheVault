@@ -58,13 +58,25 @@ Publication status: READY FOR PUBLICATION AUTHORIZATION, WITH ONE BOUNDED
 
 Both `v0.2.1` release artifacts now exist, are hashed, and are independently verified from canonical source `78f8282...`. Windows was built fresh (not reused from R3) and passed every automated/packaged check, including the now-corrected, genuinely-discriminating licensing smoke test. Android went through a real operator-assisted secret boundary: the human ran the signing-invocation build in their own process-scoped session, and this audit independently verified the *result* — certificate, hashes, signing scheme, package identity, and content provenance — without ever seeing the password.
 
-The Android build's first attempt silently produced an unsigned artifact due to Gradle daemon reuse; this was diagnosed from evidence (not assumed), reported precisely, and resolved on retry with `--stop`/`--no-daemon`/`clean`. The second attempt verified genuinely signed with the exact required production certificate.
+The Android build's first attempt silently produced an unsigned artifact. This was consistent with Gradle daemon environment reuse (an idle daemon predated the build) — an evidence-supported diagnosis, not a directly proven cause, since the daemon's actual captured environment was never inspected. Reported precisely as the leading hypothesis; stopping the daemon and rebuilding with `--no-daemon` in the operator's signing environment produced the correctly signed release artifact.
 
 Real interoperability was proven against the actual physical test device — not simulated, not against the historical stale APK — including a live exercise of the exact Gate B disable/force-stop invariant (bounded at 0.616s) under real network conditions.
 
 One integrity correction was made during this gate: a prior evidence receipt's claim that the historical S23 APK was missing a current feature was discovered to be a tooling artifact (unreliable `strings`-based dex parsing) and was corrected in place, with the original wrong claim preserved and retracted rather than silently deleted.
 
 The only genuine gap is the interactive Windows GUI walkthrough (first-run, capture, search, Quick Paste, Recently Removed, restart-persistence), which this environment's tooling still cannot drive against an unregistered packaged executable. Everything else required for a truthful `v0.2.1` publication is proven.
+
+## Deliverable hashes
+
+Computed via `certutil -hashfile ... SHA256`, after the daemon-wording correction below was applied (so these hashes reflect the final committed content):
+
+```
+cd87da3138343251f22ee66c100fd2726125af002580f4f43ca1fef3a2d96615  CACHE_VAULT_FINAL_RELEASE_PROOF_AUDIT.md
+811560f31cd94f5e6ad4a0f152f1531418ba5a15da90af8a9851f81dad45d919  CACHE_VAULT_FINAL_RELEASE_PROOF_SUMMARY.json
+7caa3abfab0dd0e7888d698092e64d09d52e46a1df4fdeb7bf9e1b2b62191ba6  dist/release/v0.2.1/SHA256SUMS.txt
+```
+
+This receipt's own SHA-256 cannot be embedded in itself (self-referential); it is computed and reported in the chat response accompanying the commit that includes this file, immediately after that commit lands.
 
 ## Not performed
 
