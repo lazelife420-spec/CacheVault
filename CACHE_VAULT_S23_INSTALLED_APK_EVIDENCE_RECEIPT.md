@@ -50,9 +50,23 @@ Compared against `.claude/worktrees/great-swartz-cf2a02/dist/release/v0.2.1/Cach
 | Certificate SHA-256 | `c2eb5c42a684...` | `c2eb5c42a684...` — **same key** |
 | Result | **Different builds, same legitimate signing key.** Two separate `v0.2.1` builds exist, both genuinely signed, neither confirmed to trace to current canonical source. |
 
-## Missing-current-feature evidence (why this is NOT the release candidate)
+## Feature-provenance evidence — CORRECTED 2026-08-21 (Final Release Proof gate)
 
-Extracted `classes.dex` / `classes2.dex` / `classes3.dex` from the preserved APK and searched (case-insensitive) for `ImageGallery`, `ImageViewerScreen`, `preloadGalleryNeighbors` — the classes backing the documented `v0.2.1` feature "Android: full-screen image viewer with gallery swipe" (`CHANGELOG.md`). **Zero matches in any dex.** Confirmed the classes genuinely exist in current canonical source (`android/app/src/main/java/.../ui/ImageGallery.kt`, `.../ui/screens/ImageViewerScreen.kt`). **Conclusion: this installed build predates that feature and is stale relative to current canonical `677292a...`.**
+**The original "missing-current-feature" finding below was wrong and is retracted.** It used `strings -a` against the raw dex bytes, which does not reliably extract dex string-pool entries (MUTF-8, length-prefixed, not always null-terminated the way `strings`' heuristic expects) — a tooling limitation, discovered when the same method produced an apparent false negative on a *freshly built, definitely-current* APK during the Final Release Proof gate. Re-run with `dexdump -l xml` (which properly parses the dex class/string tables) against this same preserved file:
+
+```
+<class name="ImageGallery" type="com.prooffoundry.cachevaultmobile.ui.ImageGallery">
+<class name="ImageViewerScreenKt">
+<class name="ImageViewerScreenKt$detectZoomAndPageAwarePan$2">
+... (full ImageViewerScreen composable/lambda class tree present)
+```
+**The `ImageGallery`/`ImageViewerScreen` classes are genuinely present.** Class counts across `classes.dex`/`classes2.dex`/`classes3.dex` (17500/9534/7218) are identical to a fresh build produced directly from canonical `78f828281de20ed5787f953fee9f5093865abffc` during the same gate — strong evidence this installed build's actual *content* is materially current, not stale as originally claimed.
+
+**Original (incorrect) finding, preserved for the record rather than deleted:**
+
+> Extracted `classes.dex` / `classes2.dex` / `classes3.dex` from the preserved APK and searched (case-insensitive) for `ImageGallery`, `ImageViewerScreen`, `preloadGalleryNeighbors` — the classes backing the documented `v0.2.1` feature "Android: full-screen image viewer with gallery swipe" (`CHANGELOG.md`). **Zero matches in any dex.** Confirmed the classes genuinely exist in current canonical source (`android/app/src/main/java/.../ui/ImageGallery.kt`, `.../ui/screens/ImageViewerScreen.kt`). **Conclusion: this installed build predates that feature and is stale relative to current canonical `677292a...`.**
+
+**Corrected basis for non-authoritative classification:** not missing functionality — this build's exact source commit was never independently verified (no build log, no recorded source SHA at build time), so it cannot be *proven* to trace to any specific canonical commit even though its content now appears materially equivalent to current source. Absence of proof of provenance, not absence of features, is why it remains excluded from release-candidate status. See `CACHE_VAULT_FINAL_RELEASE_PROOF_AUDIT.md` for the properly-provenanced replacement build.
 
 ## Disposition
 

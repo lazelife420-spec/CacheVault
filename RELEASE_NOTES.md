@@ -1,15 +1,30 @@
-# Cache Vault v0.2.1 (pending — not yet built, packaged, or published)
+# Cache Vault v0.2.1 (READY FOR PUBLICATION — NOT YET PUBLISHED)
 
-> **Status: release identity declared, artifacts not yet produced.** This
-> section describes the desktop version that canonical `master` will build
-> and ship as, decided in Release Closure Gate R2 (2026-08-21) to avoid
-> reissuing materially different content under the already-shipped `v0.2.0`
-> tag. No Windows or Android artifact has been built for `v0.2.1` yet, no
-> GitHub Release exists for it, and nothing below should be read as a
-> verified or device-tested claim — see `CHANGELOG.md`'s `v0.2.1` entry for
-> the itemized, evidence-grounded list this section summarizes. This section
-> will be replaced with real build/verification evidence once Release
-> Closure resumes packaging.
+> **Status as of the Final Release Proof gate (2026-08-21):** both the
+> Windows and Android artifacts have been built from canonical source,
+> independently hashed, and verified — Android is genuinely production-signed
+> (certificate confirmed identical to the published `v0.2.0` key) and its
+> pairing/interoperability was proven end-to-end against a real physical
+> Galaxy S23 over real Wi-Fi. **No GitHub Release exists yet and nothing has
+> been published** — this section documents real evidence, not a shipped
+> claim. One item remains before publication: a full interactive Windows
+> first-run walkthrough (capture, search, Quick Paste, Recently Removed,
+> restart-persistence) — the automated/packaged-level checks below passed,
+> but a live interactive GUI pass has not been completed in this environment.
+> See `CACHE_VAULT_V0.2.1_FINAL_RELEASE_PROOF_RECEIPT.md` for full detail.
+
+**Windows artifact:**
+- `CacheVault-v0.2.1-windows.zip` — SHA-256: `fdfbe69d421fa4c2a39f0cf2aa8ed914113430794b640c299fd3acddec717d37`
+- Embedded version: `ProductVersion`/`FileVersion` `0.2.1`. Unsigned (disclosed policy) — verify the checksum above.
+- Validated: `app.py --selftest`, packaged-exe smoke (4/4, genuinely discriminating license checks), Gate B focused invariant, claims scanner (zero new findings), launches without crashing.
+
+**Android artifact:**
+- `CacheVault-Mobile-v0.2.1-android.apk` — SHA-256: `c085758f6ec6fe5801704c7d595f8926ed85e23ec8c6d10109ac36002f35e32b`
+- Package `com.prooffoundry.cachevaultmobile`, `versionName 0.2.1`, `versionCode 8`
+- Signing verified via `apksigner verify --print-certs`: v2 scheme, RSA 4096-bit, certificate SHA-256 `c2eb5c42a684326ceba1289e65e9690ed71daf770de64e2b83a42bce04026a2c` — **identical to the published `v0.2.0` production signing key**
+- Content provenance confirmed via `dexdump`: contains the current-source `ImageGallery`/`ImageViewerScreen` classes (the documented `v0.2.1` gallery-viewer feature)
+- Installed on the real test device (Galaxy S23, `R3CW40FY82W`) as an in-place upgrade — Android's own signature-continuity check accepted it, itself confirming certificate continuity
+- Real end-to-end interop proven: LAN mDNS discovery, manual pairing exchange, authenticated read operations (asset fetches), and the Gate B disable/re-enable lifecycle (bridge stopped in 0.616s, bounded) all verified against live hardware over real Wi-Fi
 
 ## What is new in v0.2.1
 

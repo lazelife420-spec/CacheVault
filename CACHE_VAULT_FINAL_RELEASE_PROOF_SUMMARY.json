@@ -1,0 +1,164 @@
+{
+  "gate": "Final Release Proof",
+  "date": "2026-08-21",
+  "starting_canonical_sha": "78f828281de20ed5787f953fee9f5093865abffc",
+  "release_version": "0.2.1",
+  "branch": "release/final-proof-v0.2.1",
+  "rollback_tag": "pre-final-release-proof-2026-08-21",
+  "disposition": "RELEASE_PROOF_PASS_WITH_BOUNDED_P1",
+  "custody": {
+    "all_preconditions_passed": true,
+    "rollback_tags_intact_count": 11,
+    "preservation_branch_unchanged": true,
+    "r1_r4_and_evidence_branches_untouched": true,
+    "keystore_sha256_matched_expected": true,
+    "keystore_sha256": "05e855f2095f030a74cee8448805349c84f1cec28e1fe9de81eb0803898c0afd",
+    "s23_connected_at_start": true,
+    "secret_values_ever_seen_by_session": false
+  },
+  "windows_artifact": {
+    "zip_filename": "CacheVault-v0.2.1-windows.zip",
+    "zip_size_bytes": 43247801,
+    "zip_sha256": "fdfbe69d421fa4c2a39f0cf2aa8ed914113430794b640c299fd3acddec717d37",
+    "exe_size_bytes": 43574011,
+    "exe_sha256": "415523d279c1788189f8a3c0d5d351c8295ddf48126bd2e8a980608ccb5bad1b",
+    "product_version": "0.2.1",
+    "file_version": "0.2.1",
+    "architecture": "x64",
+    "signed": false,
+    "signing_policy_disclosed": true,
+    "reused_stale_r3_artifact": false,
+    "packaged_smoke_result": "4/4 PASS, genuinely discriminating",
+    "selftest_pass": true,
+    "gate_b_invariant_pass": true,
+    "claims_scanner_new_findings": 0,
+    "launch_no_crash_confirmed": true
+  },
+  "android_artifact": {
+    "apk_filename": "CacheVault-Mobile-v0.2.1-android.apk",
+    "apk_size_bytes": 36694570,
+    "apk_sha256": "c085758f6ec6fe5801704c7d595f8926ed85e23ec8c6d10109ac36002f35e32b",
+    "package_id": "com.prooffoundry.cachevaultmobile",
+    "version_name": "0.2.1",
+    "version_code": 8,
+    "apksigner_verifies": true,
+    "signing_scheme_v1": false,
+    "signing_scheme_v2": true,
+    "signing_scheme_v3": false,
+    "certificate_sha256": "c2eb5c42a684326ceba1289e65e9690ed71daf770de64e2b83a42bce04026a2c",
+    "certificate_matches_required_fingerprint": true,
+    "certificate_matches_published_v0_2_0": true,
+    "public_key_algorithm": "RSA",
+    "public_key_size_bits": 4096,
+    "first_build_attempt": {
+      "result": "unsigned_output",
+      "cause": "likely stale Gradle daemon not picking up fresh environment variables",
+      "diagnosed_not_assumed": true,
+      "output_metadata_outputFile": "app-release-unsigned.apk",
+      "apksigner_result": "DOES NOT VERIFY - Missing META-INF/MANIFEST.MF"
+    },
+    "second_build_attempt": {
+      "result": "signed_output_verified",
+      "fix_applied": "gradlew --stop, then clean assembleRelease --no-daemon",
+      "output_metadata_outputFile": "app-release.apk"
+    },
+    "distinct_from_historical_s23_apk": true,
+    "distinct_from_abandoned_worktree_apk": true,
+    "content_provenance_confirmed": true,
+    "content_provenance_method": "dexdump -l xml (proper dex parser, not strings)",
+    "image_gallery_viewer_classes_present": true,
+    "abandoned_apk_substituted": false
+  },
+  "s23_evidence_receipt_correction": {
+    "correction_applied": true,
+    "original_claim": "historical S23 APK missing ImageGallery/ImageViewerScreen classes (stale)",
+    "original_claim_status": "WRONG - retracted, not deleted, preserved as quote in the receipt",
+    "root_cause_of_error": "strings -a does not reliably parse dex MUTF-8 length-prefixed string pools",
+    "corrected_finding": "historical APK contains identical class set and class counts to the fresh canonical build",
+    "corrected_non_authoritative_basis": "unverified exact source-commit provenance, not missing functionality",
+    "file_corrected": "CACHE_VAULT_S23_INSTALLED_APK_EVIDENCE_RECEIPT.md"
+  },
+  "android_install": {
+    "device_serial": "R3CW40FY82W",
+    "install_command": "adb install -r",
+    "install_result": "Success",
+    "install_type": "in_place_upgrade",
+    "upgrade_success_confirms_cert_continuity": true,
+    "post_install_version_name": "0.2.1",
+    "post_install_version_code": 8,
+    "post_install_last_update_time": "2026-08-21 18:04:04",
+    "launch_confirmed_foreground": true,
+    "crash_detected": false
+  },
+  "interoperability": {
+    "tested_against_real_production_profile": true,
+    "mdns_discovery_confirmed": true,
+    "discovered_address": "192.168.0.16:8742",
+    "pairing_method": "manual setup with real device auth token from bridge.pair_device()",
+    "pairing_result": "Connected",
+    "protocol_negotiation": "succeeded, protocol=1, app_version=0.2.1",
+    "operation_tested": "authenticated GET /mobile/v1/clips/*/asset, all result=ok",
+    "operation_read_only": true,
+    "vault_content_mutated": false,
+    "disable_test": {
+      "performed": true,
+      "duration_seconds": 0.616,
+      "bounded": true,
+      "matches_gate_b_fix": true
+    },
+    "reenable_test": {
+      "performed": true,
+      "succeeded": true,
+      "phone_reconnected_cleanly": true
+    },
+    "stale_apk_involved": false,
+    "side_effect_new_paired_device": "Galaxy S23 (Final Release Proof), device_id 3e88e469a65b41c7bee5559b187d8022, left in place as accurate real state",
+    "vault_clip_data_touched": false
+  },
+  "stranger_walkthrough": {
+    "status": "PARTIAL",
+    "sha256_verify": "PASS",
+    "launch_no_crash": "PASS",
+    "packaged_smoke": "PASS",
+    "interactive_gui_steps": "NOT_TESTED",
+    "reason": "packaged exe not a Start-Menu-registered application; session GUI-automation tooling cannot target it; no human walkthrough performed this session",
+    "marked_required_before_publication": true,
+    "falsely_marked_complete": false
+  },
+  "public_surface": {
+    "reconfirmed_read_only": true,
+    "new_evidence": false,
+    "authoritative_recommendation_unchanged": "landing.html / Cloudflare Pages",
+    "docs_index_html_classification": "LEGACY_ORPHANED",
+    "website_published": false
+  },
+  "release_documentation": {
+    "release_notes_updated": true,
+    "release_notes_new_status": "READY FOR PUBLICATION - NOT YET PUBLISHED",
+    "shipped_claim_made": false
+  },
+  "claim_scan": {
+    "new_findings": 0,
+    "baseline_findings": 12
+  },
+  "product_p0_count": 0,
+  "release_p0_count": 0,
+  "release_p0_note": "The unsigned-build P0 found on the first Android attempt was resolved and re-verified signed on the second attempt within this same gate; zero P0 remains open",
+  "p1_items": [
+    "Full interactive Windows stranger walkthrough (first-run, capture, search, Quick Paste, Recently Removed, restart-persistence) not completed - requires either working GUI-automation tooling or a human tester",
+    "Website/download patchset prepared but not published - needs project-owner authorization",
+    "docs/index.html retire-or-reconcile decision still deferred to project owner"
+  ],
+  "p2_items": [
+    "E4b - still no evidence justifying implementation",
+    "cache_vault/core/mobile/compatibility.py stale comment (zero behavior impact, untouched)"
+  ],
+  "candidate_sha": null,
+  "pushed": false,
+  "v0_2_1_tag_created": false,
+  "v0_2_1_release_created": false,
+  "website_published": false,
+  "ready_to_canonicalize_final_release_record": "PENDING_FINAL_COMMIT",
+  "ready_for_publication_authorization": false,
+  "ready_for_publication_reason": "artifacts and interop are fully proven; withheld only pending the interactive Windows walkthrough and explicit publication authorization"
+}
