@@ -38,13 +38,13 @@ kept only for reference.
 
 | Copy | Location | Encrypted | Separate device |
 |---|---|---|---|
-| Primary | `C:\Users\KickA\CacheVaultSigning\cachevault-mobile-release.jks` | No (this machine's local filesystem is the working copy) | — |
-| Backup 1 | `C:\Users\KickA\CacheVaultSigning\backup-local\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | No — same machine |
-| Backup 2 | `C:\Users\KickA\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | No — same machine |
+| Primary | `C:\Users\<account>\CacheVaultSigning\cachevault-mobile-release.jks` | No (this machine's local filesystem is the working copy) | — |
+| Backup 1 | `C:\Users\<account>\CacheVaultSigning\backup-local\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | No — same machine |
+| Backup 2 | `C:\Users\<account>\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | No — same machine |
 | Backup 3 | Galaxy S23 (`R3CW40FY82W`), `/sdcard/Download/cachevault-signing-backup/cachevault-mobile-release.jks.gpg` | Yes — AES-256, GPG symmetric | **Yes** — genuinely separate physical device |
 
 Password files live separately from the keystore, at
-`C:\Users\KickA\CacheVaultSigning-Password\.storepass` /
+`C:\Users\<account>\CacheVaultSigning-Password\.storepass` /
 `.keypass` — not inside the same folder as the `.jks` file or its backups.
 
 None of these copies, and none of the password files, are tracked in git.
@@ -70,7 +70,7 @@ password is now stored as a Dashlane login entry named "CacheVault Mobile
 Production Signing." Save-and-retrieval was verified on 2026-07-16 (entry
 saved, Dashlane closed and reopened, entry retrieved and password
 confirmed correct before any plaintext was removed). The plaintext files
-that used to live at `C:\Users\KickA\CacheVaultSigning-Password\.storepass`
+that used to live at `C:\Users\<account>\CacheVaultSigning-Password\.storepass`
 and `.keypass` have been deleted; the directory is now empty and neither
 file was ever tracked in this repository. Recovery no longer depends on a
 plaintext file on this machine — see the Dashlane entry above for the
@@ -96,8 +96,8 @@ or this document. Load them from the local password file directly into the
 environment variable for a single build invocation, e.g. (PowerShell):
 
 ```powershell
-$env:CACHEVAULT_RELEASE_KEYSTORE = "C:\Users\KickA\CacheVaultSigning\cachevault-mobile-release.jks"
-$env:CACHEVAULT_RELEASE_STORE_PASSWORD = Get-Content -Raw "C:\Users\KickA\CacheVaultSigning-Password\.storepass"
+$env:CACHEVAULT_RELEASE_KEYSTORE = "C:\Users\<account>\CacheVaultSigning\cachevault-mobile-release.jks"
+$env:CACHEVAULT_RELEASE_STORE_PASSWORD = Get-Content -Raw "C:\Users\<account>\CacheVaultSigning-Password\.storepass"
 $env:CACHEVAULT_RELEASE_KEY_ALIAS = "cachevault-mobile-release"
 .\gradlew.bat assembleRelease
 ```

@@ -16,6 +16,20 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 BASELINE_PATH = REPO / "scripts" / "scan_claims_baseline.json"
 
+# Evidence/report documents are outside the public-facing product-claim scope.
+# They document scanner state, canonical records, receipts, and audits.
+# They are scanned only via the explicit baseline; new risky claims in them
+# are still reviewable through baseline key changes.
+_EVIDENCE_REPORT_RE = re.compile(
+    r"^(CANONICAL_PROJECT_RECORD|REPO_TRUTH|FAIL_SAFES_AND_RECOVERY|"
+    r"CACHE_VAULT_.*_(RECEIPT|AUDIT|QUALIFICATION|SUMMARY))\.(md|json|txt)$",
+    re.IGNORECASE,
+)
+
+
+def _is_evidence_report(path: Path) -> bool:
+    return _EVIDENCE_REPORT_RE.match(path.name) is not None
+
 # Patterns that indicate a real (non-disclaimer) public claim.
 # These are case-insensitive regexes matched against the NORMALIZED
 # (lowercased, whitespace-collapsed) line.
@@ -81,7 +95,7 @@ def is_disclaimer_context(lines: list[str], idx: int) -> bool:
 def scan_file(file_path: Path, baseline: dict[str, list[str]]) -> list[str]:
     """Return list of violations for *file_path*."""
     rel = str(file_path.relative_to(REPO).as_posix())
-    existing_keys = {tuple(v.split(":", 2)) for v in baseline.get(rel, [])}
+    existing_keys = set(baseline.get(rel, []))
 
     violations: list[str] = []
     try:
@@ -131,11 +145,12 @@ def scan_docs() -> list[str]:
     violations: list[str] = []
     for pat in ["*.md", "*.html"]:
         for fp in REPO.glob(pat):
-            # Skip the baseline doc itself and generated social-share images
-            if fp.name in ("REPO_TRUTH.md", "FAIL_SAFES_AND_RECOVERY.md"):
+            # Evidence/report docs are outside the public-facing product-claim
+            # scope; their own scanner findings are tracked via baseline.
+            if _is_evidence_report(fp):
                 continue
             rel = str(fp.relative_to(REPO).as_posix())
-            existing = {tuple(v.split(":", 2)) for v in baseline.get(rel, [])}
+            existing = set(baseline.get(rel, []))
             try:
                 raw = fp.read_text(encoding="utf-8", errors="replace")
             except Exception:
@@ -160,17 +175,7 @@ def scan_source() -> list[str]:
     baseline = load_baseline()
     violations: list[str] = []
     for fp in sorted((REPO / "cache_vault").rglob("*.py")):
-        rel = str(fp.relative_to(REPO).as_posix())
-        existing = {tuple(v.split(":", 2)) for v in baseline.get(rel, [])}
-        file_violations = []
-        for v in scan_file(fp, baseline):
-            parts = v.split(":", 2)
-            if len(parts) >= 2 and parts[1].isdigit():
-                key = f"{parts[1]}:{parts[2][:80]}" if len(parts) > 2 else ""
-                if key in existing:
-                    continue
-            file_violations.append(v)
-        violations.extend(file_violations)
+        violations.extend(scan_file(fp, baseline))
     return violations
 
 

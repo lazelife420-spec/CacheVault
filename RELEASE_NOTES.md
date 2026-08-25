@@ -67,9 +67,7 @@ disabled-state force-stop path. Full itemized list in `CHANGELOG.md`.
 
 # Cache Vault v0.2.0
 
-**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault
-with a local-network Android companion. Same-Wi-Fi access only. No cloud
-account. No subscription.
+**Cache Vault by The Proof Foundry™** — local-first Windows clipboard vault with a local-network Android companion. Same-Wi-Fi access only. No cloud account. No subscription.
 
 > `/proof` is unchanged unless separately approved. Nothing in this document
 > is a "stable" claim beyond what is explicitly stated below. `v0.2.0` is

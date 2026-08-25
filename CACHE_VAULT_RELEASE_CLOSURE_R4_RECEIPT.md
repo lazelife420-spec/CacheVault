@@ -15,7 +15,7 @@
 
 ## Item 1 — Android signing
 
-Located **Backup 2** of the release keystore (`C:\Users\KickA\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg`) — present, encrypted, recoverable. Password file absent; password never requested or entered, per the never-handle-credentials-in-chat rule. The documented decrypt/verify procedure is recorded verbatim in the audit doc for whenever the project owner supplies the password out-of-session. Not a lost key — a password-availability gap in this session only.
+Located **Backup 2** of the release keystore (`C:\Users\<account>\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg`) — present, encrypted, recoverable. Password file absent; password never requested or entered, per the never-handle-credentials-in-chat rule. The documented decrypt/verify procedure is recorded verbatim in the audit doc for whenever the project owner supplies the password out-of-session. Not a lost key — a password-availability gap in this session only.
 
 ## Item 2 — Desktop↔Android interop
 

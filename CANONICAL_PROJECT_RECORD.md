@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Project | Cache Vault (desktop, by The Proof Foundry™) + CacheVault Mobile (Android companion) |
-| Repository | `C:\Users\KickA\Desktop\CacheVault` |
+| Repository | `C:\Users\<account>\Desktop\CacheVault` |
 | Remote | `github.com/lazelife420-spec/CacheVault` (public) |
 | Branch | `master` |
 | HEAD | `27b68d6` — "feat(mobile): implement CameraX + ML Kit QR camera scanning and declare desktop qrcode dependency" (2026-08-13 18:29:22 -0700) |
@@ -56,7 +56,7 @@ A local-first Windows clipboard vault (CustomTkinter desktop app) with smart cla
 | Headless selftest (dev venv) | `.venv\Scripts\python.exe app.py --selftest` | **PASS** — exit 0 |
 | Headless selftest (packaged exe) | `dist\CacheVault.exe --selftest` | **PASS** — exit 0 |
 | Unit test suite | `.venv\Scripts\python.exe -m pytest -q` | **PASS.** Completed after ~20+ min real wall-clock (a GUI-heavy suite of 147 files / **1,886 collected tests** that spins up/tears down live Tk windows). First attempt was captured through a `\| tail` pipe, which silently swallowed pytest's real exit code and its final summary line — a self-inflicted false-signal risk, corrected by re-running with direct file redirection (`> log 2>&1; echo $?`). Clean rerun: **exit code 0, 100% of the dot-progress stream with zero `F` markers, 1 conditional skip, 1 Pillow deprecation warning (non-fatal)**. The pytest process's own custom collection reporter does not print a final tallied "N passed" line (a repo-specific pytest plugin quirk, not a defect in this pass), so the collected-test total (1,886) was independently obtained via `--collect-only -q`. This **replaces and substantially exceeds** the self-reported "Desktop tests: 988/988" claim in `CHANGELOG.md`/release notes for v0.2.0 — the suite has roughly doubled since that release, consistent with the 68 unreleased commits (Vault Cleanup Suggestions, QR pairing, row-pooling, etc.). This is the **first independent verification** of this project's test suite outside the author's own prior self-reports (see §9 — GitHub Actions has still never run it). |
-| `scripts/scan_secrets.py` | `.venv\Scripts\python.exe scripts/scan_secrets.py` | **FAIL** — 11 findings: 3× placeholder `.example` email addresses in QA scripts (near-certainly false positives), 8× absolute Windows path containing the real local username (`C:\Users\KickA`) inside a **tracked, public** doc (`docs/CACHE_VAULT_MOBILE_RELEASE_SIGNING_CUSTODY.md`) and `visual_smoke/record_visual_gate.py` |
+| `scripts/scan_secrets.py` | `.venv\Scripts\python.exe scripts/scan_secrets.py` | **FAIL** — 11 findings: 3× placeholder `.example` email addresses in QA scripts (near-certainly false positives), 8× absolute Windows path containing the real local username (`C:\Users\<account>`) inside a **tracked, public** doc (`docs/CACHE_VAULT_MOBILE_RELEASE_SIGNING_CUSTODY.md`) and `visual_smoke/record_visual_gate.py` |
 | `scripts/scan_claims.py` | `.venv\Scripts\python.exe scripts/scan_claims.py` | **FAIL** — 1 finding: `RELEASE_NOTES.md:4`, a "bare-no-cloud" claim wording trip |
 | GitHub Actions "CI" workflow | n/a — inspected via `gh run list` | **NEVER RUN.** Zero recorded executions despite triggering on every push to `master`/`main` and every PR. |
 | GitHub Actions "Release" workflow | n/a — inspected via `gh run list` | **NEVER RUN.** All 8 published GitHub Releases (v0.1.4 → v0.2.0) were produced outside this workflow — no independent build/verify trail exists for any of them. |
@@ -464,7 +464,7 @@ Not `PROVEN INTEGRATION CANDIDATE` — 8 files do not merge cleanly against curr
 
 **Authorized scope:** runtime-qualify `repair/pre-tester-reliability` in an isolated worktree, re-derive its delta, prove the intended contract at runtime, check compatibility, and explicitly re-verify zero overlap with the clipboard-custody branch. No merge. Stop after disposition.
 
-**Setup:** re-used a worktree already present on this machine from before this session (`C:\Users\KickA\Documents\CacheVault Build\repair-pre-tester`, confirmed at the correct tip `f70265a3`) rather than creating a duplicate — verified clean (one pre-existing, unrelated dirty file matching the same pattern seen throughout the main repo).
+**Setup:** re-used a worktree already present on this machine from before this session (`C:\Users\<account>\Documents\CacheVault Build\repair-pre-tester`, confirmed at the correct tip `f70265a3`) rather than creating a duplicate — verified clean (one pre-existing, unrelated dirty file matching the same pattern seen throughout the main repo).
 
 **Delta re-derived (not assumed):** `git log master..repair/pre-tester-reliability` and `git cherry -v master repair/pre-tester-reliability` both confirm **still exactly 1 commit** (`f70265a3`, 2026-08-14 12:46:35), unchanged since Gate 5. 8 files, 605 insertions / 97 deletions.
 
@@ -704,7 +704,7 @@ git status --short                                             → clean
 
 **Delta from pre-canonical `master`:** 29 files, +4,819/−231, zero overlap between the 5F-A and 5F-B file sets (audited in the pre-canonicalization pass).
 
-**Post-canonicalization acceptance gates, run directly against the new canonical checkout (not the worktree — a fresh build from `C:\Users\KickA\Desktop\CacheVault` itself):**
+**Post-canonicalization acceptance gates, run directly against the new canonical checkout (not the worktree — a fresh build from `C:\Users\<account>\Desktop\CacheVault` itself):**
 
 | Gate | Result |
 |---|---|

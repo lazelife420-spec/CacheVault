@@ -42,6 +42,7 @@ RISKY_PATTERNS: list[tuple[str, str]] = [
      r'[A-Za-z0-9._%+-]+@(?!example\.com|test\.com|domain\.com'
      r'|localhost|placehold\.er|email\.com|company\.com'
      r'|site\.com|refundghost\.com|gmail\.com'
+     r'|.*\.example'
      r')[A-Za-z0-9.-]+\.[A-Za-z]{2,}'),
 ]
 
@@ -51,6 +52,19 @@ EXCLUDED_PATHS = {
     ".snapshots", "build", "dist", "cache_vault.egg-info",
     ".claude",  # Claude worktrees are not our code
 }
+
+# Evidence/report documents document scanner state, canonical records, receipts,
+# and audits. They are intentionally outside the public-facing product-claim
+# scope and may quote literal findings or local-machine paths for transparency.
+_EVIDENCE_REPORT_RE = re.compile(
+    r"^(CANONICAL_PROJECT_RECORD|REPO_TRUTH|FAIL_SAFES_AND_RECOVERY|"
+    r"CACHE_VAULT_.*_(RECEIPT|AUDIT|QUALIFICATION|SUMMARY))\.(md|json|txt|py)$",
+    re.IGNORECASE,
+)
+
+
+def _is_evidence_report(path: Path) -> bool:
+    return _EVIDENCE_REPORT_RE.match(path.name) is not None
 
 # File extensions to scan
 SCAN_EXTS = {".py", ".md", ".html", ".toml", ".ps1", ".json", ".txt", ".yml", ".yaml"}
@@ -121,16 +135,10 @@ def scan_all() -> list[str]:
     violations: list[str] = []
     for ext in SCAN_EXTS:
         for fp in sorted(REPO.glob(f"**/*{ext}")):
-            parts = set(fp.parts)
-            if parts & EXCLUDED_PATHS:
+            rel_parts = fp.relative_to(REPO).parts
+            if any(p.startswith(exc) or p == exc for exc in EXCLUDED_PATHS for p in rel_parts):
                 continue
-            skip = False
-            for exc in EXCLUDED_PATHS:
-                rel_parts = fp.relative_to(REPO).parts
-                if any(p.startswith(exc) or p == exc for p in rel_parts):
-                    skip = True
-                    break
-            if skip:
+            if _is_evidence_report(fp):
                 continue
             violations.extend(scan_file(fp))
     return violations

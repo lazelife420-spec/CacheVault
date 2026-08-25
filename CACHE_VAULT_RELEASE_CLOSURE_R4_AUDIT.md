@@ -15,8 +15,8 @@
 
 - Checked (existence only, never read/printed): primary keystore path, all three signing env vars (current shell, User-registry-persisted, Machine-registry-persisted) — **all absent**, consistent with R3.
 - Checked the two documented same-machine encrypted backups from `docs/CACHE_VAULT_MOBILE_RELEASE_SIGNING_CUSTODY.md`:
-  - Backup 1 (`C:\Users\KickA\CacheVaultSigning\backup-local\...gpg`): **not present**
-  - **Backup 2 (`C:\Users\KickA\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg`): PRESENT.**
+  - Backup 1 (`C:\Users\<account>\CacheVaultSigning\backup-local\...gpg`): **not present**
+  - **Backup 2 (`C:\Users\<account>\Documents\CacheVaultSigning-Backup\cachevault-mobile-release.jks.gpg`): PRESENT.**
 - The password file (`.storepass`) is **not present** anywhere checked, and the password itself was never requested, entered, or guessed — per the boundary ("never expose secret contents") and this session's standing rule against handling credentials in chat.
 
 **Recovery is possible but requires the account holder, not this session.** The documented procedure (`docs/CACHE_VAULT_MOBILE_RELEASE_SIGNING_CUSTODY.md` "Recovery procedure"):
