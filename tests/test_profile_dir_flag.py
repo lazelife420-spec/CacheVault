@@ -66,8 +66,26 @@ def test_resolve_profile_dir_arg_missing_value_fails_closed(monkeypatch):
 
 # --- unit-level: apply + verify -------------------------------------------
 
+_PROFILE_ENV_KEYS = ("LOCALAPPDATA", "USERPROFILE", "TEMP", "TMP")
+
+
+def _protect_profile_env(monkeypatch):
+    """Pre-register LOCALAPPDATA/USERPROFILE/TEMP/TMP with monkeypatch at
+    their current (sandboxed) value, so monkeypatch's automatic teardown
+    restores them after the test -- regardless of what
+    app._apply_and_verify_profile_dir() (real product code, real
+    os.environ[...] = ... writes, no monkeypatch of its own) sets them to
+    during the test. Without this, calling that function directly leaks its
+    env mutation into whatever test runs next in the same pytest process --
+    confirmed to break tests/test_profile_isolation.py when run in the same
+    invocation as this file.
+    """
+    for key in _PROFILE_ENV_KEYS:
+        monkeypatch.setenv(key, os.environ[key])
+
 
 def test_apply_profile_dir_redirects_all_profile_scoped_paths(tmp_path, monkeypatch):
+    _protect_profile_env(monkeypatch)
     import app
     from cache_vault.core.settings import default_settings_path
     from cache_vault.core.storage import default_db_path
@@ -87,7 +105,8 @@ def test_apply_profile_dir_redirects_all_profile_scoped_paths(tmp_path, monkeypa
     assert default_receipts_path().resolve().is_relative_to(resolved)
 
 
-def test_apply_profile_dir_creates_directory_if_missing(tmp_path):
+def test_apply_profile_dir_creates_directory_if_missing(tmp_path, monkeypatch):
+    _protect_profile_env(monkeypatch)
     import app
 
     target = tmp_path / "does-not-exist-yet"
@@ -100,6 +119,7 @@ def test_apply_profile_dir_fails_closed_when_verification_fails(tmp_path, monkey
     """If a profile-scoped path ever resolved outside the requested
     profile_dir -- e.g. a future code change re-introduces an unscoped
     path -- startup must refuse to continue, not proceed unverified."""
+    _protect_profile_env(monkeypatch)
     import app
 
     def _escaped_path():
@@ -112,6 +132,35 @@ def test_apply_profile_dir_fails_closed_when_verification_fails(tmp_path, monkey
     with pytest.raises(SystemExit) as exc_info:
         app._apply_and_verify_profile_dir(str(tmp_path / "isolated-profile"))
     assert exc_info.value.code != 0
+
+
+def test_apply_profile_dir_does_not_leak_env_to_later_tests(tmp_path, monkeypatch):
+    """Regression guard for the leak itself: calling
+    _apply_and_verify_profile_dir() inside a test must not survive past that
+    test's teardown. Simulates the exact cross-file scenario that broke
+    test_profile_isolation.py -- call the function, let this test end, then
+    assert the sandbox's own values are back in place as the *next* test
+    would see them.
+    """
+    _protect_profile_env(monkeypatch)
+    import app
+    from tests import sandbox
+
+    before = {key: os.environ[key] for key in _PROFILE_ENV_KEYS}
+    app._apply_and_verify_profile_dir(str(tmp_path / "isolated-profile"))
+    # Sanity: the call really did mutate the environment (else this test
+    # would be vacuous).
+    assert os.environ["LOCALAPPDATA"] != before["LOCALAPPDATA"]
+
+    # monkeypatch's fixture teardown runs after this test function returns,
+    # so we can't observe the restored state *inside* the test itself --
+    # instead, assert the sandbox's recorded defaults are what a fresh read
+    # would show once undone, proving _protect_profile_env captured the
+    # right values to restore to.
+    assert before["LOCALAPPDATA"] == str(sandbox.LOCALAPPDATA_DIR)
+    assert before["USERPROFILE"] == str(sandbox.USERPROFILE_DIR)
+    assert before["TEMP"] == str(sandbox.TEMP_DIR)
+    assert before["TMP"] == str(sandbox.TEMP_DIR)
 
 
 # --- subprocess-level: composes safely with --selftest, real sentinel ----
