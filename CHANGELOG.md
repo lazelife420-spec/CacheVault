@@ -4,6 +4,56 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.2.2 (release candidate — not yet built, packaged, or published)
+
+Isolation-safety patch, on top of the frozen v0.2.1 source. This entry describes a
+**release candidate identity**: the fix below is implemented and proven (source-level and
+packaged-level), but no official v0.2.2 build has been produced, no full regression suite
+has completed, nothing is tagged, and nothing is published. See
+`CACHE_VAULT_v0.2.2_PROFILE_ISOLATION_PATCH_REPORT_2026-08-26.md`,
+`CACHE_VAULT_v0.2.2_WINDOWED_ISOLATION_PROOF_REPORT_2026-08-26.md`,
+`CACHE_VAULT_v0.2.2_PACKAGED_ISOLATION_PROOF_REPORT_2026-08-26.md`, and
+`CACHE_VAULT_v0.2.2_HUMAN_WALKTHROUGH_RETRY_REPORT_2026-08-26.md` for full detail.
+
+### Fixed
+- The packaged app's real launch path could be silently redirected to a real-profile instance
+  during an attempted isolated (`--profile-dir`) launch, because the single-instance mutex
+  was not scoped to the requested profile — root-caused after an operator-safety incident
+  during a v0.2.1 walkthrough attempt (see
+  `CACHE_VAULT_v0.2.1_WALKTHROUGH_BLOCKED_ISOLATION_FAILURE_2026-08-26.md` and
+  `CACHE_VAULT_v0.2.1_ISOLATED_LAUNCH_ROOT_CAUSE_REPORT_2026-08-26.md`).
+
+### Added
+- Explicit `--profile-dir <path>` launch flag: redirects settings, database, TEMP/USERPROFILE,
+  and mobile-receipt paths into the given directory.
+- Fail-closed pre-capture isolation verification: if `--profile-dir` is supplied, the resolved
+  settings/database/mobile-receipt paths are re-checked against the requested directory before
+  `Settings.load()`, tray, mobile, or capture startup — a mismatch exits non-zero rather than
+  proceeding unverified.
+- Profile-scoped single-instance mutex: an isolated launch's mutex name is derived from its
+  resolved profile directory, so it can never collide with, be blocked by, or be silently
+  redirected to a real-profile (or a different isolated-profile) instance. A normal (no
+  `--profile-dir`) launch keeps the exact original fixed mutex name — no behavior change for
+  real users.
+
+### Proven this cycle (release candidate, not release)
+- Source-windowed isolation proof: `python app.py --profile-dir <path>` opens a real window
+  against an isolated profile; real vault confirmed untouched throughout.
+- Packaged isolation proof: a local candidate build (`CacheVault.exe --profile-dir <path>`,
+  SHA-256 `54f69aec8d55bcb2b1a01b96b629a8946bf4a59de67607654a5c20e8accd7a23`) opened against a
+  genuinely empty isolated profile (fresh first-run onboarding, 0 clips, 0 receipts, no paired
+  devices); real vault confirmed untouched, including under ~90 minutes of continuous ambient
+  background capture activity.
+- Full interactive human walkthrough (first-run, capture, search, Quick Paste, Recently
+  Removed, restart-persistence) passed against that isolated packaged candidate.
+
+### Not yet done
+- No official v0.2.2 build has been produced from this identity (the artifact hash above is a
+  local proof candidate, built with the version bump not yet applied).
+- No full regression/test-suite pass has completed against this identity (an earlier attempt
+  timed out inconclusively — not claimed as a pass).
+- No tag, no GitHub Release, no publication, no signing.
+
 ## Cache Vault v0.2.1
 
 `/proof` unchanged this release. Stable not claimed.

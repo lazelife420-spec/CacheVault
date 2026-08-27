@@ -1,3 +1,31 @@
+# Cache Vault v0.2.2 (release candidate — not yet built, packaged, or published)
+
+> **Status as of the version/release-candidate identity gate (2026-08-26):** this is a source
+> identity change only. The isolation-safety fix it names (`--profile-dir`, profile-scoped
+> single-instance mutex, fail-closed pre-capture verification) is implemented and proven —
+> source-windowed isolation, packaged-candidate isolation, and a full interactive human
+> walkthrough all passed against a local proof-candidate build. **No official v0.2.2 Windows or
+> Android artifact has been built from this identity, no full regression suite has completed
+> against it, nothing is tagged, and nothing is published.** See
+> `CACHE_VAULT_v0.2.2_PROFILE_ISOLATION_PATCH_REPORT_2026-08-26.md`,
+> `CACHE_VAULT_v0.2.2_WINDOWED_ISOLATION_PROOF_REPORT_2026-08-26.md`,
+> `CACHE_VAULT_v0.2.2_PACKAGED_ISOLATION_PROOF_REPORT_2026-08-26.md`, and
+> `CACHE_VAULT_v0.2.2_HUMAN_WALKTHROUGH_RETRY_REPORT_2026-08-26.md` for full detail. The proof
+> candidate's SHA-256 is `54f69aec8d55bcb2b1a01b96b629a8946bf4a59de67607654a5c20e8accd7a23` — a
+> local build made *before* this version bump, so it does not itself carry the `0.2.2` version
+> string; an official artifact must be built fresh from this identity before any publication step.
+
+## What is new in v0.2.2 (candidate)
+
+- `--profile-dir <path>`: launches Cache Vault against an explicit, isolated profile directory
+  instead of the real `%LOCALAPPDATA%\CacheVault`, with fail-closed verification before any
+  storage/tray/mobile/capture code can run.
+- Single-instance locking is now scoped to the resolved profile directory, so an isolated launch
+  can never be redirected to (or blocked by) a real-profile instance. Normal launches are
+  unaffected.
+
+---
+
 # Cache Vault v0.2.1 (READY FOR PUBLICATION — NOT YET PUBLISHED)
 
 > **Status as of the Final Release Proof gate (2026-08-21):** both the
