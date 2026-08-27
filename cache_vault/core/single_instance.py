@@ -1,4 +1,18 @@
-"""Ensure only one Cache Vault desktop instance runs at a time."""
+"""Ensure only one Cache Vault desktop instance runs at a time.
+
+The lock is a named Windows mutex. By default (no profile_dir) it uses a
+fixed, unscoped name -- unchanged from before this module gained profile
+awareness, so ordinary single-instance behavior for real users is identical
+to what it has always been.
+
+When a caller passes an explicit profile_dir (an isolated-launch profile,
+e.g. via `app.py --profile-dir <path>`), the mutex name is instead derived
+from that path. This is a hard isolation guarantee, not a best-effort one:
+an isolated launch's mutex name can never collide with the real launch's
+fixed name, and can never collide with a *different* isolated profile's
+mutex either -- so an isolated launch can neither be blocked by, nor
+silently redirected to, a real (or differently-scoped) instance.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +21,24 @@ import sys
 
 _MUTEX_NAME = "Local\\CacheVaultSingleInstance_v1"
 _mutex_handle = None
+
+
+def _mutex_name(profile_dir: str | None) -> str:
+    """The mutex name to claim for this launch.
+
+    profile_dir=None (the default/real launch) always returns the original
+    fixed name, unchanged -- no behavior change for real users. A truthy
+    profile_dir returns a name derived from that path's resolved, lowercased
+    form, so two different isolated profiles (and the real profile) never
+    share a name.
+    """
+    if not profile_dir:
+        return _MUTEX_NAME
+    import hashlib
+    from pathlib import Path
+
+    digest = hashlib.sha256(str(Path(profile_dir).resolve()).lower().encode("utf-8")).hexdigest()[:16]
+    return f"{_MUTEX_NAME}_isolated_{digest}"
 
 
 def _raise_existing_window() -> bool:
@@ -45,8 +77,20 @@ def _raise_existing_window() -> bool:
         return False
 
 
-def claim_or_exit() -> None:
-    """Exit with a friendly message if another instance already holds the lock."""
+def claim_or_exit(profile_dir: str | None = None) -> None:
+    """Exit with a friendly message if another instance already holds the
+    lock for this exact scope.
+
+    profile_dir=None preserves the original behavior exactly: fixed mutex
+    name, and on collision, try to raise/focus an existing "Cache Vault"
+    window before falling back to a message box.
+
+    profile_dir set (an isolated launch) never calls
+    _raise_existing_window() at all, even on collision -- an isolated launch
+    must never bring a real-profile (or any other) window to the foreground.
+    On collision it goes straight to the message box, then exits, exactly
+    like the no-existing-window case always has.
+    """
     if not sys.platform.startswith("win"):
         return
     try:
@@ -55,9 +99,10 @@ def claim_or_exit() -> None:
         kernel32 = ctypes.windll.kernel32
         user32 = ctypes.windll.user32
         global _mutex_handle
-        _mutex_handle = kernel32.CreateMutexW(None, True, _MUTEX_NAME)
+        mutex_name = _mutex_name(profile_dir)
+        _mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
         if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            if _raise_existing_window():
+            if not profile_dir and _raise_existing_window():
                 raise SystemExit(0)
             user32.MessageBoxW(
                 0,

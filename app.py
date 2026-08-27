@@ -1,12 +1,89 @@
 """Cache Vault™ — application entry point.
 
-    python app.py            # launch the desktop app
-    python app.py --selftest # headless sanity check (no window, for CI)
+    python app.py                          # launch the desktop app
+    python app.py --selftest                # headless sanity check (no window, for CI)
+    python app.py --profile-dir <path>      # force every profile-scoped path (settings,
+                                             # database, mobile receipts, TEMP) under <path>
+                                             # instead of the real %LOCALAPPDATA%\\CacheVault,
+                                             # and verify it stuck before startup continues.
+                                             # Also scopes the single-instance lock to <path>,
+                                             # so an isolated launch can never be redirected to
+                                             # (or block) a real-profile instance. Combine with
+                                             # --selftest for a fully headless, verified check;
+                                             # combine with neither flag to open a real, isolated
+                                             # window for a human walkthrough.
 """
 
 from __future__ import annotations
 
 import sys
+
+
+def _resolve_profile_dir_arg() -> str | None:
+    """Extract --profile-dir <path>'s value from sys.argv, if present.
+
+    Accepts both `--profile-dir <path>` and `--profile-dir=<path>`. Exits
+    non-zero immediately if the flag is present with no value -- this must
+    fail closed, never silently fall through to the real profile.
+    """
+    argv = sys.argv
+    for i, arg in enumerate(argv):
+        if arg == "--profile-dir":
+            if i + 1 >= len(argv):
+                sys.stderr.write("--profile-dir requires a path argument\n")
+                sys.stderr.flush()
+                raise SystemExit(2)
+            return argv[i + 1]
+        if arg.startswith("--profile-dir="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def _apply_and_verify_profile_dir(profile_dir: str) -> None:
+    """Point every profile-scoped path at profile_dir and verify it stuck,
+    before Settings.load(), VaultStorage(), single_instance.claim_or_exit(),
+    or any tray/mobile/capture startup can run.
+
+    This must prove isolation, not just attempt it: after setting the
+    environment overrides, it re-derives the same default-path functions the
+    rest of the app uses and asserts each one actually resolves inside
+    profile_dir. If any of them doesn't -- today or after some future code
+    change adds a new profile-scoped path that isn't wired through the same
+    LOCALAPPDATA mechanism -- this exits non-zero before any capture, tray,
+    mobile, or storage code can run, rather than silently proceeding against
+    an unverified (and possibly real) profile.
+    """
+    import os
+    from pathlib import Path
+
+    resolved = Path(profile_dir).resolve()
+    resolved.mkdir(parents=True, exist_ok=True)
+
+    os.environ["LOCALAPPDATA"] = str(resolved)
+    os.environ["TEMP"] = str(resolved)
+    os.environ["TMP"] = str(resolved)
+    os.environ["USERPROFILE"] = str(resolved)
+
+    from cache_vault.core.settings import default_settings_path
+    from cache_vault.core.storage import default_db_path
+    from cache_vault.core.mobile.receipts import default_receipts_path
+
+    checks = {
+        "settings path": default_settings_path(),
+        "db path": default_db_path(),
+        "mobile receipts path": default_receipts_path(),
+    }
+    for label, path in checks.items():
+        try:
+            path.resolve().relative_to(resolved)
+        except ValueError:
+            sys.stderr.write(
+                f"--profile-dir isolation could not be verified: {label} "
+                f"({path}) does not resolve inside {resolved}. Refusing to "
+                f"start -- isolation must be proven, not assumed.\n"
+            )
+            sys.stderr.flush()
+            raise SystemExit(3)
 
 
 def _selftest() -> int:
@@ -120,6 +197,15 @@ def _run_contained_selftest() -> int:
 
 
 def main() -> int:
+    # Must run before anything else -- including --selftest -- so an
+    # explicitly-requested isolated profile is applied and verified first.
+    # --selftest already does its own containment (see
+    # _run_contained_selftest above) and will safely override these values
+    # with its own fresh temp root; combining the two flags is harmless.
+    profile_dir = _resolve_profile_dir_arg()
+    if profile_dir is not None:
+        _apply_and_verify_profile_dir(profile_dir)
+
     if "--selftest" in sys.argv:
         return _run_contained_selftest()
 
@@ -132,7 +218,7 @@ def main() -> int:
     install_windows_scroll_patch(lambda: scroll_config_from_settings(_settings))
 
     from cache_vault.core.single_instance import claim_or_exit
-    claim_or_exit()
+    claim_or_exit(profile_dir)
 
     try:
         import customtkinter as ctk
