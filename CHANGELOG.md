@@ -4,6 +4,51 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.2.3-rc1 (release candidate — being proven, not yet published)
+
+Window-geometry/quality tranche on top of the published v0.2.2 source. This entry
+describes a **release candidate identity**: the changes below are implemented and
+proven (product-tier suite, scanners, packaged-runtime smoke via the canonical gate),
+but nothing is tagged, no GitHub Release exists, and no public artifact is published
+from this identity yet. See
+`CACHE_VAULT_v0.2.3rc1_VERSION_IDENTITY_GATE_REPORT_2026-09-01.md` for the identity
+gate detail.
+
+### Fixed
+- The main window no longer opens at a hardcoded `1200x760` that could exceed short
+  displays (e.g. 1366x768 laptops, once the title bar is added): startup size is now
+  clamped to the current work area (taskbar-aware via `SPI_GETWORKAREA`).
+- The main window's size, position, and maximized state now persist across launches
+  (`Settings.window_geometry` / `Settings.window_maximized`). Recorded geometry is
+  idempotent (Tk's own offsets, CustomTkinter logical units) so scaled displays can
+  no longer grow the window on every relaunch, and stale/off-screen saved values are
+  clamped back instead of restoring out of reach. Persistence never writes a settings
+  object that was not loaded from a real profile.
+- Settings Hub caps its open size at the work area — the fixed 900x700 default could
+  clip the footer Save/Cancel actions off-screen on short displays.
+- The Pair Android dialog caps its open size at the work area and is freely resizable
+  around a 460x420 minimum (was fixed 540x840 and non-resizable, which could exceed a
+  768px-tall display entirely and leave the bottom of the pairing flow unreachable).
+
+### Added
+- `cache_vault/ui/window_geometry.py`: OS work-area query, pure clamp/parse helpers,
+  and CustomTkinter window-scaling unit conversion (CTk `geometry()` sizes are logical
+  design units scaled by the window factor; `winfo_*` and the OS work area are
+  physical pixels).
+
+### Proven this cycle (release candidate, not release)
+- Full product-tier Reality Gate: 2090 passed, 1 skipped, 0 failed against the exact
+  tranche source, including scanners, packaged-runtime Command Center smoke (20/20),
+  and all cross-component subsets. Receipt `20260901-154943-product-662c5df`
+  (verdict hash verified GREEN).
+- Focused lanes for settings hub, mobile pairing, navigation/startup, single-instance,
+  layout, dialog placement, first-use, plus a new 23-test geometry suite.
+
+### Not yet done
+- Official candidate artifact build + hash + custody (canonical gate in progress at
+  the time of this identity marking).
+- No tag, no GitHub Release, no publication, no Proof Foundry update.
+
 ## Cache Vault v0.2.2 (release candidate — not yet built, packaged, or published)
 
 Isolation-safety patch, on top of the frozen v0.2.1 source. This entry describes a

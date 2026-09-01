@@ -1,3 +1,26 @@
+# Cache Vault v0.2.3-rc1 (release candidate — being proven, not yet published)
+
+> **Status as of the candidate promotion gate (2026-09-01):** the window-geometry
+> tranche is implemented and proven — full product-tier Reality Gate 2090 passed /
+> 0 failed / 1 skipped against the exact tranche source (receipt
+> `20260901-154943-product-662c5df`, verdict hash verified), on top of the published
+> v0.2.2 source (`662c5df2afa84923cd7aabb11bfcc828590c25a0` on
+> `codex/cache-vault-post-v0.2.2`). **An official candidate artifact build from this
+> identity is in progress via the canonical gate; nothing is tagged, no GitHub Release
+> exists, and nothing is published yet.** Android is untouched — the desktop and the
+> Android companion are independently versioned and released separately.
+
+## What is new in v0.2.3-rc1 (candidate)
+
+- Window geometry persistence: the main window remembers its size, position, and
+  maximized state across launches, clamped to the current work area.
+- Startup and dialog sizing fixes: no more hardcoded `1200x760` startup that could
+  overflow short displays; Settings Hub footer no longer clipped; Pair Android dialog
+  is resizable and capped to the work area (was fixed 540x840, non-resizable).
+- New work-area/geometry helper module with CustomTkinter scaling-unit conversion.
+
+---
+
 # Cache Vault v0.2.2 (release candidate — not yet built, packaged, or published)
 
 > **Status as of the version/release-candidate identity gate (2026-08-26):** this is a source
