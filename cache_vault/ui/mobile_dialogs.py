@@ -20,6 +20,7 @@ from ..core.mobile.models import (
     paired_device_status,
 )
 from . import theme
+from . import window_geometry
 from .clipboard_write import write_text_via_app
 from .textbox import CacheVaultTextbox
 from .pairing_help import (
@@ -52,8 +53,27 @@ class PairAndroidDialog(ctk.CTkToplevel):
     ):
         super().__init__(master)
         self.title(f"{brand.TERM_MOBILE_ACCESS} — Pair Android Device")
-        self.geometry("540x840")
-        self.resizable(False, False)
+        # The 540x840 design size can exceed short displays outright (a
+        # 768px-tall laptop cannot fit it), and the dialog used to be
+        # non-resizable, so the bottom of the scroll frame — including the
+        # primary action — could be unreachable. The dialog now caps its
+        # open size at the current work area and is freely resizable around
+        # a usable minimum; all content lives in the scroll frame, so
+        # resizing is safe.
+        _pair_w, _pair_h = 540, 840
+        _area = window_geometry.query_work_area(self)
+        if _area != (0, 0, 0, 0):
+            # Work area is physical; design sizes are logical (CTk scales
+            # geometry() sizes by the window-scaling factor).
+            _scaling = window_geometry.window_scaling(self)
+            _ax, _ay, _aw, _ah = _area
+            _area_logical = (_ax, _ay, round(_aw / _scaling), round(_ah / _scaling))
+            _pair_w, _pair_h = window_geometry.clamp_size(
+                _pair_w, _pair_h, _area_logical, 460, 420
+            )
+        self.geometry(f"{_pair_w}x{_pair_h}")
+        self.minsize(460, 420)
+        self.resizable(True, True)
         self._on_pair = on_pair
         self._on_revoke_all_and_pair = on_revoke_all_and_pair
         self._get_doctor_report = get_doctor_report

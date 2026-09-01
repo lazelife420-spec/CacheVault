@@ -116,6 +116,14 @@ class Settings:
     )
     storage_auto_vacuum_policy: str = "never"  # "never" or "safe"
 
+    # Main-window geometry persistence ("WxH+X+Y" of the last normal —
+    # non-maximized — state, or "" for none). Applied through
+    # cache_vault.ui.window_geometry.fit_geometry(), which clamps saved
+    # values into the *current* work area, so a stale or moved-display
+    # value can never open the window off-screen or larger than the screen.
+    window_geometry: str = ""
+    window_maximized: bool = False
+
     # --- persistence ---
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Settings":
@@ -184,6 +192,8 @@ class Settings:
             s.scroll_multiplier = 1.0
         s.restore_clipboard_after_paste = bool(s.restore_clipboard_after_paste)
         s.first_use_guide_dismissed = bool(getattr(s, "first_use_guide_dismissed", False))
+        s.window_geometry = str(getattr(s, "window_geometry", "") or "")
+        s.window_maximized = bool(getattr(s, "window_maximized", False))
         s.vault_lock_enabled = bool(getattr(s, "vault_lock_enabled", False))
         if getattr(s, "vault_lock_mode", "pin") not in ("pin", "passphrase"):
             s.vault_lock_mode = "pin"

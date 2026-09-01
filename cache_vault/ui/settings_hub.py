@@ -17,6 +17,7 @@ from ..core.settings import Settings
 from ..modules.registry import ModuleRegistry
 from ..modules.settings_schema import SettingsCategory, SettingsField, StatusRow
 from . import theme
+from . import window_geometry
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .dialogs import _center_on_parent
 from .hotkey_recording import DialogHotkeyRecorder
@@ -69,6 +70,23 @@ class SettingsHub(ctk.CTkToplevel):
         self.title(f"{brand.PRODUCT_NAME} — Settings Hub")
         self.geometry(f"{_WIDTH}x{_HEIGHT}")
         self.minsize(700, 500)
+        # Cap the open size at the current work area: the fixed 900x700
+        # default can exceed short displays (e.g. 768px-tall laptops), which
+        # clipped the footer Save/Cancel actions off-screen. present() still
+        # centers the hub over the main window, using this adjusted size.
+        self._open_size = (_WIDTH, _HEIGHT)
+        area = window_geometry.query_work_area(self)
+        if area != (0, 0, 0, 0):
+            # Work area is physical; design sizes are logical (CTk scales
+            # geometry() sizes by the window-scaling factor).
+            scaling = window_geometry.window_scaling(self)
+            ax, ay, aw, ah = area
+            area_logical = (ax, ay, round(aw / scaling), round(ah / scaling))
+            self._open_size = window_geometry.clamp_size(
+                _WIDTH, _HEIGHT, area_logical, 700, 500
+            )
+            if self._open_size != (_WIDTH, _HEIGHT):
+                self.geometry(f"{self._open_size[0]}x{self._open_size[1]}")
 
         self._settings = settings
         self._registry = registry
@@ -190,7 +208,8 @@ class SettingsHub(ctk.CTkToplevel):
             try:
                 if not self.winfo_exists():
                     return
-                _center_on_parent(self, self.master, _WIDTH, _HEIGHT)
+                open_w, open_h = self._open_size
+                _center_on_parent(self, self.master, open_w, open_h)
                 self.deiconify()
                 self.lift()
                 self.focus_force()

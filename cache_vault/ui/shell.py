@@ -47,6 +47,7 @@ from ..core.storage import FILTER_ALL, FILTER_HOME, FILTER_SEARCH_ALL
 from ..core.mobile.bridge import MobileBridge
 from ..core.mobile.mobile_access_controller import MobileAccessController
 from ..core.vault import Vault
+from . import window_geometry
 from .clip_grid import ClipGrid
 from .clip_list import ClipList
 from .dialogs import (
@@ -355,6 +356,11 @@ class CacheVaultApp(ctk.CTk):
         self._resize_job = None
         self._last_width = 0
         self._last_height = 0
+        # Debounced persistence of the main window's geometry/maximized
+        # state (see _on_geometry_configure). The recorder only marks the
+        # settings dirty; this job coalesces the actual settings.save().
+        self._geometry_save_job = None
+        self._window_geometry_dirty = False
         self._mouse_handler = None
         self._is_compact_width = False
         self._settings_window = None
@@ -497,12 +503,13 @@ class CacheVaultApp(ctk.CTk):
         )
         self._tray.start()
 
-        self._center_on_screen()
+        self._apply_startup_geometry()
         self._show_window()
         self._pump_job = self.after(50, self._pump_main_thread)
         self._init_jobs.append(self.after(150, self._maybe_show_first_use_guide))
         self._bind_selection_keys()
         self.bind("<Configure>", self._on_window_configure)
+        self.bind("<Configure>", self._on_geometry_configure, add="+")
         self._init_jobs.append(self.after(200, self._install_native_mouse_handler))
 
     def _capture_titlebar_icon_job(self, ms, fn=None, *args):
@@ -620,6 +627,9 @@ class CacheVaultApp(ctk.CTk):
         if hasattr(self, "_refresh_job") and self._refresh_job:
             self.after_cancel(self._refresh_job)
             self._refresh_job = None
+        if hasattr(self, "_geometry_save_job") and self._geometry_save_job:
+            self.after_cancel(self._geometry_save_job)
+            self._geometry_save_job = None
         if hasattr(self, "_refresh_request_queue"):
             self._refresh_request_queue.put(None)  # wake and stop the worker
 
@@ -698,13 +708,121 @@ class CacheVaultApp(ctk.CTk):
             self._pump_job = None
 
     def _center_on_screen(self) -> None:
+        """Center the default startup size, clamped to the work area.
+
+        The old hardcoded 1200x760 could exceed short displays (e.g.
+        1366x768 laptops once the title bar is added); the size is now
+        capped at the current work area so the bottom edge — and the
+        status bar on it — can never fall off-screen.
+
+        Units: the work-area query and winfo_* speak physical pixels, while
+        CustomTkinter's geometry() rewrites sizes by the window-scaling
+        factor (offsets pass through), so sizes are fit in physical space
+        and re-expressed in logical units for the apply.
+        """
         self.update_idletasks()
-        w, h = 1200, 760
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        x = max(0, (sw - w) // 2)
-        y = max(0, (sh - h) // 2)
-        self.geometry(f"{w}x{h}+{x}+{y}")
+        scaling = window_geometry.window_scaling(self)
+        area = window_geometry.query_work_area(self)
+        if area == (0, 0, 0, 0):
+            area = (0, 0, self.winfo_screenwidth(), self.winfo_screenheight())
+        w, h = window_geometry.to_physical_size(1200, 760, scaling)
+        min_w, min_h = window_geometry.to_physical_size(900, 600, scaling)
+        w, h = window_geometry.clamp_size(w, h, area, min_w, min_h)
+        ax, ay, aw, ah = area
+        x = ax + max(0, (aw - w) // 2)
+        y = ay + max(0, (ah - h) // 2)
+        lw, lh = window_geometry.to_logical_size(w, h, scaling)
+        self.geometry(f"{lw}x{lh}+{x}+{y}")
+
+    def _apply_startup_geometry(self) -> None:
+        """Restore the persisted window geometry, else center the default.
+
+        Saved sizes are logical (CTk design) units and are fit against the
+        *current* physical work area — so stale or display-changed values
+        can never open the window off-screen or larger than the screen. An
+        invalid saved string is discarded (default centered startup), never
+        guessed around.
+        """
+        scaling = window_geometry.window_scaling(self)
+        area = window_geometry.query_work_area(self)
+        if area == (0, 0, 0, 0):
+            self._center_on_screen()
+            return
+        saved = window_geometry.parse_geometry(self.vault.settings.window_geometry)
+        if saved:
+            lw, lh, x, y = saved
+            w, h = window_geometry.to_physical_size(lw, lh, scaling)
+            min_w, min_h = window_geometry.to_physical_size(900, 600, scaling)
+            w, h, x, y = window_geometry.fit_geometry(w, h, x, y, area, min_w, min_h)
+            lw, lh = window_geometry.to_logical_size(w, h, scaling)
+            self.geometry(f"{lw}x{lh}+{x}+{y}")
+        else:
+            self._center_on_screen()
+        if self.vault.settings.window_maximized:
+            try:
+                self.state("zoomed")
+            except Exception:  # noqa: BLE001 - zoomed is best-effort
+                pass
+
+    def _on_geometry_configure(self, event) -> None:
+        """Record the window's geometry/maximized state (debounced save).
+
+        Runs alongside _on_window_configure, which only handles size-driven
+        layout work; this one also captures move-only changes so a window
+        the user repositioned (but never resized) still restores where it
+        was. Withdrawn-to-tray / minimized states are ignored so hiding the
+        window can never wipe the last known geometry.
+        """
+        if event.widget is not self or self._shutting_down:
+            return
+        try:
+            if not self.winfo_viewable():
+                return
+            state = self.state()
+        except Exception:  # noqa: BLE001 - early teardown
+            return
+        if state == "zoomed":
+            # Keep the last normal-state geometry; only remember that the
+            # session ended maximized.
+            self.vault.settings.window_maximized = True
+        elif state == "normal":
+            self.vault.settings.window_maximized = False
+            # Record Tk's own current geometry string (via CTk's override,
+            # which reports sizes in logical design units and raw offsets).
+            # Reading winfo_rootx/rooty instead would persist the client
+            # origin — offset from the wm geometry by the window frame —
+            # and the window would drift down-right on every restart.
+            current = window_geometry.parse_geometry(self.geometry())
+            if current is None:
+                return  # transient/unparseable geometry: keep last known
+            self.vault.settings.window_geometry = window_geometry.format_geometry(
+                *current
+            )
+        else:  # iconic/withdrawn: keep last known values
+            return
+        self._window_geometry_dirty = True
+        if self._geometry_save_job:
+            try:
+                self.after_cancel(self._geometry_save_job)
+            except Exception:  # noqa: BLE001 - stale job id
+                pass
+        self._geometry_save_job = self.after(600, self._persist_window_geometry)
+
+    def _persist_window_geometry(self) -> None:
+        self._geometry_save_job = None
+        if self._shutting_down or not self._window_geometry_dirty:
+            return
+        self._window_geometry_dirty = False
+        # Only profile-backed settings may persist implicitly. A Settings
+        # object that was never loaded from disk (no _persist_path — the
+        # shape every test sandbox passes in) has no home, and writing to
+        # default_settings_path() from here could overwrite a real profile.
+        if getattr(self.vault.settings, "_persist_path", None) is None:
+            return
+        try:
+            self.vault.settings.save()
+        except Exception:  # noqa: BLE001 - settings IO must never crash the UI
+            pass
 
     # --- layout ------------------------------------------------------------
     def _build_layout(self) -> None:
@@ -6203,6 +6321,22 @@ class CacheVaultApp(ctk.CTk):
                 try:
                     self.after_cancel(job)
                 except Exception:  # noqa: BLE001
+                    pass
+        # Flush a pending geometry save synchronously so Quit (tray or
+        # otherwise) moments after a move/resize still remembers the window.
+        # Not routed through _persist_window_geometry(): that helper no-ops
+        # once _shutting_down is set, and it is set above.
+        if self._geometry_save_job:
+            try:
+                self.after_cancel(self._geometry_save_job)
+            except Exception:  # noqa: BLE001 - stale job id
+                pass
+            self._geometry_save_job = None
+            self._window_geometry_dirty = False
+            if getattr(self.vault.settings, "_persist_path", None) is not None:
+                try:
+                    self.vault.settings.save()
+                except Exception:  # noqa: BLE001 - settings IO must never crash shutdown
                     pass
         try:
             self._monitor.stop()
