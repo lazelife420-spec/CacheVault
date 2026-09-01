@@ -36,3 +36,8 @@ visual_smoke/
 
 # Wrangler CLI local cache/state
 .wrangler/
+
+# Reality Gate runtime receipts/logs — evidence on disk, not product source.
+# Ignored so untracked receipts never escalate future gate tier selection
+# (change_map routes reality_gate/** to the broad product suite).
+reality_gate/runs/

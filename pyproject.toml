@@ -34,8 +34,14 @@ dev = [
     "pyinstaller>=6.0",
 ]
 
+# Reality Gate — tiered validation control plane. Install the console command
+# with `pip install -e .[dev]` (provides `reality-gate`). The `rg` name is
+# deliberately NOT used: it collides with ripgrep.
+[project.scripts]
+reality-gate = "reality_gate.cli:main"
+
 [tool.setuptools.packages.find]
-include = ["cache_vault*"]
+include = ["cache_vault*", "reality_gate*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
