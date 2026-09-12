@@ -414,6 +414,18 @@ class TestSettingsHub(unittest.TestCase):
         
         hub.destroy()
 
+    def test_settings_hub_starts_hidden_until_presented(self):
+        """The Settings toplevel must not map during construction; present() is the gate that shows it."""
+        hub = SettingsHub(self.root, self.settings, self.registry, self.on_save)
+        try:
+            self.assertFalse(hub.winfo_viewable())
+            hub.present()
+            _wait_viewable(hub)
+            self.assertTrue(hub.winfo_viewable())
+        finally:
+            hub.withdraw()
+            hub.destroy()
+
 
 class _KeyEvent:
     def __init__(self, keysym: str):
@@ -463,6 +475,8 @@ class TestSettingsHubHotkeyRecorder(unittest.TestCase):
         hub = SettingsHub(self.root, self.settings, self.registry, self.on_save, category_id=category_id)
         if category_id is None:
             hub._select_category("shortcuts")
+        hub.present()
+        _wait_viewable(hub)
         self._hubs.append(hub)
         return hub
 

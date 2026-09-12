@@ -67,6 +67,10 @@ class SettingsHub(ctk.CTkToplevel):
         mobile_controller: Any | None = None,
     ):
         super().__init__(master)
+        # Keep the toplevel hidden until construction and CTk theme draw are ready.
+        # This prevents the OS default white/light client surface from being visible
+        # before CustomTkinter has drawn the dark theme over it.
+        self.withdraw()
         self.title(f"{brand.PRODUCT_NAME} — Settings Hub")
         self.geometry(f"{_WIDTH}x{_HEIGHT}")
         self.minsize(700, 500)
@@ -211,6 +215,7 @@ class SettingsHub(ctk.CTkToplevel):
                 open_w, open_h = self._open_size
                 _center_on_parent(self, self.master, open_w, open_h)
                 self.deiconify()
+                self.update_idletasks()
                 self.lift()
                 self.focus_force()
             except Exception:  # noqa: BLE001 - window may have closed
