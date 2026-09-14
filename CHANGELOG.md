@@ -4,6 +4,14 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.2.3 (2026-09-14)
+
+General Availability release incorporating window-geometry persistence, display work-area clamping, and the Settings Hub first-paint repair.
+
+### Fixed
+- **Settings Hub First-Paint Flash**: Eliminated OS default un-themed white client surface flash during SettingsHub initialization by maintaining the window hidden (`withdraw()`) during CustomTkinter construction and theme drawing, deferring visibility until `present()`.
+- **Window Geometry & Work Area Clamping**: Main window size, position, and maximized state persist across launches and clamp to display work area boundaries.
+
 ## Cache Vault v0.2.3-rc2 (release candidate 2 — qualified, published download)
 
 Post-RC1 SettingsHub first-paint repair tranche built on top of v0.2.3-rc1.

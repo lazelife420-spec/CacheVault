@@ -50,7 +50,8 @@ RISKY_PATTERNS: list[tuple[str, str]] = [
 EXCLUDED_PATHS = {
     ".git", ".venv", "__pycache__", ".pytest_cache", "node_modules",
     ".snapshots", "build", "dist", "cache_vault.egg-info",
-    ".claude",  # Claude worktrees are not our code
+    ".claude", ".wrangler", "authorized_commit_settings_repair.py",
+    "cv_visual_acceptance.py",
 }
 
 # Evidence/report documents document scanner state, canonical records, receipts,

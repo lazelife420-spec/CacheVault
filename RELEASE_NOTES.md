@@ -1,3 +1,15 @@
+# Cache Vault v0.2.3 (General Availability)
+
+> **Status as of final release (2026-09-14):** Qualified, packaged, published to Proof Foundry downloads host. Includes window-geometry persistence, display scaling/bounds clamping, and the Settings Hub first-paint flash elimination.
+
+## What is new in v0.2.3
+
+- **Settings Hub First-Paint Flash Elimination**: The Settings Hub window remains hidden during CustomTkinter construction and theme drawing, deferring visibility until `present()`. OS default light/white client surface is no longer visible on initial open.
+- **Window Geometry Persistence & Bounds Clamping**: The main window remembers its size, position, and maximized state across launches, clamped safely to the current display work area.
+- **Display Adaptability**: Startup and modal dialogs (Settings Hub, Pair Android) automatically scale and cap their dimensions to prevent clipping on short displays.
+
+---
+
 # Cache Vault v0.2.3-rc2 (release candidate 2 — qualified, published download)
 
 > **Status as of candidate publication (2026-09-14):** SettingsHub first-paint repair is fully qualified (SOURCE_QUALIFIED_GREEN, 2091 passed / 1 skipped) and packaged into `v0.2.3-rc2`. Published to Proof Foundry downloads host.
