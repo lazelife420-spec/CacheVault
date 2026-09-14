@@ -1,3 +1,13 @@
+# Cache Vault v0.2.3-rc2 (release candidate 2 — qualified, published download)
+
+> **Status as of candidate publication (2026-09-14):** SettingsHub first-paint repair is fully qualified (SOURCE_QUALIFIED_GREEN, 2091 passed / 1 skipped) and packaged into `v0.2.3-rc2`. Published to Proof Foundry downloads host.
+
+## What is new in v0.2.3-rc2 (candidate 2)
+
+- **Settings Hub First-Paint Flash Elimination**: The Settings Hub window remains hidden during CustomTkinter construction and theme drawing, deferring visibility until `present()` and calling `update_idletasks()`. OS default light/white client surface is no longer visible on initial open.
+
+---
+
 # Cache Vault v0.2.3-rc1 (release candidate — being proven, not yet published)
 
 > **Status as of the candidate promotion gate (2026-09-01):** the window-geometry

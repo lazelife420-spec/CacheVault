@@ -4,6 +4,13 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.2.3-rc2 (release candidate 2 — qualified, published download)
+
+Post-RC1 SettingsHub first-paint repair tranche built on top of v0.2.3-rc1.
+
+### Fixed
+- **Settings Hub First-Paint Flash**: Eliminated OS default un-themed white client surface flash during SettingsHub initialization by maintaining the window hidden (`withdraw()`) during CustomTkinter construction and theme drawing, deferring visibility until `present()` and calling `update_idletasks()`.
+
 ## Cache Vault v0.2.3-rc1 (release candidate — being proven, not yet published)
 
 Window-geometry/quality tranche on top of the published v0.2.2 source. This entry

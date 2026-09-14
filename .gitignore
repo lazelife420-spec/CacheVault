@@ -29,6 +29,11 @@ android/keystore.properties
 # Generated review artifact (regenerate with tools/verify_assets.py)
 assets/cache-vault-contact-sheet.png
 
+# Local developer scratch scripts
+authorized_commit_settings_repair.py
+cv_visual_acceptance*
+
+
 .snapshots/
 
 # Local visual smoke / runtime proof screenshots (may contain clipboard data)
