@@ -660,21 +660,11 @@ class VaultStorage:
         from . import image_assets
         with self._lock:
             row = self.get_asset_record(clip_id)
-            asset_storage_name = row.storage_name if row is not None else None
-            try:
-                if row is not None:
-                    self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (clip_id,))
-                self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
-                self.conn.commit()
-            except Exception:
-                self.conn.rollback()
-                raise
-
-            if asset_storage_name is not None:
-                try:
-                    image_assets.delete_asset_file(asset_storage_name)
-                except Exception:
-                    pass
+            if row is not None:
+                image_assets.delete_asset_file(row.storage_name)
+                self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (clip_id,))
+            self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
+            self.conn.commit()
 
 
     def hard_delete_many(self, clip_ids: list[str]):

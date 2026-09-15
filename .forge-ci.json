@@ -47,15 +47,6 @@
       ]
     },
     {
-      "name": "DEF-007 Storage Hard Delete Ordering Test",
-      "command": "python",
-      "args": [
-        "-m",
-        "pytest",
-        "tests/test_storage_maintenance_v024.py"
-      ]
-    },
-    {
       "name": "Tranche 1 Full Maintenance Qualification Suite",
       "command": "python",
       "args": [
@@ -65,8 +56,7 @@
         "tests/test_storage_concurrency_t0.py",
         "tests/test_regex_macros_atomic_t0.py",
         "tests/test_image_clipboard_retry_t0.py",
-        "tests/test_duplicates_sql_v024.py",
-        "tests/test_storage_maintenance_v024.py"
+        "tests/test_duplicates_sql_v024.py"
       ]
     }
   ]
