@@ -158,44 +158,20 @@ def _status_from_doc(doc: dict[str, Any]) -> LicenseStatus:
     )
 
 
-_LICENSE_CACHE: dict[Path, tuple[tuple[int, int] | None, LicenseStatus]] = {}
-
-
-def clear_license_cache() -> None:
-    """Clear the in-memory license cache."""
-    _LICENSE_CACHE.clear()
-
-
 def load_license(path: Path | None = None) -> LicenseStatus:
-    license_path = (path or default_license_path()).resolve()
-    try:
-        st = license_path.stat()
-        file_key: tuple[int, int] | None = (st.st_mtime_ns, st.st_size)
-    except (OSError, FileNotFoundError):
-        file_key = None
-
-    if file_key is None:
-        status = LicenseStatus(
+    license_path = path or default_license_path()
+    if not license_path.is_file():
+        return LicenseStatus(
             LicenseState.MISSING_LICENSE,
             message="No license installed — using Free edition.",
         )
-        _LICENSE_CACHE[license_path] = (None, status)
-        return status
-
-    if license_path in _LICENSE_CACHE:
-        cached_key, cached_status = _LICENSE_CACHE[license_path]
-        if cached_key == file_key:
-            return cached_status
-
     try:
         raw = license_path.read_text(encoding="utf-8")
         doc = json.loads(raw)
-        status = _status_from_doc(doc)
     except (OSError, json.JSONDecodeError):
-        status = LicenseStatus(LicenseState.CORRUPT_LICENSE, message="License file is unreadable.")
+        return LicenseStatus(LicenseState.CORRUPT_LICENSE, message="License file is unreadable.")
 
-    _LICENSE_CACHE[license_path] = (file_key, status)
-    return status
+    return _status_from_doc(doc)
 
 
 def is_founder_unlocked(path: Path | None = None) -> bool:
@@ -210,7 +186,7 @@ def is_feature_enabled(feature_name: str, path: Path | None = None) -> bool:
 
 
 def install_license_from_file(source: Path, dest: Path | None = None) -> LicenseStatus:
-    dest_path = (dest or default_license_path()).resolve()
+    dest_path = dest or default_license_path()
     try:
         raw = source.read_text(encoding="utf-8")
         doc = json.loads(raw)
@@ -223,12 +199,11 @@ def install_license_from_file(source: Path, dest: Path | None = None) -> License
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     dest_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    _LICENSE_CACHE.pop(dest_path, None)
     return load_license(dest_path)
 
 
 def install_license_from_text(text: str, dest: Path | None = None) -> LicenseStatus:
-    dest_path = (dest or default_license_path()).resolve()
+    dest_path = dest or default_license_path()
     try:
         doc = json.loads(text)
     except json.JSONDecodeError:
@@ -240,6 +215,6 @@ def install_license_from_text(text: str, dest: Path | None = None) -> LicenseSta
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     dest_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    _LICENSE_CACHE.pop(dest_path, None)
     return load_license(dest_path)
+
 
