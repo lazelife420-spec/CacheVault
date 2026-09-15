@@ -1,0 +1,32 @@
+{
+  "name": "CacheVault Post-Release Remediation T0 Pipeline",
+  "steps": [
+    {
+      "name": "DEF-001 Export Truncation Regression Test",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_export_truncation_t0.py"
+      ]
+    },
+    {
+      "name": "DEF-002 SQLite Concurrency Stress Test",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_storage_concurrency_t0.py"
+      ]
+    },
+    {
+      "name": "Full Suite Qualification",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/"
+      ]
+    }
+  ]
+}
