@@ -146,30 +146,34 @@ class VaultStorage:
         # ``:memory:`` is honoured for tests.
         if str(self.db_path) != ":memory:":
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL;")
-        self.conn.executescript(_SCHEMA)
-        self._migrate()
-        self.conn.commit()
-        self._closed = False
-        _OPEN_STORAGES.add(self)
+        self._lock = threading.RLock()
+        with self._lock:
+            self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.executescript(_SCHEMA)
+            self._migrate()
+            self.conn.commit()
+            self._closed = False
+            _OPEN_STORAGES.add(self)
 
     def close(self) -> None:
         if getattr(self, "_closed", False):
             return
-        self._closed = True
-        try:
-            if hasattr(self, "conn") and self.conn:
-                if str(self.db_path) != ":memory:":
-                    try:
-                        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-                    except Exception:
-                        pass
-                self.conn.close()
-        except Exception:
-            pass
+        with getattr(self, "_lock", threading.RLock()):
+            if getattr(self, "_closed", False):
+                return
+            self._closed = True
+            try:
+                if hasattr(self, "conn") and self.conn:
+                    if str(self.db_path) != ":memory:":
+                        try:
+                            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                        except Exception:
+                            pass
+                    self.conn.close()
+            except Exception:
+                pass
 
     @classmethod
     def close_all_open_storages(cls) -> int:
@@ -373,161 +377,156 @@ class VaultStorage:
         """Insert a clip. Collapses a *consecutive* identical capture by
         linking it to the previous one via ``duplicate_of`` rather than
         spamming the list with a fresh row."""
-        prev = self.latest_clip()
-        if prev is not None and prev.content_hash == clip.content_hash:
-            clip.duplicate_of = prev.id
-        self.conn.execute(
-            """INSERT INTO clips (
-                id, created_at, updated_at, content_hash, content_type,
-                content, preview, source_app, source_window, classification,
-                tags, is_pinned, is_kept, is_sensitive, expires_at,
-                deleted_at, duplicate_of, collection, title, source_url,
-                normalized_hash, size_bytes, last_used_at, use_count, copied_count,
-                safe_id, safe_name, capture_mode, is_saved_to_phone
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                clip.id, clip.created_at, clip.updated_at, clip.content_hash,
-                clip.content_type, clip.content, clip.preview, clip.source_app,
-                clip.source_window, clip.classification, json.dumps(clip.tags),
-                int(clip.is_pinned), int(clip.is_kept), int(clip.is_sensitive),
-                clip.expires_at, clip.deleted_at, clip.duplicate_of, clip.collection,
-                clip.title, clip.source_url, clip.normalized_hash, clip.size_bytes,
-                clip.last_used_at or clip.created_at,
-                max(clip.use_count, 1), clip.copied_count,
-                clip.safe_id or "default",
-                clip.safe_name or "Default Safe",
-                clip.capture_mode or models.CAPTURE_AUTO,
-                int(clip.is_saved_to_phone),
-            ),
-        )
-        self.conn.commit()
-        return clip
+        with self._lock:
+            prev = self.latest_clip()
+            if prev is not None and prev.content_hash == clip.content_hash:
+                clip.duplicate_of = prev.id
+            self.conn.execute(
+                """INSERT INTO clips (
+                    id, created_at, updated_at, content_hash, content_type,
+                    content, preview, source_app, source_window, classification,
+                    tags, is_pinned, is_kept, is_sensitive, expires_at,
+                    deleted_at, duplicate_of, collection, title, source_url,
+                    normalized_hash, size_bytes, last_used_at, use_count, copied_count,
+                    safe_id, safe_name, capture_mode, is_saved_to_phone
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    clip.id, clip.created_at, clip.updated_at, clip.content_hash,
+                    clip.content_type, clip.content, clip.preview, clip.source_app,
+                    clip.source_window, clip.classification, json.dumps(clip.tags),
+                    int(clip.is_pinned), int(clip.is_kept), int(clip.is_sensitive),
+                    clip.expires_at, clip.deleted_at, clip.duplicate_of, clip.collection,
+                    clip.title, clip.source_url, clip.normalized_hash, clip.size_bytes,
+                    clip.last_used_at or clip.created_at,
+                    max(clip.use_count, 1), clip.copied_count,
+                    clip.safe_id or "default",
+                    clip.safe_name or "Default Safe",
+                    clip.capture_mode or models.CAPTURE_AUTO,
+                    int(clip.is_saved_to_phone),
+                ),
+            )
+            self.conn.commit()
+            return clip
 
     def get_clip(self, clip_id: str) -> Clip | None:
-        row = self.conn.execute(
-            "SELECT * FROM clips WHERE id = ?", (clip_id,)
-        ).fetchone()
-        return self._row_to_clip(row) if row else None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM clips WHERE id = ?", (clip_id,)
+            ).fetchone()
+            return self._row_to_clip(row) if row else None
 
     def latest_clip(self) -> Clip | None:
-        row = self.conn.execute(
-            "SELECT * FROM clips WHERE deleted_at IS NULL "
-            "ORDER BY created_at DESC, rowid DESC LIMIT 1"
-        ).fetchone()
-        return self._row_to_clip(row) if row else None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM clips WHERE deleted_at IS NULL "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+            return self._row_to_clip(row) if row else None
 
     def _touch(self, clip_id: str) -> None:
-        self.conn.execute(
-            "UPDATE clips SET updated_at = ? WHERE id = ?",
-            (models.now_iso(), clip_id),
-        )
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET updated_at = ? WHERE id = ?",
+                (models.now_iso(), clip_id),
+            )
 
     def touch_clip(self, clip_id: str) -> None:
         """Record that a clip was used (updates last_used_at and use_count)."""
         now = models.now_iso()
-        self.conn.execute(
-            "UPDATE clips SET updated_at = ?, last_used_at = ?, "
-            "use_count = COALESCE(use_count, 0) + 1, "
-            "copied_count = COALESCE(copied_count, 0) + 1 "
-            "WHERE id = ?",
-            (now, now, clip_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET updated_at = ?, last_used_at = ?, "
+                "use_count = COALESCE(use_count, 0) + 1, "
+                "copied_count = COALESCE(copied_count, 0) + 1 "
+                "WHERE id = ?",
+                (now, now, clip_id),
+            )
+            self.conn.commit()
 
     def set_pinned(self, clip_id: str, pinned: bool) -> None:
-        self.conn.execute(
-            "UPDATE clips SET is_pinned = ? WHERE id = ?",
-            (int(pinned), clip_id),
-        )
-        self._touch(clip_id)
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET is_pinned = ? WHERE id = ?",
+                (int(pinned), clip_id),
+            )
+            self._touch(clip_id)
+            self.conn.commit()
 
     def set_kept(self, clip_id: str, kept: bool) -> None:
-        self.conn.execute(
-            "UPDATE clips SET is_kept = ? WHERE id = ?", (int(kept), clip_id)
-        )
-        self._touch(clip_id)
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET is_kept = ? WHERE id = ?", (int(kept), clip_id)
+            )
+            self._touch(clip_id)
+            self.conn.commit()
 
     def set_expiry(self, clip_id: str, expires_at: str | None) -> None:
-        self.conn.execute(
-            "UPDATE clips SET expires_at = ? WHERE id = ?", (expires_at, clip_id)
-        )
-        self._touch(clip_id)
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET expires_at = ? WHERE id = ?", (expires_at, clip_id)
+            )
+            self._touch(clip_id)
+            self.conn.commit()
 
     def set_collection(self, clip_id: str, collection: str | None) -> None:
         name = (collection or "").strip() or None
-        self.conn.execute(
-            "UPDATE clips SET collection = ? WHERE id = ?", (name, clip_id)
-        )
-        self._touch(clip_id)
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET collection = ? WHERE id = ?", (name, clip_id)
+            )
+            self._touch(clip_id)
+            self.conn.commit()
 
     def set_safe(
         self, clip_id: str, safe_id: str, safe_name: str, capture_mode: str | None = None,
     ) -> None:
-        self.conn.execute(
-            "UPDATE clips SET safe_id = ?, safe_name = ?, capture_mode = COALESCE(?, capture_mode) "
-            "WHERE id = ?",
-            (safe_id, safe_name, capture_mode, clip_id),
-        )
-        self._touch(clip_id)
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET safe_id = ?, safe_name = ?, capture_mode = COALESCE(?, capture_mode) "
+                "WHERE id = ?",
+                (safe_id, safe_name, capture_mode, clip_id),
+            )
+            self._touch(clip_id)
+            self.conn.commit()
 
     def list_safes(self) -> list[dict]:
         """Distinct Safe ids (live clips) with counts."""
-        rows = self.conn.execute(
-            "SELECT safe_id AS id, MAX(safe_name) AS name, COUNT(*) AS n FROM clips "
-            "WHERE deleted_at IS NULL AND safe_id IS NOT NULL AND safe_id <> '' "
-            "AND safe_id <> 'ignore' GROUP BY safe_id ORDER BY name COLLATE NOCASE"
-        ).fetchall()
-        return [{"id": r["id"], "name": r["name"], "count": r["n"]} for r in rows]
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT safe_id AS id, MAX(safe_name) AS name, COUNT(*) AS n FROM clips "
+                "WHERE deleted_at IS NULL AND safe_id IS NOT NULL AND safe_id <> '' "
+                "AND safe_id <> 'ignore' GROUP BY safe_id ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+            return [{"id": r["id"], "name": r["name"], "count": r["n"]} for r in rows]
 
     def count_by_capture_mode(self, capture_mode: str) -> int:
-        row = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM clips "
-            "WHERE deleted_at IS NULL AND capture_mode = ?",
-            (capture_mode,),
-        ).fetchone()
-        return int(row["n"]) if row else 0
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM clips "
+                "WHERE deleted_at IS NULL AND capture_mode = ?",
+                (capture_mode,),
+            ).fetchone()
+            return int(row["n"]) if row else 0
 
     def list_by_capture_mode(self, capture_mode: str, *, limit: int = 200) -> list[Clip]:
-        rows = self.conn.execute(
-            "SELECT * FROM clips WHERE deleted_at IS NULL AND capture_mode = ? "
-            "ORDER BY created_at DESC LIMIT ?",
-            (capture_mode, limit),
-        ).fetchall()
-        return [self._row_to_clip(r) for r in rows]
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM clips WHERE deleted_at IS NULL AND capture_mode = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (capture_mode, limit),
+            ).fetchall()
+            return [self._row_to_clip(r) for r in rows]
 
     def soft_delete(self, clip_id: str) -> None:
-        self.conn.execute(
-            "UPDATE clips SET deleted_at = ? WHERE id = ?",
-            (models.now_iso(), clip_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET deleted_at = ? WHERE id = ?",
+                (models.now_iso(), clip_id),
+            )
+            self.conn.commit()
 
     def soft_delete_many(self, clip_ids):
-        """Bulk move-to-Recently-Removed. Atomic contract: dedupe/
-        validate the input first (issue #68's shared helper), perform
-        every UPDATE inside one transaction, and roll back ALL of them
-        -- not just the ones after the failure point -- if anything
-        raises partway through. There is no partial-success return: this
-        method either returns a BulkMutationResult describing a fully
-        committed batch, or raises and leaves the database exactly as it
-        was before the call (verified in
-        tests/test_bulk_vault_actions.py's injected-failure tests).
-        Callers therefore never receive a misleading "N moved" count for
-        a batch that only partially applied.
-
-        Ids that no longer exist or are already soft-deleted are
-        reported in ``.skipped``, not silently dropped -- a matching-
-        wide move resolves ids from a snapshot that may be moments stale
-        relative to the mutation (e.g. the user restored one from
-        another window in between); that's an honest, expected skip, not
-        a failure. Only touches clips.deleted_at -- never clip_assets or
-        any file on disk (see hard_delete for the one path that does).
-        """
+        """Bulk move-to-Recently-Removed."""
         from .selection import BulkMutationResult, dedupe_preserve_order
 
         ids = dedupe_preserve_order(clip_ids)
@@ -536,38 +535,34 @@ class VaultStorage:
         moved: list[str] = []
         skipped: list[str] = []
         now = models.now_iso()
-        try:
-            for cid in ids:
-                row = self.conn.execute(
-                    "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
-                ).fetchone()
-                if row is None or row[0] is not None:
-                    skipped.append(cid)
-                    continue
-                self.conn.execute("UPDATE clips SET deleted_at = ? WHERE id = ?", (now, cid))
-                moved.append(cid)
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
-        return BulkMutationResult(succeeded=tuple(moved), skipped=tuple(skipped))
+        with self._lock:
+            try:
+                for cid in ids:
+                    row = self.conn.execute(
+                        "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
+                    ).fetchone()
+                    if row is None or row[0] is not None:
+                        skipped.append(cid)
+                        continue
+                    self.conn.execute("UPDATE clips SET deleted_at = ? WHERE id = ?", (now, cid))
+                    moved.append(cid)
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            return BulkMutationResult(succeeded=tuple(moved), skipped=tuple(skipped))
 
     def restore(self, clip_id: str) -> None:
         """Bring a soft-deleted clip back into history."""
-        self.conn.execute(
-            "UPDATE clips SET deleted_at = NULL WHERE id = ?", (clip_id,)
-        )
-        self._touch(clip_id)
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET deleted_at = NULL WHERE id = ?", (clip_id,)
+            )
+            self._touch(clip_id)
+            self.conn.commit()
 
     def restore_many(self, clip_ids):
-        """Bulk restore. Atomic contract -- see soft_delete_many's
-        docstring for the full rationale (dedupe/validate first, one
-        transaction, rollback everything on any exception, no partial-
-        success return). Ids that no longer exist or are already active
-        are reported in ``.skipped``, not silently dropped. Never
-        touches clip_assets or any file on disk.
-        """
+        """Bulk restore."""
         from .selection import BulkMutationResult, dedupe_preserve_order
 
         ids = dedupe_preserve_order(clip_ids)
@@ -575,22 +570,23 @@ class VaultStorage:
             return BulkMutationResult()
         restored: list[str] = []
         skipped: list[str] = []
-        try:
-            for cid in ids:
-                row = self.conn.execute(
-                    "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
-                ).fetchone()
-                if row is None or row[0] is None:
-                    skipped.append(cid)
-                    continue
-                self.conn.execute("UPDATE clips SET deleted_at = NULL WHERE id = ?", (cid,))
-                self._touch(cid)
-                restored.append(cid)
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
-        return BulkMutationResult(succeeded=tuple(restored), skipped=tuple(skipped))
+        with self._lock:
+            try:
+                for cid in ids:
+                    row = self.conn.execute(
+                        "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
+                    ).fetchone()
+                    if row is None or row[0] is None:
+                        skipped.append(cid)
+                        continue
+                    self.conn.execute("UPDATE clips SET deleted_at = NULL WHERE id = ?", (cid,))
+                    self._touch(cid)
+                    restored.append(cid)
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            return BulkMutationResult(succeeded=tuple(restored), skipped=tuple(skipped))
 
     def clear_collection(self, collection: str, clip_ids: list[str] | None = None):
         """Atomically clear the collection label from every clip currently
@@ -613,79 +609,51 @@ class VaultStorage:
         if not collection:
             return BulkMutationResult()
 
-        if clip_ids is None:
-            # Resolve all current members from the database for the
-            # headless/bulk path.
-            rows = self.conn.execute(
-                "SELECT id FROM clips WHERE deleted_at IS NULL AND collection = ?",
-                (collection,),
-            ).fetchall()
-            clip_ids = [r[0] for r in rows]
+        with self._lock:
+            if clip_ids is None:
+                rows = self.conn.execute(
+                    "SELECT id FROM clips WHERE deleted_at IS NULL AND collection = ?",
+                    (collection,),
+                ).fetchall()
+                clip_ids = [r[0] for r in rows]
 
-        ids = dedupe_preserve_order(clip_ids)
-        if not ids:
-            return BulkMutationResult()
+            ids = dedupe_preserve_order(clip_ids)
+            if not ids:
+                return BulkMutationResult()
 
-        cleared: list[str] = []
-        skipped: list[str] = []
-        try:
-            for cid in ids:
-                row = self.conn.execute(
-                    "SELECT collection, deleted_at FROM clips WHERE id = ?",
-                    (cid,),
-                ).fetchone()
-                if row is None or row["deleted_at"] is not None or row["collection"] != collection:
-                    skipped.append(cid)
-                    continue
-                self.conn.execute(
-                    "UPDATE clips SET collection = NULL WHERE id = ?",
-                    (cid,),
-                )
-                cleared.append(cid)
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
-        return BulkMutationResult(succeeded=tuple(cleared), skipped=tuple(skipped))
+            cleared: list[str] = []
+            skipped: list[str] = []
+            try:
+                for cid in ids:
+                    row = self.conn.execute(
+                        "SELECT collection, deleted_at FROM clips WHERE id = ?",
+                        (cid,),
+                    ).fetchone()
+                    if row is None or row["deleted_at"] is not None or row["collection"] != collection:
+                        skipped.append(cid)
+                        continue
+                    self.conn.execute(
+                        "UPDATE clips SET collection = NULL WHERE id = ?",
+                        (cid,),
+                    )
+                    cleared.append(cid)
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            return BulkMutationResult(succeeded=tuple(cleared), skipped=tuple(skipped))
 
     def hard_delete(self, clip_id: str) -> None:
-        """Low-level, single-id, unstaged permanent delete: deletes the
-        DB rows and unlinks the managed asset file directly, with no
-        quarantine/rollback safety net.
-
-        Not called by any production/UI code path -- every user-facing
-        permanent deletion (single item, bulk, Delete All) goes through
-        the staged pipeline instead (``hard_delete_many`` for the atomic
-        bulk DB step, orchestrated by
-        ``Vault.permanently_delete_many``/``permanently_remove`` via
-        ``cache_vault.core.permanent_delete``), which adds managed-root
-        containment checks, staging, and partial-purge recovery this
-        method does not have. Kept as a low-level primitive for direct
-        unit testing of the DB+file cleanup itself.
-        """
         from . import image_assets
-        row = self.get_asset_record(clip_id)
-        if row is not None:
-            image_assets.delete_asset_file(row.storage_name)
-            self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (clip_id,))
-        self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
-        self.conn.commit()
+        with self._lock:
+            row = self.get_asset_record(clip_id)
+            if row is not None:
+                image_assets.delete_asset_file(row.storage_name)
+                self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (clip_id,))
+            self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
+            self.conn.commit()
 
     def hard_delete_many(self, clip_ids: list[str]):
-        """Bulk hard-delete of ``clips``/``clip_assets`` rows only -- never
-        touches an asset file itself. Callers that own files on disk (see
-        ``cache_vault.core.permanent_delete``) must stage/purge them
-        separately around this call, since a real filesystem move and a
-        SQLite commit cannot be made a single atomic operation.
-
-        Atomic contract, same as ``soft_delete_many``/``clear_collection``:
-        dedupe first, one transaction, roll back ALL of it on any failure.
-        Each id is independently re-validated as still soft-deleted
-        (``deleted_at IS NOT NULL``) right before its DELETE -- defense in
-        depth against a stale snapshot (e.g. the id was restored by
-        another window between the caller's preflight check and this
-        call), not just relying on the caller to have pre-filtered.
-        """
         from .selection import BulkMutationResult, dedupe_preserve_order
 
         ids = dedupe_preserve_order(clip_ids)
@@ -694,151 +662,149 @@ class VaultStorage:
 
         deleted: list[str] = []
         skipped: list[str] = []
-        try:
-            for cid in ids:
-                row = self.conn.execute(
-                    "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
-                ).fetchone()
-                if row is None or row["deleted_at"] is None:
-                    skipped.append(cid)
-                    continue
-                self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (cid,))
-                self.conn.execute("DELETE FROM clips WHERE id = ?", (cid,))
-                deleted.append(cid)
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
-        return BulkMutationResult(succeeded=tuple(deleted), skipped=tuple(skipped))
+        with self._lock:
+            try:
+                for cid in ids:
+                    row = self.conn.execute(
+                        "SELECT deleted_at FROM clips WHERE id = ?", (cid,)
+                    ).fetchone()
+                    if row is None or row["deleted_at"] is None:
+                        skipped.append(cid)
+                        continue
+                    self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (cid,))
+                    self.conn.execute("DELETE FROM clips WHERE id = ?", (cid,))
+                    deleted.append(cid)
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            return BulkMutationResult(succeeded=tuple(deleted), skipped=tuple(skipped))
 
     # --- image assets --------------------------------------------------------
     def has_clip_asset(self, clip_id: str) -> bool:
-        row = self.conn.execute(
-            "SELECT 1 FROM clip_assets WHERE clip_id = ?", (clip_id,)
-        ).fetchone()
-        return row is not None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT 1 FROM clip_assets WHERE clip_id = ?", (clip_id,)
+            ).fetchone()
+            return row is not None
 
     def get_asset_record(self, clip_id: str):
         from .image_assets import ClipAssetRecord
-        row = self.conn.execute(
-            "SELECT * FROM clip_assets WHERE clip_id = ?", (clip_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        return ClipAssetRecord(
-            asset_id=row["asset_id"],
-            clip_id=row["clip_id"],
-            mime_type=row["mime_type"],
-            file_ext=row["file_ext"],
-            size_bytes=row["size_bytes"],
-            sha256=row["sha256"],
-            created_at=row["created_at"],
-            original_name=row["original_name"],
-            storage_name=row["storage_name"],
-            width=row["width"],
-            height=row["height"],
-        )
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM clip_assets WHERE clip_id = ?", (clip_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return ClipAssetRecord(
+                asset_id=row["asset_id"],
+                clip_id=row["clip_id"],
+                mime_type=row["mime_type"],
+                file_ext=row["file_ext"],
+                size_bytes=row["size_bytes"],
+                sha256=row["sha256"],
+                created_at=row["created_at"],
+                original_name=row["original_name"],
+                storage_name=row["storage_name"],
+                width=row["width"],
+                height=row["height"],
+            )
 
     def save_clip_asset(self, record, data: bytes) -> None:
         from . import image_assets
         image_assets.write_asset_file(record.storage_name, data)
-        self.conn.execute(
-            """INSERT INTO clip_assets (
-                asset_id, clip_id, mime_type, file_ext, size_bytes, sha256,
-                created_at, original_name, storage_name, width, height
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                record.asset_id, record.clip_id, record.mime_type, record.file_ext,
-                record.size_bytes, record.sha256, record.created_at,
-                record.original_name, record.storage_name, record.width, record.height,
-            ),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO clip_assets (
+                    asset_id, clip_id, mime_type, file_ext, size_bytes, sha256,
+                    created_at, original_name, storage_name, width, height
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    record.asset_id, record.clip_id, record.mime_type, record.file_ext,
+                    record.size_bytes, record.sha256, record.created_at,
+                    record.original_name, record.storage_name, record.width, record.height,
+                ),
+            )
+            self.conn.commit()
 
     def load_clip_asset_bytes(self, clip_id: str) -> tuple[bytes, str] | None:
         from . import image_assets
-        rec = self.get_asset_record(clip_id)
-        if rec is None:
-            return None
-        data = image_assets.read_asset_file(rec.storage_name)
-        if data is None:
-            return None
-        return data, rec.mime_type
+        with self._lock:
+            rec = self.get_asset_record(clip_id)
+            if rec is None:
+                return None
+            data = image_assets.read_asset_file(rec.storage_name)
+            if data is None:
+                return None
+            return data, rec.mime_type
 
     def list_collections(self) -> list[dict]:
         """Distinct collection names (live clips) with their counts."""
-        rows = self.conn.execute(
-            "SELECT collection AS name, COUNT(*) AS n FROM clips "
-            "WHERE deleted_at IS NULL AND collection IS NOT NULL "
-            "AND collection <> '' GROUP BY collection ORDER BY collection COLLATE NOCASE"
-        ).fetchall()
-        return [{"name": r["name"], "count": r["n"]} for r in rows]
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT collection AS name, COUNT(*) AS n FROM clips "
+                "WHERE deleted_at IS NULL AND collection IS NOT NULL "
+                "AND collection <> '' GROUP BY collection ORDER BY collection COLLATE NOCASE"
+            ).fetchall()
+            return [{"name": r["name"], "count": r["n"]} for r in rows]
 
     def scrub_and_expire(self, clip_id: str) -> None:
-        """Remove a clip's secret content and mark it expired.
-
-        Used for sensitive auto-expiry: the row survives for the Expired view
-        and the event log, but the secret is gone.
-        """
         now = models.now_iso()
-        self.conn.execute(
-            "UPDATE clips SET content = '', preview = '(expired)', "
-            "deleted_at = ?, updated_at = ? WHERE id = ?",
-            (now, now, clip_id),
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "UPDATE clips SET content = '', preview = '(expired)', "
+                "deleted_at = ?, updated_at = ? WHERE id = ?",
+                (now, now, clip_id),
+            )
+            self.conn.commit()
 
     def expire_due(self, now_iso: str | None = None) -> list[str]:
-        """Scrub every clip whose ``expires_at`` has passed. Returns ids."""
         now_iso = now_iso or models.now_iso()
-        rows = self.conn.execute(
-            "SELECT id FROM clips WHERE expires_at IS NOT NULL "
-            "AND expires_at <= ? AND deleted_at IS NULL",
-            (now_iso,),
-        ).fetchall()
-        ids = [r["id"] for r in rows]
-        for cid in ids:
-            self.scrub_and_expire(cid)
-        return ids
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id FROM clips WHERE expires_at IS NOT NULL "
+                "AND expires_at <= ? AND deleted_at IS NULL",
+                (now_iso,),
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+            for cid in ids:
+                self.scrub_and_expire(cid)
+            return ids
 
     def clear_sensitive(self) -> list[str]:
-        """Immediately scrub/expire all live sensitive clips. Returns ids."""
-        rows = self.conn.execute(
-            "SELECT id FROM clips WHERE is_sensitive = 1 AND deleted_at IS NULL"
-        ).fetchall()
-        ids = [r["id"] for r in rows]
-        for cid in ids:
-            self.scrub_and_expire(cid)
-        return ids
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id FROM clips WHERE is_sensitive = 1 AND deleted_at IS NULL"
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+            for cid in ids:
+                self.scrub_and_expire(cid)
+            return ids
 
     def prune_history(self, max_clips: int) -> list[str]:
-        """Soft-delete oldest non-favorite live clips until count <= max_clips.
-
-        Pruned clips land in Recently Removed (restorable). Favorites are never
-        pruned. Returns the ids that were removed from history.
-        """
         if max_clips <= 0:
             return []
-        count = self.conn.execute(
-            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL"
-        ).fetchone()[0]
-        overflow = count - max_clips
-        if overflow <= 0:
-            return []
-        rows = self.conn.execute(
-            "SELECT id FROM clips WHERE deleted_at IS NULL AND is_pinned = 0 "
-            "ORDER BY created_at ASC, rowid ASC LIMIT ?",
-            (overflow,),
-        ).fetchall()
-        ids = [r["id"] for r in rows]
-        now = models.now_iso()
-        for cid in ids:
-            self.conn.execute(
-                "UPDATE clips SET deleted_at = ? WHERE id = ?", (now, cid)
-            )
-        if ids:
-            self.conn.commit()
-        return ids
+        with self._lock:
+            count = self.conn.execute(
+                "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL"
+            ).fetchone()[0]
+            overflow = count - max_clips
+            if overflow <= 0:
+                return []
+            rows = self.conn.execute(
+                "SELECT id FROM clips WHERE deleted_at IS NULL AND is_pinned = 0 "
+                "ORDER BY created_at ASC, rowid ASC LIMIT ?",
+                (overflow,),
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+            now = models.now_iso()
+            for cid in ids:
+                self.conn.execute(
+                    "UPDATE clips SET deleted_at = ? WHERE id = ?", (now, cid)
+                )
+            if ids:
+                self.conn.commit()
+            return ids
 
     # --- reads / queries ---------------------------------------------------
     @staticmethod
@@ -1023,7 +989,12 @@ class VaultStorage:
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params = [*params, limit, offset]
-        rows = (conn or self.conn).execute(sql, params).fetchall()
+        target_conn = conn or self.conn
+        if target_conn is self.conn:
+            with self._lock:
+                rows = target_conn.execute(sql, params).fetchall()
+        else:
+            rows = target_conn.execute(sql, params).fetchall()
         return [self._row_to_clip(r) for r in rows]
 
     def count_clips(self, query=None, conn=None) -> int:
@@ -1032,18 +1003,17 @@ class VaultStorage:
         query = self._normalize_query(query)
         where, params = self._build_where(query)
         sql = "SELECT COUNT(*) FROM clips WHERE " + " AND ".join(where)
-        row = (conn or self.conn).execute(sql, params).fetchone()
+        target_conn = conn or self.conn
+        if target_conn is self.conn:
+            with self._lock:
+                row = target_conn.execute(sql, params).fetchone()
+        else:
+            row = target_conn.execute(sql, params).fetchone()
         return int(row[0]) if row else 0
 
     def list_clip_ids(
         self, query=None, *, limit: int | None = None, offset: int = 0, conn=None,
     ) -> list[str]:
-        """Same matching semantics as ``list_clips`` (same WHERE/ORDER BY
-        construction) but selects only ``id`` -- for "select all matching"
-        and similar selection-resolution code that needs identities, not
-        full ``Clip`` bodies (content, previews). Avoids materializing
-        content/thumbnail columns just to collect ids on a large vault.
-        """
         from .search import sort_sql  # noqa: PLC0415
 
         query = self._normalize_query(query)
@@ -1054,23 +1024,15 @@ class VaultStorage:
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params = [*params, limit, offset]
-        rows = (conn or self.conn).execute(sql, params).fetchall()
+        target_conn = conn or self.conn
+        if target_conn is self.conn:
+            with self._lock:
+                rows = target_conn.execute(sql, params).fetchall()
+        else:
+            rows = target_conn.execute(sql, params).fetchall()
         return [r[0] for r in rows]
 
     def iter_clip_ids(self, query=None, *, batch_size: int = 500, conn=None):
-        """Yield matching clip ids in bounded batches (id-only, ordered by
-        the query's own sort) -- for actions over a "select all matching"
-        selection that must never pull the full id list (let alone clip
-        bodies) into memory at once on a large vault.
-
-        Uses ``list_clip_ids``'s own LIMIT/OFFSET paging per batch. A
-        mutation interleaved between batches (e.g. this same action
-        soft-deleting rows as it goes) can only ever shift *later* batches,
-        never re-emit or corrupt ids already yielded -- callers performing
-        a destructive action across many batches should still re-derive
-        protection state per item at execution time regardless, same as
-        the existing cleanup mutation path (see cleanup_actions.py).
-        """
         offset = 0
         while True:
             batch = self.list_clip_ids(query, limit=batch_size, offset=offset, conn=conn)
@@ -1082,40 +1044,64 @@ class VaultStorage:
             offset += batch_size
 
     def count_images(self, conn=None) -> int:
-        return (conn or self.conn).execute(
-            "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
-            "AND (classification = ? OR content_type = ?)",
-            (models.CLASS_IMAGE, models.CONTENT_IMAGE),
-        ).fetchone()[0]
+        target_conn = conn or self.conn
+        if target_conn is self.conn:
+            with self._lock:
+                return target_conn.execute(
+                    "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
+                    "AND (classification = ? OR content_type = ?)",
+                    (models.CLASS_IMAGE, models.CONTENT_IMAGE),
+                ).fetchone()[0]
+        else:
+            return target_conn.execute(
+                "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL "
+                "AND (classification = ? OR content_type = ?)",
+                (models.CLASS_IMAGE, models.CONTENT_IMAGE),
+            ).fetchone()[0]
 
     def asset_storage_ready(self) -> bool:
         """True when the clip_assets table exists (screenshot storage is available)."""
-        try:
-            self.conn.execute("SELECT 1 FROM clip_assets LIMIT 1")
-            return True
-        except sqlite3.OperationalError:
-            return False
+        with self._lock:
+            try:
+                self.conn.execute("SELECT 1 FROM clip_assets LIMIT 1")
+                return True
+            except sqlite3.OperationalError:
+                return False
 
     def count_duplicate_groups(self, conn=None) -> int:
-        row = (conn or self.conn).execute(
+        target_conn = conn or self.conn
+        sql = (
             "SELECT COUNT(*) FROM ("
             "SELECT content_hash FROM clips WHERE deleted_at IS NULL "
             "GROUP BY content_hash HAVING COUNT(*) > 1)"
-        ).fetchone()
+        )
+        if target_conn is self.conn:
+            with self._lock:
+                row = target_conn.execute(sql).fetchone()
+        else:
+            row = target_conn.execute(sql).fetchone()
         return int(row[0]) if row else 0
 
     def events_for_clip(self, clip_id: str, limit: int = 50) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT * FROM events WHERE clip_id = ? "
-            "ORDER BY created_at DESC LIMIT ?",
-            (clip_id, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM events WHERE clip_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (clip_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def counts(self, conn=None) -> dict[str, int]:
         """Count of live clips per sidebar filter (for the badges)."""
+        target_conn = conn or self.conn
+        if target_conn is self.conn:
+            with self._lock:
+                return self._counts_impl(target_conn)
+        else:
+            return self._counts_impl(target_conn)
+
+    def _counts_impl(self, c) -> dict[str, int]:
         out: dict[str, int] = {}
-        c = conn or self.conn
         out[FILTER_ALL] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL"
         ).fetchone()[0]
@@ -1132,7 +1118,7 @@ class VaultStorage:
         out[FILTER_SENSITIVE] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND is_sensitive = 1"
         ).fetchone()[0]
-        out[FILTER_DUPLICATES] = self.count_duplicate_groups(conn=conn)
+        out[FILTER_DUPLICATES] = self.count_duplicate_groups(conn=c)
         out[FILTER_TODAY] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at >= ?",
             (_start_of_today_iso(),),
@@ -1145,7 +1131,7 @@ class VaultStorage:
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NULL AND created_at < ?",
             (_start_of_week_iso(),),
         ).fetchone()[0]
-        out[FILTER_SCREENSHOTS] = self.count_images(conn=conn)
+        out[FILTER_SCREENSHOTS] = self.count_images(conn=c)
         out[FILTER_EXPIRED] = c.execute(
             "SELECT COUNT(*) FROM clips WHERE deleted_at IS NOT NULL "
             "AND expires_at IS NOT NULL"
