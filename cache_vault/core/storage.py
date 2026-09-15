@@ -508,6 +508,19 @@ class VaultStorage:
             ).fetchone()
             return int(row["n"]) if row else 0
 
+    def count_duplicate_groups(self) -> int:
+        """Return the count of exact duplicate groups using SQL aggregation."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM ("
+                "  SELECT content_hash FROM clips "
+                "  WHERE deleted_at IS NULL AND content_hash IS NOT NULL AND content_hash != '' "
+                "  GROUP BY content_hash HAVING COUNT(*) > 1"
+                ")"
+            ).fetchone()
+            return int(row["n"]) if row else 0
+
+
     def list_by_capture_mode(self, capture_mode: str, *, limit: int = 200) -> list[Clip]:
         with self._lock:
             rows = self.conn.execute(
@@ -647,11 +660,22 @@ class VaultStorage:
         from . import image_assets
         with self._lock:
             row = self.get_asset_record(clip_id)
-            if row is not None:
-                image_assets.delete_asset_file(row.storage_name)
-                self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (clip_id,))
-            self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
-            self.conn.commit()
+            asset_storage_name = row.storage_name if row is not None else None
+            try:
+                if row is not None:
+                    self.conn.execute("DELETE FROM clip_assets WHERE clip_id = ?", (clip_id,))
+                self.conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+
+            if asset_storage_name is not None:
+                try:
+                    image_assets.delete_asset_file(asset_storage_name)
+                except Exception:
+                    pass
+
 
     def hard_delete_many(self, clip_ids: list[str]):
         from .selection import BulkMutationResult, dedupe_preserve_order

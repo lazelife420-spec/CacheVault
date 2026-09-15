@@ -1,5 +1,5 @@
 {
-  "name": "CacheVault Post-Release Remediation T0 Pipeline",
+  "name": "CacheVault Post-Release Maintenance T1 Pipeline",
   "steps": [
     {
       "name": "DEF-001 Export Truncation Regression Test",
@@ -38,7 +38,34 @@
       ]
     },
     {
-      "name": "Tranche 0 Regression Suite Qualification",
+      "name": "DEF-006 License In-Memory Cache Qualification Test",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_licensing_cache_v024.py"
+      ]
+    },
+    {
+      "name": "DEF-009 SQL Duplicate Aggregation & Negative Control Test",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_duplicates_sql_v024.py"
+      ]
+    },
+    {
+      "name": "DEF-007 Storage Hard Delete Ordering Test",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_storage_maintenance_v024.py"
+      ]
+    },
+    {
+      "name": "Tranche 1 Full Maintenance Qualification Suite",
       "command": "python",
       "args": [
         "-m",
@@ -46,8 +73,12 @@
         "tests/test_export_truncation_t0.py",
         "tests/test_storage_concurrency_t0.py",
         "tests/test_regex_macros_atomic_t0.py",
-        "tests/test_image_clipboard_retry_t0.py"
+        "tests/test_image_clipboard_retry_t0.py",
+        "tests/test_licensing_cache_v024.py",
+        "tests/test_duplicates_sql_v024.py",
+        "tests/test_storage_maintenance_v024.py"
       ]
     }
   ]
 }
+

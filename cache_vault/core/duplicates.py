@@ -85,7 +85,8 @@ def find_possible_duplicate_groups(storage: VaultStorage) -> list[DuplicateGroup
 
 
 def count_duplicate_groups(storage: VaultStorage) -> int:
-    return len(find_exact_duplicate_groups(storage))
+    return storage.count_duplicate_groups()
+
 
 
 def duplicate_label(group: DuplicateGroup) -> str:
