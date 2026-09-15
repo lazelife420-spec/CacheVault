@@ -20,12 +20,33 @@
       ]
     },
     {
-      "name": "Full Suite Qualification",
+      "name": "DEF-003 Atomic Regex Macro Persistence Test",
       "command": "python",
       "args": [
         "-m",
         "pytest",
-        "tests/"
+        "tests/test_regex_macros_atomic_t0.py"
+      ]
+    },
+    {
+      "name": "DEF-008 Image Clipboard Retry Test",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_image_clipboard_retry_t0.py"
+      ]
+    },
+    {
+      "name": "Tranche 0 Regression Suite Qualification",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_export_truncation_t0.py",
+        "tests/test_storage_concurrency_t0.py",
+        "tests/test_regex_macros_atomic_t0.py",
+        "tests/test_image_clipboard_retry_t0.py"
       ]
     }
   ]
