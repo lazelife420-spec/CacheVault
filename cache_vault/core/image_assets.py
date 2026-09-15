@@ -279,11 +279,12 @@ def write_clipboard_png(png_bytes: bytes) -> bool:
     try:
         import win32clipboard  # type: ignore
         import win32con  # type: ignore
+        from .paste_delivery import _open_clipboard_with_retry
     except Exception:  # noqa: BLE001
         return False
     try:
         dib = png_to_dib(png_bytes)
-        win32clipboard.OpenClipboard()
+        _open_clipboard_with_retry(win32clipboard, operation="write_clipboard_png")
         try:
             win32clipboard.EmptyClipboard()
             # CF_DIB is what most Windows apps (Paint, Word, Discord) expect.
@@ -309,10 +310,11 @@ def clipboard_has_image() -> bool:
     try:
         import win32clipboard  # type: ignore
         import win32con  # type: ignore
+        from .paste_delivery import _open_clipboard_with_retry
     except Exception:  # noqa: BLE001
         return False
     try:
-        win32clipboard.OpenClipboard()
+        _open_clipboard_with_retry(win32clipboard, operation="clipboard_has_image")
         try:
             # Check for PNG registered format first
             png_fmt = win32clipboard.RegisterClipboardFormat("PNG")
