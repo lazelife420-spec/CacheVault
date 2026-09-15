@@ -186,7 +186,8 @@ def save_regex_macros(macros: list[RegexMacro]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         raw = [m.to_dict() for m in macros]
-        path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+        from . import safe_io
+        safe_io.atomic_write_text(path, json.dumps(raw, indent=2), encoding="utf-8")
     except Exception:
         pass
 
