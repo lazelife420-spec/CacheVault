@@ -255,7 +255,7 @@ def _build_artifacts(clips: list[Clip], *, include_files: bool,
     file_copies: list[tuple[str, str]] = []
     for i, clip in enumerate(clips):
         stem = f"{i:03d}_{_slug(clip.preview or clip.id)}"
-        generated[f"clips/{stem}.txt"] = clip.preview or clip.content or ""
+        generated[f"clips/{stem}.txt"] = clip.content or clip.preview or ""
         if clip.content_type == models.CONTENT_IMAGE and load_asset_bytes:
             data = load_asset_bytes(clip.id)
             if data:
