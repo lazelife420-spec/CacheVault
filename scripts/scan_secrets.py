@@ -52,6 +52,9 @@ EXCLUDED_PATHS = {
     ".snapshots", "build", "dist", "cache_vault.egg-info",
     ".claude", ".wrangler", "authorized_commit_settings_repair.py",
     "cv_visual_acceptance.py",
+    # Local untracked working dirs (review evidence, scratch scripts) never ship
+    # and may legitimately quote dev-machine paths.
+    "review", "scratch",
 }
 
 # Evidence/report documents document scanner state, canonical records, receipts,

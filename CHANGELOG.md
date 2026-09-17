@@ -4,6 +4,38 @@
 
 _No unreleased changes yet._
 
+## Cache Vault v0.2.4 (2026-09-17)
+
+Security release — founder license-signing authority rotation — plus the
+post-v0.2.3 maintenance tranche. Supersedes v0.2.3 as the public release
+line. The v0.2.3 artifacts remain historical: they embed the retired
+founder public key and cannot validate licenses issued under the new
+authority.
+
+### Security
+- **Founder authority rotation**: the embedded Ed25519 founder public key
+  was rotated to a new authority generated after host secret-boundary
+  remediation (`C:\secure` restricted to SYSTEM + Administrators). The
+  retired public key was removed from the production verifier; licenses
+  signed by the retired authority now fail closed as `INVALID_SIGNATURE`.
+  License census proved no external production licenses existed; the single
+  owner/internal license was reissued under the new authority.
+- Private-key hygiene proven: no private-key material in the tracked tree,
+  git history, or packaged artifacts; private custody remains outside the
+  repo under `C:\secure`.
+
+### Fixed
+- Export: resolved export-artifact truncation precedence bug (DEF-001).
+- Storage: re-entrant thread synchronization for the SQLite connection
+  (DEF-002).
+- Macros: regex macro persistence via atomic writes (DEF-003).
+- Image capture: bounded retry on `OpenClipboard` contention (DEF-008).
+- Duplicates: duplicate-detection SQL aggregation fix (DEF-009).
+
+### CI
+- Added `.forge-ci.json` Reality Gate qualification steps for the
+  maintenance tranche.
+
 ## Cache Vault v0.2.3 (2026-09-14)
 
 General Availability release incorporating window-geometry persistence, display work-area clamping, and the Settings Hub first-paint repair.

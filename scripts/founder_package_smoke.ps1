@@ -16,7 +16,7 @@ if ($exeText -notmatch "cache_vault\.ui\.founder") {
     throw "Packaged exe missing cache_vault.ui.founder — rebuild before release"
 }
 
-$testLicense = "C:\secure\cachevault-keys\founder-test-license.json"
+$testLicense = "C:\secure\cachevault-keys\founder-owner-license.json"
 if (-not (Test-Path -LiteralPath $testLicense)) {
     throw "Missing test license: $testLicense"
 }

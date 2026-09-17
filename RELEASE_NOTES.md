@@ -1,3 +1,19 @@
+# Cache Vault v0.2.4 (Security Release — Founder Authority Rotation)
+
+> **Status:** Post-rotation release candidate. Rotates the embedded founder license-signing public key to a new Ed25519 authority generated under remediated host custody, and carries the post-v0.2.3 maintenance tranche. Supersedes v0.2.3 as the public release line; v0.2.3 artifacts remain historical and still trust the retired authority.
+
+## What is new in v0.2.4
+
+- **Founder authority rotation (security)**: the embedded Ed25519 founder public key was rotated after host secret-boundary remediation (`C:\secure` restricted to SYSTEM + Administrators). The retired public key is no longer trusted — licenses signed under it fail closed as `INVALID_SIGNATURE`. A bounded license census proved no external production licenses exist; the single owner/internal license was reissued under the new authority.
+- **Private-key custody**: the new signing key lives outside the repository under ACL-protected custody; no private-key material exists in the tracked tree, git history, or packaged artifacts.
+- **Maintenance tranche**: export truncation precedence fix (DEF-001), re-entrant SQLite connection synchronization (DEF-002), atomic regex-macro persistence (DEF-003), bounded `OpenClipboard` retry for image capture (DEF-008), and a duplicate-detection SQL fix (DEF-009).
+
+## Upgrade note for Founder licensees
+
+Builds up to and including v0.2.3 embed the retired founder authority and **cannot validate licenses issued under the new authority**. Founder licensing requires v0.2.4 or newer; owner/internal licenses have been reissued.
+
+---
+
 # Cache Vault v0.2.3 (General Availability)
 
 > **Status as of final release (2026-09-14):** Qualified, packaged, published to Proof Foundry downloads host. Includes window-geometry persistence, display scaling/bounds clamping, and the Settings Hub first-paint flash elimination.
