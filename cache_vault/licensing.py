@@ -29,7 +29,7 @@ EDITION_FOUNDER = "founder"
 
 # Embedded public key — private counterpart kept outside the repository.
 _FOUNDER_PUBLIC_KEY_PEM = b"""-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAwcd2DCZRMlUs3DO93lZZgmiiigt88j+IR1Zv6JiePhU=
+MCowBQYDK2VwAyEArWUoH2j6ETvIvXKup3BlkC4ZkNK5zkvmWTs2ZZ1v08Y=
 -----END PUBLIC KEY-----"""
 
 FOUNDER_FEATURES: frozenset[str] = frozenset({
