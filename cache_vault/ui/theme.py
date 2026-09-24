@@ -76,7 +76,7 @@ def nav_hover_bg() -> tuple[str, str]:
 def section_heading(**extra) -> dict:
     return {
         "text_color": brand.STAMP_GOLD,
-        "font": ctk.CTkFont(size=12, weight="bold"),
+        "font": font(size=12, weight="bold"),
         **extra,
     }
 
@@ -171,6 +171,16 @@ def font(
 
 def body_font(size: int = 12) -> ctk.CTkFont:
     return font(size=size)
+
+
+def meta_font(size: int = 10) -> ctk.CTkFont:
+    """Small metadata/caption role (timestamps, source lines, hints)."""
+    return font(size=size)
+
+
+def heading_font(size: int = 15, weight: str = "bold") -> ctk.CTkFont:
+    """Card/section heading role."""
+    return font(size=size, weight=weight)
 
 
 def mono_font(size: int = 11) -> ctk.CTkFont:

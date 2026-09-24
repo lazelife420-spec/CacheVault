@@ -18,7 +18,7 @@ import customtkinter as ctk
 
 from ..core.models import Clip
 from ..core import models
-from . import theme
+from . import theme, window_geometry
 from .. import brand
 
 
@@ -67,7 +67,7 @@ class QuickPaste(ctk.CTkToplevel):
         self._header_label = ctk.CTkLabel(
             self, anchor="w",
             text=f"{brand.QUICK_PASTE_HEADER}   —   {brand.QUICK_PASTE_HINT}",
-            font=ctk.CTkFont(size=11), text_color=brand.PROOF_TEAL,
+            font=theme.body_font(11), text_color=brand.PROOF_TEAL,
         )
         self._header_label.pack(fill="x", padx=12, pady=(10, 4))
         self._status_reset_job: str | None = None
@@ -81,7 +81,7 @@ class QuickPaste(ctk.CTkToplevel):
         self._search.pack(fill="x", padx=10, pady=(0, 8))
         self._query_var.trace_add("write", lambda *_: self._render_rows())
 
-        self._list = ctk.CTkScrollableFrame(self, fg_color=("gray96", "gray16"))
+        self._list = ctk.CTkScrollableFrame(self, fg_color=brand.ROW_BG)
         self._list.pack(fill="both", expand=True, padx=8, pady=(0, 10))
         self._render_rows()
 
@@ -130,7 +130,7 @@ class QuickPaste(ctk.CTkToplevel):
         self._index = min(self._index, max(0, len(self._clips) - 1))
         if not self._clips:
             ctk.CTkLabel(self._list, text="No matching clips.",
-                         text_color=("gray50", "gray55")).pack(pady=30)
+                         text_color=brand.MUTED_FG).pack(pady=30)
             return
         for i, clip in enumerate(self._clips):
             self._rows.append(self._build_row(i, clip))
@@ -142,11 +142,11 @@ class QuickPaste(ctk.CTkToplevel):
         num = f"{i + 1}" if i < 9 else " "
         badge = "🔒" if clip.is_sensitive else _BADGE.get(clip.classification, "TEXT")
         ctk.CTkLabel(row, text=num, width=18,
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=("gray45", "gray60")).pack(side="left", padx=(8, 2))
+                     font=theme.font(size=12, weight="bold"),
+                     text_color=brand.MUTED_FG).pack(side="left", padx=(8, 2))
         ctk.CTkLabel(row, text=badge, width=54,
-                     font=ctk.CTkFont(size=10, weight="bold"),
-                     text_color=("#b04632" if clip.is_sensitive else "gray45")
+                     font=theme.font(size=10, weight="bold"),
+                     text_color=brand.WARNING_RED if clip.is_sensitive else brand.MUTED_FG,
                      ).pack(side="left")
         body = ctk.CTkFrame(row, fg_color="transparent")
         body.pack(side="left", fill="x", expand=True, padx=4, pady=6)
@@ -154,8 +154,8 @@ class QuickPaste(ctk.CTkToplevel):
                      justify="left", wraplength=300).pack(fill="x")
         meta = f"{_display(clip.safe_name)} · {_display(clip.source_app)} · {_short(clip.date_used or clip.created_at)}"
         ctk.CTkLabel(body, text=meta, anchor="w",
-                     font=ctk.CTkFont(size=10),
-                     text_color=("gray45", "gray58")).pack(fill="x")
+                     font=theme.meta_font(10),
+                     text_color=brand.MUTED_FG).pack(fill="x")
         actions = ctk.CTkFrame(row, fg_color="transparent")
         actions.pack(side="right", padx=(4, 8))
         ctk.CTkButton(
@@ -173,6 +173,7 @@ class QuickPaste(ctk.CTkToplevel):
                 width=52,
                 height=24,
                 command=lambda k=i: self._choose(k, ACTION_OPEN),
+                **theme.secondary_button(),
             ).pack(side="left", padx=2)
             ctk.CTkButton(
                 actions,
@@ -180,10 +181,11 @@ class QuickPaste(ctk.CTkToplevel):
                 width=64,
                 height=24,
                 command=lambda k=i: self._choose(k, ACTION_SAVE_AS),
+                **theme.secondary_button(),
             ).pack(side="left", padx=2)
         if clip.is_pinned:
-            ctk.CTkLabel(row, text="★", width=20, text_color="#f5b301",
-                         font=ctk.CTkFont(size=12)).pack(side="right", padx=(0, 2))
+            ctk.CTkLabel(row, text="★", width=20, text_color=brand.STAMP_GOLD,
+                         font=theme.font(size=12)).pack(side="right", padx=(0, 2))
         for w in (row, *row.winfo_children()):
             w.bind("<Button-1>", lambda _e, k=i: self._choose(k, ACTION_PRIMARY))
             w.bind("<Enter>", lambda _e, k=i: self._set_index(k))
@@ -329,14 +331,24 @@ class QuickPaste(ctk.CTkToplevel):
             pass
 
     def _cursor_geometry(self, w: int, h: int) -> str:
-        """Place the popup at the mouse cursor, clamped to the screen."""
+        """Place the popup at the mouse cursor, clamped to the work area.
+
+        The work area (screen minus the taskbar, via SystemParametersInfoW)
+        is physical pixels, so the logical CTk size is converted before
+        clamping -- geometry() offsets pass through unscaled. Falls back to
+        the full screen rect when the work area can't be read (tests,
+        unusual sessions)."""
         px, py = self.winfo_pointerx(), self.winfo_pointery()
-        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        # Offset slightly down-right of the cursor (like a context menu), then
-        # clamp so the whole popup stays on screen.
-        x = min(px + 4, sw - w - 8)
-        y = min(py + 4, sh - h - 8)
-        x, y = max(8, x), max(8, y)
+        scaling = window_geometry.window_scaling(self)
+        phys_w, phys_h = window_geometry.to_physical_size(w, h, scaling)
+        area = window_geometry.query_work_area(self)
+        if area == (0, 0, 0, 0):
+            area = (0, 0, self.winfo_screenwidth(), self.winfo_screenheight())
+        # Offset slightly down-right of the cursor (like a context menu),
+        # then keep the whole popup inside the work area with a small inset.
+        ax, ay, aw, ah = area
+        inner = (ax + 8, ay + 8, max(1, aw - 16), max(1, ah - 16))
+        x, y = window_geometry.clamp_position(px + 4, py + 4, phys_w, phys_h, inner)
         return f"{w}x{h}+{x}+{y}"
 
 

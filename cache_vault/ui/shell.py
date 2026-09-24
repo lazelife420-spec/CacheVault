@@ -842,28 +842,22 @@ class CacheVaultApp(ctk.CTk):
             callbacks=self._control_strip_callbacks(),
         )
         self._control_strip.grid(row=0, column=0, sticky="ew")
-        ctk.CTkButton(top, text=brand.TERM_EXPORT, width=130,
-                      command=self._export_view, **theme.primary_button()
-                      ).grid(row=0, column=1, padx=4)
-        self._top_receipts_btn = ctk.CTkButton(
-            top, text=brand.TERM_STAMPED_RECEIPTS, width=130,
-            command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
-            **theme.secondary_button())
-        self._top_receipts_btn.grid(row=0, column=2, padx=4)
-        self._top_capture_rules_btn = ctk.CTkButton(
-            top, text="⚡ Capture Rules", width=120, command=self._open_regex_macros,
-            **theme.secondary_button())
-        self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
-        # Compact-width overflow for the two buttons above -- see
-        # _set_toolbar_compact. Occupies their combined grid slot but stays
-        # ungridded (not merely invisible) until compact mode needs it, so
-        # it never steals layout space at standard/wide widths.
+        # One dominant action: Quick Paste is the product's signature
+        # workflow. Lower-frequency operations (Export, Stamped Receipts,
+        # Capture Rules) live in the always-present "More" overflow so the
+        # top bar reads as state -> action -> overflow -> settings instead of
+        # a wall of equally-weighted buttons.
+        self._top_quick_paste_btn = ctk.CTkButton(
+            top, text="Quick Paste", width=110,
+            command=self._schedule_quick_paste, **theme.primary_button())
+        self._top_quick_paste_btn.grid(row=0, column=1, padx=4)
         self._top_more_btn = ctk.CTkButton(
             top, text="More ▾", width=90, command=self._open_top_overflow_menu,
             **theme.secondary_button())
+        self._top_more_btn.grid(row=0, column=2, padx=4)
         ctk.CTkButton(top, text="⚙ Settings", width=90, command=self._open_settings,
                       **theme.secondary_button()
-                      ).grid(row=0, column=4, padx=(4, 12))
+                      ).grid(row=0, column=3, padx=(4, 12))
 
         # Panels.
         self._filters = FilterNav(self, on_select=self._on_filter_select,
@@ -3451,26 +3445,23 @@ class CacheVaultApp(ctk.CTk):
         """Drop the least-essential toolbar chrome at narrow widths instead of
         letting the global toolbar clip or extend past the window edge.
 
-        Every action stays reachable either way: at non-wide widths,
-        Stamped Receipts, Capture Rules, and Quick Actions move into the
-        "More" overflow menu (_open_top_overflow_menu) rather than being
-        removed outright.
+        The top bar's steady-state hierarchy never changes: control strip
+        (vault/capture state) -> Quick Paste (the one dominant action) ->
+        "More" overflow -> Settings. Export, Stamped Receipts, and Capture
+        Rules live in that overflow at every width, so nothing is moved or
+        removed when the window narrows -- only VaultControlStrip's own
+        density changes (Default Safe and the Quick Actions dropdown fold
+        into the same overflow at non-wide widths; Quick Actions entries
+        appear in the overflow menu only while the dropdown is collapsed).
 
-        VaultControlStrip's own content (Capture/Mobile/Receipts dropdowns
-        + Default Safe label + Lock + Quick Actions) is wide enough that,
-        combined with the outer top bar's fixed-width buttons, "standard"
-        mode (not just "compact") is too narrow to fit everything without
-        clipping. winfo_ismapped() alone doesn't catch this -- a widget
-        Tk still "manages" can be positioned past its own parent frame's
-        boundary and get silently clipped there, at any of the four
-        breakpoint-adjacent widths measured (900x600 / 1000x650 / 1100x700
-        against the 1150-1499 "standard" floor). So Default Safe, Stamped
-        Receipts, Capture Rules, and Quick Actions are all dropped in
-        "standard" as well as "compact" -- only "wide" keeps the complete,
-        uncollapsed toolbar. Lock stays a direct, always-visible button at
+        winfo_ismapped() alone doesn't catch clipping -- a widget Tk still
+        "manages" can be positioned past its own parent frame's boundary and
+        get silently clipped there, at any of the breakpoint-adjacent widths
+        measured (900x600 / 1000x650 / 1100x700 against the 1150-1499
+        "standard" floor). Lock stays a direct, always-visible button at
         every width (never moved into the overflow menu); it fits once the
-        wider dropdowns/buttons above stop competing with it for
-        VaultControlStrip's own allotted column width.
+        wider dropdowns stop competing with it for VaultControlStrip's own
+        allotted column width.
         """
         if not hasattr(self, "_view_label"):
             return
@@ -3484,14 +3475,6 @@ class CacheVaultApp(ctk.CTk):
                 self._view_label.pack(side="right", padx=(4, 2), before=self._grid_btn)
             if not self._selection_hint_label.winfo_ismapped():
                 self._selection_hint_label.pack(side="left", padx=(6, 0))
-        if not_wide:
-            self._top_receipts_btn.grid_remove()
-            self._top_capture_rules_btn.grid_remove()
-            self._top_more_btn.grid(row=0, column=2, columnspan=2, padx=4)
-        else:
-            self._top_more_btn.grid_remove()
-            self._top_receipts_btn.grid(row=0, column=2, padx=4)
-            self._top_capture_rules_btn.grid(row=0, column=3, padx=4)
         self._control_strip.set_compact(not_wide)
         self._control_strip.set_lock_label_compact(compact)
         self._control_strip.set_quick_actions_compact(not_wide)
@@ -4863,24 +4846,27 @@ class CacheVaultApp(ctk.CTk):
         return external
 
     def _open_top_overflow_menu(self) -> None:
-        """Non-wide-width overflow for the top toolbar's secondary actions
-        and Quick Actions.
+        """The top bar's "More" overflow: lower-frequency actions at every
+        width (Export, Stamped Receipts, Capture Rules), plus the Quick
+        Actions choices at non-wide widths where the control strip's own
+        dropdown is collapsed.
 
-        Invokes the exact same handlers as the full-width controls -- this
-        is purely a narrow-width access path, not a different feature.
-        """
+        Every entry invokes the exact same handler as the control it
+        replaced -- this is an access path, not a different feature."""
         menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=brand.TERM_EXPORT, command=self._export_view)
         menu.add_command(
             label=brand.TERM_STAMPED_RECEIPTS,
             command=lambda: self._navigate_screen(NAV_STAMPED_RECEIPTS),
         )
-        menu.add_command(label="⚡ Capture Rules", command=self._open_regex_macros)
-        menu.add_separator()
-        for choice in self._control_strip.QUICK_ACTION_CHOICES:
-            menu.add_command(
-                label=choice,
-                command=lambda c=choice: self._control_strip.invoke_quick_action(c),
-            )
+        menu.add_command(label="Capture Rules", command=self._open_regex_macros)
+        if getattr(self, "_current_layout_mode", "standard") != "wide":
+            menu.add_separator()
+            for choice in self._control_strip.QUICK_ACTION_CHOICES:
+                menu.add_command(
+                    label=choice,
+                    command=lambda c=choice: self._control_strip.invoke_quick_action(c),
+                )
         x = self._top_more_btn.winfo_rootx()
         y = self._top_more_btn.winfo_rooty() + self._top_more_btn.winfo_height()
         clip_context.popup_menu(self, menu, x, y)

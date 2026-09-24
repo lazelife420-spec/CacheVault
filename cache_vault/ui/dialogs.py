@@ -10,7 +10,7 @@ from .. import brand
 from ..core import startup, vault_lock
 from ..core.hotkey import DEFAULT_HOTKEY_BINDINGS, diagnose_hotkey_spec, normalize_hotkey
 from ..core.settings import Settings
-from . import theme
+from . import theme, window_geometry
 from .clipboard_write import write_text_via_app
 from .command_center import _MODIFIER_KEYSYMS, _normalize_keysym
 from .guide_copy import EMPTY_STAMPED_RECEIPTS, SETTINGS_SHOW_GUIDE_AGAIN
@@ -25,6 +25,29 @@ def version_line() -> str:
     label = (__release_label__ or "").strip()
     base = f"Version {__version__}"
     return f"{base} · {label}" if label else base
+
+
+def _fit_dialog_size(win: ctk.CTkToplevel, width: int, height: int,
+                     min_w: int = 320, min_h: int = 240) -> tuple[int, int]:
+    """Clamp a fixed dialog size to the current work area.
+
+    Same work-area pattern as SettingsHub: ``geometry()`` sizes are logical
+    CTk units, while the OS work area is physical pixels, so the area is
+    converted before clamping. Falls back to the requested size when the
+    work area can't be read (tests, unusual sessions)."""
+    try:
+        area = window_geometry.query_work_area(win)
+    except Exception:  # noqa: BLE001
+        return (width, height)
+    if area == (0, 0, 0, 0):
+        return (width, height)
+    scaling = window_geometry.window_scaling(win)
+    ax, ay, aw, ah = area
+    area_logical = (ax, ay, round(aw / scaling), round(ah / scaling))
+    return window_geometry.clamp_size(
+        width, height, area_logical,
+        min(min_w, width), min(min_h, height),
+    )
 
 
 def _center_on_parent(win: ctk.CTkToplevel, master, width: int, height: int) -> None:
@@ -102,24 +125,25 @@ class AboutDialog(ctk.CTkToplevel):
     def __init__(self, master):
         super().__init__(master)
         self.title(f"About {brand.PRODUCT_NAME}")
-        self.geometry("460x380")
+        w, h = _fit_dialog_size(self, 460, 380)
+        self.geometry(f"{w}x{h}")
         self.resizable(False, False)
 
         ctk.CTkLabel(self, text=brand.PRODUCT_NAME,
-                     font=ctk.CTkFont(size=20, weight="bold"),
+                     font=theme.font(size=20, weight="bold"),
                      text_color=brand.PROOF_TEAL).pack(anchor="w", padx=20, pady=(18, 2))
         ctk.CTkLabel(self, text=version_line(), anchor="w",
                      text_color=brand.STAMP_GOLD,
-                     font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", padx=20)
+                     font=theme.font(size=11, weight="bold")).pack(anchor="w", padx=20)
         ctk.CTkLabel(self, text=brand.PRODUCT_BYLINE, anchor="w",
                      text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=12)).pack(anchor="w", padx=20)
+                     font=theme.body_font(12)).pack(anchor="w", padx=20)
         ctk.CTkLabel(self, text=brand.PRODUCT_POSITIONING, anchor="w",
                      wraplength=400, justify="left",
-                     font=ctk.CTkFont(size=12)).pack(anchor="w", padx=20, pady=(10, 4))
+                     font=theme.body_font(12)).pack(anchor="w", padx=20, pady=(10, 4))
         ctk.CTkLabel(self, text=brand.PRODUCT_PROMISE, anchor="w",
                      wraplength=400, justify="left", text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=20, pady=(0, 10))
+                     font=theme.body_font(11)).pack(anchor="w", padx=20, pady=(0, 10))
 
         body = CacheVaultTextbox(self, height=120, wrap="word")
         body.pack(fill="x", padx=20, pady=4)
@@ -128,11 +152,11 @@ class AboutDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(self, text=brand.RECEIPT_NOTE, anchor="w",
                      text_color=brand.STAMP_GOLD,
-                     font=ctk.CTkFont(size=11)
+                     font=theme.body_font(11)
                      ).pack(anchor="w", padx=20, pady=(8, 4))
         ctk.CTkLabel(self, text=brand.STUDIO_FOOTER, anchor="w",
                      text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=10)).pack(anchor="w", padx=20, pady=(0, 12))
+                     font=theme.meta_font(10)).pack(anchor="w", padx=20, pady=(0, 12))
 
         ctk.CTkButton(self, text="Close", command=self.destroy,
                       **theme.primary_button()).pack(anchor="e", padx=20, pady=(0, 16))
@@ -147,6 +171,11 @@ class SettingsDialog(ctk.CTkToplevel):
         super().__init__(master)
         self.title(f"{brand.PRODUCT_NAME} — Settings")
         self.geometry("520x720")
+        # Clamp to the work area on short displays (same pattern as the
+        # Settings Hub) so the footer can't fall below the taskbar.
+        w, h = _fit_dialog_size(self, 520, 720)
+        if (w, h) != (520, 720):
+            self.geometry(f"{w}x{h}")
         self.resizable(False, True)
         self.minsize(520, 540)
         self._settings = settings
@@ -161,7 +190,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._recording_role: str | None = None
         self._held: set[str] = set()
 
-        ctk.CTkLabel(self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
+        ctk.CTkLabel(self, text="Settings", font=theme.font(size=16, weight="bold")
                      ).pack(anchor="w", padx=16, pady=(14, 6))
 
         if self._help.get("founder"):
@@ -170,7 +199,7 @@ class SettingsDialog(ctk.CTkToplevel):
             ctk.CTkLabel(
                 founder_row,
                 text="Founder Edition",
-                font=ctk.CTkFont(size=13, weight="bold"),
+                font=theme.heading_font(13),
                 text_color=brand.PROOF_TEAL,
             ).pack(anchor="w", pady=(0, 4))
             ctk.CTkButton(
@@ -184,7 +213,7 @@ class SettingsDialog(ctk.CTkToplevel):
                 text="Offline license file from your purchase email.",
                 anchor="w",
                 text_color=brand.MUTED_FG,
-                font=ctk.CTkFont(size=11),
+                font=theme.body_font(11),
             ).pack(anchor="w", pady=(4, 0))
 
         # Mobile Access — pinned above scroll so pairing is visible without scrolling.
@@ -202,16 +231,16 @@ class SettingsDialog(ctk.CTkToplevel):
                           **theme.secondary_button()).pack(side="left", padx=(0, 8))
         ctk.CTkLabel(footer, text=version_line(), anchor="w",
                      text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=11)).pack(side="left")
+                     font=theme.body_font(11)).pack(side="left")
 
         body = ctk.CTkScrollableFrame(self)
         body.pack(side="top", fill="both", expand=True, padx=8, pady=(4, 4))
         self._scroll_body = body
 
         def section(title: str) -> None:
-            ctk.CTkFrame(body, height=1, fg_color=("#C8D0D4", "#263038")).pack(
+            ctk.CTkFrame(body, height=1, fg_color=brand.VAULT_CARD_BORDER).pack(
                 fill="x", padx=8, pady=(14, 6))
-            ctk.CTkLabel(body, text=title, font=ctk.CTkFont(size=13, weight="bold"),
+            ctk.CTkLabel(body, text=title, font=theme.heading_font(13),
                          text_color=brand.PROOF_TEAL).pack(anchor="w", padx=8, pady=(0, 4))
 
         section("Capture")
@@ -266,7 +295,7 @@ class SettingsDialog(ctk.CTkToplevel):
             body,
             text="Safes are local vault sections — not encrypted containers.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11),
+            font=theme.body_font(11),
         ).pack(anchor="w", padx=8, pady=(0, 6))
 
         section("Keyboard Shortcuts")
@@ -275,7 +304,7 @@ class SettingsDialog(ctk.CTkToplevel):
             text="Global shortcuts work while other apps are focused. "
                  "Status shows format/conflicts only — another app may still claim a key.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11), wraplength=460,
+            font=theme.body_font(11), wraplength=460,
         ).pack(anchor="w", padx=8, pady=(0, 6))
 
         self._manual_hk = self._hotkey_row(
@@ -330,7 +359,7 @@ class SettingsDialog(ctk.CTkToplevel):
             body,
             text="When off, the chosen vault item stays on the clipboard after paste.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11),
+            font=theme.body_font(11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
         section("Sensitive Clips")
@@ -350,7 +379,7 @@ class SettingsDialog(ctk.CTkToplevel):
             text="Live macro hotkeys, text shortcuts, and paste/type delivery.\n"
                  "No recorder or admin automation — Macro Safes are not encrypted.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11),
+            font=theme.body_font(11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
         self._vault_macros_on = ctk.CTkSwitch(body, text="Enable Snippet Macros")
         self._vault_macros_on.pack(anchor="w", padx=8, pady=4)
@@ -401,7 +430,7 @@ class SettingsDialog(ctk.CTkToplevel):
             text="Scroll speed follows Windows mouse wheel lines.\n"
                  "Applies to vault lists, preview, settings, and images grid.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11),
+            font=theme.body_font(11),
         ).pack(anchor="w", padx=8, pady=(0, 4))
         mult_row = ctk.CTkFrame(body, fg_color="transparent")
         mult_row.pack(fill="x", padx=8, pady=(0, 4))
@@ -476,7 +505,7 @@ class SettingsDialog(ctk.CTkToplevel):
                  "They are not encryption unless encryption is added later. "
                  "Lock style is visual; it does not change the security model.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11), wraplength=460,
+            font=theme.body_font(11), wraplength=460,
         ).pack(anchor="w", padx=8, pady=(4, 8))
 
         section("Startup")
@@ -496,7 +525,7 @@ class SettingsDialog(ctk.CTkToplevel):
             body,
             text="Reopen the vault briefing that explains receipts, Safes, Mobile Inbox, and exports.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11), wraplength=460,
+            font=theme.body_font(11), wraplength=460,
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
         section("History")
@@ -510,7 +539,7 @@ class SettingsDialog(ctk.CTkToplevel):
             text="Oldest non-favorite clips move to Recently Removed when exceeded.\n"
                  "Favorites always survive pruning.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11)).pack(anchor="w", padx=8)
+            font=theme.body_font(11)).pack(anchor="w", padx=8)
 
         ctk.CTkLabel(body, text="Excluded apps (one per line):").pack(
             anchor="w", padx=8, pady=(10, 0))
@@ -537,7 +566,7 @@ class SettingsDialog(ctk.CTkToplevel):
         row = ctk.CTkFrame(block, fg_color="transparent")
         row.pack(fill="x")
         ctk.CTkLabel(
-            row, text=title, font=ctk.CTkFont(size=12, weight="bold"),
+            row, text=title, font=theme.font(size=12, weight="bold"),
         ).pack(side="left", anchor="w")
         controls = ctk.CTkFrame(row, fg_color="transparent")
         controls.pack(side="right")
@@ -552,10 +581,10 @@ class SettingsDialog(ctk.CTkToplevel):
         record_btn.pack(side="left", padx=(6, 0))
         ctk.CTkLabel(
             block, text=hint, anchor="w", justify="left",
-            text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
+            text_color=brand.MUTED_FG, font=theme.body_font(11),
         ).pack(anchor="w", pady=(2, 0))
         status = ctk.CTkLabel(
-            block, text="", anchor="w", font=ctk.CTkFont(size=11),
+            block, text="", anchor="w", font=theme.body_font(11),
         )
         status.pack(anchor="w", pady=(2, 0))
         self._hk_entries[role] = entry
@@ -640,11 +669,12 @@ class SettingsDialog(ctk.CTkToplevel):
     def _show_hotkey_help(self) -> None:
         help_win = ctk.CTkToplevel(self)
         help_win.title(f"{brand.PRODUCT_NAME} — Keyboard Shortcuts")
-        help_win.geometry("480x420")
+        hw, hh = _fit_dialog_size(help_win, 480, 420)
+        help_win.geometry(f"{hw}x{hh}")
         help_win.resizable(False, False)
         ctk.CTkLabel(
             help_win, text="Keyboard Shortcuts",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=theme.font(size=16, weight="bold"),
             text_color=brand.PROOF_TEAL,
         ).pack(anchor="w", padx=16, pady=(14, 6))
         body = CacheVaultTextbox(help_win, wrap="word")
@@ -684,14 +714,14 @@ class SettingsDialog(ctk.CTkToplevel):
         card.pack(fill="x", padx=12, pady=(0, 4))
 
         ctk.CTkLabel(card, text=brand.TERM_MOBILE_ACCESS,
-                     font=ctk.CTkFont(size=13, weight="bold"),
+                     font=theme.heading_font(13),
                      text_color=brand.PROOF_TEAL).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(
             card,
             text=f"{brand.MOBILE_PRODUCT_NAME} · {brand.MOBILE_BYLINE}\n"
                  f"{brand.MOBILE_PROMISE}",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11), wraplength=460,
+            font=theme.body_font(11), wraplength=460,
         ).pack(anchor="w", padx=12, pady=(0, 6))
 
         self._mobile_on = ctk.CTkSwitch(card, text="Enable Mobile Access")
@@ -739,7 +769,7 @@ class SettingsDialog(ctk.CTkToplevel):
                 "Phone approval still happens on Android. Off by default. "
                 "Read-only API — no delete or edit from mobile."
             ),
-            anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=10),
+            anchor="w", text_color=brand.MUTED_FG, font=theme.meta_font(10),
         ).pack(anchor="w", padx=12, pady=(0, 10))
         return card
 
@@ -872,14 +902,15 @@ class SafePickerDialog(ctk.CTkToplevel):
 
         super().__init__(master)
         self.title(title)
-        self.geometry("380x360")
+        w, h = _fit_dialog_size(self, 380, 360)
+        self.geometry(f"{w}x{h}")
         self._settings = settings
         self._on_pick = on_pick
         self._on_create = on_create
         self._picker_mode = picker_mode
         self._registry = SafeRegistry(settings)
 
-        ctk.CTkLabel(self, text=title, font=ctk.CTkFont(size=15, weight="bold")
+        ctk.CTkLabel(self, text=title, font=theme.heading_font(15)
                      ).pack(anchor="w", padx=16, pady=(14, 6))
 
         footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -898,7 +929,7 @@ class SafePickerDialog(ctk.CTkToplevel):
         else:
             ctk.CTkLabel(
                 footer, text="Create Safes here; pick them when saving clips.",
-                anchor="w", text_color=brand.MUTED_FG, font=ctk.CTkFont(size=11),
+                anchor="w", text_color=brand.MUTED_FG, font=theme.body_font(11),
             ).pack(anchor="w", pady=(0, 4))
             ctk.CTkButton(footer, text="Close", command=self.destroy,
                           **theme.secondary_button()).pack(anchor="e")
@@ -970,7 +1001,7 @@ class SafePickerDialog(ctk.CTkToplevel):
     def _highlight(self) -> None:
         for i, w in enumerate(self._rows):
             try:
-                w.configure(fg_color=("#eef3fb" if i == self._index else theme.secondary_button().get("fg_color", "transparent")))
+                w.configure(fg_color=(brand.ROW_SELECTED_BG if i == self._index else theme.secondary_button().get("fg_color", "transparent")))
             except Exception:
                 pass
 
@@ -998,11 +1029,12 @@ class MoveToCollectionDialog(ctk.CTkToplevel):
                  on_save: Callable[[str | None], None]):
         super().__init__(master)
         self.title("Move to Collection")
-        self.geometry("360x300")
+        w, h = _fit_dialog_size(self, 360, 300)
+        self.geometry(f"{w}x{h}")
         self._on_save = on_save
 
         ctk.CTkLabel(self, text="Move clip to collection",
-                     font=ctk.CTkFont(size=15, weight="bold")
+                     font=theme.heading_font(15)
                      ).pack(anchor="w", padx=16, pady=(14, 6))
 
         self._entry = ctk.CTkEntry(self, placeholder_text="Collection name")
@@ -1015,21 +1047,20 @@ class MoveToCollectionDialog(ctk.CTkToplevel):
         ctk.CTkButton(footer, text="Save", command=self._save
                       ).pack(side="right", padx=(8, 0))
         ctk.CTkButton(footer, text="Remove from collection",
-                      fg_color=("gray60", "gray35"), command=self._clear
+                      command=self._clear, **theme.secondary_button()
                       ).pack(side="right")
         self.bind("<Escape>", lambda _e: self.destroy())
 
         if existing:
             ctk.CTkLabel(self, text="Existing:", anchor="w",
-                         text_color=("gray45", "gray60"),
-                         font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16, pady=(8, 0))
+                         text_color=brand.MUTED_FG,
+                         font=theme.body_font(11)).pack(anchor="w", padx=16, pady=(8, 0))
             chips = ctk.CTkScrollableFrame(self, height=110, fg_color="transparent")
             chips.pack(side="top", fill="both", expand=True, padx=12, pady=4)
             for name in existing:
                 ctk.CTkButton(chips, text=name, anchor="w", height=26,
-                              fg_color=("gray85", "gray25"),
-                              text_color=("gray10", "gray90"),
-                              command=lambda n=name: self._fill(n)
+                              command=lambda n=name: self._fill(n),
+                              **theme.secondary_button(),
                               ).pack(fill="x", padx=4, pady=2)
 
         _bring_to_front(self, master, modal=True)
@@ -1055,17 +1086,18 @@ class ExportViewDialog(ctk.CTkToplevel):
                  on_export: Callable[[str, bool], None]):
         super().__init__(master)
         self.title(brand.TERM_EXPORT)
-        self.geometry("400x280")
+        w, h = _fit_dialog_size(self, 400, 280)
+        self.geometry(f"{w}x{h}")
         self._on_export = on_export
 
         ctk.CTkLabel(self, text=f"{brand.TERM_EXPORT} — {count} clip(s)",
-                     font=ctk.CTkFont(size=15, weight="bold")
+                     font=theme.heading_font(15)
                      ).pack(anchor="w", padx=16, pady=(14, 4))
         ctk.CTkLabel(
             self, text=f"Includes {brand.TERM_PROOF_MANIFEST.lower()}, "
                        f"{brand.TERM_STAMPED_RECEIPTS.lower()}, and clip files.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11), wraplength=360,
+            font=theme.body_font(11), wraplength=360,
         ).pack(anchor="w", padx=16, pady=(0, 8))
 
         self._kind = ctk.StringVar(value="folder")
@@ -1081,7 +1113,7 @@ class ExportViewDialog(ctk.CTkToplevel):
             self, text="Off by default: path clips export a reference only.\n"
                        "Originals are never moved or deleted.",
             anchor="w", justify="left", text_color=brand.MUTED_FG,
-            font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16)
+            font=theme.body_font(11)).pack(anchor="w", padx=16)
 
         ctk.CTkButton(self, text="Continue…", command=self._go,
                       **theme.primary_button()
@@ -1125,7 +1157,7 @@ class EventLogDialog(ctk.CTkToplevel):
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=16, pady=(14, 4))
         ctk.CTkLabel(header, text=brand.TERM_STAMPED_RECEIPTS,
-                     font=ctk.CTkFont(size=17, weight="bold"),
+                     font=theme.font(size=17, weight="bold"),
                      text_color=brand.PROOF_TEAL).pack(anchor="w")
         ctk.CTkLabel(
             header, text="Local proof history for Cache Vault actions.",
@@ -1133,7 +1165,7 @@ class EventLogDialog(ctk.CTkToplevel):
         ).pack(anchor="w")
         ctk.CTkLabel(
             header, text=brand.RECEIPT_NOTE, anchor="w",
-            text_color=brand.STAMP_GOLD, font=ctk.CTkFont(size=11),
+            text_color=brand.STAMP_GOLD, font=theme.body_font(11),
         ).pack(anchor="w", pady=(2, 0))
 
         tools = ctk.CTkFrame(self, fg_color="transparent")
@@ -1175,7 +1207,7 @@ class EventLogDialog(ctk.CTkToplevel):
         detail_frame = ctk.CTkFrame(body)
         detail_frame.grid(row=0, column=1, sticky="nsew")
         ctk.CTkLabel(detail_frame, text="Receipt details",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(
+                     font=theme.heading_font(13)).pack(
             anchor="w", padx=10, pady=(8, 4))
         self._detail = CacheVaultTextbox(detail_frame, wrap="word")
         self._detail.pack(fill="both", expand=True, padx=10, pady=4)
@@ -1230,11 +1262,11 @@ class EventLogDialog(ctk.CTkToplevel):
             top = ctk.CTkFrame(frame, fg_color="transparent")
             top.pack(fill="x", padx=10, pady=(6, 0))
             ctk.CTkLabel(top, text=row.action_label, anchor="w",
-                         font=ctk.CTkFont(size=12, weight="bold"),
+                         font=theme.font(size=12, weight="bold"),
                          text_color=brand.PROOF_TEAL).pack(side="left")
             ctk.CTkLabel(top, text=row.result, anchor="e",
                          text_color=brand.STAMP_GOLD if row.result == "OK" else brand.WARNING_RED,
-                         font=ctk.CTkFont(size=11, weight="bold")).pack(side="right")
+                         font=theme.font(size=11, weight="bold")).pack(side="right")
             mid = f"{ts} · {row.item_label} · {row.content_type}"
             ctk.CTkLabel(frame, text=mid, anchor="w", text_color=brand.MUTED_FG,
                          font=theme.body_font(11)).pack(fill="x", padx=10, pady=(0, 2))
@@ -1371,7 +1403,8 @@ class PermanentDeleteSelectedDialog(ctk.CTkToplevel):
         super().__init__(master)
         action_label = _permanent_delete_action_label(eligible_count)
         self.title(action_label)
-        self.geometry("460x320")
+        self._size = _fit_dialog_size(self, 460, 320)
+        self.geometry(f"{self._size[0]}x{self._size[1]}")
         self.resizable(False, False)
         self._on_confirm = on_confirm
 
@@ -1397,7 +1430,7 @@ class PermanentDeleteSelectedDialog(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.bind("<Escape>", lambda e: self._cancel())
 
-        _bring_to_front(self, master, modal=True, center_on=(460, 320))
+        _bring_to_front(self, master, modal=True, center_on=self._size)
 
     def _cancel(self) -> None:
         self.destroy()
@@ -1429,7 +1462,8 @@ class PermanentDeleteAllDialog(ctk.CTkToplevel):
                  asset_count: int, bytes_scheduled: int, on_confirm: Callable[[], None]):
         super().__init__(master)
         self.title("Permanently delete all items in Recently Removed")
-        self.geometry("480x400")
+        self._size = _fit_dialog_size(self, 480, 400)
+        self.geometry(f"{self._size[0]}x{self._size[1]}")
         self.resizable(False, False)
         self._on_confirm = on_confirm
         self._confirm_btn: ctk.CTkButton | None = None
@@ -1440,7 +1474,7 @@ class PermanentDeleteAllDialog(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.bind("<Escape>", lambda e: self._cancel())
 
-        _bring_to_front(self, master, modal=True, center_on=(480, 400))
+        _bring_to_front(self, master, modal=True, center_on=self._size)
 
     def _cancel(self) -> None:
         self.destroy()
@@ -1541,7 +1575,8 @@ class ClearAllClipsDialog(ctk.CTkToplevel):
     def __init__(self, master, *, total_count: int, on_confirm: Callable[[], None]):
         super().__init__(master)
         self.title("Move all clips to Recently Removed")
-        self.geometry("480x290")
+        self._size = _fit_dialog_size(self, 480, 290)
+        self.geometry(f"{self._size[0]}x{self._size[1]}")
         self.resizable(False, False)
         self._on_confirm = on_confirm
 
@@ -1579,7 +1614,7 @@ class ClearAllClipsDialog(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.bind("<Escape>", lambda e: self._cancel())
 
-        _bring_to_front(self, master, modal=True, center_on=(480, 290))
+        _bring_to_front(self, master, modal=True, center_on=self._size)
         try:
             cancel_btn.focus_set()
         except Exception:  # noqa: BLE001

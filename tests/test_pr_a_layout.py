@@ -368,19 +368,22 @@ def test_today_week_older_share_clip_page_template(app):
         assert view.grid_info(), f"Shared clip view should be visible for {key!r}"
 
 
-def test_toolbar_overflow_at_compact_width(app):
+def test_top_bar_hierarchy_stays_consistent_at_every_width(app):
+    """The top bar's hierarchy is now steady-state: control strip (vault/
+    capture state) -> Quick Paste (the one dominant action) -> "More"
+    overflow -> Settings. Export, Stamped Receipts, and Capture Rules live
+    in the overflow at every width, so narrowing the window never moves
+    top-bar controls -- only the control strip's own density folds."""
     with patch.object(app, 'winfo_width', return_value=950):
         app._handle_resize_debounced()
     app.update_idletasks()
     assert not app._view_label.winfo_ismapped(), "View: label should collapse at compact width"
     assert not app._selection_hint_label.winfo_ismapped(), "Selection hint should collapse at compact width"
-    assert not app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should collapse at compact width"
-    assert not app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should collapse at compact width"
     assert not app._control_strip._safe.winfo_ismapped(), "Default Safe label should collapse at compact width"
     assert not app._control_strip._quick.winfo_ismapped(), "Quick Actions dropdown should collapse at compact width"
-    # All actions above must not become unreachable -- they move into the
-    # "More" overflow instead of vanishing outright.
-    assert app._top_more_btn.winfo_ismapped(), "More overflow button should appear at compact width"
+    # The overflow and the dominant action are always reachable.
+    assert app._top_more_btn.winfo_ismapped(), "More overflow must stay visible at compact width"
+    assert app._top_quick_paste_btn.winfo_ismapped(), "Quick Paste must stay visible at compact width"
     assert app._control_strip._lock_btn.cget("text") == "Lock", (
         "Lock Now should shorten to 'Lock' at compact width, but stay a distinct, reachable button"
     )
@@ -391,21 +394,21 @@ def test_toolbar_overflow_at_compact_width(app):
     app.update_idletasks()
     assert app._view_label.winfo_ismapped(), "View: label should return at wide width"
     assert app._selection_hint_label.winfo_ismapped(), "Selection hint should return at wide width"
-    assert app._top_receipts_btn.winfo_ismapped(), "Top Stamped Receipts button should return at wide width"
-    assert app._top_capture_rules_btn.winfo_ismapped(), "Top Capture Rules button should return at wide width"
     assert app._control_strip._safe.winfo_ismapped(), "Default Safe label should return at wide width"
     assert app._control_strip._quick.winfo_ismapped(), "Quick Actions dropdown should return at wide width"
-    assert not app._top_more_btn.winfo_ismapped(), "More overflow button should disappear at wide width"
+    assert app._top_more_btn.winfo_ismapped(), "More overflow is a permanent control, not a compact-only one"
+    assert app._top_quick_paste_btn.winfo_ismapped(), "Quick Paste must stay visible at wide width"
     assert app._control_strip._lock_btn.cget("text") == "Lock Now", (
         "Lock label should revert to 'Lock Now' at wide width"
     )
 
 
 def test_toolbar_overflow_menu_invokes_original_handlers(app):
-    """The non-wide-width "More" menu must call the exact same handlers as
-    the full-width Stamped Receipts / Capture Rules buttons and the
-    Quick Actions dropdown's own choices -- this is an access path, not a
-    different feature."""
+    """The "More" menu must call the exact same handlers as the controls it
+    replaced -- Export, Stamped Receipts, Capture Rules at every width,
+    plus the Quick Actions dropdown's own choices while that dropdown is
+    collapsed at non-wide widths. This is an access path, not a different
+    feature."""
     with patch.object(app, 'winfo_width', return_value=950):
         app._handle_resize_debounced()
     app.update_idletasks()
@@ -416,28 +419,32 @@ def test_toolbar_overflow_menu_invokes_original_handlers(app):
         captured_menu["menu"] = menu
 
     with patch("cache_vault.ui.shell.clip_context.popup_menu", side_effect=_fake_popup), \
+         patch.object(app, "_export_view") as export_mock, \
          patch.object(app, "_navigate_screen") as nav_mock, \
          patch.object(app, "_open_regex_macros") as macros_mock, \
          patch.object(app._control_strip, "invoke_quick_action") as quick_mock:
         app._open_top_overflow_menu()
         menu = captured_menu["menu"]
         choices = app._control_strip.QUICK_ACTION_CHOICES
-        assert menu.index("end") == 2 + len(choices), (
-            "Overflow menu should offer Stamped Receipts, Capture Rules, a "
-            "separator, and every Quick Actions choice"
+        assert menu.index("end") == 3 + len(choices), (
+            "Overflow menu should offer Export, Stamped Receipts, Capture "
+            "Rules, a separator, and every Quick Actions choice"
         )
-        assert menu.type(2) == "separator", "A separator should divide the two action groups"
+        assert menu.type(3) == "separator", "A separator should divide the two action groups"
 
         menu.invoke(0)
+        export_mock.assert_called_once()
+
+        menu.invoke(1)
         nav_mock.assert_called_once()
         from cache_vault.ui.filters import NAV_STAMPED_RECEIPTS
         assert nav_mock.call_args[0][0] == NAV_STAMPED_RECEIPTS
 
-        menu.invoke(1)
+        menu.invoke(2)
         macros_mock.assert_called_once()
 
         for offset, choice in enumerate(choices):
-            menu.invoke(3 + offset)
+            menu.invoke(4 + offset)
         # assert_has_calls inspects mock_calls, which also records calls
         # made on a mock's *return value* (Tk's command dispatch stringifies
         # each callback's result); call_args_list only reflects direct
@@ -496,28 +503,28 @@ def test_control_strip_lock_and_quick_actions_stay_reachable_at_every_width(app)
             for widget, label in (
                 (cs._safe, "Default Safe label"),
                 (cs._quick, "Quick Actions dropdown"),
-                (app._top_receipts_btn, "Stamped Receipts button"),
-                (app._top_capture_rules_btn, "Capture Rules button"),
+                (app._top_quick_paste_btn, "Quick Paste button"),
+                (app._top_more_btn, "More button"),
             ):
                 assert widget.winfo_ismapped(), f"{label} must be mapped at {geometry}"
                 _assert_fully_visible(widget, widget.master, label, geometry)
-            assert not app._top_more_btn.winfo_ismapped(), (
-                f"More button should be absent in wide mode at {geometry}"
-            )
             continue
 
-        # Overflowed at compact/standard: intentionally not directly
-        # mapped, but still reachable via the "More" menu, calling the
-        # exact same handlers as the direct controls would.
+        # Overflowed at compact/standard: the control strip's own density
+        # folds (Default Safe label, Quick Actions dropdown), but the top
+        # bar's steady-state controls never move -- Quick Paste, More, and
+        # Settings stay mapped and fully inside the top bar at every width.
         assert not cs._safe.winfo_ismapped(), f"Default Safe should be hidden at {geometry}"
         assert not cs._quick.winfo_ismapped(), (
             f"Quick Actions dropdown must be intentionally removed (not left "
             f"mapped-but-clipped) at {geometry}"
         )
-        assert not app._top_receipts_btn.winfo_ismapped(), f"Stamped Receipts button should be hidden at {geometry}"
-        assert not app._top_capture_rules_btn.winfo_ismapped(), f"Capture Rules button should be hidden at {geometry}"
-        assert app._top_more_btn.winfo_ismapped(), f"More button must be reachable at {geometry}"
-        _assert_fully_visible(app._top_more_btn, app._top_more_btn.master, "More button", geometry)
+        for widget, label in (
+            (app._top_quick_paste_btn, "Quick Paste button"),
+            (app._top_more_btn, "More button"),
+        ):
+            assert widget.winfo_ismapped(), f"{label} must be reachable at {geometry}"
+            _assert_fully_visible(widget, widget.master, label, geometry)
 
         captured_menu = {}
 
@@ -525,6 +532,7 @@ def test_control_strip_lock_and_quick_actions_stay_reachable_at_every_width(app)
             captured_menu["menu"] = menu
 
         with patch("cache_vault.ui.shell.clip_context.popup_menu", side_effect=_fake_popup), \
+             patch.object(app, "_export_view") as export_mock, \
              patch.object(app, "_navigate_screen") as nav_mock, \
              patch.object(app, "_open_regex_macros") as macros_mock, \
              patch.object(cs, "invoke_quick_action") as quick_mock:
@@ -532,23 +540,27 @@ def test_control_strip_lock_and_quick_actions_stay_reachable_at_every_width(app)
             menu = captured_menu["menu"]
             choices = cs.QUICK_ACTION_CHOICES
 
-            assert menu.entrycget(0, "label") == brand.TERM_STAMPED_RECEIPTS
-            assert menu.entrycget(1, "label") == "⚡ Capture Rules"
-            assert menu.type(2) == "separator"
+            assert menu.entrycget(0, "label") == brand.TERM_EXPORT
+            assert menu.entrycget(1, "label") == brand.TERM_STAMPED_RECEIPTS
+            assert menu.entrycget(2, "label") == "Capture Rules"
+            assert menu.type(3) == "separator"
             for offset, choice in enumerate(choices):
-                assert menu.entrycget(3 + offset, "label") == choice, (
+                assert menu.entrycget(4 + offset, "label") == choice, (
                     f"More menu must offer the Quick Actions choice {choice!r} at {geometry}"
                 )
 
             menu.invoke(0)
+            export_mock.assert_called_once()
+
+            menu.invoke(1)
             from cache_vault.ui.filters import NAV_STAMPED_RECEIPTS
             nav_mock.assert_called_once_with(NAV_STAMPED_RECEIPTS)
 
-            menu.invoke(1)
+            menu.invoke(2)
             macros_mock.assert_called_once()
 
             for offset in range(len(choices)):
-                menu.invoke(3 + offset)
+                menu.invoke(4 + offset)
             # call_args_list (not mock_calls / assert_has_calls) -- Tk's
             # command dispatch stringifies each callback's return value,
             # which otherwise shows up as spurious call().__str__() entries.

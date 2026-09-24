@@ -125,7 +125,7 @@ class SettingsHub(ctk.CTkToplevel):
         ctk.CTkLabel(
             self._sidebar,
             text="Settings",
-            font=ctk.CTkFont(size=20, weight="bold"),
+            font=theme.font(size=20, weight="bold"),
             text_color=brand.PROOF_TEAL,
         ).grid(row=0, column=0, padx=20, pady=(30, 20), sticky="w")
 
@@ -181,7 +181,7 @@ class SettingsHub(ctk.CTkToplevel):
 
         self._save_error = ctk.CTkLabel(
             self._footer, text="", anchor="w", justify="left",
-            font=ctk.CTkFont(size=12), text_color="#F56C6C", wraplength=420,
+            font=theme.body_font(12), text_color=brand.WARNING_RED, wraplength=420,
         )
         self._save_error.pack(side="left")
 

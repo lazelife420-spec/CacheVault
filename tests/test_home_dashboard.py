@@ -352,6 +352,25 @@ class TestHomeVaultUI:
         assert any(brand.LABEL_LOCAL_ONLY in t for t in labels)
         assert any("Mobile Access off" in t for t in labels)
 
+        # These must be real, visible status labels on the hero -- not the
+        # old 1px/background-colored compatibility widgets. Every status
+        # label found in the body must use a readable font size.
+        def _status_fonts(widget):
+            fonts = []
+            for child in widget.winfo_children():
+                if isinstance(child, ctk.CTkLabel) and child.cget("text") in (
+                    brand.VAULT_STATUS_ACTIVE, brand.LABEL_LOCAL_ONLY,
+                ):
+                    fonts.append(child.cget("font"))
+                fonts.extend(_status_fonts(child))
+            return fonts
+
+        for f in _status_fonts(dashboard._body):
+            assert abs(f.cget("size")) >= 9, (
+                "vault status must render on the real visible surface, "
+                "not a hidden test-compat widget"
+            )
+
         dashboard.destroy()
 
     def test_vault_control_panel_renders(self, tk_root):

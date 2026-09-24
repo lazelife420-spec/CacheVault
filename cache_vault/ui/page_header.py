@@ -26,7 +26,7 @@ class PageHeader(ctk.CTkFrame):
         self._title_label = ctk.CTkLabel(
             self._title_frame,
             text="",
-            font=ctk.CTkFont(size=24, weight="bold"),
+            font=theme.font(size=24, weight="bold"),
             anchor="w",
         )
         self._title_label.grid(row=0, column=0, sticky="w")
@@ -92,7 +92,7 @@ class PageHeader(ctk.CTkFrame):
             return
         self._refreshing_label.configure(
             text="Refresh failed — showing previous results" if error else "Refreshing…",
-            text_color="#E6A23C" if error else brand.MUTED_FG,
+            text_color=brand.WARNING_RED if error else brand.MUTED_FG,
         )
         self._refreshing_label.place(relx=1.0, rely=0.0, anchor="ne", x=-8, y=8)
 

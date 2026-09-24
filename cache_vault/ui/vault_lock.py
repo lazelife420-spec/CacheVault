@@ -65,7 +65,7 @@ class VaultLockScreen(ctk.CTkFrame):
             card,
             text=LOCK_STYLES[self._style]["icon"],
             text_color=self._accent,
-            font=ctk.CTkFont(size=42, weight="bold"),
+            font=theme.font(size=42, weight="bold"),
         )
         self._seal.grid(row=0, column=0, pady=(26, 4))
         ctk.CTkLabel(
@@ -73,7 +73,7 @@ class VaultLockScreen(ctk.CTkFrame):
             text=LOCKED_ITEMS_MESSAGE,
             wraplength=420,
             justify="center",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            font=theme.font(size=22, weight="bold"),
         ).grid(row=1, column=0, padx=36, pady=(0, 18))
 
         self._entry = ctk.CTkEntry(

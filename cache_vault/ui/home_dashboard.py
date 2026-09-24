@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Callable
 import tkinter as tk
 import customtkinter as ctk
@@ -18,29 +19,6 @@ from .guide_copy import (
     TOOLTIP_VAULT_MACROS,
 )
 from .tooltip import bind_tooltip
-
-_CARD_META = {
-    "All Clips": "Saved items in your vault",
-    "Favorites": "Starred clips you keep close",
-    "Screenshots": "Saved PNG screenshots from clipboard",
-    "Duplicates": "Needs review",
-    "Recently Removed": "Restorable removed clips",
-    "Receipts": "Local proof history",
-}
-
-_CARD_ICONS = {
-    "All Clips": "▣",
-    "Favorites": "★",
-    "Screenshots": "▦",
-    "Duplicates": "≡",
-    "Recently Removed": "↩",
-    "Receipts": "⬢",
-}
-
-_CARD_HEIGHT = 108
-_CARD_BORDER = brand.VAULT_CARD_BORDER
-_CARD_BORDER_HOVER = (brand.PROOF_TEAL, brand.PROOF_TEAL_DIM)
-
 
 class HomeDashboard(ctk.CTkScrollableFrame):
     def __init__(
@@ -175,19 +153,13 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             w.destroy()
         self._batch_frame = None
 
+        # Product-first hero: identity, live vault/capture state, and the
+        # single obvious next action -- the real, visible status surface.
+        # No hidden test-compat widgets: tests assert against this surface.
+        self._build_hero(summary, recent)
+
         stats_frame = ctk.CTkFrame(self._body, fg_color="transparent")
         stats_frame.pack(fill="x", pady=(0, 12))
-
-        # Keep test_home_vault_status_header_renders happy with quiet status metadata labels
-        test_frame = ctk.CTkFrame(stats_frame, width=0, height=0, fg_color="transparent")
-        test_frame.pack(side="right")
-        for text in (brand.VAULT_STATUS_ACTIVE, brand.LABEL_LOCAL_ONLY, "Mobile Access off" if not summary.get("mobile_enabled") else "Mobile Access"):
-            ctk.CTkLabel(
-                test_frame,
-                text=text,
-                text_color=brand.PANEL_BG,
-                font=ctk.CTkFont(size=1)
-            ).pack()
 
         cards_data = [
             ("All Clips", summary.get("all", 0), S.FILTER_ALL),
@@ -203,12 +175,12 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             pill.pack(side="left", padx=(0, 6))
             label_widget = ctk.CTkLabel(
                 pill, text=label, cursor="hand2", text_color=brand.MUTED_FG,
-                font=ctk.CTkFont(size=9),
+                font=theme.meta_font(9),
             )
             label_widget.pack(side="left", padx=(9, 3), pady=3)
             count_widget = ctk.CTkLabel(
                 pill, text=str(count), cursor="hand2", text_color=brand.MUTED_FG,
-                font=ctk.CTkFont(size=9, weight="bold"),
+                font=theme.font(size=9, weight="bold"),
             )
             count_widget.pack(side="left", padx=(0, 9), pady=3)
             handler = (lambda _e, f=filt: self._on_filter(f)) if filt else (lambda _e: self._on_open_receipts())
@@ -243,9 +215,19 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             self._pane_section_title(left_pane, "Recent Active Clip")
             self._active_clip_card(left_pane, recent[0])
 
-        # 2. What Needs Review
-        self._pane_section_title(left_pane, "What Needs Review")
-        self._render_needs_review(left_pane, summary)
+        # 2. What Needs Review -- progressive disclosure: only surfaces when
+        # at least one queue actually holds items. A healthy vault stays calm;
+        # zero-count rows are never rendered just because the card exists.
+        attention_items = [
+            ("Sensitive Items", summary.get("sensitive", 0), S.FILTER_SENSITIVE),
+            ("Duplicate Clips", summary.get("duplicates", 0), S.FILTER_DUPLICATES),
+            ("Expired Clips", summary.get("expired", 0), S.FILTER_EXPIRED),
+            ("Recently Removed", summary.get("recently_removed", 0), S.FILTER_RECENTLY_REMOVED),
+        ]
+        attention_items = [item for item in attention_items if item[1] > 0]
+        if attention_items:
+            self._pane_section_title(left_pane, "What Needs Review")
+            self._render_needs_review(left_pane, attention_items)
         self._render_cleanup_suggestions(left_pane, cleanup_summary or {})
 
         # 3. Sensitive / Expiring Items
@@ -283,6 +265,114 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             for clip in images[:3]:
                 self._compact_clip_card(right_pane, clip)
 
+    def _build_hero(self, summary: dict, recent: list[Clip]) -> None:
+        """Hero band: product identity, real vault/capture state, and the one
+        dominant next action.
+
+        Hierarchy contract: Cache Vault -> capture/vault state -> latest
+        item -> Quick Paste (or Resume Capture when paused). Everything else
+        lives below the fold."""
+        paused = bool(summary.get("capture_paused"))
+        hero = ctk.CTkFrame(self._body, **theme.vault_card(border_width=1))
+        hero.pack(fill="x", pady=(0, 12))
+
+        inner = ctk.CTkFrame(hero, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+        inner.grid_columnconfigure(0, weight=1)
+
+        left = ctk.CTkFrame(inner, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="w")
+
+        mark = self._product_mark(left)
+        if mark is not None:
+            mark.pack(side="left", padx=(0, 12))
+
+        text_col = ctk.CTkFrame(left, fg_color="transparent")
+        text_col.pack(side="left")
+
+        ctk.CTkLabel(
+            text_col, text=brand.PRODUCT_NAME, anchor="w",
+            font=theme.font(size=20, weight="bold"),
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            text_col,
+            text="Capture paused" if paused else brand.VAULT_STATUS_ACTIVE,
+            anchor="w",
+            text_color=brand.STAMP_GOLD if paused else brand.PROOF_TEAL,
+            font=theme.font(size=12, weight="bold"),
+        ).pack(anchor="w")
+
+        chips = ctk.CTkFrame(text_col, fg_color="transparent")
+        chips.pack(anchor="w", pady=(5, 0))
+        for chip in (
+            brand.LABEL_LOCAL_ONLY,
+            "Capture paused" if paused else "Capture active",
+            "Mobile Access on" if summary.get("mobile_enabled") else "Mobile Access off",
+            f"Safe: {summary.get('default_safe') or 'default'}",
+        ):
+            ctk.CTkLabel(
+                chips, text=chip, text_color=brand.MUTED_FG,
+                font=theme.meta_font(10),
+            ).pack(side="left", padx=(0, 10))
+
+        if recent:
+            latest = recent[0]
+            latest_title = latest.title or clip_metadata.clip_title(latest.content, latest.preview)
+            ctk.CTkLabel(
+                text_col,
+                text=f"Latest · {latest_title} · {_short(latest.created_at)}",
+                anchor="w", text_color=brand.MUTED_FG,
+                font=theme.body_font(11),
+            ).pack(anchor="w", pady=(3, 0))
+
+        actions = ctk.CTkFrame(inner, fg_color="transparent")
+        actions.grid(row=0, column=1, sticky="e", padx=(14, 0))
+        window = self.winfo_toplevel()
+        if paused:
+            ctk.CTkButton(
+                actions, text="Resume Capture", width=150, height=34,
+                command=lambda: window._set_paused(False),  # noqa: SLF001
+                **theme.primary_button(),
+            ).pack(anchor="e")
+        elif self._on_quick_paste:
+            ctk.CTkButton(
+                actions, text="Quick Paste", width=150, height=34,
+                command=self._on_quick_paste,
+                **theme.primary_button(),
+            ).pack(anchor="e")
+        ctk.CTkButton(
+            actions, text="Save Clipboard", width=150, height=28,
+            command=lambda: window._manual_save_clipboard(),  # noqa: SLF001
+            **theme.secondary_button(),
+        ).pack(anchor="e", pady=(6, 0))
+
+    def _product_mark(self, parent):
+        """Load the product icon bound to this dashboard's own Tk root.
+
+        PIL + ImageTk (not CTkImage): CTkImage binds its photo to
+        ``Tk._default_root``, which breaks across the suite's many app
+        create/destroy cycles -- the same reason the toolbar search icon uses
+        this pattern (see shell.py). Returns ``None`` when Pillow or the
+        asset is unavailable so the hero degrades to a text-only lockup."""
+        try:
+            from PIL import Image, ImageTk
+            from . import icon as _icon
+            path = _icon.asset_path("cache-vault-icon-48.png")
+            if not os.path.exists(path):
+                return None
+            img = Image.open(path).convert("RGBA").resize((44, 44), Image.LANCZOS)
+            self._hero_icon = ImageTk.PhotoImage(img, master=self)
+            # Native tk.Label, matching the search-icon pattern in shell.py:
+            # CTkLabel warns about non-CTkImage scaling, and CTkImage binds to
+            # Tk._default_root (which breaks the suite's many-root cycles).
+            return tk.Label(
+                parent, image=self._hero_icon,
+                bg=brand.SURFACE_BG[1] if isinstance(brand.SURFACE_BG, tuple) else brand.SURFACE_BG,
+                highlightthickness=0, borderwidth=0,
+            )
+        except Exception:  # noqa: BLE001 - product mark is decorative
+            return None
+
     def _update_batch_toolbar(self) -> None:
         if not hasattr(self, "_batch_toolbar_host") or not self._batch_toolbar_host:
             return
@@ -313,7 +403,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ctk.CTkLabel(
             inner,
             text=f"{count} clips selected",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=theme.heading_font(13),
             text_color=brand.PROOF_TEAL,
         ).pack(side="left", padx=(0, 10))
 
@@ -377,16 +467,10 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         ctk.CTkLabel(parent, text=text, anchor="w", **theme.section_heading()
                      ).pack(fill="x", pady=(4, 6))
 
-    def _render_needs_review(self, parent, summary: dict) -> None:
+    def _render_needs_review(self, parent, items: list) -> None:
         frame = ctk.CTkFrame(parent, fg_color=brand.SURFACE_BG, corner_radius=8,
                              border_width=1, border_color=brand.VAULT_CARD_BORDER)
         frame.pack(fill="x", pady=4)
-        items = [
-            ("Sensitive Items", summary.get("sensitive", 0), S.FILTER_SENSITIVE),
-            ("Duplicate Clips", summary.get("duplicates", 0), S.FILTER_DUPLICATES),
-            ("Expired Clips", summary.get("expired", 0), S.FILTER_EXPIRED),
-            ("Recently Removed", summary.get("recently_removed", 0), S.FILTER_RECENTLY_REMOVED),
-        ]
         for label, count, filt in items:
             row = ctk.CTkFrame(frame, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=5)
@@ -397,7 +481,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
             cnt = ctk.CTkLabel(row, text=str(count), anchor="e",
                                text_color=brand.STAMP_GOLD if count else brand.MUTED_FG,
-                               font=ctk.CTkFont(size=12, weight="bold"))
+                               font=theme.font(size=12, weight="bold"))
             cnt.grid(row=0, column=1, sticky="e")
 
             handler = lambda _e, f=filt: self._on_filter(f)
@@ -422,7 +506,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         header = ctk.CTkFrame(frame, fg_color="transparent")
         header.pack(fill="x", padx=12, pady=(10, 4))
         ctk.CTkLabel(header, text="Cleanup Suggestions", anchor="w",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+                     font=theme.heading_font(13)).pack(side="left")
 
         failed = bool(cleanup_summary.get("failed"))
         scanned = bool(cleanup_summary) and not failed and "total_groups" in cleanup_summary
@@ -433,7 +517,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
             # card only reports that the LAST attempt didn't complete.
             ctk.CTkLabel(
                 frame, text="Scan failed", anchor="w", text_color=brand.WARNING_RED,
-                font=ctk.CTkFont(size=12, weight="bold"),
+                font=theme.font(size=12, weight="bold"),
             ).pack(fill="x", padx=12, pady=(0, 2))
             error_text = cleanup_summary.get("error_message") or "The scan could not complete."
             # Bounded so an unexpected exception message can't blow up the
@@ -501,17 +585,17 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
         window = self.winfo_toplevel()
 
-        def add_btn(text, cmd, r, c, is_primary=False):
+        def add_btn(text, cmd, r, c):
             btn = ctk.CTkButton(
                 grid, text=text, height=28,
                 command=cmd,
-                **(theme.primary_button() if is_primary else theme.secondary_button())
+                **theme.secondary_button(),
             )
             btn.grid(row=r, column=c, padx=3, pady=3, sticky="ew")
 
-        add_btn("Save Clipboard", lambda: window._manual_save_clipboard(), 0, 0, is_primary=True)
+        add_btn("Save Clipboard", lambda: window._manual_save_clipboard(), 0, 0)
         if self._on_quick_paste:
-            add_btn("⚡ Quick Paste", self._on_quick_paste, 0, 1)
+            add_btn("Quick Paste", self._on_quick_paste, 0, 1)
         add_btn("Review Links", lambda: self._on_filter(S.FILTER_LINKS), 1, 0)
         add_btn("View Images", lambda: self._on_filter(S.FILTER_SCREENSHOTS), 1, 1)
 
@@ -654,14 +738,14 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
         top = ctk.CTkFrame(card, fg_color="transparent")
         top.pack(fill="x", padx=12, pady=(8, 0))
-        ctk.CTkLabel(top, text=badge, font=ctk.CTkFont(size=10, weight="bold"),
+        ctk.CTkLabel(top, text=badge, font=theme.font(size=10, weight="bold"),
                      text_color=brand.WARNING_RED if clip.is_sensitive else brand.MUTED_FG
                      ).pack(side="left")
 
         badge_lbl = ctk.CTkLabel(
             top,
             text="SELECTED",
-            font=ctk.CTkFont(size=10, weight="bold"),
+            font=theme.font(size=10, weight="bold"),
             text_color=brand.FOUNDRY_BLACK,
             fg_color=brand.PROOF_TEAL,
             corner_radius=999,
@@ -674,17 +758,17 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         trail = ctk.CTkFrame(top, fg_color="transparent")
         trail.pack(side="right")
         if clip.is_pinned:
-            ctk.CTkLabel(trail, text="★", font=ctk.CTkFont(size=13),
+            ctk.CTkLabel(trail, text="★", font=theme.font(size=13),
                          text_color=brand.STAMP_GOLD).pack(side="left", padx=3)
         if clip.content_hash:
-            proof = ctk.CTkLabel(trail, text="⬢", font=ctk.CTkFont(size=11),
+            proof = ctk.CTkLabel(trail, text="⬢", font=theme.font(size=11),
                                  text_color=brand.STAMP_GOLD, cursor="question_arrow")
             proof.pack(side="left", padx=3)
             self._bind_tooltip(proof, TOOLTIP_HASH_PROOF)
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
         ctk.CTkLabel(card, text=title, anchor="w",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(fill="x", padx=12)
+                     font=theme.heading_font(13)).pack(fill="x", padx=12)
         preview = _clip_preview_lines(clip.preview or "", max_lines=2)
         ctk.CTkLabel(card, text=preview, anchor="w", justify="left",
                      text_color=brand.MUTED_FG, wraplength=520,
@@ -695,7 +779,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         meta = clip_metadata.source_summary_line(clip, storage)
 
         ctk.CTkLabel(card, text=meta, anchor="w", text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=10)).pack(fill="x", padx=12, pady=(0, 6))
+                     font=theme.meta_font(10)).pack(fill="x", padx=12, pady=(0, 6))
 
         # Actions frame
         actions = ctk.CTkFrame(card, fg_color="transparent")
@@ -725,12 +809,12 @@ class HomeDashboard(ctk.CTkScrollableFrame):
 
         top = ctk.CTkFrame(body, fg_color="transparent")
         top.pack(fill="x", pady=(0, 4))
-        ctk.CTkLabel(top, text=badge, font=ctk.CTkFont(size=10, weight="bold"),
+        ctk.CTkLabel(top, text=badge, font=theme.font(size=10, weight="bold"),
                      text_color=brand.PROOF_TEAL).pack(side="left")
 
         title = clip.title or clip_metadata.clip_title(clip.content, clip.preview)
         ctk.CTkLabel(body, text=title, anchor="w",
-                     font=ctk.CTkFont(size=15, weight="bold")).pack(fill="x")
+                     font=theme.heading_font(15)).pack(fill="x")
 
         preview = _clip_preview_lines(clip.preview or "", max_lines=3)
         ctk.CTkLabel(body, text=preview, anchor="w", justify="left",
@@ -742,7 +826,7 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         meta = clip_metadata.source_summary_line(clip, storage)
 
         ctk.CTkLabel(body, text=meta, anchor="w", text_color=brand.MUTED_FG,
-                     font=ctk.CTkFont(size=11, weight="bold")).pack(fill="x", pady=(0, 8))
+                     font=theme.font(size=11, weight="bold")).pack(fill="x", pady=(0, 8))
 
         # Action buttons
         actions = ctk.CTkFrame(body, fg_color="transparent")
