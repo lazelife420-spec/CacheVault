@@ -71,6 +71,16 @@ class LocalVaultViewModel(
                 val safes = repository.safes()
                 val counts = repository.countBySafe()
                 val activity = repository.activity()
+                // Re-resolve the open detail against repository truth — a stale
+                // snapshot must never outlive a mutation (move/remove/restore)
+                // or an external write (share-sheet save while UI was paused).
+                val selected = _state.value.selectedItem
+                val resolvedSelected = selected?.let { repository.item(it.id) }
+                val resolvedAsset = if (resolvedSelected?.kind == LocalItemKind.IMAGE) {
+                    repository.assetForItem(resolvedSelected.id)
+                } else {
+                    null
+                }
                 _state.update {
                     it.copy(
                         ready = true,
@@ -79,6 +89,13 @@ class LocalVaultViewModel(
                         safes = safes,
                         safeCounts = counts,
                         activity = activity,
+                        selectedItem = resolvedSelected,
+                        selectedAsset = resolvedAsset,
+                        transientMessage = if (selected != null && resolvedSelected == null) {
+                            "That item is no longer in this phone's vault."
+                        } else {
+                            it.transientMessage
+                        },
                     )
                 }
             } catch (e: Exception) {

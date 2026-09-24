@@ -27,6 +27,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.prooffoundry.cachevaultmobile.data.local.LocalFilter
 import com.prooffoundry.cachevaultmobile.data.local.LocalItem
@@ -81,6 +85,19 @@ fun LocalShell(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val snackbar = remember { SnackbarHostState() }
+
+    // Refresh local vault truth whenever this shell resumes — writes can land
+    // while the UI is paused (e.g. ShareAssistantActivity "Save on this
+    // phone"), and the list/detail must reflect the repository on return.
+    // Local reads only: no bridge, discovery, or network call is involved.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, localVm) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) localVm.refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var tab by rememberSaveable {
         mutableStateOf(
             if (initialTab.equals("pc", ignoreCase = true)) LocalTab.PC.name else LocalTab.VAULT.name,

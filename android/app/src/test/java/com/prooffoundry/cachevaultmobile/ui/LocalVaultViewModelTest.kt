@@ -165,4 +165,51 @@ class LocalVaultViewModelTest {
         vm.reveal(s.items.first().id)
         assertTrue(vm.state.value.revealed.contains(s.items.first().id))
     }
+
+    // --- CV-MOBILE-1-D1 regression: refresh() must re-resolve the open detail
+    // against repository truth, and resume-time refresh must surface external
+    // (share-sheet) writes without a process restart. ---
+
+    @Test
+    fun selectedItemRefreshesAfterSafeMove() {
+        vm.saveText("movable")
+        val item = vm.state.value.items.first()
+        vm.openItem(item.id)
+        vm.createSafe("Target Safe")
+        val safe = vm.state.value.safes.first { it.name == "Target Safe" }
+        vm.moveToSafe(item.id, safe.id)
+        val s = vm.state.value
+        assertNotNull(s.selectedItem)
+        assertEquals(item.id, s.selectedItem!!.id)
+        assertEquals(safe.id, s.selectedItem!!.safeId)
+        assertEquals(safe.id, s.items.first { it.id == item.id }.safeId)
+    }
+
+    @Test
+    fun selectedItemRefreshesAfterRemoveAndRestore() {
+        vm.saveText("removable")
+        val item = vm.state.value.items.first()
+        vm.openItem(item.id)
+        vm.removeItem(item.id)
+        var s = vm.state.value
+        assertNotNull(s.selectedItem)
+        assertNotNull(s.selectedItem!!.removedAt)
+        vm.restoreItem(item.id)
+        s = vm.state.value
+        assertNotNull(s.selectedItem)
+        assertNull(s.selectedItem!!.removedAt)
+    }
+
+    @Test
+    fun refreshSurfacesExternalWriteLikeShareSheetSave() {
+        // Simulate ShareAssistantActivity writing through the repository while
+        // the main UI is paused — the same path a resume-refresh must pick up.
+        kotlinx.coroutines.runBlocking {
+            repository.saveText("external share-sheet write")
+        }
+        vm.refresh()
+        val s = vm.state.value
+        assertTrue(s.items.any { it.content == "external share-sheet write" })
+        assertTrue(s.activity.any { it.action == "save" && it.outcome == "completed" })
+    }
 }
