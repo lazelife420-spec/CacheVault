@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="share_cache" path="." />
+    <!-- CV-MOBILE-1: phone-owned image assets for explicit share/save -->
+    <files-path name="local_assets" path="local_assets/" />
 </paths>

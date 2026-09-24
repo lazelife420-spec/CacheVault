@@ -11,6 +11,14 @@ class CacheVaultMobileApp : Application() {
     lateinit var bridgeRepository: BridgeRepository
         private set
 
+    /**
+     * Phone-local vault (CV-MOBILE-1). Constructed lazily and opened off the
+     * UI thread — it must never block app start on storage work.
+     */
+    val localVaultRepository: com.prooffoundry.cachevaultmobile.data.local.LocalVaultRepository by lazy {
+        com.prooffoundry.cachevaultmobile.data.local.LocalVaultRepository(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         pairingStore = PairingStore(this)

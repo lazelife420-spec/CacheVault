@@ -1,6 +1,31 @@
-# Cache Vault Mobile (Android MVP)
+# Cache Vault Mobile (Android)
 
-**Cache Vault Mobile** — A Proof Foundry companion app.
+**Cache Vault Mobile** — Cache Vault on the phone. A Proof Foundry companion app.
+
+## CV-MOBILE-1 (2026-09-24) — local-first phone vault
+
+This app is evolving from a paired companion into an **independent local-first
+phone vault**. It now works before pairing, while the PC is offline, and after
+process restart:
+
+- **Phone-local vault**: text, links and single images saved on this device
+  persist in app-private storage (`data/local/` → `SQLiteOpenHelper` schema v1
+  + `local_assets/` file store). No PC or network required.
+- **Local Safes** — named phone-side organizers (not encryption containers,
+  not synced). Default Safe is protected.
+- **Share target** — "Save on this phone" is the default destination; "Send to
+  PC" remains a separate deliberate action when paired.
+- **Add in-app** — paste text, type text, or pick one image.
+- **Activity** — truthful local ledger of saves/copies/shares/failures on this
+  phone (not signed receipts; no payloads).
+- **Paired PC** tab — the existing companion surfaces (browse, images, proof,
+  settings, pairing) live there, clearly remote ("On PC").
+
+Debug/test builds install as `com.prooffoundry.cachevaultmobile.cvmobile1.debug`
+so they cannot collide with the production app. The production applicationId,
+version (0.2.1/8) and signing are unchanged.
+
+## Companion (paired read-only client)
 
 Paired read-only client for the desktop Cache Vault mobile bridge. No cloud sync.
 
@@ -8,31 +33,31 @@ Paired read-only client for the desktop Cache Vault mobile bridge. No cloud sync
 
 | Lane | Status |
 |------|--------|
-| Text / link / code | Near MVP — real-device smoke can prove this loop |
-| Screenshots / images | **Implemented on `feature/cache-vault-screenshot-assets`** — View loads `/asset` on tap; Share/Save are explicit; **not proven** until smoke |
+| Phone-local vault (text / link / code / single image) | Implemented — proven on emulator (real SQLite + UI flow); **physical-device smoke still required** |
+| PC companion browsing (clips / search / images / receipts) | Implemented — real-device smoke still required |
 
-Do **not** claim public mobile MVP is done until **real-device smoke** proves screenshot open/share/save with receipts (plus text/link/code).
+Do **not** claim public mobile MVP is done until **real-device smoke** proves
+the phone-local save/reuse loop **and** the paired companion flows on an actual
+Android phone.
 
-**MVP done** only when text, links, code, **and screenshots** work end-to-end with receipts on a real phone.
+## Launch behavior
 
-Branch: `feature/cache-vault-screenshot-assets` (from `feature/cache-vault-mobile-easy-connect-assets`) — **keep unmerged** until smoke PASS per [MOBILE_ANDROID_DIRECTION.md](../docs/MOBILE_ANDROID_DIRECTION.md).
+First launch opens the **local phone vault** — Add, search, Safes and Activity
+work immediately. No pairing, PC, or network is required. Pairing is an
+optional entry inside the **Paired PC** tab:
 
-## Onboarding (Easy Connect)
-
-First launch shows:
-
-- **Connect to My PC** (primary)
-- Scan QR Code (placeholder — Manual Setup fallback)
-- Find PC on this Wi-Fi (mDNS `_cachevault-mobile._tcp`)
-- Manual Setup (always available)
+- **Set up pairing (guided)** — onboarding walk-through
+- **Scan QR Code** — real CameraX + ML Kit scanner (implemented)
+- **Find PC on this Wi-Fi** — mDNS `_cachevault._tcp`
+- **Manual Setup** — always available
 
 The app opens Wi-Fi Settings for you; it cannot join Wi-Fi silently.
 
-## Merge gate (required before merge)
+## Merge / release gate
 
-Branch `android/cache-vault-mobile-mvp` merges **only** after real-device smoke **PASS** on an actual Android phone. No release tag.
-
-Do **not** merge on emulator-only or JVM tests alone.
+This working tree is **uncommitted** and unpublished. Do not merge, tag, or
+release on emulator-only or JVM evidence alone — physical-device smoke is the
+next gate for any release claim.
 
 ## Build & install
 
@@ -59,11 +84,13 @@ Requires Android SDK, JDK 17+, and phone on same Wi‑Fi as PC.
 4. Default port: **8742**
 5. Allow Windows Firewall inbound on 8742 for private networks if prompted
 
-## Pairing
+## Pairing (optional — Paired PC tab)
 
 1. Phone and PC on the **same Wi‑Fi** (not guest/isolated VLAN)
-2. Android app → enter PC **LAN IP**, port, device id, token
+2. Android app → **Paired PC** tab → guided setup, QR scan, discovery, or enter PC **LAN IP**, port, device id, token
 3. Tap **Pair with PC**
+
+Pairing only unlocks remote browsing and Send to PC. Phone-local saving never needs it.
 
 ## Hard pass/fail smoke (real phone)
 
@@ -99,20 +126,16 @@ Requires Android SDK, JDK 17+, and phone on same Wi‑Fi as PC.
 
 - [ ] Wrong token → 401
 - [ ] Revoked device → 401
-- [ ] No delete / edit / permanent-remove UI
+- [ ] No delete / edit / permanent-remove UI against the **remote PC vault** (local reversible remove/restore is separate and allowed)
 - [ ] No background clipboard monitoring
 - [ ] No cloud claim in app
 
-## After smoke PASS
-
-1. Merge `android/cache-vault-mobile-mvp` (or current feature branch)
-2. Then start `feature/cache-vault-mobile-qr-pairing` (not before)
-
 ## Guardrails (Proof Foundry)
 
-- **No cloud sync.** Local-first companion only.
-- **No background clipboard monitoring.** No camera permission until QR scan ships.
-- **No destructive mobile actions** (delete, edit, restore, prune).
+- **No cloud sync.** Local-first on both devices; the two vaults never auto-synchronize.
+- **No background clipboard monitoring.** Camera permission is requested only for the QR pairing scanner.
+- **Remote PC vault:** no destructive actions (delete, edit, restore, prune) — the bridge stays read-only-first.
+- **Phone-local vault:** reversible removal → Recently Removed → restore is allowed; no permanent purge is exposed.
 - **Plain-language errors** — see `UserMessages` in app source.
 - **Logging:** never log clip content, tokens, or bearer headers.
 - Full policy: [docs/MOBILE_THREAT_MODEL.md](../docs/MOBILE_THREAT_MODEL.md)
@@ -130,22 +153,24 @@ Requires Android SDK, JDK 17+, and phone on same Wi‑Fi as PC.
 
 | State | User sees |
 |-------|-----------|
-| Not paired | Welcome / Connect to My PC |
-| PC offline | Cannot reach your PC… |
-| Bridge disabled | Mobile Access is off… |
-| Auth failed | Pairing failed… |
-| Revoked | Device revoked… |
-| Connected | Home + Paired · Active in Settings |
+| Not paired | Local vault home (Vault tab) — pairing optional |
+| PC offline | Local vault unaffected; Paired PC tab shows the connection state |
+| Bridge disabled | Mobile Access is off… (Paired PC surfaces only) |
+| Auth failed | Pairing failed… (Paired PC surfaces only) |
+| Revoked | Device revoked… (Paired PC surfaces only) |
+| Connected | Paired PC tab → remote vault browsing + sending |
 
-MVP does not cache vault content offline.
+The local vault does not depend on any bridge state. The desktop companion's
+read-only remote browsing is unchanged — remote content is never inferred into
+the local vault.
 
 ## Permissions policy
 
 | Permission | When requested |
 |------------|----------------|
-| Internet | Always (bridge) |
-| Wi‑Fi multicast | LAN discovery |
-| Camera | **Only** when QR scanner is implemented |
-| Storage | **Only** for explicit Save to Phone when required |
+| Internet | Only when pairing / bridge is used |
+| Wi‑Fi multicast | LAN discovery (Paired PC tab) |
+| Camera | QR pairing scanner only |
+| Storage | Never — local vault uses app-private storage |
 
 No permissions requested "just in case."

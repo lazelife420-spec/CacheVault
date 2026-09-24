@@ -19,6 +19,7 @@ class MainActivity : ComponentActivity() {
                 CacheVaultMobileRoot(
                     pairingStore = app.pairingStore,
                     bridgeRepository = app.bridgeRepository,
+                    localVaultRepository = app.localVaultRepository,
                     manualSetupPrefill = manualSetupPrefill,
                 )
             }

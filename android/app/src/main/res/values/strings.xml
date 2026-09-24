@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Cache Vault Mobile</string>
-    <string name="byline">Companion app for your PC vault</string>
-    <string name="promise">Saved on your PC. Ready on your phone. Keep the receipt.</string>
+    <string name="byline">Cache Vault on this phone</string>
+    <string name="promise">Saved on this phone. Works offline. Pairing a PC is optional.</string>
 
     <string name="pairing_title">Connect to Cache Vault on this PC</string>
     <string name="pairing_subtitle">Use the same Wi-Fi as your Windows PC. Your vault stays local — no cloud account.</string>
@@ -19,7 +19,6 @@
     <string name="discover_failed">Could not find your PC on this Wi-Fi.</string>
     <string name="discover_try_again">Retry</string>
     <string name="offline_recovery_steps">Use the same Wi-Fi · open Cache Vault on your PC · turn on Mobile Access · then tap Retry.</string>
-    <string name="qr_placeholder">QR pairing is coming next. Use Manual Setup for this MVP.</string>
     <string name="pairing_hint">On your PC: Settings → Mobile Access → Pair Android Device</string>
     <string name="manual_setup_intro">Enter the pairing details shown on your PC.</string>
     <string name="manual_setup_ip_hint">Use your PC\'s Wi-Fi address — not localhost or 127.0.0.1.</string>
@@ -51,17 +50,12 @@
     <string name="image_viewer_back">Back to screenshot details</string>
     <string name="open_in_other_app">Open in another app</string>
     <string name="image_viewer_retry">Try again</string>
-    <string name="no_cloud">Local-first. No cloud sync. Your PC stays the source of truth.</string>
+    <string name="no_cloud">Local-first. No cloud sync. On this phone by default — On PC only when paired.</string>
 
     <string name="vault_status_title">Connection status</string>
     <string name="vault_status_pc">PC at %1$s</string>
     <string name="vault_status_local_wifi">Same Wi-Fi as PC</string>
 
-    <string name="send_to_cache_vault">Send to Cache Vault</string>
-    <string name="share_screen_title">Send to your PC vault</string>
-    <string name="share_not_connected">Not connected to your PC vault</string>
-    <string name="share_connected">Connected to %1$s</string>
-    <string name="share_footer">Local-first · saved on your PC · no cloud sync</string>
     <string name="share_done">Done</string>
     <string name="share_copy_text">Copy text</string>
     <string name="share_with_someone">Share with someone else</string>
@@ -110,4 +104,25 @@
     <string name="stop_background_connection">Stop background connection</string>
     <string name="background_permission_needed">Allow notifications to keep Cache Vault connected in the background.</string>
     <string name="background_start_failed">Could not start background connection on this phone. Keep Connected was turned back off.</string>
+
+    <!-- CV-MOBILE-1: phone-local vault -->
+    <string name="local_ready_subtitle">Local vault on this phone · ready</string>
+    <string name="local_search_hint">Search items saved on this phone…</string>
+    <string name="local_search_empty">Nothing on this phone matches that search.</string>
+    <string name="local_removed_empty">Recently Removed is empty.</string>
+    <string name="local_empty_title">Save something to this phone</string>
+    <string name="local_empty_body">Use Add to paste text, save a link, or add an image — or share to Cache Vault from any app. Everything here stays on this phone until you send it.</string>
+    <string name="local_empty_pc_hint">Pairing a PC is optional — it adds browsing and sending, never required for saving on this phone.</string>
+    <string name="local_manage_safes">Manage Safes</string>
+    <string name="local_safes_subtitle">Named organizers on this phone — not encryption containers, never synced to a PC.</string>
+    <string name="local_safes_disclaimer">Safes organize items on this phone only. Removing an item moves it to Recently Removed; it is never a desktop delete.</string>
+    <string name="local_activity_subtitle">What this app actually did on this phone — saves, copies, shares started, and failures. Not a signed receipt.</string>
+    <string name="local_activity_empty">No local activity yet. Save something to this phone to start the record.</string>
+    <string name="local_share_title">Save to Cache Vault</string>
+    <string name="local_share_subtitle">Store this on this phone\'s vault — works offline and without a paired PC.</string>
+    <string name="local_save_on_phone">Save on this phone</string>
+    <string name="local_share_saved">Saved on this phone</string>
+    <string name="local_send_to_pc">Send to %1$s</string>
+    <string name="local_send_to_pc_unavailable">Send to PC (pair a PC to enable)</string>
+    <string name="local_share_footer">Local-first · saved on this phone · no cloud sync</string>
 </resources>

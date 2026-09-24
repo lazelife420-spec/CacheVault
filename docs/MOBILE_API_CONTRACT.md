@@ -6,6 +6,13 @@ Auth: `X-Device-Id` + `Authorization: Bearer <pairing-token>`
 
 See also: [MOBILE_THREAT_MODEL.md](MOBILE_THREAT_MODEL.md), [MOBILE_ANDROID_DIRECTION.md](MOBILE_ANDROID_DIRECTION.md)
 
+> **CV-MOBILE-1 (2026-09-24):** This contract is **unchanged**. The new
+> phone-local vault (`data/local/` — SQLite schema v1 + app-private
+> `local_assets/`) does not use the bridge at all: local items, Safes,
+> favorites and activity never travel over `/mobile/v1`, and no new endpoints
+> exist. Pairing and every endpoint below still govern only the companion
+> surfaces under the Paired PC tab.
+
 ## Version
 
 | Field | Value |

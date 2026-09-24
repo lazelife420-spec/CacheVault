@@ -723,3 +723,27 @@ The full ~2,000-test pytest suite was **not** re-run for this step, per the audi
 ---
 
 **NEXT AUTHORIZED ACTION: NONE — Gate 5F is canonicalized (`CANONICALIZED — GATE 5F-A + 5F-B INTEGRATED`, §28). Awaiting user authorization for whatever comes next: the deferred "Cache Vault Post-Canonical Salvage Audit — Pre-Gate5F Dirty Worktree" gate (investigating the seven quarantined Category B source files), pushing the new `master` to `origin`, Gate 6 (custody-doc hygiene), or another item from the finish queue above.**
+
+
+---
+
+## 29. Product-direction addendum — CV-MOBILE-1 (owner direction recorded: 2026-09-24)
+
+This addendum is **current-state and direction only**. It does not rewrite the frozen historical sections above, and it does not change the standing rule that no claim is released until source and runtime evidence exist.
+
+**Direction:** the desktop Cache Vault on Windows is an established, working product. Android is evolving from a PC companion into an **independent, local-first phone vault**. Both devices are Cache Vault. Pairing remains optional — it adds PC browsing/sending, never gates phone-local saving.
+
+**CV-MOBILE-1 scope (implemented and locally committed on this branch; not yet pushed or released):**
+
+- Phone-local persistence for text, links, and single images: `SQLiteOpenHelper` schema v1, app-private asset storage under `files/local_assets/`, bounded ingest (text ≤ 256 KiB UTF-8, image ≤ 10 MiB, decode-dimension probing, pixel budget), verbatim hashing (SHA-256 of exact saved bytes — CRLF/LF and whitespace distinctions preserved by design).
+- Local organization: protected default Safe, named Safes (create/rename), favorites, reversible remove → Recently Removed → restore. No permanent purge or retention automation in this tranche.
+- Local activity ledger: per-item save/favorite/move/remove/restore/copy/share-initiated events with truthful outcomes (`completed`/`failed`/`cancelled`/`initiated`). **Not digitally signed; never carries item bodies, tokens, or image bytes.**
+- Explicit ingestion: Android Share target (`text/plain`, `image`) defaults to "Save on this phone"; Send-to-PC preserved as a deliberate secondary action for paired devices. In-app Add offers paste/type text and the system single-image picker.
+- Local-first shell: the app opens into the phone vault (Vault / Safes / Activity / Paired PC). Unpaired launch requires nothing remote; the Paired PC tab hosts the existing companion surfaces and pairing entry points.
+- Debug/test builds install as `com.prooffoundry.cachevaultmobile.cvmobile1.debug` (`-cvmobile1-dev` versionName suffix) so test installs can never collide with the production `com.prooffoundry.cachevaultmobile` identity or its signing. Release applicationId and version (0.2.1 / 8) are unchanged; production signing material was not touched.
+
+**Explicitly not done / not claimed:** no full peer sync, no desktop Safe synchronization, no multi-vault model, no background transfer queue, no iOS work, no release/publication. The existing companion bridge contract, authentication, and pairing lifecycle are preserved unchanged; the network trust concerns recorded in `docs/MOBILE_THREAT_MODEL.md` remain open. The implementation is locally committed. Push, tag, signing, public release and site updates remain **unauthorized**.
+
+**Evidence in this tree:** `review/CV-MOBILE-1-20260924/` (desktop-candidate hash manifest, foreign-inventory manifest, test reports, on-device UI dumps and screenshots). The ten modified desktop UI files remain byte-identical to their pre-work manifest hashes; the foreign untracked inventory (release/review/scratch) is preserved untouched.
+
+**Next authorized action: unchanged — none implied by this addendum.**

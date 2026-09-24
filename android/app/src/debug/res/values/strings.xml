@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Distinct label for the isolated CV-MOBILE-1 debug/test install. -->
+    <string name="app_name">Cache Vault Dev</string>
+</resources>

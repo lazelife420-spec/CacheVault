@@ -5,11 +5,22 @@ Proof Foundry standard: **proof-first, user-control-first, local-first, no fake 
 ## Product boundary
 
 ```text
-Desktop Cache Vault = source of truth
-Android = paired companion (viewer / search / copy / share)
-Bridge = local, gated, read-only-first
-Receipts = proof layer
+Desktop Cache Vault = desktop vault (source of truth for PC content)
+Android phone vault  = independent local-first vault on this device
+Bridge               = optional LAN companion surface (read-only-first)
+Receipts             = proof layer for bridge requests only
 ```
+
+**CV-MOBILE-1 (2026-09-24):** The Android app is no longer companion-only. It
+keeps a **phone-local vault** in app-private storage: items, Safes, favorites,
+removals and a local activity ledger that never touch the bridge, pairing
+credentials, or any network. Local Safes are organizers, not encryption
+containers; the activity ledger is not signed; local item ids never denote
+desktop clips. Pairing remains optional and unchanged; the desktop transport
+and authentication model were not modified. Known bridge-trust concerns
+(token/host trust, QR payload validation, transport authentication,
+exactly-once/deduplication, lost-ack retry, remote image prefetch) remain
+recorded and unresolved — this tranche neither expanded nor weakened them.
 
 Cache Vault Mobile is **not** cloud sync, account login, background clipboard scraping, or a remote file manager.
 
@@ -17,7 +28,9 @@ Cache Vault Mobile is **not** cloud sync, account login, background clipboard sc
 
 | Asset | Owner |
 |-------|-------|
-| Full clip content | User PC vault |
+| Full clip content (PC vault) | User PC vault |
+| Phone-local items/assets (CV-MOBILE-1) | User's phone — app-private storage only |
+| Local activity ledger | User's phone — no payloads/tokens/image bytes |
 | Pairing tokens | User (shown once on pair) |
 | Mobile Access Receipts | User PC (local audit) |
 | Sensitive clip text | User — masked in list/search |

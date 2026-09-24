@@ -57,6 +57,13 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        debug {
+            // CV-MOBILE-1 isolated test identity: debug builds install as a
+            // separate package so they can never overwrite or clear the
+            // production-signed companion. Release identity is untouched.
+            applicationIdSuffix = ".cvmobile1.debug"
+            versionNameSuffix = "-cvmobile1-dev"
+        }
     }
 
     compileOptions {
@@ -116,6 +123,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // CV-MOBILE-1: real SQLite + Context on the JVM for local-vault tests.
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.6.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

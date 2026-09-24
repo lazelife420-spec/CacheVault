@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,24 +22,30 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.prooffoundry.cachevaultmobile.connect.BackgroundConnectionService
 import com.prooffoundry.cachevaultmobile.R
 import com.prooffoundry.cachevaultmobile.connect.DiscoveredPc
 import com.prooffoundry.cachevaultmobile.connect.PcDiscovery
 import com.prooffoundry.cachevaultmobile.connect.WifiSettingsHelper
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
+import com.prooffoundry.cachevaultmobile.data.ImageFileHelper
 import com.prooffoundry.cachevaultmobile.data.PairingStore
+import com.prooffoundry.cachevaultmobile.data.local.LocalItem
+import com.prooffoundry.cachevaultmobile.data.local.LocalItemKind
+import com.prooffoundry.cachevaultmobile.data.local.LocalVaultRepository
 import com.prooffoundry.cachevaultmobile.ui.screens.ClipDetailScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.DiscoverPcScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.EasyConnectScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ImageViewerScreen
+import com.prooffoundry.cachevaultmobile.ui.screens.LocalItemDetailScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ManualSetupScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.PcFoundBottomSheet
 import com.prooffoundry.cachevaultmobile.ui.screens.QrScanScreen
-import com.prooffoundry.cachevaultmobile.ui.MainShell
 import com.prooffoundry.cachevaultmobile.ui.screens.WelcomeScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -54,12 +61,18 @@ object Routes {
     const val ConnectionDoctor = "connection_doctor"
     const val Detail = "detail"
     const val ImageViewer = "image_viewer"
+    const val LocalDetail = "local_detail/{itemId}"
+    const val HomeRoute = "home?tab={tab}"
+
+    fun localDetail(itemId: String) = "local_detail/$itemId"
+    fun home(tab: String = "vault") = "home?tab=$tab"
 }
 
 @Composable
 fun CacheVaultMobileRoot(
     pairingStore: PairingStore,
     bridgeRepository: BridgeRepository,
+    localVaultRepository: LocalVaultRepository,
     manualSetupPrefill: ManualSetupPrefill = ManualSetupPrefill(),
 ) {
     val nav = rememberNavController()
@@ -70,6 +83,16 @@ fun CacheVaultMobileRoot(
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
                     return AppViewModel(bridgeRepository) as T
+                }
+            }
+        },
+    )
+    val localVm: LocalVaultViewModel = viewModel(
+        factory = remember(localVaultRepository) {
+            object : androidx.lifecycle.ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                    return LocalVaultViewModel(localVaultRepository) as T
                 }
             }
         },
@@ -95,10 +118,15 @@ fun CacheVaultMobileRoot(
             )
         }
     }
-    val start = if (pairingStore.isPaired()) Routes.Home else Routes.Welcome
+    // CV-MOBILE-1: the app always opens into the phone-local vault. Pairing
+    // is optional navigation inside the Paired PC tab, never a launch gate.
+    val start = Routes.Home
 
     fun goHomeAfterPair() {
-        nav.navigate(Routes.Home) {
+        // A successful pair lands on the Paired PC tab — the remote content
+        // the user just connected is the relevant next surface, while the
+        // local vault remains one tap away.
+        nav.navigate(Routes.home("pc")) {
             popUpTo(0) { inclusive = true }
             launchSingleTop = true
         }
@@ -133,9 +161,10 @@ fun CacheVaultMobileRoot(
             nav.navigate(Routes.ManualSetup)
         } else if (pairingStore.isPaired()) {
             vm.initializeConnectionLifecycle()
-        } else {
-            vm.discoverPcOnLaunch()
         }
+        // Unpaired launches no longer auto-run network discovery; the local
+        // vault is the product surface, and discovery stays reachable from
+        // the Paired PC tab.
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -195,9 +224,20 @@ fun CacheVaultMobileRoot(
                 onBack = { nav.popBackStack() },
             )
         }
-        composable(Routes.Home) {
-            MainShell(
-                vm = vm,
+        composable(
+            route = Routes.HomeRoute,
+            arguments = listOf(
+                navArgument("tab") {
+                    type = NavType.StringType
+                    defaultValue = "vault"
+                },
+            ),
+        ) { backStackEntry ->
+            LocalShell(
+                localVm = localVm,
+                remoteVm = vm,
+                initialTab = backStackEntry.arguments?.getString("tab") ?: "vault",
+                onOpenItem = { id -> nav.navigate(Routes.localDetail(id)) },
                 onOpenClip = { clipId ->
                     vm.openClip(clipId)
                     nav.navigate(Routes.Detail)
@@ -209,9 +249,6 @@ fun CacheVaultMobileRoot(
                 onDisconnect = {
                     BackgroundConnectionService.stop(context)
                     vm.disconnect()
-                    nav.navigate(Routes.Welcome) {
-                        popUpTo(0) { inclusive = true }
-                    }
                 },
                 onRePair = { openManualSetupForRePair() },
                 onKeepConnectedChanged = { enabled ->
@@ -241,6 +278,43 @@ fun CacheVaultMobileRoot(
                         }
                     }
                 },
+                onPairScanQr = { nav.navigate(Routes.QrScan) },
+                onPairFindPc = { nav.navigate(Routes.Discover) },
+                onPairManualSetup = { openManualSetup() },
+                onPairGuided = { nav.navigate(Routes.Welcome) },
+            )
+        }
+        composable(
+            route = Routes.LocalDetail,
+            arguments = listOf(navArgument("itemId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val itemId = backStackEntry.arguments?.getString("itemId").orEmpty()
+            val localState by localVm.state.collectAsState()
+            LaunchedEffect(itemId) {
+                if (itemId.isNotBlank()) localVm.openItem(itemId)
+            }
+            LocalItemDetailScreen(
+                item = localState.selectedItem,
+                asset = localState.selectedAsset,
+                safes = localState.safes,
+                revealed = localState.revealed.contains(itemId),
+                repository = localVaultRepository,
+                onBack = {
+                    localVm.closeItem()
+                    nav.popBackStack()
+                },
+                onCopy = { item -> copyLocalItem(context, item, localVm) },
+                onShareText = { item -> shareLocalItem(context, item, localVm) },
+                onShareImage = { item, asset -> shareLocalImage(context, item, asset, localVm, localVaultRepository) },
+                onToggleFavorite = { localVm.toggleFavorite(it) },
+                onMoveToSafe = { id, safeId -> localVm.moveToSafe(id, safeId) },
+                onRemove = { item ->
+                    localVm.removeItem(item.id)
+                    localVm.closeItem()
+                    nav.popBackStack()
+                },
+                onRestore = { localVm.restoreItem(it.id) },
+                onReveal = { localVm.reveal(it) },
             )
         }
         composable(Routes.Detail) {
@@ -330,6 +404,58 @@ fun CacheVaultMobileRoot(
         )
     }
     }
+}
+
+private fun copyLocalItem(
+    context: android.content.Context,
+    item: LocalItem,
+    localVm: LocalVaultViewModel,
+) {
+    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+        as android.content.ClipboardManager
+    val clip = android.content.ClipData.newPlainText("Cache Vault", item.content.orEmpty())
+    if (item.isSensitive && Build.VERSION.SDK_INT >= 33) {
+        clip.description.extras = android.os.PersistableBundle().apply {
+            putBoolean("android.content.extra.IS_SENSITIVE", true)
+        }
+    }
+    cm.setPrimaryClip(clip)
+    localVm.markCopied(item.id)
+}
+
+private fun shareLocalItem(
+    context: android.content.Context,
+    item: LocalItem,
+    localVm: LocalVaultViewModel,
+) {
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_TEXT, item.content.orEmpty())
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, "Share item"))
+    localVm.markShareInitiated(item.id)
+}
+
+private fun shareLocalImage(
+    context: android.content.Context,
+    item: LocalItem,
+    asset: com.prooffoundry.cachevaultmobile.data.local.LocalAsset,
+    localVm: LocalVaultViewModel,
+    repository: LocalVaultRepository,
+) {
+    val file = repository.assetFileFor(asset.fileName) ?: return
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file,
+    )
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = asset.mime
+        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, "Share image"))
+    localVm.markShareInitiated(item.id)
 }
 
 @Composable
