@@ -166,7 +166,7 @@ private fun SafeRow(
                     }
                 }
                 Text(
-                    "$count item(s) on this phone",
+                    if (count == 1) "1 item" else "$count items",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

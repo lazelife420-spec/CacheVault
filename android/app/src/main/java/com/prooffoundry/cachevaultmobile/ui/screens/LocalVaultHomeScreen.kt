@@ -26,7 +26,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -59,39 +58,47 @@ fun LocalVaultHomeScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Cache Vault",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    if (state.fatalError != null) {
+                        "Local vault needs attention"
+                    } else {
+                        stringResource(R.string.local_ready_subtitle)
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (state.fatalError != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        ProofTeal
+                    },
+                )
+            }
+        }
+
+        item {
+            // Empty vault: the CTA owns the viewport. Once content exists the
+            // same pill slims down so retained items lead the screen.
+            val populated = state.items.isNotEmpty()
+            Button(
+                onClick = onAdd,
+                enabled = state.fatalError == null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(if (populated) 46.dp else 54.dp),
+                shape = RoundedCornerShape(if (populated) 23.dp else 27.dp),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Cache Vault",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        if (state.fatalError != null) {
-                            "Local vault needs attention"
-                        } else {
-                            stringResource(R.string.local_ready_subtitle)
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (state.fatalError != null) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            ProofTeal
-                        },
-                    )
-                }
-                Button(
-                    onClick = onAdd,
-                    enabled = state.fatalError == null,
-                    shape = RoundedCornerShape(10.dp),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Text("Add", modifier = Modifier.padding(start = 4.dp))
-                }
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text(
+                    "Save on this phone",
+                    modifier = Modifier.padding(start = 8.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
 
@@ -204,7 +211,8 @@ fun LocalVaultHomeScreen(
                             ) {
                                 Text(
                                     stringResource(R.string.local_empty_title),
-                                    style = MaterialTheme.typography.titleSmall,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(
                                     stringResource(R.string.local_empty_body),

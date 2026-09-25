@@ -110,8 +110,8 @@
     <string name="local_search_hint">Search items saved on this phone…</string>
     <string name="local_search_empty">Nothing on this phone matches that search.</string>
     <string name="local_removed_empty">Recently Removed is empty.</string>
-    <string name="local_empty_title">Save something to this phone</string>
-    <string name="local_empty_body">Use Add to paste text, save a link, or add an image — or share to Cache Vault from any app. Everything here stays on this phone until you send it.</string>
+    <string name="local_empty_title">Capture today. Keep what matters.</string>
+    <string name="local_empty_body">Paste text, save a link, or add an image — or share to Cache Vault from any app. Everything here stays on this phone until you send it.</string>
     <string name="local_empty_pc_hint">Pairing a PC is optional — it adds browsing and sending, never required for saving on this phone.</string>
     <string name="local_manage_safes">Manage Safes</string>
     <string name="local_safes_subtitle">Named organizers on this phone — not encryption containers, never synced to a PC.</string>

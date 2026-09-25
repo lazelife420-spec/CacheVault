@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -141,7 +142,7 @@ fun LocalItemDetailScreen(
                 .padding(padding)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Surface(shape = RoundedCornerShape(6.dp), color = ProofTeal.copy(alpha = 0.15f)) {
                 Text(
@@ -154,27 +155,6 @@ fun LocalItemDetailScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = ProofTeal,
                 )
-            }
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surface,
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    DetailMeta("Saved", ClipListFormatter.formatWhen(item.createdAt))
-                    safes.firstOrNull { it.id == item.safeId }?.let {
-                        DetailMeta("Safe", it.name)
-                    }
-                    item.contentHash?.let {
-                        DetailMeta("SHA-256 (computed on this phone)", it.take(16) + "…")
-                    }
-                    if (removed) {
-                        DetailMeta("Removed", ClipListFormatter.formatWhen(item.removedAt))
-                    }
-                }
             }
             if (item.isSensitive) {
                 Surface(
@@ -238,13 +218,13 @@ fun LocalItemDetailScreen(
                     } else {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.surface,
                         ) {
                             Text(
                                 item.content.orEmpty().ifBlank { "(no content)" },
-                                modifier = Modifier.padding(14.dp),
-                                style = MaterialTheme.typography.bodyMedium.copy(
+                                modifier = Modifier.padding(18.dp),
+                                style = MaterialTheme.typography.bodyLarge.copy(
                                     fontFamily = FontFamily.Default,
                                 ),
                             )
@@ -259,12 +239,18 @@ fun LocalItemDetailScreen(
                     Text("Restore to this phone")
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     when (item.kind) {
                         LocalItemKind.IMAGE -> {
                             Button(
                                 onClick = { asset?.let { onShareImage(item, it) } },
                                 enabled = asset != null,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
                             ) { Text("Share") }
                         }
                         else -> {
@@ -281,8 +267,11 @@ fun LocalItemDetailScreen(
                                     }
                                 },
                                 enabled = !showSensitiveMask || revealed,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
                             ) { Text("Copy") }
-                            Button(
+                            OutlinedButton(
                                 onClick = {
                                     if (item.isSensitive && !revealed) {
                                         Toast.makeText(
@@ -294,12 +283,23 @@ fun LocalItemDetailScreen(
                                         onShareText(item)
                                     }
                                 },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
                             ) { Text("Share") }
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = { safeMenuOpen = true }) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { safeMenuOpen = true },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp),
+                    ) {
                         Text("Move to Safe")
                     }
                     DropdownMenu(
@@ -316,7 +316,12 @@ fun LocalItemDetailScreen(
                             )
                         }
                     }
-                    OutlinedButton(onClick = { onRemove(item) }) {
+                    OutlinedButton(
+                        onClick = { onRemove(item) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp),
+                    ) {
                         Text("Remove", color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -325,6 +330,30 @@ fun LocalItemDetailScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            // Provenance stays available without competing with the content:
+            // quiet metadata block at the bottom of the detail flow.
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailMeta("Saved", ClipListFormatter.formatWhen(item.createdAt))
+                    safes.firstOrNull { it.id == item.safeId }?.let {
+                        DetailMeta("Safe", it.name)
+                    }
+                    item.contentHash?.let {
+                        DetailMeta("SHA-256 (computed on this phone)", it.take(16) + "…")
+                    }
+                    if (removed) {
+                        DetailMeta("Removed", ClipListFormatter.formatWhen(item.removedAt))
+                    }
+                }
             }
         }
     }

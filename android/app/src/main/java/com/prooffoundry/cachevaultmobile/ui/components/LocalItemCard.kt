@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -23,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.prooffoundry.cachevaultmobile.data.local.LocalItem
@@ -44,10 +48,10 @@ fun LocalItemCard(
     modifier: Modifier = Modifier,
     onCopy: (() -> Unit)? = null,
 ) {
-    val badge = when (item.kind) {
-        LocalItemKind.LINK -> "LINK"
-        LocalItemKind.IMAGE -> "IMAGE"
-        LocalItemKind.TEXT -> "TXT"
+    val (kindIcon, kindLabel) = when (item.kind) {
+        LocalItemKind.LINK -> Icons.Default.Link to "Link"
+        LocalItemKind.IMAGE -> Icons.Default.Image to "Image"
+        LocalItemKind.TEXT -> Icons.AutoMirrored.Filled.Notes to "Text"
     }
 
     Card(
@@ -67,51 +71,37 @@ fun LocalItemCard(
                     shape = RoundedCornerShape(10.dp),
                 )
                 .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Leading kind tile — the concept board's icon rows: type reads at
+            // a glance without a text badge shouting on every card.
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (item.isSensitive) {
+                    StampGold.copy(alpha = 0.14f)
+                } else {
+                    ProofTeal.copy(alpha = 0.13f)
+                },
+            ) {
+                Icon(
+                    kindIcon,
+                    contentDescription = kindLabel,
+                    tint = if (item.isSensitive) StampGold else ProofTeal,
+                    modifier = Modifier
+                        .padding(9.dp)
+                        .size(20.dp),
+                )
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TypeBadge(badge)
-                    if (item.isFavorite) {
-                        Icon(
-                            Icons.Default.Star,
-                            contentDescription = "Favorite",
-                            tint = StampGold,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                    Row(modifier = Modifier.weight(1f)) {}
-                    Text(
-                        "This phone",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ProofTeal.copy(alpha = 0.8f),
-                    )
-                    if (onCopy != null && item.kind != LocalItemKind.IMAGE) {
-                        IconButton(
-                            onClick = onCopy,
-                            modifier = Modifier.size(28.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.ContentCopy,
-                                contentDescription = "Copy",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                }
                 if (item.isSensitive) {
                     Text(
                         "Sensitive — tap to open",
                         style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
                         color = StampGold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -120,6 +110,7 @@ fun LocalItemCard(
                     Text(
                         item.title,
                         style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -135,27 +126,38 @@ fun LocalItemCard(
                         )
                     }
                 }
-                Text(
-                    ClipListFormatter.formatRelativeWhen(item.createdAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "$kindLabel · ${ClipListFormatter.formatRelativeWhen(item.createdAt)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                    if (item.isFavorite) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = "Favorite",
+                            tint = StampGold,
+                            modifier = Modifier.size(11.dp),
+                        )
+                    }
+                }
+            }
+            if (onCopy != null && item.kind != LocalItemKind.IMAGE) {
+                IconButton(
+                    onClick = onCopy,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        Icons.Default.ContentCopy,
+                        contentDescription = "Copy",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun TypeBadge(label: String) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = ProofTeal.copy(alpha = 0.15f),
-    ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = ProofTeal,
-        )
     }
 }
