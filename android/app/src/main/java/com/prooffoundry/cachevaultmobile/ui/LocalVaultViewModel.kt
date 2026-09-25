@@ -31,6 +31,14 @@ class LocalVaultViewModel(
     private val repository: LocalVaultRepository,
 ) : ViewModel() {
 
+    /** Bounded preview fetch for visible image cards; image bytes remain local. */
+    suspend fun thumbnailFor(itemId: String): android.graphics.Bitmap? {
+        val asset = repository.assetForItem(itemId) ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            repository.decodeAssetThumbnail(asset.fileName, maxEdgePx = 256)
+        }
+    }
+
     data class LocalUiState(
         val ready: Boolean = false,
         val fatalError: String? = null,

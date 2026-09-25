@@ -2,6 +2,7 @@ package com.prooffoundry.cachevaultmobile.ui
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,8 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -32,6 +35,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +62,8 @@ import com.prooffoundry.cachevaultmobile.data.local.LocalVaultDatabase
 import com.prooffoundry.cachevaultmobile.ui.screens.LocalActivityScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.LocalSafesScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.LocalVaultHomeScreen
+import com.prooffoundry.cachevaultmobile.ui.screens.ConnectionDoctorScreen
+import com.prooffoundry.cachevaultmobile.ui.screens.SettingsScreen
 
 private enum class LocalTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     VAULT("Vault", Icons.Default.Home),
@@ -115,6 +122,25 @@ fun LocalShell(
     var showTextEditor by rememberSaveable { mutableStateOf(false) }
     var editorText by rememberSaveable { mutableStateOf("") }
     var editorSafeId by rememberSaveable { mutableStateOf(LocalVaultDatabase.DEFAULT_SAFE_ID) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showConnectionDoctor by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler(enabled = showConnectionDoctor || showSettings) {
+        if (showConnectionDoctor) showConnectionDoctor = false else showSettings = false
+    }
+    BackHandler(enabled = !showSettings && tab != LocalTab.VAULT.name) {
+        tab = LocalTab.VAULT.name
+    }
+    BackHandler(
+        enabled = !showSettings && tab == LocalTab.VAULT.name &&
+            (state.query.isNotBlank() || state.selectedSafeId != null || state.filter != LocalFilter.ALL),
+    ) {
+        when {
+            state.query.isNotBlank() -> localVm.setQuery("")
+            state.selectedSafeId != null -> localVm.selectSafe(null)
+            else -> localVm.setFilter(LocalFilter.ALL)
+        }
+    }
 
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
@@ -158,8 +184,57 @@ fun LocalShell(
     }
 
     Scaffold(
+        topBar = {
+            if (!showSettings) {
+                val selectedSafe = state.safes.firstOrNull { it.id == state.selectedSafeId }
+                val contextLabel = when (LocalTab.valueOf(tab)) {
+                    LocalTab.VAULT -> when {
+                        state.filter == LocalFilter.REMOVED -> "Recently Removed · This phone"
+                        selectedSafe != null -> "Safe · ${selectedSafe.name}"
+                        else -> "Local vault · This phone"
+                    }
+                    LocalTab.SAFES -> "Organize this phone"
+                    LocalTab.ACTIVITY -> "Local history"
+                    LocalTab.PC -> "Remote vault · On PC"
+                }
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("Cache Vault", style = MaterialTheme.typography.titleMedium)
+                            Text(contextLabel, style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    navigationIcon = if (LocalTab.valueOf(tab) == LocalTab.VAULT &&
+                        (state.filter == LocalFilter.REMOVED || selectedSafe != null)
+                    ) {
+                        {
+                            IconButton(onClick = {
+                                if (state.filter == LocalFilter.REMOVED) {
+                                    localVm.setFilter(LocalFilter.ALL)
+                                } else {
+                                    localVm.selectSafe(null)
+                                }
+                            }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Vault")
+                            }
+                        }
+                    } else {
+                        {}
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            showConnectionDoctor = false
+                            showSettings = true
+                        }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    },
+                )
+            }
+        },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.background) {
+            if (!showSettings) NavigationBar(containerColor = MaterialTheme.colorScheme.background) {
                 LocalTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t.name,
@@ -181,7 +256,36 @@ fun LocalShell(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
-            when (LocalTab.valueOf(tab)) {
+            when {
+                showSettings && showConnectionDoctor -> ConnectionDoctorScreen(
+                    info = remoteVm.connectionDoctor(),
+                    onBack = { showConnectionDoctor = false },
+                )
+                showSettings -> {
+                    val remote = remoteVm.uiState
+                    SettingsScreen(
+                        pcName = remote.pcName,
+                        host = remote.hostLabel,
+                        port = remote.port,
+                        deviceId = remote.deviceId,
+                        lastSeenAt = remote.lastSeenAt,
+                        autoConnectApproved = remote.autoConnectApproved,
+                        keepConnectedInBackground = remote.keepConnectedInBackground,
+                        status = remote.status,
+                        error = remote.error,
+                        lastError = remote.lastError,
+                        hasLoadedVault = remote.hasLoadedVault,
+                        loading = remote.loading,
+                        onDisconnect = onDisconnect,
+                        onRePair = onRePair,
+                        onReconnect = remoteVm::refreshAll,
+                        onAutoConnectApproved = remoteVm::approveAutoConnect,
+                        onKeepConnectedChanged = onKeepConnectedChanged,
+                        onConnectionDoctor = { showConnectionDoctor = true },
+                        onBack = { showSettings = false },
+                    )
+                }
+                else -> when (LocalTab.valueOf(tab)) {
                 LocalTab.VAULT -> LocalVaultHomeScreen(
                     state = state,
                     onSearch = localVm::setQuery,
@@ -195,12 +299,14 @@ fun LocalShell(
                     },
                     onAdd = { showAddSheet = true },
                     onOpenSafes = { tab = LocalTab.SAFES.name },
+                    loadThumbnail = localVm::thumbnailFor,
                 )
                 LocalTab.SAFES -> LocalSafesScreen(
                     state = state,
                     onSelectSafe = { safeId ->
                         localVm.selectSafe(safeId)
                         localVm.setFilter(LocalFilter.ALL)
+                        localVm.setQuery("")
                         tab = LocalTab.VAULT.name
                     },
                     onCreateSafe = localVm::createSafe,
@@ -219,6 +325,7 @@ fun LocalShell(
                     onPairManualSetup = onPairManualSetup,
                     onPairGuided = onPairGuided,
                 )
+                }
             }
         }
     }

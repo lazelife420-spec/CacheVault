@@ -15,6 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.DeleteOutline
+import android.graphics.Bitmap
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -51,54 +54,18 @@ fun LocalVaultHomeScreen(
     onCopyItem: (String) -> Unit,
     onAdd: () -> Unit,
     onOpenSafes: () -> Unit,
+    loadThumbnail: suspend (String) -> Bitmap?,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "Cache Vault",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    if (state.fatalError != null) {
-                        "Local vault needs attention"
-                    } else {
-                        stringResource(R.string.local_ready_subtitle)
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (state.fatalError != null) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        ProofTeal
-                    },
-                )
-            }
-        }
-
-        item {
-            // Empty vault: the CTA owns the viewport. Once content exists the
-            // same pill slims down so retained items lead the screen.
-            val populated = state.items.isNotEmpty()
-            Button(
-                onClick = onAdd,
-                enabled = state.fatalError == null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(if (populated) 46.dp else 54.dp),
-                shape = RoundedCornerShape(if (populated) 23.dp else 27.dp),
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Text(
-                    "Save on this phone",
-                    modifier = Modifier.padding(start = 8.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
+        val showingRemoved = state.filter == LocalFilter.REMOVED
+        if (state.fatalError != null) {
+            item {
+                Text("Local vault needs attention", color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -130,7 +97,7 @@ fun LocalVaultHomeScreen(
             return@LazyColumn
         }
 
-        item {
+        if (!showingRemoved) item {
             OutlinedTextField(
                 value = state.query,
                 onValueChange = onSearch,
@@ -155,7 +122,21 @@ fun LocalVaultHomeScreen(
             )
         }
 
-        item {
+        if (!showingRemoved) item {
+            val populated = state.items.any { !it.isRemoved }
+            Button(
+                onClick = onAdd,
+                enabled = true,
+                modifier = Modifier.fillMaxWidth().height(if (populated) 44.dp else 54.dp),
+                shape = RoundedCornerShape(if (populated) 22.dp else 27.dp),
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text("Save on this phone", modifier = Modifier.padding(start = 8.dp),
+                    style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        if (!showingRemoved) item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(LocalFilter.entries.toList(), key = { it.name }) { filter ->
                     FilterChipItem(
@@ -191,12 +172,14 @@ fun LocalVaultHomeScreen(
                         )
                     }
                     state.filter == LocalFilter.REMOVED -> {
-                        Text(
-                            stringResource(R.string.local_removed_empty),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
+                        Column(modifier = Modifier.padding(vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Items can be restored to this phone.",
+                                style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.local_removed_empty),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     else -> {
                         Surface(
@@ -230,21 +213,64 @@ fun LocalVaultHomeScreen(
                 }
             }
         } else {
+            if (state.filter == LocalFilter.REMOVED) {
+                item {
+                    Text("Items can be restored to this phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp))
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        when {
+                            state.query.isNotBlank() -> "Results on this phone"
+                            state.filter == LocalFilter.REMOVED -> "Recently Removed"
+                            state.filter == LocalFilter.FAVORITES -> "Favorites"
+                            else -> "Recent"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+            if (!showingRemoved) {
+                        TextButton(onClick = { onFilter(LocalFilter.REMOVED) }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = null,
+                                modifier = Modifier.padding(end = 4.dp))
+                            Text("Recently Removed")
+                        }
+                    }
+                }
+            }
             items(state.items, key = { it.id }) { item ->
                 LocalItemCard(
                     item = item,
                     onClick = { onOpenItem(item.id) },
                     onCopy = { onCopyItem(item.id) },
+                    loadThumbnail = loadThumbnail,
                 )
             }
         }
 
-        item {
-            TextButton(onClick = onOpenSafes, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    stringResource(R.string.local_manage_safes),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        if (!showingRemoved) item {
+            Surface(
+                onClick = onOpenSafes,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = null, tint = ProofTeal)
+                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                        Text("Organize in Safes", style = MaterialTheme.typography.titleSmall)
+                        Text("Named groups for items saved on this phone",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         }
     }

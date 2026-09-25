@@ -1,5 +1,7 @@
 package com.prooffoundry.cachevaultmobile.ui.components
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.ContentCopy
@@ -23,8 +26,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,7 +53,11 @@ fun LocalItemCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onCopy: (() -> Unit)? = null,
+    loadThumbnail: suspend (String) -> Bitmap? = { null },
 ) {
+    val thumbnail by produceState<Bitmap?>(initialValue = null, item.id, item.kind) {
+        value = if (item.kind == LocalItemKind.IMAGE) loadThumbnail(item.id) else null
+    }
     val (kindIcon, kindLabel) = when (item.kind) {
         LocalItemKind.LINK -> Icons.Default.Link to "Link"
         LocalItemKind.IMAGE -> Icons.Default.Image to "Image"
@@ -76,22 +86,26 @@ fun LocalItemCard(
         ) {
             // Leading kind tile — the concept board's icon rows: type reads at
             // a glance without a text badge shouting on every card.
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (item.isSensitive) {
-                    StampGold.copy(alpha = 0.14f)
-                } else {
-                    ProofTeal.copy(alpha = 0.13f)
-                },
-            ) {
-                Icon(
-                    kindIcon,
-                    contentDescription = kindLabel,
-                    tint = if (item.isSensitive) StampGold else ProofTeal,
-                    modifier = Modifier
-                        .padding(9.dp)
-                        .size(20.dp),
+            if (thumbnail != null) {
+                Image(
+                    bitmap = thumbnail!!.asImageBitmap(),
+                    contentDescription = "$kindLabel preview",
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 )
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (item.isSensitive) StampGold.copy(alpha = 0.14f)
+                    else ProofTeal.copy(alpha = 0.13f),
+                ) {
+                    Icon(
+                        kindIcon,
+                        contentDescription = kindLabel,
+                        tint = if (item.isSensitive) StampGold else ProofTeal,
+                        modifier = Modifier.padding(9.dp).size(20.dp),
+                    )
+                }
             }
             Column(
                 modifier = Modifier.weight(1f),
@@ -131,7 +145,11 @@ fun LocalItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "$kindLabel · ${ClipListFormatter.formatRelativeWhen(item.createdAt)}",
+                        if (item.isRemoved) {
+                            "Removed · ${item.removedAt?.let(ClipListFormatter::formatRelativeWhen).orEmpty()}"
+                        } else {
+                            "$kindLabel · ${ClipListFormatter.formatRelativeWhen(item.createdAt)}"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     )

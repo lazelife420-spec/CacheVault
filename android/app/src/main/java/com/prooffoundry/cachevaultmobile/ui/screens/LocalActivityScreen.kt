@@ -24,6 +24,9 @@ import com.prooffoundry.cachevaultmobile.ui.ClipListFormatter
 import com.prooffoundry.cachevaultmobile.ui.LocalVaultViewModel.LocalUiState
 import com.prooffoundry.cachevaultmobile.ui.theme.ProofTeal
 import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * Local activity ledger (CV-MOBILE-1). Each row describes an action this app
@@ -59,15 +62,38 @@ fun LocalActivityScreen(state: LocalUiState) {
                 )
             }
         } else {
-            items(state.activity, key = { it.id }) { event ->
-                ActivityRow(event)
+            val today = LocalDate.now()
+            val grouped = state.activity.groupBy { event ->
+                val day = runCatching {
+                    Instant.parse(event.at).atZone(ZoneId.systemDefault()).toLocalDate()
+                }.getOrNull()
+                when (day) {
+                    today -> "Today"
+                    today.minusDays(1) -> "Yesterday"
+                    else -> "Earlier"
+                }
+            }
+            listOf("Today", "Yesterday", "Earlier").forEach { heading ->
+                val events = grouped[heading].orEmpty()
+                if (events.isNotEmpty()) {
+                    item {
+                        Text(heading, style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
+                    }
+                    items(events, key = { it.id }) { event ->
+                        val related = event.itemId?.let { id -> state.items.firstOrNull { it.id == id } }
+                        val safeTitle = related?.let { if (it.isSensitive) "Sensitive item" else it.title }
+                        ActivityRow(event, safeTitle)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ActivityRow(event: LocalActivityEvent) {
+private fun ActivityRow(event: LocalActivityEvent, itemTitle: String?) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
@@ -83,6 +109,10 @@ private fun ActivityRow(event: LocalActivityEvent) {
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                 )
+                itemTitle?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
                 Text(
                     describeOutcome(event.outcome, event.reason),
                     style = MaterialTheme.typography.labelSmall,

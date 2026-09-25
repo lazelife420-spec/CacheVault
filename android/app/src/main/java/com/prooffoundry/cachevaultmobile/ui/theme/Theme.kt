@@ -2,9 +2,12 @@ package com.prooffoundry.cachevaultmobile.ui.theme
 
 import com.prooffoundry.cachevaultmobile.ui.theme.CompactTypography
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 
 val FoundryBlack = Color(0xFF0B0F14)
 val IronGray = Color(0xFF1C232B)
@@ -29,6 +32,12 @@ fun CacheVaultMobileTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColors,
         typography = CompactTypography,
-        content = content,
-    )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground,
+            content = content,
+        )
+    }
 }
