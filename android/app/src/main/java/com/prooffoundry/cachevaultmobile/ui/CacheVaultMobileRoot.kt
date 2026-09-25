@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,6 +75,10 @@ fun CacheVaultMobileRoot(
     bridgeRepository: BridgeRepository,
     localVaultRepository: LocalVaultRepository,
     manualSetupPrefill: ManualSetupPrefill = ManualSetupPrefill(),
+    manualSetupRequestId: Long = 0L,
+    launchTarget: String? = null,
+    launchRequestId: Long = 0L,
+    onLaunchRequestHandled: (Long) -> Unit = {},
 ) {
     val nav = rememberNavController()
     val context = LocalContext.current
@@ -97,10 +102,12 @@ fun CacheVaultMobileRoot(
             }
         },
     )
-    var manualHost by remember { mutableStateOf(manualSetupPrefill.host) }
-    var manualPort by remember { mutableStateOf(manualSetupPrefill.port) }
-    var manualDeviceId by remember { mutableStateOf(manualSetupPrefill.deviceId) }
-    var manualToken by remember { mutableStateOf(manualSetupPrefill.token) }
+    var manualHost by remember(manualSetupRequestId) { mutableStateOf(manualSetupPrefill.host) }
+    var manualPort by remember(manualSetupRequestId) { mutableStateOf(manualSetupPrefill.port) }
+    var manualDeviceId by remember(manualSetupRequestId) { mutableStateOf(manualSetupPrefill.deviceId) }
+    var manualToken by remember(manualSetupRequestId) { mutableStateOf(manualSetupPrefill.token) }
+    var pendingLocalLaunch by remember { mutableStateOf<String?>(null) }
+    var pendingLocalLaunchId by remember { mutableLongStateOf(0L) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -156,15 +163,36 @@ fun CacheVaultMobileRoot(
     }
 
     LaunchedEffect(Unit) {
-        if (manualSetupPrefill.openManualSetup) {
-            vm.dismissPcOffer()
-            nav.navigate(Routes.ManualSetup)
-        } else if (pairingStore.isPaired()) {
+        if (!manualSetupPrefill.openManualSetup && pairingStore.isPaired()) {
             vm.initializeConnectionLifecycle()
         }
         // Unpaired launches no longer auto-run network discovery; the local
         // vault is the product surface, and discovery stays reachable from
         // the Paired PC tab.
+    }
+
+    LaunchedEffect(manualSetupRequestId) {
+        if (manualSetupPrefill.openManualSetup) {
+            vm.dismissPcOffer()
+            nav.navigate(Routes.ManualSetup)
+        }
+    }
+
+    LaunchedEffect(launchRequestId, launchTarget) {
+        val target = launchTarget ?: return@LaunchedEffect
+        val tab = when (target) {
+            "safes" -> "safes"
+            "paired-pc" -> "pc"
+            "activity" -> "activity"
+            else -> "vault"
+        }
+        pendingLocalLaunch = target
+        pendingLocalLaunchId = launchRequestId
+        nav.navigate(Routes.home(tab)) {
+            popUpTo(nav.graph.startDestinationId) { inclusive = false }
+            launchSingleTop = true
+        }
+        onLaunchRequestHandled(launchRequestId)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -237,6 +265,11 @@ fun CacheVaultMobileRoot(
                 localVm = localVm,
                 remoteVm = vm,
                 initialTab = backStackEntry.arguments?.getString("tab") ?: "vault",
+                launchTarget = pendingLocalLaunch,
+                launchRequestId = pendingLocalLaunchId,
+                onLaunchTargetConsumed = { requestId ->
+                    if (requestId == pendingLocalLaunchId) pendingLocalLaunch = null
+                },
                 onOpenItem = { id -> nav.navigate(Routes.localDetail(id)) },
                 onOpenClip = { clipId ->
                     vm.openClip(clipId)

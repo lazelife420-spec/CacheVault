@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat.checkSelfPermission
 import androidx.core.content.ContextCompat
@@ -127,6 +128,8 @@ class BackgroundConnectionService : Service() {
                     this,
                     1001,
                     Intent(this, MainActivity::class.java).apply {
+                        action = Intent.ACTION_VIEW
+                        data = Uri.parse("cachevault://open/paired-pc")
                         flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                     },
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,

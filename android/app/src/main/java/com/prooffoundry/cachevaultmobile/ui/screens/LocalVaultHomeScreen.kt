@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -55,7 +60,16 @@ fun LocalVaultHomeScreen(
     onAdd: () -> Unit,
     onOpenSafes: () -> Unit,
     loadThumbnail: suspend (String) -> Bitmap?,
+    focusSearchRequestId: Long? = null,
 ) {
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(focusSearchRequestId) {
+        if (focusSearchRequestId != null) {
+            searchFocusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -103,7 +117,8 @@ fun LocalVaultHomeScreen(
                 onValueChange = onSearch,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .height(48.dp)
+                    .focusRequester(searchFocusRequester),
                 placeholder = { Text(stringResource(R.string.local_search_hint)) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium,

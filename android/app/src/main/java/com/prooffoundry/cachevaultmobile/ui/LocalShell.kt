@@ -84,6 +84,9 @@ fun LocalShell(
     remoteVm: AppViewModel,
     /** Tab to show first — "pc" after a successful pair, "vault" otherwise. */
     initialTab: String = "vault",
+    launchTarget: String? = null,
+    launchRequestId: Long = 0L,
+    onLaunchTargetConsumed: (Long) -> Unit = {},
     onOpenItem: (String) -> Unit,
     onOpenClip: (String) -> Unit,
     onOpenImage: (com.prooffoundry.cachevaultmobile.data.ClipSummary, List<com.prooffoundry.cachevaultmobile.data.ClipSummary>) -> Unit,
@@ -124,6 +127,55 @@ fun LocalShell(
     var editorSafeId by rememberSaveable { mutableStateOf(LocalVaultDatabase.DEFAULT_SAFE_ID) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showConnectionDoctor by rememberSaveable { mutableStateOf(false) }
+    var searchFocusRequestId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(launchRequestId, launchTarget) {
+        val target = launchTarget ?: return@LaunchedEffect
+        when (target) {
+            "add", "save" -> {
+                tab = LocalTab.VAULT.name
+                showSettings = false
+                showTextEditor = false
+                showAddSheet = true
+            }
+            "search" -> {
+                tab = LocalTab.VAULT.name
+                showSettings = false
+                showAddSheet = false
+                showTextEditor = false
+                localVm.setFilter(LocalFilter.ALL)
+                localVm.setQuery("")
+                searchFocusRequestId = launchRequestId
+            }
+            "favorites" -> {
+                tab = LocalTab.VAULT.name
+                showSettings = false
+                showAddSheet = false
+                showTextEditor = false
+                localVm.setQuery("")
+                localVm.setFilter(LocalFilter.FAVORITES)
+            }
+            "safes" -> {
+                showSettings = false
+                showAddSheet = false
+                showTextEditor = false
+                tab = LocalTab.SAFES.name
+            }
+            "paired-pc" -> {
+                showSettings = false
+                showAddSheet = false
+                showTextEditor = false
+                tab = LocalTab.PC.name
+            }
+            "activity" -> {
+                showSettings = false
+                showAddSheet = false
+                showTextEditor = false
+                tab = LocalTab.ACTIVITY.name
+            }
+        }
+        onLaunchTargetConsumed(launchRequestId)
+    }
 
     BackHandler(enabled = showConnectionDoctor || showSettings) {
         if (showConnectionDoctor) showConnectionDoctor = false else showSettings = false
@@ -300,6 +352,7 @@ fun LocalShell(
                     onAdd = { showAddSheet = true },
                     onOpenSafes = { tab = LocalTab.SAFES.name },
                     loadThumbnail = localVm::thumbnailFor,
+                    focusSearchRequestId = searchFocusRequestId,
                 )
                 LocalTab.SAFES -> LocalSafesScreen(
                     state = state,

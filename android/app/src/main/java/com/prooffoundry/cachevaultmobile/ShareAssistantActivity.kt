@@ -48,14 +48,24 @@ class ShareAssistantActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        showIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        showIntent(intent)
+    }
+
+    private fun showIntent(incomingIntent: Intent?) {
         val app = application as CacheVaultMobileApp
         val pairing = app.pairingStore.load()
         val repo = app.localVaultRepository
-        val type = intent?.type
-        if (Intent.ACTION_SEND == intent?.action && type != null && type.startsWith("image/")) {
-            showImageShare(app, repo, pairing, sharedStreamUri(intent), type)
+        val type = incomingIntent?.type
+        if (Intent.ACTION_SEND == incomingIntent?.action && type != null && type.startsWith("image/")) {
+            showImageShare(app, repo, pairing, sharedStreamUri(incomingIntent), type)
         } else {
-            showTextShare(app, repo, pairing)
+            showTextShare(app, repo, pairing, incomingIntent)
         }
     }
 
@@ -63,8 +73,9 @@ class ShareAssistantActivity : ComponentActivity() {
         app: CacheVaultMobileApp,
         repo: com.prooffoundry.cachevaultmobile.data.local.LocalVaultRepository,
         pairing: com.prooffoundry.cachevaultmobile.data.PairingConfig?,
+        sharedIntent: Intent?,
     ) {
-        val shared = extractSharedText(intent)
+        val shared = extractSharedText(sharedIntent)
         val recognized = LocalIngestion.recognizeText(shared.text)
         if (recognized is LocalIngestion.Incoming.Invalid) {
             // Canceled/malformed intake is not persisted as a user item.
