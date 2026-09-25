@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.prooffoundry.cachevaultmobile"
     compileSdk = 34
+    testBuildType = "vaultLockTest"
 
     defaultConfig {
         applicationId = "com.prooffoundry.cachevaultmobile"
@@ -64,6 +65,13 @@ android {
             applicationIdSuffix = ".cvmobile1.debug"
             versionNameSuffix = "-cvmobile1-dev"
         }
+        create("vaultLockTest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".vaultlocktest"
+            versionNameSuffix = "-vaultlocktest"
+            isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     compileOptions {
@@ -108,6 +116,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.biometric:biometric:1.1.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")

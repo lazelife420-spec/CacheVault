@@ -57,6 +57,7 @@ fun PairedPcSection(
     onPairFindPc: () -> Unit,
     onPairManualSetup: () -> Unit,
     onPairGuided: () -> Unit,
+    onVaultLockSettings: () -> Unit = {},
 ) {
     val state = vm.uiState
     var settingsSubRoute by rememberSaveable { mutableStateOf<String?>(null) }
@@ -195,6 +196,7 @@ fun PairedPcSection(
                             onAutoConnectApproved = vm::approveAutoConnect,
                             onKeepConnectedChanged = onKeepConnectedChanged,
                             onConnectionDoctor = { settingsSubRoute = "doctor" },
+                            onVaultLockSettings = onVaultLockSettings,
                             onBack = null,
                         )
                     }

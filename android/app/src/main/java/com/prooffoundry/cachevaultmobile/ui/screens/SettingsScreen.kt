@@ -60,6 +60,7 @@ fun SettingsScreen(
     onAutoConnectApproved: (Boolean) -> Unit,
     onKeepConnectedChanged: (Boolean) -> Unit,
     onConnectionDoctor: () -> Unit,
+    onVaultLockSettings: () -> Unit = {},
     onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -88,6 +89,16 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(stringResource(R.string.promise), color = StampGold)
+
+            SectionTitle("Vault Lock")
+            Text(
+                "Set a PIN or passphrase, optionally add Android biometric unlock, and choose when the app locks.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onVaultLockSettings, modifier = Modifier.fillMaxWidth()) {
+                Text("Vault Lock settings")
+            }
 
             SectionTitle("Connection")
             StatusLine(connection)

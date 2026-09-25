@@ -36,6 +36,9 @@ import com.prooffoundry.cachevaultmobile.connect.WifiSettingsHelper
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.ImageFileHelper
 import com.prooffoundry.cachevaultmobile.data.PairingStore
+import com.prooffoundry.cachevaultmobile.security.VaultLockManager
+import com.prooffoundry.cachevaultmobile.security.VaultLockStore
+import com.prooffoundry.cachevaultmobile.ui.screens.VaultLockScreen
 import com.prooffoundry.cachevaultmobile.data.local.LocalItem
 import com.prooffoundry.cachevaultmobile.data.local.LocalItemKind
 import com.prooffoundry.cachevaultmobile.data.local.LocalVaultRepository
@@ -74,6 +77,8 @@ fun CacheVaultMobileRoot(
     pairingStore: PairingStore,
     bridgeRepository: BridgeRepository,
     localVaultRepository: LocalVaultRepository,
+    vaultLockStore: VaultLockStore,
+    vaultLockManager: VaultLockManager,
     manualSetupPrefill: ManualSetupPrefill = ManualSetupPrefill(),
     manualSetupRequestId: Long = 0L,
     launchTarget: String? = null,
@@ -108,6 +113,7 @@ fun CacheVaultMobileRoot(
     var manualToken by remember(manualSetupRequestId) { mutableStateOf(manualSetupPrefill.token) }
     var pendingLocalLaunch by remember { mutableStateOf<String?>(null) }
     var pendingLocalLaunchId by remember { mutableLongStateOf(0L) }
+    var showVaultLockSettings by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -315,6 +321,7 @@ fun CacheVaultMobileRoot(
                 onPairFindPc = { nav.navigate(Routes.Discover) },
                 onPairManualSetup = { openManualSetup() },
                 onPairGuided = { nav.navigate(Routes.Welcome) },
+                onVaultLockSettings = { showVaultLockSettings = true },
             )
         }
         composable(
@@ -435,6 +442,19 @@ fun CacheVaultMobileRoot(
                 }) { Text("Scan QR Code") }
             },
         )
+    }
+    if (showVaultLockSettings) {
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = androidx.compose.material3.MaterialTheme.colorScheme.background,
+        ) {
+            VaultLockScreen(
+                store = vaultLockStore,
+                manager = vaultLockManager,
+                isGate = false,
+                onClose = { showVaultLockSettings = false },
+            )
+        }
     }
     }
 }

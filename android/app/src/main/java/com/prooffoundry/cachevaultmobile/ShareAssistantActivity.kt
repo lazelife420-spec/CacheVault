@@ -1,12 +1,19 @@
 package com.prooffoundry.cachevaultmobile
 
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Base64
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
@@ -25,6 +32,7 @@ import com.prooffoundry.cachevaultmobile.data.local.LocalSafe
 import com.prooffoundry.cachevaultmobile.data.local.LocalVaultDatabase
 import com.prooffoundry.cachevaultmobile.data.local.LocalVaultPolicy
 import com.prooffoundry.cachevaultmobile.ui.screens.LocalShareScreen
+import com.prooffoundry.cachevaultmobile.ui.screens.VaultLockScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.SendPhase
 import com.prooffoundry.cachevaultmobile.ui.screens.blocksNewSend
 import com.prooffoundry.cachevaultmobile.ui.screens.copyCleanText
@@ -33,6 +41,8 @@ import com.prooffoundry.cachevaultmobile.ui.theme.CacheVaultMobileTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /**
  * Android Share Sheet entry (CV-MOBILE-1). "Save on this phone" is the
@@ -44,17 +54,74 @@ import kotlinx.coroutines.withContext
  * revoked/unreadable URI or an oversized stream is a visible failure, not a
  * silent save.
  */
-class ShareAssistantActivity : ComponentActivity() {
+class ShareAssistantActivity : FragmentActivity() {
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val app = application as? CacheVaultMobileApp ?: return
+            app.vaultLockManager.lock()
+            if (app.vaultLockStore.isEnabled) showGate()
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        showIntent(intent)
+        val app = application as CacheVaultMobileApp
+        if (app.vaultLockStore.isEnabled) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        if (app.vaultLockStore.isEnabled && !app.vaultLockManager.unlocked) showGate() else showIntent(intent)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (isActive) {
+                    delay(1_000)
+                    if ((application as CacheVaultMobileApp).vaultLockManager.lockIfIdle()) showGate()
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        showIntent(intent)
+        val app = application as CacheVaultMobileApp
+        if (app.vaultLockStore.isEnabled && !app.vaultLockManager.unlocked) showGate() else showIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val app = application as? CacheVaultMobileApp ?: return
+        if (app.vaultLockStore.isEnabled) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        if (app.vaultLockStore.isEnabled && !app.vaultLockManager.unlocked) showGate()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            this, screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        (application as? CacheVaultMobileApp)?.vaultLockManager?.noteActivity()
+    }
+
+    override fun onStop() {
+        runCatching { unregisterReceiver(screenOffReceiver) }
+        if (!isChangingConfigurations) (application as? CacheVaultMobileApp)?.vaultLockManager?.lock()
+        super.onStop()
+    }
+
+    private fun showGate() {
+        val app = application as CacheVaultMobileApp
+        setContent {
+            CacheVaultMobileTheme {
+                VaultLockScreen(
+                    store = app.vaultLockStore,
+                    manager = app.vaultLockManager,
+                    isGate = true,
+                    onUnlocked = { showIntent(intent) },
+                )
+            }
+        }
     }
 
     private fun showIntent(incomingIntent: Intent?) {

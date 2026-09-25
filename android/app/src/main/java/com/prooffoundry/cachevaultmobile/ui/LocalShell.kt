@@ -97,6 +97,7 @@ fun LocalShell(
     onPairFindPc: () -> Unit,
     onPairManualSetup: () -> Unit,
     onPairGuided: () -> Unit,
+    onVaultLockSettings: () -> Unit = {},
 ) {
     val state by localVm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -334,6 +335,7 @@ fun LocalShell(
                         onAutoConnectApproved = remoteVm::approveAutoConnect,
                         onKeepConnectedChanged = onKeepConnectedChanged,
                         onConnectionDoctor = { showConnectionDoctor = true },
+                        onVaultLockSettings = onVaultLockSettings,
                         onBack = { showSettings = false },
                     )
                 }
@@ -377,6 +379,7 @@ fun LocalShell(
                     onPairFindPc = onPairFindPc,
                     onPairManualSetup = onPairManualSetup,
                     onPairGuided = onPairGuided,
+                    onVaultLockSettings = onVaultLockSettings,
                 )
                 }
             }
