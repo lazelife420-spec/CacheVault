@@ -159,43 +159,67 @@ class VaultControlStrip(ctk.CTkFrame):
         self.grid_columnconfigure(6, weight=1)
         self._capture = ctk.CTkOptionMenu(
             self,
-            width=150,
+            width=136,
+            height=28,
+            font=theme.meta_font(10),
+            fg_color=brand.PANEL_BG,
+            button_color=brand.SURFACE_BG,
+            button_hover_color=brand.ROW_BG,
+            text_color=brand.MUTED_FG,
             values=["Capture", "Pause Capture", "Save Current Clipboard",
                     "Save Next Copy", "Ignore Next Copy", "Capture Rules"],
             command=self._capture_action,
         )
-        self._capture.grid(row=0, column=0, padx=(8, 4), pady=6)
+        self._capture.grid(row=0, column=0, padx=(8, 2), pady=6)
         self._mobile = ctk.CTkOptionMenu(
             self,
-            width=140,
+            width=124,
+            height=28,
+            font=theme.meta_font(10),
+            fg_color=brand.PANEL_BG,
+            button_color=brand.SURFACE_BG,
+            button_hover_color=brand.ROW_BG,
+            text_color=brand.MUTED_FG,
             values=["Mobile", "Mobile Access", "Pair Device", "Mobile Inbox",
                     "Mobile Receipts"],
             command=self._mobile_action,
         )
-        self._mobile.grid(row=0, column=1, padx=4, pady=6)
+        self._mobile.grid(row=0, column=1, padx=2, pady=6)
         self._receipts = ctk.CTkOptionMenu(
             self,
-            width=150,
+            width=142,
+            height=28,
+            font=theme.meta_font(10),
+            fg_color=brand.PANEL_BG,
+            button_color=brand.SURFACE_BG,
+            button_hover_color=brand.ROW_BG,
+            text_color=brand.MUTED_FG,
             values=["Receipts", "Stamped Ledger", "Export Proof Zip",
                     "Open Receipts Folder"],
             command=self._receipt_action,
         )
-        self._receipts.grid(row=0, column=2, padx=4, pady=6)
+        self._receipts.grid(row=0, column=2, padx=2, pady=6)
         self._safe = ctk.CTkLabel(self, text="Default Safe", text_color=brand.MUTED_FG)
-        self._safe.grid(row=0, column=3, padx=8, pady=6)
+        self._safe.grid(row=0, column=3, padx=(8, 6), pady=6)
         self._lock_btn = ctk.CTkButton(
-            self, text="Lock Now", width=92,
+            self, text="Lock Now", width=84, height=28,
             command=lambda: self._callbacks.get("lock_now", lambda: None)(),
             **theme.secondary_button(),
         )
-        self._lock_btn.grid(row=0, column=4, padx=4, pady=6)
+        self._lock_btn.grid(row=0, column=4, padx=(2, 8), pady=6)
         self._quick = ctk.CTkOptionMenu(
             self,
-            width=150,
+            width=136,
+            height=28,
+            font=theme.meta_font(10),
+            fg_color=brand.PANEL_BG,
+            button_color=brand.SURFACE_BG,
+            button_hover_color=brand.ROW_BG,
+            text_color=brand.MUTED_FG,
             values=["Quick Actions", *self.QUICK_ACTION_CHOICES],
             command=self._quick_action,
         )
-        self._quick.grid(row=0, column=5, padx=4, pady=6)
+        self._quick.grid(row=0, column=5, padx=(0, 4), pady=6)
 
         # Hairline edge — defines the strip boundary without a bright accent
         # bar shouting across the whole top of the window (CV-UI2 calm chrome).
@@ -219,9 +243,9 @@ class VaultControlStrip(ctk.CTkFrame):
         The button stays reachable and wired to the same command either
         way -- this only changes the rendered size, never visibility."""
         if compact:
-            self._lock_btn.configure(text="Lock", width=72)
+            self._lock_btn.configure(text="Lock", width=68)
         else:
-            self._lock_btn.configure(text="Lock Now", width=92)
+            self._lock_btn.configure(text="Lock Now", width=84)
 
     def set_quick_actions_compact(self, compact: bool) -> None:
         """Move Quick Actions into the top toolbar's "More" overflow at

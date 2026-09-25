@@ -159,7 +159,12 @@ class HomeDashboard(ctk.CTkScrollableFrame):
         self._build_hero(summary, recent)
 
         # Create persistent toolbar host under the actions
-        self._batch_toolbar_host = ctk.CTkFrame(self._body, fg_color="transparent")
+        # A CTkFrame defaults to 200px high even when it has no children. Keep
+        # the empty batch-action host collapsed so it cannot push vault content
+        # below the first viewport.
+        self._batch_toolbar_host = ctk.CTkFrame(
+            self._body, fg_color="transparent", height=0,
+        )
         self._batch_toolbar_host.pack(fill="x", pady=0)
         self._update_batch_toolbar()
 

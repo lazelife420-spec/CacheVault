@@ -123,6 +123,26 @@ def test_page_header_renders(app):
     app.update_idletasks()
     assert header._title_label.cget("text") == "Test Title"
 
+
+def test_home_uses_its_header_and_reclaims_hidden_toolbar_row(app):
+    app._navigate_filter(FILTER_HOME)
+    app._do_refresh_sync()
+    wait_for_refresh(app)
+
+    header_info = app._page_header.grid_info()
+    home_info = app._home.grid_info()
+    assert app._page_header._title_label.cget("text") == "Home"
+    assert header_info["row"] == 0
+    assert home_info["row"] == 1
+    assert home_info["rowspan"] == 2
+    assert not app._toolbar.grid_info()
+
+    app._navigate_filter(FILTER_ALL)
+    app._do_refresh_sync()
+    wait_for_refresh(app)
+    assert app._page_header.grid_info()["row"] == 0
+    assert app._toolbar.grid_info()["row"] == 1
+
 def test_header_subtitle_wraps_independent_of_title_width(app):
     """The subtitle must sit on its own row below the title, not share a
     row with it — otherwise a long title leaves the subtitle too little
@@ -139,6 +159,15 @@ def test_header_subtitle_wraps_independent_of_title_width(app):
         "Title and subtitle must not share a grid row"
     )
     assert int(header._subtitle_label.cget("wraplength")) <= 560
+
+
+def test_empty_page_header_regions_do_not_create_vertical_canvas(app):
+    app._page_header.set_content("Home")
+    app._page_header.set_actions()
+    app._page_header.set_status_chips([])
+    app.update_idletasks()
+
+    assert app._page_header.winfo_reqheight() < 100
 
 def test_navigation_clears_stale_selection(app):
     clip = Clip(id="test_1", content="hello", content_type=CONTENT_TEXT)

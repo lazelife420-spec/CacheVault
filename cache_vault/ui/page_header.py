@@ -10,7 +10,10 @@ from .. import brand
 
 class PageHeader(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
-        super().__init__(master, fg_color="transparent", **kwargs)
+        # Let real header content determine its height. CTkFrame defaults to
+        # 200px, which made empty action/status regions create a tall blank
+        # band above Home and other content-first pages.
+        super().__init__(master, fg_color="transparent", height=0, **kwargs)
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
@@ -19,7 +22,7 @@ class PageHeader(ctk.CTkFrame):
         # its own full-width line to wrap within instead of competing with
         # the title for horizontal space (which just clipped past the
         # window edge at compact width rather than wrapping).
-        self._title_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._title_frame = ctk.CTkFrame(self, fg_color="transparent", height=0)
         self._title_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
         self._title_frame.grid_columnconfigure(0, weight=1)
 
@@ -43,7 +46,7 @@ class PageHeader(ctk.CTkFrame):
         self._subtitle_label.grid(row=1, column=0, sticky="w")
         
         # Actions area (Primary + Secondary)
-        self._actions_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._actions_frame = ctk.CTkFrame(self, fg_color="transparent", height=0)
         self._actions_frame.grid(row=0, column=1, sticky="e", padx=8, pady=(8, 0))
         
         # Placeholder for dynamic buttons
@@ -51,7 +54,7 @@ class PageHeader(ctk.CTkFrame):
         self._secondary_btn = None
         
         # Status chips area
-        self._status_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._status_frame = ctk.CTkFrame(self, fg_color="transparent", height=0)
         self._status_frame.grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 8))
 
         # Small non-blocking indicator for an in-flight background refresh

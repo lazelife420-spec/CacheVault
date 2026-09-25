@@ -338,6 +338,7 @@ class TestHomeVaultUI:
         }
         dashboard.render(summary, [], [], [])
         dashboard.update_idletasks()
+        assert dashboard._batch_toolbar_host.winfo_reqheight() <= 1
 
         def _labels(widget):
             texts = []

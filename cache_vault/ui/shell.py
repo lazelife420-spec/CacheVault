@@ -2204,21 +2204,28 @@ class CacheVaultApp(ctk.CTk):
         self._on_filter_select(key, prev_key=prev)
 
     def _show_home(self) -> None:
-        self._toolbar.grid_remove()
+        # grid_remove preserves the toolbar's row request, so its empty slot
+        # would remain above Home. Forget it until a clip page restores it.
+        self._toolbar.grid_forget()
+        self._page_header.grid()
         self._list.grid_remove()
         self._grid.grid_remove()
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
-        self._page_header.set_content("Command Center")
+        # Home owns its identity and primary action inside the dashboard.
+        # Keep a compact page label, then let Home reclaim the hidden toolbar
+        # row instead of leaving the old clip-page slot above its content.
+        self._page_header.set_content("Home")
         self._page_header.set_actions()
-        self._home.grid()
+        self._home.grid(row=1, column=0, rowspan=2, sticky="nsew")
         self._update_inspector_visibility()
 
     def _show_clips(self) -> None:
         self._home.grid_remove()
+        self._page_header.grid()
         self._vault_screens.hide()
         self._vault_screens.grid_remove()
-        self._toolbar.grid()
+        self._toolbar.grid(row=1, column=0, sticky="ew", padx=4, pady=(4, 0))
         self._page_header.set_content(self._filters.active_label)
         self._page_header.set_actions()
         self._page_header.set_status_chips([])
@@ -2274,6 +2281,7 @@ class CacheVaultApp(ctk.CTk):
 
     def _show_vault_screen(self, key: str) -> None:
         self._home.grid_remove()
+        self._page_header.grid()
         self._list.grid_remove()
         self._grid.grid_remove()
         self._toolbar.grid_remove()
