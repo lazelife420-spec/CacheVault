@@ -197,10 +197,10 @@ class VaultControlStrip(ctk.CTkFrame):
         )
         self._quick.grid(row=0, column=5, padx=4, pady=6)
 
-        # Accent line — gives the toolbar a defined edge instead of blending
-        # flat into the content below it.
-        accent = ctk.CTkFrame(self, height=2, corner_radius=0,
-                              fg_color=brand.PROOF_TEAL)
+        # Hairline edge — defines the strip boundary without a bright accent
+        # bar shouting across the whole top of the window (CV-UI2 calm chrome).
+        accent = ctk.CTkFrame(self, height=1, corner_radius=0,
+                              fg_color=brand.VAULT_BORDER)
         accent.grid(row=1, column=0, columnspan=7, sticky="ew")
 
     def set_compact(self, compact: bool) -> None:

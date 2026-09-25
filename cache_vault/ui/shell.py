@@ -2856,17 +2856,11 @@ class CacheVaultApp(ctk.CTk):
                 self._list.clear()
                 self._grid.clear()
                 self._show_home()
-                capture_active = not summary.get("capture_paused")
-                status_text = "● Capture Active" if capture_active else "● Capture Paused"
-                mobile_on = bool(summary.get("mobile_enabled"))
-                mobile_text = f"● Mobile Access ({summary.get('paired_count', 0)} paired)" if mobile_on else "● Mobile Access Off"
-                self._page_header.set_status_chips([
-                    status_text,
-                    "● Receipts Active",
-                    f"● {brand.VAULT_STATUS_ACTIVE}",
-                    mobile_text,
-                    f"● {brand.LABEL_LOCAL_ONLY}"
-                ])
+                # The hero is the single home status surface (product identity,
+                # vault/capture/mobile state chips, latest clip). The header
+                # chip row that duplicated the same facts here was removed in
+                # CV-UI2 so state reads once, not three times per screen.
+                self._page_header.set_status_chips([])
                 q_recent = search.SearchQuery(filter_name=S.FILTER_ALL, sort=models.SORT_NEWEST_ADDED)
                 q_fav = search.SearchQuery(filter_name=S.FILTER_FAVORITES, sort=models.SORT_NEWEST_ADDED)
                 q_img = search.SearchQuery(filter_name=S.FILTER_SCREENSHOTS, sort=models.SORT_NEWEST_ADDED)

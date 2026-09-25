@@ -55,7 +55,7 @@ _NAV_ICONS: dict[str, str] = {
     NAV_STAMPED_RECEIPTS: "⬢ ",
     NAV_EXPORTS: "↗ ",
     NAV_EDITABLE_COPIES: "⎘ ",
-    NAV_HTML_BUNDLES: "🌐 ",
+    NAV_HTML_BUNDLES: "⬡ ",
     NAV_MOBILE_ACCESS: "◈ ",
     NAV_MOBILE_INBOX: "↓ ",
     NAV_VAULT_MACROS: "⚡ ",

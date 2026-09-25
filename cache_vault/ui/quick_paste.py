@@ -66,10 +66,16 @@ class QuickPaste(ctk.CTkToplevel):
 
         self._header_label = ctk.CTkLabel(
             self, anchor="w",
-            text=f"{brand.QUICK_PASTE_HEADER}   —   {brand.QUICK_PASTE_HINT}",
-            font=theme.body_font(11), text_color=brand.PROOF_TEAL,
+            text=brand.QUICK_PASTE_HEADER,
+            font=theme.font(size=12, weight="bold"), text_color=brand.PROOF_TEAL,
         )
-        self._header_label.pack(fill="x", padx=12, pady=(10, 4))
+        self._header_label.pack(fill="x", padx=12, pady=(10, 0))
+        self._hint_label = ctk.CTkLabel(
+            self, anchor="w",
+            text=brand.QUICK_PASTE_HINT,
+            font=theme.meta_font(10), text_color=brand.MUTED_FG,
+        )
+        self._hint_label.pack(fill="x", padx=12, pady=(0, 6))
         self._status_reset_job: str | None = None
 
         self._search = ctk.CTkEntry(
@@ -127,6 +133,7 @@ class QuickPaste(ctk.CTkToplevel):
         query = self._query_var.get().strip().lower()
         self._clips = [clip for clip in self._all_clips if _matches_query(clip, query)]
         self._rows = []
+        self._row_hints = []
         self._index = min(self._index, max(0, len(self._clips) - 1))
         if not self._clips:
             ctk.CTkLabel(self._list, text="No matching clips.",
@@ -140,7 +147,7 @@ class QuickPaste(ctk.CTkToplevel):
         row = ctk.CTkFrame(self._list, corner_radius=6)
         row.pack(fill="x", padx=4, pady=2)
         num = f"{i + 1}" if i < 9 else " "
-        badge = "🔒" if clip.is_sensitive else _BADGE.get(clip.classification, "TEXT")
+        badge = "SENS" if clip.is_sensitive else _BADGE.get(clip.classification, "TEXT")
         ctk.CTkLabel(row, text=num, width=18,
                      font=theme.font(size=12, weight="bold"),
                      text_color=brand.MUTED_FG).pack(side="left", padx=(8, 2))
@@ -152,20 +159,31 @@ class QuickPaste(ctk.CTkToplevel):
         body.pack(side="left", fill="x", expand=True, padx=4, pady=6)
         ctk.CTkLabel(body, text=clip.preview or "(empty)", anchor="w",
                      justify="left", wraplength=300).pack(fill="x")
-        meta = f"{_display(clip.safe_name)} · {_display(clip.source_app)} · {_short(clip.date_used or clip.created_at)}"
+        meta_parts = [
+            p for p in (
+                clip.safe_name,
+                clip.source_app,
+                _human_time(clip.date_used or clip.created_at),
+            ) if p
+        ]
+        meta = " · ".join(meta_parts)
         ctk.CTkLabel(body, text=meta, anchor="w",
                      font=theme.meta_font(10),
                      text_color=brand.MUTED_FG).pack(fill="x")
         actions = ctk.CTkFrame(row, fg_color="transparent")
         actions.pack(side="right", padx=(4, 8))
-        ctk.CTkButton(
-            actions,
-            text=primary_action_label(clip),
-            width=86,
-            height=24,
-            command=lambda k=i: self._choose(k, ACTION_PRIMARY),
-            **theme.primary_button(),
-        ).pack(side="left", padx=2)
+        # No per-row copy button: the row itself (click / Enter / number) is
+        # the copy action — a wall of identical buttons competed with the
+        # popup's single accent. Instead the *highlighted* row carries a
+        # quiet "↵ copy" cue so the affordance is discoverable without chrome.
+        hint = ctk.CTkLabel(
+            actions, text="", width=44, anchor="e",
+            font=theme.meta_font(10), text_color=brand.PROOF_TEAL,
+        )
+        hint.pack(side="left", padx=(0, 2))
+        self._row_hints.append(hint)
+        hint.bind("<Button-1>", lambda _e, k=i: self._choose(k, ACTION_PRIMARY))
+        hint.bind("<Enter>", lambda _e, k=i: self._set_index(k))
         if clip.content_type == models.CONTENT_IMAGE:
             ctk.CTkButton(
                 actions,
@@ -211,6 +229,9 @@ class QuickPaste(ctk.CTkToplevel):
         for i, row in enumerate(self._rows):
             row.configure(fg_color=theme.nav_active_bg() if i == self._index
                           else "transparent")
+            hint = self._row_hints[i] if i < len(self._row_hints) else None
+            if hint is not None and hint.winfo_exists():
+                hint.configure(text="↵ copy" if i == self._index else "")
 
     def _cancel(self) -> None:
         """Close without choosing — clipboard unchanged."""
@@ -237,9 +258,7 @@ class QuickPaste(ctk.CTkToplevel):
         if self._closing or not self.winfo_exists():
             return
         if hasattr(self, "_header_label") and self._header_label.winfo_exists():
-            self._header_label.configure(
-                text=f"{brand.QUICK_PASTE_HEADER}   —   {brand.QUICK_PASTE_HINT}"
-            )
+            self._header_label.configure(text=brand.QUICK_PASTE_HEADER)
 
     def _choose(self, i: int, action: str = ACTION_PRIMARY) -> None:
         if self._closing:
@@ -379,9 +398,11 @@ def _matches_query(clip: Clip, query: str) -> bool:
     return query in haystack
 
 
-def _display(value: str | None) -> str:
-    return value or "Unknown"
-
-
-def _short(value: str | None) -> str:
-    return (value or "")[:16]
+def _human_time(value: str | None) -> str:
+    if not value:
+        return ""
+    from ..core import clip_metadata
+    try:
+        return clip_metadata.human_timestamp(value)
+    except Exception:
+        return (value or "")[:16]

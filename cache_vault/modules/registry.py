@@ -98,7 +98,7 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
         ],
     ),
     SettingsCategory(
-        id="diagnostics", label="Diagnostics", icon="\U0001F50D",
+        id="diagnostics", label="Diagnostics", icon="▤",
         fields=[],
     ),
     SettingsCategory(
@@ -181,7 +181,7 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
         ],
     ),
     SettingsCategory(
-        id="vault_lock", label="Vault Lock", icon="\U0001F512",
+        id="vault_lock", label="Vault Lock", icon="◆",
         fields=[
             SettingsField("vault_lock_enabled", "Enable Vault Lock", "toggle",
                           "App privacy lock for the local UI"),

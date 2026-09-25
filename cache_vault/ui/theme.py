@@ -50,6 +50,19 @@ def secondary_button(**extra) -> dict:
     }
 
 
+def quiet_button(**extra) -> dict:
+    """Ghost action — transparent surface, muted text, hairline hover.
+
+    For low-frequency actions that must stay reachable without competing
+    with the primary action (card action bars, row affordances)."""
+    return {
+        "fg_color": "transparent",
+        "hover_color": ("#C8D0D4", "#232B33"),
+        "text_color": brand.MUTED_FG,
+        **extra,
+    }
+
+
 def destructive_button(**extra) -> dict:
     """Warning Red — permanent removal and destructive warnings."""
     return {

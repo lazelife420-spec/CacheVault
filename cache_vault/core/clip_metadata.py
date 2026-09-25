@@ -221,7 +221,6 @@ def relative_age(iso: str | None) -> str:
 def source_summary_line(clip, storage=None) -> str:
     source = display(getattr(clip, "source_app", None))
     captured = format_captured_at(getattr(clip, "created_at", None))
-    age = relative_age(getattr(clip, "created_at", None))
     safe = display(getattr(clip, "safe_name", None))
     if safe == "—":
         safe = "Default Safe"
@@ -242,9 +241,12 @@ def source_summary_line(clip, storage=None) -> str:
                     dims = f" · {rec.width}×{rec.height}"
             except Exception:
                 pass
-        return f"Screenshot · {source} · {captured}{dims}"
+        if source != "—":
+            return f"Screenshot · {source} · {captured}{dims}"
+        return f"Screenshot · {captured}{dims}"
 
-    return f"{source} · {captured} · {age} · {safe}"
+    parts = [p for p in (source if source != "—" else "", captured, safe) if p]
+    return " · ".join(parts)
 
 
 def _time_bucket(iso: str) -> str:
