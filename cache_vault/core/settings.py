@@ -107,6 +107,8 @@ class Settings:
     vault_lock_on_startup: bool = False
     vault_lock_when_minimized: bool = False
     vault_lock_auto_minutes: int = 0  # 0 = disabled
+    vault_lock_failures: int = 0
+    vault_lock_locked_until_ms: int = 0
     vault_lock_style: str = "teal_classic"
     vault_lock_accent: str = "#1A9E8C"
     vault_lock_reduced_motion: bool = True
@@ -204,8 +206,20 @@ class Settings:
                 1, int(getattr(s, "vault_lock_iterations", 200_000)))
         except (TypeError, ValueError):
             s.vault_lock_iterations = 200_000
-        s.vault_lock_on_startup = bool(getattr(s, "vault_lock_on_startup", False))
+        # A configured lock always starts LOCKED. Retain this legacy field for
+        # settings-file compatibility, but no longer let it weaken startup.
+        s.vault_lock_on_startup = bool(s.vault_lock_enabled)
         s.vault_lock_when_minimized = bool(getattr(s, "vault_lock_when_minimized", False))
+        try:
+            s.vault_lock_failures = max(0, int(getattr(s, "vault_lock_failures", 0)))
+        except (TypeError, ValueError):
+            s.vault_lock_failures = 0
+        try:
+            s.vault_lock_locked_until_ms = max(
+                0, int(getattr(s, "vault_lock_locked_until_ms", 0)),
+            )
+        except (TypeError, ValueError):
+            s.vault_lock_locked_until_ms = 0
         try:
             s.vault_lock_auto_minutes = max(
                 0, min(1440, int(getattr(s, "vault_lock_auto_minutes", 0))))

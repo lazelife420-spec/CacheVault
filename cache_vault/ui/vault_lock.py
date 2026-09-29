@@ -39,6 +39,7 @@ class VaultLockScreen(ctk.CTkFrame):
         on_unlock: Callable[[str], bool],
         on_quit: Callable[[], None],
         mode: str = vault_lock.LOCK_MODE_PIN,
+        credential_available: bool = True,
         style: str = "teal_classic",
         accent: str | None = None,
         show_local_only: bool = True,
@@ -51,6 +52,7 @@ class VaultLockScreen(ctk.CTkFrame):
         self._style = normalize_lock_style(style)
         self._accent = accent or LOCK_STYLES[self._style]["accent"]
         self._show_local_only = show_local_only
+        self._credential_available = bool(credential_available)
         self._error_var = ctk.StringVar(value="")
         self._build()
 
@@ -86,12 +88,13 @@ class VaultLockScreen(ctk.CTkFrame):
         self._entry.grid(row=3, column=0, padx=36, pady=(0, 8))
         self._entry.bind("<Return>", lambda _e: self._submit())
 
-        ctk.CTkButton(
+        self._unlock_button = ctk.CTkButton(
             card,
             text="Unlock Vault",
             command=self._submit,
             **theme.primary_button(),
-        ).grid(row=4, column=0, padx=36, pady=(4, 6), sticky="ew")
+        )
+        self._unlock_button.grid(row=4, column=0, padx=36, pady=(4, 6), sticky="ew")
         ctk.CTkButton(
             card,
             text="Quit",
@@ -104,6 +107,18 @@ class VaultLockScreen(ctk.CTkFrame):
             text_color=brand.WARNING_RED,
             font=theme.body_font(11),
         ).grid(row=6, column=0, padx=36, pady=(0, 18))
+        self._credential_error = ctk.CTkLabel(
+            card,
+            text="Vault Lock is enabled, but its saved credential is unavailable. The vault remains locked. Quit and repair the Cache Vault settings before using it.",
+            wraplength=420,
+            justify="center",
+            text_color=brand.WARNING_RED,
+            font=theme.body_font(11),
+        )
+        self._credential_error.grid(row=3, column=0, padx=36, pady=(0, 12))
+        self._credential_error.grid_remove()
+        if not self._credential_available:
+            self.show_credential_error()
 
     def _placeholder(self) -> str:
         return "PIN lock" if self._mode == vault_lock.LOCK_MODE_PIN else "Passphrase lock"
@@ -111,6 +126,18 @@ class VaultLockScreen(ctk.CTkFrame):
     def set_mode(self, mode: str) -> None:
         self._mode = vault_lock.normalize_mode(mode)
         self._entry.configure(placeholder_text=self._placeholder())
+
+    def show_credential_error(self) -> None:
+        self._credential_available = False
+        self._entry.grid_remove()
+        self._unlock_button.grid_remove()
+        self._credential_error.grid()
+
+    def show_credential_entry(self) -> None:
+        self._credential_available = True
+        self._credential_error.grid_remove()
+        self._entry.grid()
+        self._unlock_button.grid()
 
     def set_style(
         self,
@@ -134,6 +161,8 @@ class VaultLockScreen(ctk.CTkFrame):
         self._entry.focus_set()
 
     def _submit(self) -> None:
+        if not self._credential_available:
+            return
         secret = self._entry.get()
         self._entry.delete(0, "end")
         if self._on_unlock(secret):

@@ -459,10 +459,6 @@ class SettingsDialog(ctk.CTkToplevel):
             placeholder_text="New PIN/passphrase (leave blank to keep current)",
         )
         self._vault_lock_secret.pack(fill="x", padx=8, pady=4)
-        self._vault_lock_startup = ctk.CTkSwitch(body, text="Lock on startup")
-        self._vault_lock_startup.pack(anchor="w", padx=8, pady=4)
-        if settings.vault_lock_on_startup:
-            self._vault_lock_startup.select()
         self._vault_lock_minimized = ctk.CTkSwitch(body, text="Lock when minimized")
         self._vault_lock_minimized.pack(anchor="w", padx=8, pady=4)
         if settings.vault_lock_when_minimized:
@@ -837,15 +833,22 @@ class SettingsDialog(ctk.CTkToplevel):
             "passphrase" if "Passphrase" in self._vault_lock_mode.get() else "pin"
         )
         lock_secret = self._vault_lock_secret.get()
+        if self._settings.vault_lock_enabled and not lock_secret and not vault_lock.has_lock_secret(self._settings):
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Vault Lock needs a credential",
+                "Vault Lock stays enabled but cannot open without a valid saved PIN or passphrase. Enter a new credential to repair it, or turn Vault Lock off explicitly.",
+                parent=self,
+            )
+            return
         if lock_secret:
             vault_lock.set_lock_secret(
                 self._settings,
                 lock_secret,
                 mode=self._settings.vault_lock_mode,
             )
-        elif self._settings.vault_lock_enabled and not vault_lock.has_lock_secret(self._settings):
-            self._settings.vault_lock_enabled = False
-        self._settings.vault_lock_on_startup = bool(self._vault_lock_startup.get())
+            self._settings.vault_lock_enabled = bool(self._vault_lock_on.get())
+        self._settings.vault_lock_on_startup = bool(self._settings.vault_lock_enabled)
         self._settings.vault_lock_when_minimized = bool(self._vault_lock_minimized.get())
         try:
             self._settings.vault_lock_auto_minutes = max(

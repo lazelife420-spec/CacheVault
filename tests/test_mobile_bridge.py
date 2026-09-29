@@ -12,6 +12,7 @@ from cache_vault.core.mobile.api import READ_ONLY_ROUTES, is_forbidden_route
 from cache_vault.core.mobile.bridge import MobileBridge
 from cache_vault.core.mobile.receipts import MobileReceiptLog
 from cache_vault.core.settings import Settings
+from cache_vault.core import vault_lock
 
 
 @pytest.fixture
@@ -90,6 +91,33 @@ def test_status_includes_mobile_api_version(vault, mobile_bridge):
     assert body["mobile_api_version"] == "1"
     assert body["read_only"] is True
     assert "token" not in json.dumps(body).lower()
+
+
+def test_paired_protected_requests_fail_closed_while_vault_locked(vault, mobile_bridge):
+    device, token = _pair(mobile_bridge, vault)
+    vault_lock.set_lock_secret(vault.settings, "local credential")
+
+    code, body = mobile_bridge.handle(
+        "GET", "/mobile/v1/clips", _auth(device.device_id, token),
+    )
+
+    assert code == 423
+    assert body["error"] == "vault_locked"
+    receipt = mobile_bridge.receipts.recent()[-1]
+    assert receipt["result"] == "denied"
+    assert receipt["reason"] == "vault_locked"
+
+
+def test_pairing_is_rejected_while_vault_locked(vault, mobile_bridge):
+    _enable(vault)
+    vault_lock.set_lock_secret(vault.settings, "local credential")
+
+    code, body = mobile_bridge.handle(
+        "POST", "/mobile/v1/pair-device", {}, body={"device_id": "phone-2"},
+    )
+
+    assert code == 423
+    assert body["error"] == "vault_locked"
 
 
 def test_status_byline_matches_brand_constant(vault, mobile_bridge):

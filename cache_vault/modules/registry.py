@@ -187,8 +187,6 @@ _GLOBAL_CATEGORIES: list[SettingsCategory] = [
                           "App privacy lock for the local UI"),
             SettingsField("vault_lock_mode", "Lock mode", "choice",
                           "PIN or passphrase", choices=["pin", "passphrase"]),
-            SettingsField("vault_lock_on_startup", "Lock on startup", "toggle",
-                          "Require unlock when Cache Vault starts"),
             SettingsField("vault_lock_when_minimized", "Lock when minimized", "toggle",
                           "Lock when the window is minimized"),
             SettingsField("vault_lock_auto_minutes", "Auto-lock minutes", "number",

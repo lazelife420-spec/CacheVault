@@ -348,8 +348,10 @@ class CacheVaultApp(ctk.CTk):
         self._type_filter: str | None = None
         self._sensitive_only = False
         self._vault_locked = vault_lock.should_lock_on_startup(self.vault.settings)
-        tooltip.set_tooltips_locked(self._vault_locked)
+        tooltip.set_tooltips_locked(self._locked())
         self._idle_lock_job = None
+        self._background_lock_job = None
+        self._session_lock_listener = None
         self._last_unlock_at = models.now_iso()
         self._nav_history: list[str] = []
         self._nav_forward_stack: list[str] = []
@@ -372,7 +374,9 @@ class CacheVaultApp(ctk.CTk):
         # kept current rather than recorded once.
         self._pump_job = None
 
-        self._mobile_bridge = MobileBridge(self.vault)
+        self._mobile_bridge = MobileBridge(
+            self.vault, lock_state_provider=self.get_vault_lock_state,
+        )
         self._mobile_controller = MobileAccessController(self.vault, self._mobile_bridge)
         self._mobile_controller.subscribe(lambda _state: self.after(0, self.refresh))
 
@@ -388,7 +392,11 @@ class CacheVaultApp(ctk.CTk):
         )
 
         self._build_layout()
-        if self._vault_locked:
+        for sequence in ("<KeyPress>", "<ButtonPress>", "<MouseWheel>"):
+            self.bind_all(sequence, self._note_vault_activity, add="+")
+        self.bind_all("<FocusOut>", self._on_application_focus_out, add="+")
+        self._install_session_lock_listener()
+        if self.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED:
             vault_lock.record_lock_event(
                 self.vault.events,
                 vault_lock.EVENT_VAULT_LOCKED,
@@ -459,7 +467,9 @@ class CacheVaultApp(ctk.CTk):
             self._command_store,
             self._command_runlog,
             self._command_action_handlers(),
-            is_locked=self._locked,
+            is_locked=lambda: (
+                self.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED
+            ),
             confirm=self._confirm_command_action,
             app_version=_app_version,
             on_event=self._on_command_run_event,
@@ -615,6 +625,9 @@ class CacheVaultApp(ctk.CTk):
         if hasattr(self, "_idle_lock_job") and self._idle_lock_job:
             self.after_cancel(self._idle_lock_job)
             self._idle_lock_job = None
+        if hasattr(self, "_background_lock_job") and self._background_lock_job:
+            self.after_cancel(self._background_lock_job)
+            self._background_lock_job = None
         if hasattr(self, "_expiry_job") and self._expiry_job:
             self.after_cancel(self._expiry_job)
             self._expiry_job = None
@@ -634,7 +647,7 @@ class CacheVaultApp(ctk.CTk):
             self._refresh_request_queue.put(None)  # wake and stop the worker
 
         # 2. Stop system listeners
-        for attr in ("_monitor", "_hotkey", "_capture_hotkeys", "_macro_hotkeys", "_command_hotkeys", "_text_shortcut_listener", "_tray", "_mobile_bridge"):
+        for attr in ("_monitor", "_hotkey", "_capture_hotkeys", "_macro_hotkeys", "_command_hotkeys", "_text_shortcut_listener", "_tray", "_mobile_bridge", "_session_lock_listener"):
             if hasattr(self, attr):
                 obj = getattr(self, attr)
                 if obj and hasattr(obj, "stop"):
@@ -1008,9 +1021,10 @@ class CacheVaultApp(ctk.CTk):
             style=self.vault.settings.vault_lock_style,
             accent=self.vault.settings.vault_lock_accent,
             show_local_only=self.vault.settings.vault_lock_show_local_only,
+            credential_available=vault_lock.has_lock_secret(self.vault.settings),
         )
         self._lock_screen.grid(row=0, column=0, columnspan=3, rowspan=3, sticky="nsew")
-        if self._vault_locked:
+        if self.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED:
             self._lock_screen.lift()
             self._init_jobs.append(self.after(100, self._lock_screen.focus_unlock))
         else:
@@ -1880,8 +1894,15 @@ class CacheVaultApp(ctk.CTk):
             self._list.open_context_for_selected(clip)
         return "break"
 
+    def get_vault_lock_state(self) -> vault_lock.VaultLockState:
+        """Return the single authoritative state for this running app session."""
+        return vault_lock.get_vault_lock_state(
+            self.vault.settings,
+            runtime_locked=bool(getattr(self, "_vault_locked", False)),
+        )
+
     def _locked(self) -> bool:
-        return bool(getattr(self, "_vault_locked", False))
+        return self.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED
 
     def _lock_now(self, *, reason: str = "manual") -> None:
         if not vault_lock.lock_config(self.vault.settings).enabled:
@@ -1891,6 +1912,15 @@ class CacheVaultApp(ctk.CTk):
             return
         tooltip.set_tooltips_locked(True)
         self._vault_locked = True
+        # Close every child top-level through this single lock-transition
+        # boundary so a secondary surface cannot remain above the lock panel.
+        self._dismiss_secondary_surfaces()
+        if self._idle_lock_job:
+            try:
+                self.after_cancel(self._idle_lock_job)
+            except Exception:  # noqa: BLE001
+                pass
+            self._idle_lock_job = None
         self._selected_clip_id = None
         self._selected_clip_ids = []
         self._visible_clip_ids = []
@@ -1902,8 +1932,9 @@ class CacheVaultApp(ctk.CTk):
             show_local_only=self.vault.settings.vault_lock_show_local_only,
         )
         self._lock_screen.grid()
-        self._lock_screen.lift()
-        self._lock_screen.focus_unlock()
+        if reason not in ("app_background", "minimized"):
+            self._lock_screen.lift()
+            self._lock_screen.focus_unlock()
         vault_lock.record_lock_event(
             self.vault.events,
             vault_lock.EVENT_VAULT_LOCKED,
@@ -1911,8 +1942,39 @@ class CacheVaultApp(ctk.CTk):
             reason=reason,
         )
 
+    def _dismiss_secondary_surfaces(self) -> None:
+        """Destroy app-owned top-level windows and their sensitive contents."""
+        import tkinter as tk
+
+        def dismiss_children(parent) -> None:
+            try:
+                children = tuple(parent.winfo_children())
+            except tk.TclError:
+                return
+            for child in children:
+                try:
+                    if child.winfo_toplevel() is child and child is not self:
+                        child.destroy()
+                    else:
+                        dismiss_children(child)
+                except tk.TclError:
+                    continue
+
+        dismiss_children(self)
+        # Clear references to the just-dismissed surfaces so future actions
+        # cannot present stale objects after the session is unlocked.
+        for name in ("_quick_paste", "_photo_viewer_window", "_settings_window", "_macro_picker"):
+            if hasattr(self, name):
+                setattr(self, name, None)
+
     def _unlock_vault(self, secret: str) -> bool:
-        if vault_lock.verify_secret(self.vault.settings, secret):
+        valid = vault_lock.verify_secret(self.vault.settings, secret)
+        try:
+            self.vault.settings.save()
+        except OSError:
+            # Keep the in-memory lockout active; the next successful settings save persists it.
+            pass
+        if valid:
             self._vault_locked = False
             tooltip.set_tooltips_locked(False)
             self._lock_screen.grid_remove()
@@ -1921,6 +1983,7 @@ class CacheVaultApp(ctk.CTk):
                 self.vault.events,
                 vault_lock.EVENT_VAULT_UNLOCKED,
                 mode=self.vault.settings.vault_lock_mode,
+                method="credential",
             )
             self._schedule_auto_lock()
             self.refresh()
@@ -1931,9 +1994,64 @@ class CacheVaultApp(ctk.CTk):
             self.vault.events,
             vault_lock.EVENT_VAULT_UNLOCK_FAILED,
             mode=self.vault.settings.vault_lock_mode,
-            reason="invalid_unlock",
+            reason="invalid_credential",
+            method="credential",
         )
         return False
+
+    def _note_vault_activity(self, _event=None) -> None:
+        if not self._locked():
+            self._schedule_auto_lock()
+
+    def _on_application_focus_out(self, _event=None) -> None:
+        if self._shutting_down or self._locked() or not vault_lock.lock_config(self.vault.settings).enabled:
+            return
+        if self._background_lock_job:
+            try:
+                self.after_cancel(self._background_lock_job)
+            except Exception:  # noqa: BLE001
+                pass
+        self._background_lock_job = self.after(150, self._lock_if_another_app_is_foreground)
+
+    def _lock_if_another_app_is_foreground(self) -> None:
+        self._background_lock_job = None
+        if self._shutting_down or self._locked():
+            return
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            user32.GetForegroundWindow.restype = ctypes.c_void_p
+            user32.GetWindowThreadProcessId.argtypes = [
+                ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong),
+            ]
+            user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+            ctypes.windll.kernel32.GetCurrentProcessId.restype = ctypes.c_ulong
+            foreground = user32.GetForegroundWindow()
+            process_id = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(foreground, ctypes.byref(process_id))
+            if process_id.value and process_id.value != ctypes.windll.kernel32.GetCurrentProcessId():
+                try:
+                    minimized = self.state() == "iconic"
+                except Exception:  # noqa: BLE001
+                    minimized = False
+                if minimized:
+                    if self.vault.settings.vault_lock_when_minimized:
+                        self._lock_now(reason="minimized")
+                else:
+                    self._lock_now(reason="app_background")
+        except (AttributeError, OSError):
+            return
+
+    def _install_session_lock_listener(self) -> None:
+        try:
+            from .windows_session_lock import WindowsSessionLockListener
+            self._session_lock_listener = WindowsSessionLockListener(
+                self.winfo_id(),
+                lambda: self.after(0, lambda: self._lock_now(reason="app_background")),
+            )
+            self._session_lock_listener.start()
+        except (ImportError, OSError, RuntimeError):
+            self._session_lock_listener = None
 
     def _schedule_auto_lock(self) -> None:
         if self._idle_lock_job:
@@ -1947,7 +2065,7 @@ class CacheVaultApp(ctk.CTk):
             return
         self._idle_lock_job = self.after(
             cfg.auto_lock_minutes * 60_000,
-            lambda: self._lock_now(reason="auto_lock"),
+            lambda: self._lock_now(reason="idle_timeout"),
         )
 
     def _guard_unlocked(self) -> bool:
@@ -3059,7 +3177,7 @@ class CacheVaultApp(ctk.CTk):
                     content_hash=chash,
                     item_type=item_type,
                 )
-                self._show_toast("Next copy was not saved.")
+                self._show_capture_notice("Next copy was not saved.")
                 capture_debug.log("ingest_skipped", "ignore_next_copy")
                 return
 
@@ -3126,7 +3244,7 @@ class CacheVaultApp(ctk.CTk):
                 from ..core import sensitive
                 if sensitive.detect(payload["text"]).is_sensitive:
                     capture_debug.log("save_skipped", "sensitive_auto_block")
-                    self._show_toast(
+                    self._show_capture_notice(
                         "Sensitive-looking clipboard item was not auto-saved."
                     )
         else:
@@ -3166,6 +3284,12 @@ class CacheVaultApp(ctk.CTk):
     def _show_toast(self, text: str) -> None:
         if self._alive():
             Toast(self, text)
+
+    def _show_capture_notice(self, text: str) -> None:
+        # Captures continue while locked, but capture-originated UI feedback
+        # must not create a preview or otherwise reveal what was captured.
+        if not self._locked():
+            self._show_toast(text)
 
     def _bind_capture_hotkeys(self) -> None:
         s = self.vault.settings
@@ -5046,18 +5170,42 @@ class CacheVaultApp(ctk.CTk):
             self, self._mobile_bridge.receipts.recent())
 
     def _apply_settings(self, settings) -> None:
+        was_enabled = vault_lock.lock_config(self.vault.settings).enabled
+        settings.vault_lock_on_startup = bool(settings.vault_lock_enabled)
         settings.save()
         self.vault.settings = settings
         vault_lock.record_lock_event(
             self.vault.events,
             vault_lock.EVENT_VAULT_LOCK_SETTINGS_CHANGED,
             mode=settings.vault_lock_mode,
-            reason="settings_saved",
+            reason=("settings_enabled" if settings.vault_lock_enabled and not was_enabled
+                    else "settings_disabled" if was_enabled and not settings.vault_lock_enabled
+                    else "settings_saved"),
+            enabled=settings.vault_lock_enabled,
+            policy=vault_lock.safe_lock_settings_summary(settings),
         )
         self._lock_screen.set_mode(settings.vault_lock_mode)
-        if not vault_lock.lock_config(settings).enabled and self._locked():
+        if not vault_lock.lock_config(settings).enabled:
             self._vault_locked = False
             self._lock_screen.grid_remove()
+        elif settings.vault_lock_enabled and not vault_lock.has_lock_secret(settings):
+            self._vault_locked = True
+            self._render_locked_surface()
+            self._lock_screen.grid()
+            self._lock_screen.lift()
+            self._lock_screen.show_credential_error()
+        else:
+            self._lock_screen.show_credential_entry()
+            if not was_enabled:
+                self._vault_locked = False
+                tooltip.set_tooltips_locked(False)
+                vault_lock.record_lock_event(
+                    self.vault.events,
+                    vault_lock.EVENT_VAULT_UNLOCKED,
+                    mode=settings.vault_lock_mode,
+                    reason="settings_enabled",
+                    method="credential",
+                )
         self._schedule_auto_lock()
         refresh_windows_scroll_cache()
         self._monitor.pause() if settings.capture_paused else self._monitor.resume()

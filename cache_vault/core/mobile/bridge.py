@@ -6,11 +6,11 @@ import json
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 from urllib.parse import unquote
 
 from ... import brand
-from .. import models, search
+from .. import models, search, vault_lock
 from ..settings import Settings
 from ..storage import FILTER_ALL, FILTER_FAVORITES, FILTER_RECENTLY_REMOVED, FILTER_SEARCH_ALL
 from . import api as api_mod
@@ -61,10 +61,17 @@ class MobileBridge:
     """Desktop-side read-only API for paired Android devices."""
 
     def __init__(self, vault: Vault, *, receipt_log: MobileReceiptLog | None = None,
-                 discovery: MobileDiscovery | None = None):
+                 discovery: MobileDiscovery | None = None,
+                 lock_state_provider: Callable[[], vault_lock.VaultLockState] | None = None):
         self.vault = vault
         self.receipts = receipt_log or MobileReceiptLog()
         self.discovery = discovery or MobileDiscovery()
+        # Without an app-owned session provider, resolve conservatively from
+        # persisted settings: an enabled lock means this standalone bridge is
+        # still locked because it has no successful UI authentication state.
+        self._lock_state_provider = lock_state_provider or (
+            lambda: vault_lock.get_vault_lock_state(self.vault.settings)
+        )
         self.pairing_offers = PairingOfferManager()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -364,6 +371,14 @@ class MobileBridge:
             self.receipts.record(rec)
             return 503, {"error": "mobile_access_disabled",
                          "message": "Mobile Access is disabled."}
+
+        if self._lock_state_provider() == vault_lock.VaultLockState.LOCKED:
+            rec = api_mod.reject_receipt(
+                path_only, action, "denied", "vault_locked",
+                remote_ip=remote_ip)
+            self.receipts.record(rec)
+            return 423, {"error": "vault_locked",
+                         "message": "Vault is locked."}
 
         allowed_post = (
             method == "POST"

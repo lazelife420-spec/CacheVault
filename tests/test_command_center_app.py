@@ -11,6 +11,7 @@ from cache_vault.core.command_center import (
     RESULT_OK,
     HotkeyAction,
 )
+from cache_vault.core import vault_lock
 from cache_vault.ui.filters import NAV_HOTKEY_ACTIONS
 from tests.tk_support import probe_tk_ui, wait_for_refresh
 
@@ -51,6 +52,54 @@ def _find_button(widget, text_substr):
 
 @pytest.mark.skipif(not OK, reason=REASON)
 class TestCommandCenterApp:
+    def test_enabled_lock_cold_start_shows_locked_surface(self, tmp_path, monkeypatch):
+        from cache_vault.core.settings import Settings
+        from cache_vault.core.storage import VaultStorage
+        from cache_vault.core.vault import Vault
+        from cache_vault.ui.shell import CacheVaultApp
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        settings = Settings()
+        vault_lock.set_lock_secret(settings, "startup credential")
+        vault = Vault(storage=VaultStorage(tmp_path / "startup-vault.db"), settings=settings)
+        try:
+            app = CacheVaultApp(vault=vault)
+        except Exception as exc:  # noqa: BLE001
+            if _tcl_unavailable(exc):
+                pytest.skip(f"Tk runtime unavailable at app construction: {exc}")
+            raise
+
+        try:
+            app.update_idletasks()
+            assert app.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED
+            assert app._lock_screen.winfo_manager() == "grid"
+        finally:
+            app.destroy()
+
+    def test_disabled_start_and_legitimate_disable_clear_runtime_lock(self, tmp_path, monkeypatch):
+        import copy
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        app = _make_app(tmp_path)
+        try:
+            assert app.get_vault_lock_state() == vault_lock.VaultLockState.DISABLED
+            assert app._lock_screen.winfo_manager() == ""
+
+            vault_lock.set_lock_secret(app.vault.settings, "test credential")
+            app._vault_locked = False
+            app._lock_now(reason="manual")
+            assert app.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED
+
+            disabled_settings = copy.deepcopy(app.vault.settings)
+            vault_lock.clear_lock_secret(disabled_settings)
+            app._apply_settings(disabled_settings)
+
+            assert app.get_vault_lock_state() == vault_lock.VaultLockState.DISABLED
+            assert app._lock_screen.winfo_manager() == ""
+            assert app._locked() is False
+        finally:
+            app.destroy()
+
     def test_navigate_and_run_toggle_capture(self, tmp_path, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         app = _make_app(tmp_path)
@@ -113,6 +162,7 @@ class TestCommandCenterApp:
             app.withdraw()
             # Force a locked state and confirm a non-safe action is blocked.
             app._vault_locked = True
+            assert app.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED
             toggle = app._command_store.upsert(
                 HotkeyAction(name="Toggle", hotkey="ctrl+alt+d",
                              action_type=ACTION_TOGGLE_CAPTURE),
@@ -127,6 +177,48 @@ class TestCommandCenterApp:
             )
             res2 = app._command_dispatcher.run(lock, trigger_type="hotkey")
             assert res2.ok
+        finally:
+            app.destroy()
+
+    def test_capture_continues_while_locked_without_capture_notice(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        app = _make_app(tmp_path)
+        notices = []
+        try:
+            vault_lock.set_lock_secret(app.vault.settings, "test credential")
+            app._vault_locked = True
+            monkeypatch.setattr(app, "_show_toast", notices.append)
+
+            captured_text = "private capture while locked"
+            app._ingest({"text": captured_text, "source_app": "qualification"})
+
+            saved = app.vault.storage.list_clips(None)
+            assert any(clip.content == captured_text for clip in saved)
+            assert notices == []
+            assert app._capture_refresh_pending is True
+            assert app._capture_refresh_job is None
+        finally:
+            app.destroy()
+
+    def test_lock_transition_destroys_secondary_toplevels(self, tmp_path, monkeypatch):
+        import customtkinter as ctk
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        app = _make_app(tmp_path)
+        try:
+            vault_lock.set_lock_secret(app.vault.settings, "test credential")
+            app._vault_locked = False
+            secondary = ctk.CTkToplevel(app)
+            app.update_idletasks()
+            assert secondary.winfo_exists()
+
+            app._lock_now(reason="manual")
+            app.update_idletasks()
+
+            assert not secondary.winfo_exists()
+            assert app.get_vault_lock_state() == vault_lock.VaultLockState.LOCKED
         finally:
             app.destroy()
 

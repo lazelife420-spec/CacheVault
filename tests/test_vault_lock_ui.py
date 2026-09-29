@@ -35,6 +35,9 @@ def test_shell_has_lock_guards():
     assert "EVENT_VAULT_UNLOCK_FAILED" in src
     assert "_on_window_unmap" in src
     assert "vault_lock_when_minimized" in src
+    assert 'reason="idle_timeout"' in src
+    assert 'reason="app_background"' in src
+    assert "_install_session_lock_listener" in src
 
 
 def test_control_strip_renders_and_calls_actions(tk_root):
@@ -79,6 +82,23 @@ def test_lock_screen_valid_and_invalid_unlock(tk_root):
     screen._submit()
     assert calls[-1] == "1234"
     assert screen._error_var.get() == ""
+    screen.destroy()
+
+
+def test_missing_lock_credential_stays_locked_and_explains_recovery(tk_root):
+    calls: list[str] = []
+    screen = VaultLockScreen(
+        tk_root,
+        on_unlock=lambda secret: calls.append(secret) or True,
+        on_quit=lambda: None,
+        credential_available=False,
+    )
+    screen._submit()
+
+    assert screen._entry.winfo_manager() == ""
+    assert screen._unlock_button.winfo_manager() == ""
+    assert "saved credential is unavailable" in screen._credential_error.cget("text")
+    assert calls == []
     screen.destroy()
 
 

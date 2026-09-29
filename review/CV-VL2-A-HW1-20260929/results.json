@@ -1,0 +1,153 @@
+{
+  "audit_aggregate_sha256": "bdc2e0e438ac17bc04888f5d295fe80b6d4ac07f8fb01179614cf3619603aa55",
+  "bridge_locked": {
+    "body": "{\"error\": \"vault_locked\", \"message\": \"Vault is locked.\"}",
+    "status": 423
+  },
+  "db": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-vl2-hw1-ba2bde8007969139\\CacheVault\\cache_vault.db",
+  "events": [
+    {
+      "canonical_event": "vault.locked",
+      "created_at": "2026-09-29T21:19:20.397496+00:00",
+      "event_type": "vault_locked",
+      "method": null,
+      "mode": "pin",
+      "reason": "startup"
+    }
+  ],
+  "exe": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-vl2-rb1-544f9443dbb741af9b46fa416d39c127\\dist\\CacheVault.exe",
+  "observed_at": "2026-09-29T14:19:18Z",
+  "package_sha256": "4031161561d68712973e1c888cd65ef7c3bf92e3d4f54d5293fbe6063ec10519",
+  "package_sha256_matches_gate": true,
+  "pid": 17012,
+  "profile": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-vl2-hw1-ba2bde8007969139",
+  "settings_file": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-vl2-hw1-ba2bde8007969139\\CacheVault\\settings.json",
+  "source_sha256": "2be78242c3634278825ba33d610840a44c11eee5684a21ec5f667a53fe3b9877",
+  "source_sha256_matches_gate": true,
+  "startup_capture_ok": true,
+  "startup_lock_ok": true,
+  "steps": [
+    {
+      "at": "14:19:18",
+      "audit_aggregate": "bdc2e0e438ac17bc04888f5d295fe80b6d4ac07f8fb01179614cf3619603aa55",
+      "matches": true,
+      "sha256": "2be78242c3634278825ba33d610840a44c11eee5684a21ec5f667a53fe3b9877",
+      "step": "source_identity"
+    },
+    {
+      "at": "14:19:18",
+      "bytes": 43642981,
+      "matches": true,
+      "sha256": "4031161561d68712973e1c888cd65ef7c3bf92e3d4f54d5293fbe6063ec10519",
+      "step": "package_identity"
+    },
+    {
+      "at": "14:19:18",
+      "capture_paused": true,
+      "credential": "not recorded",
+      "db": "None",
+      "profile": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-vl2-hw1-ba2bde8007969139",
+      "settings": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-vl2-hw1-ba2bde8007969139\\CacheVault\\settings.json",
+      "step": "profile_seeded"
+    },
+    {
+      "at": "14:19:24",
+      "hwnd": 4653192,
+      "pid": 17012,
+      "step": "launched",
+      "window_found": true
+    },
+    {
+      "at": "14:19:24",
+      "db": "C:\\Users\\KickA\\AppData\\Local\\Temp\\cv-vl2-hw1-ba2bde8007969139\\CacheVault\\cache_vault.db",
+      "step": "database_resolved"
+    },
+    {
+      "at": "14:19:26",
+      "event": {
+        "canonical_event": "vault.locked",
+        "created_at": "2026-09-29T21:19:20.397496+00:00",
+        "event_type": "vault_locked",
+        "method": null,
+        "mode": "pin",
+        "reason": "startup"
+      },
+      "step": "startup_lock"
+    },
+    {
+      "at": "14:19:26",
+      "ok": true,
+      "path": "C:\\Users\\KickA\\Projects\\Active\\CV-VAULT-LOCK-2\\review\\CV-VL2-A-HW1-20260929\\01_startup_locked.png",
+      "step": "startup_capture"
+    },
+    {
+      "at": "14:19:27",
+      "body": "{\"error\": \"vault_locked\", \"message\": \"Vault is locked.\"}",
+      "status": 423,
+      "step": "bridge_while_locked"
+    },
+    {
+      "at": "14:19:57",
+      "button_screen_click": [
+        1108,
+        661
+      ],
+      "capture_after_postmsg_typing": true,
+      "capture_after_typing": true,
+      "client": [
+        1200,
+        760
+      ],
+      "entry_screen_click": [
+        1108,
+        598
+      ],
+      "failed_event": null,
+      "foreground_after_click": true,
+      "foreground_after_typing": true,
+      "foreground_before_click": true,
+      "step": "unlock",
+      "strategy_a": "post_wm_keydown",
+      "strategy_a_failed_event": null,
+      "strategy_b": "real_cursor",
+      "unlocked_event": null,
+      "window_rect": [
+        501,
+        81,
+        1715,
+        875
+      ]
+    }
+  ],
+  "unlock": {
+    "button_screen_click": [
+      1108,
+      661
+    ],
+    "capture_after_postmsg_typing": true,
+    "capture_after_typing": true,
+    "client": [
+      1200,
+      760
+    ],
+    "entry_screen_click": [
+      1108,
+      598
+    ],
+    "failed_event": null,
+    "foreground_after_click": true,
+    "foreground_after_typing": true,
+    "foreground_before_click": true,
+    "strategy_a": "post_wm_keydown",
+    "strategy_a_failed_event": null,
+    "strategy_b": "real_cursor",
+    "unlocked_event": null,
+    "window_rect": [
+      501,
+      81,
+      1715,
+      875
+    ]
+  },
+  "unlock_ok": false
+}
