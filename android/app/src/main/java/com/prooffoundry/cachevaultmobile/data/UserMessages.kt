@@ -40,6 +40,9 @@ object UserMessages {
     const val REPAIR_NEEDED =
         "This PC no longer trusts this phone.\nRe-pair to continue."
 
+    const val VAULT_LOCKED =
+        "Vault is locked on your PC.\nUnlock it on your PC to browse from this phone."
+
     const val PAIRING_SAVED = "Saved — connected to PC"
 
     const val PC_FOUND_SECURE =
@@ -56,6 +59,7 @@ object UserMessages {
 
     fun forBridgeError(error: BridgeError): String = when (error) {
         is BridgeError.Disabled -> MOBILE_ACCESS_OFF
+        is BridgeError.VaultLocked -> VAULT_LOCKED
         is BridgeError.Unauthorized -> when {
             error.message?.contains("revoked", ignoreCase = true) == true -> DEVICE_REVOKED
             error.message?.contains("token", ignoreCase = true) == true -> REPAIR_NEEDED

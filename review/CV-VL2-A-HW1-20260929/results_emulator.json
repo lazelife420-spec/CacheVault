@@ -1,0 +1,61 @@
+{
+  "harness": "bridge_test_server.py + Android emulator (cv_mobile_1)",
+  "date": "2026-09-29",
+  "emulator": "emulator-5554 (cv_mobile_1 AVD)",
+  "bridge_host": "127.0.0.1:8742 (emulator reaches via 10.0.2.2:8742)",
+  "apk": "android/app/build/outputs/apk/debug/app-debug.apk",
+  "package": "com.prooffoundry.cachevaultmobile.cvmobile1.debug",
+  "tests": {
+    "nc_locked_423": {
+      "description": "Raw HTTP GET /mobile/v1/status from emulator via nc when vault LOCKED",
+      "result": true,
+      "status_code": 423,
+      "body": {"error": "vault_locked", "message": "Vault is locked."}
+    },
+    "nc_unlocked_401": {
+      "description": "Raw HTTP GET /mobile/v1/status from emulator via nc when vault UNLOCKED",
+      "result": true,
+      "status_code": 401,
+      "body": {"error": "unauthorized", "message": "Pairing required. Send X-Device-Id and Authorization Bearer token."}
+    },
+    "app_launched": {
+      "description": "Android app launches on emulator without crash",
+      "result": true
+    },
+    "app_navigated_to_paired_pc": {
+      "description": "App navigates to Paired PC tab showing manual setup option",
+      "result": true
+    },
+    "app_manual_setup_filled": {
+      "description": "Manual setup form filled with 10.0.2.2:8742, device ID, pairing code",
+      "result": true
+    },
+    "app_connect_received_423": {
+      "description": "App Connect button sends GET /mobile/v1/status and bridge returns 423",
+      "result": true,
+      "bridge_log": "[20:40:37] GET /mobile/v1/status -> 423",
+      "app_error_displayed": "HTTP 423: {\"error\": \"vault_locked\", \"message\": \"Vault is locked.\"}"
+    },
+    "app_no_crash_on_423": {
+      "description": "App does not crash when receiving 423 vault-locked response",
+      "result": true
+    },
+    "app_no_clip_data_when_locked": {
+      "description": "No clip data is exposed in the app UI when vault is locked (423 gate blocks before auth)",
+      "result": true
+    }
+  },
+  "summary": {
+    "all_pass": true,
+    "total": 8,
+    "passed": 8,
+    "failed": 0
+  },
+  "notes": [
+    "Bridge 423 gate fires before authentication — even unpaired requests get 423 when vault is locked",
+    "App displays raw 'HTTP 423: {\"error\": \"vault_locked\", ...}' as error text (BridgeError.Unknown catch-all in UserMessages.forBridgeError)",
+    "No dedicated 423 handler in BridgeClient.execute() — falls through to else -> BridgeError.Unknown(code, body)",
+    "UX improvement opportunity: add BridgeError.VaultLocked type and show 'Vault is locked' message instead of raw HTTP error",
+    "Security property holds: no clip data is accessible when vault is locked, regardless of pairing state"
+  ]
+}

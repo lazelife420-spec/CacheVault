@@ -145,6 +145,7 @@ sealed class BridgeError(message: String) : Exception(message) {
     class AssetNotAvailable(message: String = "Image not available on your PC.") :
         BridgeError(message)
     class Network(cause: Throwable) : BridgeError(cause.message ?: "Network error")
+    class VaultLocked : BridgeError("Vault is locked on your PC.")
     class Unknown(code: Int, body: String) : BridgeError("HTTP $code: $body")
     class UnsupportedApi(version: String) :
         BridgeError("Unsupported mobile API version: $version")

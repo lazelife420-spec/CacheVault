@@ -117,7 +117,13 @@ Example (illustrative — desktop version reflects whatever build is running):
 }
 ```
 
-Errors: `503 mobile_access_disabled`, `401 unauthorized`, `426 mobile_update_required` (see [Version compatibility handshake](#version-compatibility-handshake))
+Errors: `423 vault_locked`, `503 mobile_access_disabled`, `401 unauthorized`, `426 mobile_update_required` (see [Version compatibility handshake](#version-compatibility-handshake))
+
+> **423 vault_locked** — returned when the desktop vault is locked. This gate
+> fires **before** authentication: even unpaired or revoked devices receive
+> 423, never 401, when the vault is locked. No clip data is exposed.
+> Body: `{"error": "vault_locked", "message": "Vault is locked."}`
+> A receipt is written with reason `vault_locked` for every rejected request.
 
 ---
 

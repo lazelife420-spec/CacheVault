@@ -1,0 +1,146 @@
+{
+  "harness": "hw_qualify_inproc.py (no-Tk)",
+  "started_at": "2026-09-29T20:10:37",
+  "branch": "cv-vault-lock-2",
+  "commit": "ca2785f2844ded84a0239da6fbfddbb47e0e9eec",
+  "pin_used": "4829",
+  "step1_startup_lock": {
+    "startup_locked_event": true,
+    "details": {
+      "canonical_event": "vault.locked",
+      "platform": "windows",
+      "mode": "pin",
+      "reason": "startup"
+    }
+  },
+  "step2_lock_state": {
+    "locked_state": "LOCKED",
+    "unlocked_state": "UNLOCKED",
+    "locked_correct": true,
+    "unlocked_correct": true
+  },
+  "step3_bridge_locked": {
+    "status": 423,
+    "is_423": true,
+    "body": {
+      "error": "vault_locked",
+      "message": "Vault is locked."
+    }
+  },
+  "step4_verify_correct_pin": {
+    "verify_returned_true": true
+  },
+  "step5_unlocked_event": {
+    "unlocked_event": true,
+    "details": {
+      "canonical_event": "vault.unlocked",
+      "platform": "windows",
+      "mode": "pin",
+      "method": "credential"
+    }
+  },
+  "step6_bridge_unlocked": {
+    "status": 401,
+    "is_423": false,
+    "is_not_423": true,
+    "body_keys": [
+      "error",
+      "message"
+    ]
+  },
+  "step7_bg_lock_event": {
+    "bg_locked_event": true,
+    "details": {
+      "canonical_event": "vault.locked",
+      "platform": "windows",
+      "mode": "pin",
+      "reason": "app_background"
+    }
+  },
+  "step8_bridge_relocked": {
+    "status": 423,
+    "is_423": true
+  },
+  "step9_min_lock_event": {
+    "min_locked_event": true,
+    "details": {
+      "canonical_event": "vault.locked",
+      "platform": "windows",
+      "mode": "pin",
+      "reason": "minimized"
+    }
+  },
+  "step10_wts_session_lock": {
+    "listener_installed": true,
+    "message_posted": true,
+    "wts_lock_fired": true,
+    "wts_lock_event": true,
+    "wts_event_details": {
+      "canonical_event": "vault.locked",
+      "platform": "windows",
+      "mode": "pin",
+      "reason": "session_lock"
+    }
+  },
+  "step11_wrong_pin": {
+    "wrong_pin_returned_false": true,
+    "failures_recorded": 1
+  },
+  "step12_unlock_failed_event": {
+    "failed_event": true,
+    "details": {
+      "canonical_event": "vault.unlock_failed",
+      "platform": "windows",
+      "mode": "pin",
+      "reason": "invalid_credential",
+      "method": "credential"
+    }
+  },
+  "step13_lockout_backoff": {
+    "failures": 5,
+    "locked_until_ms": 1790737868219,
+    "wait_remaining_ms": 30000,
+    "backoff_active": true
+  },
+  "step14_pin_after_reset": {
+    "verify_returned_true": true
+  },
+  "step15_event_log_audit": {
+    "total_events": 6,
+    "event_breakdown": {
+      "vault_unlock_failed:invalid_credential": 1,
+      "vault_locked:session_lock": 1,
+      "vault_locked:minimized": 1,
+      "vault_locked:app_background": 1,
+      "vault_unlocked": 1,
+      "vault_locked:startup": 1
+    },
+    "all_reasons": [
+      "app_background",
+      "minimized",
+      "session_lock",
+      "startup"
+    ]
+  },
+  "finished_at": "2026-09-29T20:10:38",
+  "summary": {
+    "startup_lock_event": true,
+    "lock_state_resolution": true,
+    "bridge_423_while_locked": true,
+    "pin_verify_correct": true,
+    "unlocked_event": true,
+    "bridge_non423_after_unlock": true,
+    "app_background_lock_event": true,
+    "bridge_423_after_relock": true,
+    "minimize_lock_event": true,
+    "wts_listener_installed": true,
+    "wts_lock_fired": true,
+    "wts_lock_event": true,
+    "wrong_pin_rejected": true,
+    "unlock_failed_event": true,
+    "lockout_backoff_active": true,
+    "pin_works_after_reset": true,
+    "all_pass": true
+  },
+  "accepted": true
+}

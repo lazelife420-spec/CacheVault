@@ -262,6 +262,7 @@ private fun StatusLine(connection: ConnectionState) {
             ConnectionState.REVOKED,
             ConnectionState.OFFLINE,
             ConnectionState.MOBILE_ACCESS_OFF,
+            ConnectionState.VAULT_LOCKED,
             ConnectionState.UPDATE_REQUIRED,
             -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.secondary

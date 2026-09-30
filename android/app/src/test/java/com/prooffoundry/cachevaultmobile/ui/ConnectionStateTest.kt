@@ -193,6 +193,26 @@ class ConnectionStateTest {
     }
 
     @Test
+    fun vaultLockedResolvesToVaultLockedState() {
+        assertEquals(
+            ConnectionState.VAULT_LOCKED,
+            resolveConnectionState(
+                status = null,
+                error = UserMessages.VAULT_LOCKED,
+                loading = false,
+                hasLoadedVault = true,
+            ),
+        )
+    }
+
+    @Test
+    fun vaultLockedSubtitleIsUserFriendly() {
+        val sub = connectionSubtitle(ConnectionState.VAULT_LOCKED, "My PC")
+        assert(sub.contains("Vault is locked"))
+        assert(!sub.contains("Not connected"))
+    }
+
+    @Test
     fun genuineNetworkErrorIsNotSwallowedLikeClipNotFound() {
         // A real "could not send" bridge failure must still surface as Offline —
         // it must not be filtered the way the clip-detail 404 special case is

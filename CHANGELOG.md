@@ -2,7 +2,59 @@
 
 ## Unreleased
 
-_No unreleased changes yet._
+### Desktop — Vault Lock (CV-VL2-A)
+- **Windows vault lock**: the vault now locks on startup, app background loss,
+  window minimize, and Windows session lock (`Win+L` via WTS session
+  notification). All four trigger reasons produce a `vault.locked` event with
+  the matching `reason` field in the event log.
+- **PIN verification**: `vault_lock.verify_secret()` validates the user's PIN
+  against a stored hash. Wrong PINs are rejected and increment a failure
+  counter. After 5 failures, a 30-second lockout backoff activates
+  (`unlock_wait_remaining_ms` > 0). `reset_failed_unlocks()` clears the
+  counter.
+- **Bridge 423 vault-locked gate**: `MobileBridge.handle()` returns HTTP 423
+  `{"error": "vault_locked", "message": "Vault is locked."}` for all
+  non-pairing routes when the vault is locked. The gate fires before
+  authentication — even unpaired devices get 423, never 401. A receipt is
+  written with reason `vault_locked` for every rejected request.
+- **WTS session lock listener**: `WindowsSessionLockListener` registers
+  `WTSRegisterSessionNotification` on the Tk window and forwards
+  `WM_WTSSESSION_CHANGE` / `WTS_SESSION_LOCK` to a callback that records a
+  `vault.locked` event with `reason: session_lock`.
+
+### Android — CV-MOBILE-1 local-first phone vault
+- **Phone-local vault**: text, links, and single images saved on the device
+  in app-private storage (SQLite schema v1 + `local_assets/` file store).
+  No PC or network required.
+- **Local Safes**: named phone-side organizers (not encryption containers,
+  not synced).
+- **Share target**: "Save on this phone" is the default destination; "Send to
+  PC" remains a separate deliberate action when paired.
+- **Activity ledger**: local saves/copies/shares/failures (not signed, no
+  payloads).
+- **App restructure**: four tabs — Vault, Safes, Activity, Paired PC. First
+  launch opens the local vault, not a pairing screen.
+- **App-level vault lock**: `VaultLockManager` (process-only session state)
+  + `VaultLockStore` (Keystore-backed, biometric). Idle timeout lock.
+- **423 vault-locked handling**: `BridgeClient` now has a dedicated
+  `BridgeError.VaultLocked` type. The app shows "Vault is locked on your PC"
+  instead of a raw HTTP error. `ConnectionState.VAULT_LOCKED` badge in the
+  Paired PC tab.
+- **Debug build isolation**: debug builds install as
+  `com.prooffoundry.cachevaultmobile.cvmobile1.debug`.
+- **`vaultLockTest` build type** for vault lock instrumentation tests.
+
+### Hardware qualification (CV-VL2-A-HW1)
+- In-process harness: 16/16 checks pass — startup lock, all four trigger
+  reasons, PIN verify/reject, lockout backoff, bridge 423 cycling, WTS
+  session lock listener.
+- Packaged runtime: source SHA `2be78242`, package SHA `40311615`, startup
+  lock event, bridge 423, lock screen capture, zero clips ingested.
+- Android emulator: bridge 423 gate verified end-to-end from emulator via
+  `nc` and from the production Android app — no crash, no clip data exposed.
+
+### Docs
+- `docs/MOBILE_API_CONTRACT.md`: documented the 423 `vault_locked` response.
 
 ## Cache Vault v0.2.4 (2026-09-17)
 

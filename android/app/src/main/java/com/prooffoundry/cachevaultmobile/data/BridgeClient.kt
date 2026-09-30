@@ -152,6 +152,7 @@ class BridgeClient(
                         return ImageAssetResult(bodyBytes, ct)
                     }
                     401 -> throw BridgeError.Unauthorized(parseMessage(String(bodyBytes)))
+                    423 -> throw BridgeError.VaultLocked()
                     503 -> throw BridgeError.Disabled()
                     404 -> throw parseAssetNotAvailable(String(bodyBytes))
                     else -> throw BridgeError.Unknown(response.code, String(bodyBytes))
@@ -210,6 +211,7 @@ class BridgeClient(
                 when (response.code) {
                     200 -> return parseJson(body, type)
                     401 -> throw BridgeError.Unauthorized(parseMessage(body))
+                    423 -> throw BridgeError.VaultLocked()
                     426 -> throw parseUpdateRequired(body)
                     503 -> throw BridgeError.Disabled()
                     404 -> throw BridgeError.NotFound()

@@ -220,6 +220,16 @@ class BridgeClientTest {
         assertTrue(sentBody.contains("\"app_version\":\"${AppIdentity.APP_VERSION}\""))
     }
 
+    @Test(expected = BridgeError.VaultLocked::class)
+    fun statusOn423ThrowsVaultLocked() {
+        server.enqueue(
+            MockResponse().setResponseCode(423).setBody(
+                """{"error":"vault_locked","message":"Vault is locked."}""",
+            ),
+        )
+        client.status()
+    }
+
     @Test(expected = BridgeError.UpdateRequired::class)
     fun pairDeviceThrowsUpdateRequiredOn426() {
         server.enqueue(

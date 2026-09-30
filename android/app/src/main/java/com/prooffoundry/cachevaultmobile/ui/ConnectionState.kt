@@ -9,6 +9,7 @@ enum class ConnectionState(val label: String) {
     REVOKED("Device revoked"),
     OFFLINE("Not connected"),
     MOBILE_ACCESS_OFF("Mobile Access off"),
+    VAULT_LOCKED("Vault locked"),
     UPDATE_REQUIRED("Update required"),
     CHECKING("Loading…"),
 }
@@ -32,6 +33,9 @@ fun resolveConnectionState(
     if (connError?.contains("revoked", ignoreCase = true) == true) return ConnectionState.REVOKED
     if (connError?.contains("Mobile Access is off", ignoreCase = true) == true) {
         return ConnectionState.MOBILE_ACCESS_OFF
+    }
+    if (connError?.contains("Vault is locked", ignoreCase = true) == true) {
+        return ConnectionState.VAULT_LOCKED
     }
     if (status != null && connError.isNullOrBlank()) return ConnectionState.CONNECTED
     if (connError?.contains("token", ignoreCase = true) == true ||
@@ -62,6 +66,7 @@ fun connectionSubtitle(state: ConnectionState, hostLabel: String): String = when
     ConnectionState.REVOKED -> "Device revoked — pair again on your PC"
     ConnectionState.OFFLINE -> "Not connected — same Wi-Fi, PC app open, then Retry"
     ConnectionState.MOBILE_ACCESS_OFF -> "Mobile Access off on your PC"
+    ConnectionState.VAULT_LOCKED -> "Vault is locked on your PC"
     ConnectionState.UPDATE_REQUIRED -> "Update required — this app version is no longer supported"
     ConnectionState.CHECKING -> "Checking connection…"
 }

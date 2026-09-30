@@ -591,6 +591,8 @@ class AppViewModel(
                 "Your phone reached the PC, but the token was rejected. Copy Token on the PC and re-pair."
             ConnectionState.MOBILE_ACCESS_OFF ->
                 "Turn on Mobile Access in Cache Vault on your PC."
+            ConnectionState.VAULT_LOCKED ->
+                "Unlock the vault on your PC to browse from this phone."
             ConnectionState.OFFLINE ->
                 "Use the same Wi-Fi as your PC, open Cache Vault on the PC, turn on Mobile Access, then tap Retry."
             ConnectionState.UPDATE_REQUIRED ->

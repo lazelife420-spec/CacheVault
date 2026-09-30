@@ -97,6 +97,7 @@ fun VaultStatusCard(
                         ConnectionState.OFFLINE,
                         ConnectionState.REVOKED,
                         ConnectionState.MOBILE_ACCESS_OFF,
+                        ConnectionState.VAULT_LOCKED,
                         ConnectionState.UPDATE_REQUIRED,
                         -> MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
                         else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
@@ -122,6 +123,7 @@ fun VaultStatusCard(
                     ConnectionState.REPAIR_NEEDED -> StatusPill("Re-pair needed", StampGold)
                     ConnectionState.REVOKED -> StatusPill("Device revoked", MaterialTheme.colorScheme.error)
                     ConnectionState.MOBILE_ACCESS_OFF -> StatusPill("Mobile Access off", MaterialTheme.colorScheme.error)
+                    ConnectionState.VAULT_LOCKED -> StatusPill("Vault locked", MaterialTheme.colorScheme.error)
                     ConnectionState.OFFLINE -> StatusPill("Not connected", MaterialTheme.colorScheme.error)
                     ConnectionState.UPDATE_REQUIRED -> StatusPill("Update required", MaterialTheme.colorScheme.error)
                 }
@@ -146,6 +148,13 @@ fun VaultStatusCard(
                     connection == ConnectionState.MOBILE_ACCESS_OFF -> {
                     Text(
                         stringResource(R.string.offline_recovery_steps),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                connection == ConnectionState.VAULT_LOCKED -> {
+                    Text(
+                        "Vault is locked on your PC. Unlock it to browse from this phone.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

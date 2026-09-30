@@ -27,6 +27,14 @@ class UserMessagesTest {
     }
 
     @Test
+    fun vaultLockedShowsUserFriendlyMessage() {
+        val msg = UserMessages.forBridgeError(BridgeError.VaultLocked())
+        assertTrue(msg.contains("Vault is locked"))
+        assertFalse(msg.contains("HTTP 423"))
+        assertFalse(msg.contains("same Wi-Fi"))
+    }
+
+    @Test
     fun networkShowsWifiHint() {
         val msg = UserMessages.forBridgeError(BridgeError.Network(Exception("timeout")))
         assertTrue(msg.contains("same Wi-Fi"))
