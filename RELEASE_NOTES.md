@@ -1,6 +1,6 @@
 # Cache Vault v0.3.0 (Vault Lock + Android Local-First)
 
-> **Status:** Release candidate. Introduces Windows vault lock (CV-VL2-A), Android phone-local vault (CV-MOBILE-1), and hardware qualification (HW1). The desktop vault now locks on startup, background loss, minimize, and Windows session lock (`Win+L`). Android gains a standalone local-first vault with Safes, activity ledger, and bridge 423 vault-locked handling.
+> **Status:** Qualified and packaged (2026-09-29). Introduces Windows vault lock (CV-VL2-A), Android phone-local vault (CV-MOBILE-1), and hardware qualification (HW1). The desktop vault now locks on startup, background loss, minimize, and Windows session lock (`Win+L`). Android gains a standalone local-first vault with Safes, activity ledger, and bridge 423 vault-locked handling.
 
 ## What is new in v0.3.0
 
