@@ -184,3 +184,24 @@ CV-VL2-A candidate is qualified on hardware across three harnesses:
 3. **Android emulator** (end-to-end): bridge 423 gate verified from emulator via nc and from the production Android app — no crash, no clip data exposed when vault locked.
 
 Source and package identities match the gate. Receipt is left uncommitted pending owner review.
+
+---
+
+## Post-Release Re-Verification (v0.3.0)
+
+**Commit:** `02723c53f27dd0e06513f8d02607ce43612305ec` (release promotion)  
+**Prior commit:** `f48d516` added `BridgeError.VaultLocked`, closing the UX gap noted in the Harness 3 section.  
+**APK:** `app-debug.apk` rebuilt 21:23 PDT — `versionName=0.3.0-cvmobile1-dev`, `versionCode=9`  
+**Emulator:** `emulator-5554` (cv_mobile_1), app foregrounded at `MainActivity`
+
+| Check | Result | Detail |
+|-------|--------|--------|
+| v0.3.0 app launches on emulator | ✓ | `emulator_v030_launch.png` |
+| Bridge 423 gate on v0.3.0 build | ✓ | `emulator_v030_423_test.png` — exercises the dedicated `VaultLocked` path |
+| Unit tests (post-release) | ✓ | 39/39 pass — BridgeClientTest 13, UserMessagesTest 9, ConnectionStateTest 17 |
+| VaultLocked UX (unit-verified) | ✓ | `vaultLockedShowsUserFriendlyMessage` asserts "Vault is locked" shown, no raw "HTTP 423" |
+| State resolution | ✓ | `resolveConnectionState` → `ConnectionState.VAULT_LOCKED` with friendly subtitle |
+
+The raw `"HTTP 423: ..."` catch-all noted in Harness 3 is superseded: `BridgeClient.execute()` and `fetchImageAsset()` now map 423 → `BridgeError.VaultLocked` → `UserMessages.VAULT_LOCKED` ("Vault is locked on your PC"), surfaced through `connectionDoctor`, the Vault section status pill, and Settings.
+
+This receipt was committed at `f48d516`; this section is the post-release addendum.
