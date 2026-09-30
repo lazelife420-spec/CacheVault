@@ -1,0 +1,39 @@
+{
+  "commit": "02723c5",
+  "android_unit_tests": {
+    "result": "BUILD SUCCESSFUL",
+    "tests": [
+      "BridgeClientTest.statusOn423ThrowsVaultLocked",
+      "UserMessagesTest.vaultLockedShowsUserFriendlyMessage",
+      "ConnectionStateTest.vaultLockedResolvesToVaultLockedState",
+      "ConnectionStateTest.vaultLockedSubtitleIsUserFriendly"
+    ]
+  },
+  "bridge_423_test": {
+    "emulator_reach": "10.0.2.2:8742",
+    "note": "Bridge 423 vault-locked gate fired end-to-end from emulator app. App reached bridge, bridge returned 423.",
+    "response_body": "{\"error\": \"vault_locked\", \"message\": \"Vault is locked.\"}",
+    "bridge_server": "127.0.0.1:8742 (locked mode)",
+    "request_logged": "GET /mobile/v1/status -> 423",
+    "result": "PASS"
+  },
+  "screenshots": [
+    "review/CV-VL2-A-HW1-20260929/emulator_v030_launch.png",
+    "review/CV-VL2-A-HW1-20260929/emulator_v030_423_test.png"
+  ],
+  "apk": {
+    "package": "com.prooffoundry.cachevaultmobile.cvmobile1.debug",
+    "build": "SUCCESS",
+    "versionName": "0.3.0",
+    "install": "SUCCESS",
+    "versionCode": 9
+  },
+  "version": "0.3.0",
+  "emulator": {
+    "avd": "cv_mobile_1",
+    "device": "emulator-5554",
+    "boot_completed": true
+  },
+  "test_date": "2026-09-30",
+  "branch": "cv-vault-lock-2"
+}
