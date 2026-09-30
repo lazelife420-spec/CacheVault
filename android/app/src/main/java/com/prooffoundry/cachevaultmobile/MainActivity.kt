@@ -12,7 +12,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.prooffoundry.cachevaultmobile.integration.AppShortcutPublisher
 import com.prooffoundry.cachevaultmobile.ui.ManualSetupPrefill
 import com.prooffoundry.cachevaultmobile.ui.CacheVaultMobileRoot
@@ -75,6 +77,14 @@ class MainActivity : FragmentActivity() {
         if (app.vaultLockStore.isEnabled) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         app.vaultLockManager.lockIfIdle()
+        // Foreground here is the only place Android reliably allows the
+        // clipboard listener to register — the service's own registration is
+        // best-effort only.
+        // Foreground here is the only place Android reliably allows the
+        // clipboard listener to register — the service's own registration is
+        // best-effort only. The resume drain lives at the Application level
+        // (ResumeDrain) because the resumed activity isn't always this one.
+        com.prooffoundry.cachevaultmobile.capture.ClipboardWatch.ensureRegistered(this)
     }
 
     override fun onStart() {

@@ -133,4 +133,5 @@ private fun ProofLine(label: String, value: String) {
 private fun copyText(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("Cache Vault diagnostics", text))
+    com.prooffoundry.cachevaultmobile.capture.ClipboardEcho.mark(text)
 }

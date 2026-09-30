@@ -101,6 +101,7 @@ class LocalVaultRepository(
         declaredMime: String?,
         displayName: String?,
         safeId: String = LocalVaultDatabase.DEFAULT_SAFE_ID,
+        sourceLabel: String? = null,
         openStream: () -> InputStream?,
     ): LocalItem {
         // Reconcile BEFORE the file is finalized — otherwise a first-call
@@ -155,7 +156,7 @@ class LocalVaultRepository(
                 )
                 recordActivity(
                     database, itemId, LocalActivityAction.SAVE,
-                    LocalActivityOutcome.COMPLETED, reason = "image",
+                    LocalActivityOutcome.COMPLETED, reason = boundedReason(sourceLabel ?: "image"),
                 )
             } catch (e: Exception) {
                 assetStore.delete(staged.file.name)
@@ -421,6 +422,14 @@ class LocalVaultRepository(
 
     suspend fun recordOpen(itemId: String) = write { database ->
         recordActivity(database, itemId, LocalActivityAction.OPEN, LocalActivityOutcome.COMPLETED, null)
+    }
+
+    /** True when a live item already carries this content hash — capture dedupe. */
+    suspend fun hasActiveItemWithHash(contentHash: String): Boolean = read { database ->
+        database.rawQuery(
+            "SELECT 1 FROM items WHERE content_hash = ? AND removed_at IS NULL LIMIT 1",
+            arrayOf(contentHash),
+        ).use { it.moveToFirst() }
     }
 
     suspend fun recordReveal(itemId: String) = write { database ->

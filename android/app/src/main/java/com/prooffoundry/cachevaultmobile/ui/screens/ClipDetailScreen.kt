@@ -253,6 +253,7 @@ fun ClipDetailScreen(
                         }) { Text("Open Link") }
                         Button(onClick = {
                             clipboard.setText(AnnotatedString(linkUrl))
+                            com.prooffoundry.cachevaultmobile.capture.ClipboardEcho.mark(linkUrl)
                             onCopy()
                         }) { Text("Copy") }
                         Button(onClick = {
@@ -335,6 +336,7 @@ fun ClipDetailScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = {
                             clipboard.setText(AnnotatedString(text))
+                            com.prooffoundry.cachevaultmobile.capture.ClipboardEcho.mark(text)
                             onCopy()
                         }) { Text("Copy") }
                         Button(onClick = {

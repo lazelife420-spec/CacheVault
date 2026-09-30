@@ -27,6 +27,7 @@ fun SendPhase.blocksNewSend(): Boolean =
 fun copyCleanText(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("Cache Vault", text))
+    com.prooffoundry.cachevaultmobile.capture.ClipboardEcho.mark(text)
 }
 
 fun shareTextExternal(context: Context, text: String) {

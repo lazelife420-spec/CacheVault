@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,6 +63,11 @@ fun SettingsScreen(
     onKeepConnectedChanged: (Boolean) -> Unit,
     onConnectionDoctor: () -> Unit,
     onVaultLockSettings: () -> Unit = {},
+    captureClipboardEnabled: Boolean = false,
+    captureScreenshotsEnabled: Boolean = false,
+    screenshotsPermitted: Boolean = true,
+    onCaptureClipboardChanged: (Boolean) -> Unit = {},
+    onCaptureScreenshotsChanged: (Boolean) -> Unit = {},
     onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -99,6 +106,15 @@ fun SettingsScreen(
             OutlinedButton(onClick = onVaultLockSettings, modifier = Modifier.fillMaxWidth()) {
                 Text("Vault Lock settings")
             }
+
+            SectionTitle("Capture on this phone")
+            CaptureSection(
+                clipboardEnabled = captureClipboardEnabled,
+                screenshotsEnabled = captureScreenshotsEnabled,
+                screenshotsPermitted = screenshotsPermitted,
+                onClipboardChanged = onCaptureClipboardChanged,
+                onScreenshotsChanged = onCaptureScreenshotsChanged,
+            )
 
             SectionTitle("Connection")
             StatusLine(connection)
@@ -273,4 +289,86 @@ private fun StatusLine(connection: ConnectionState) {
 private fun copyDiagnostics(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("Cache Vault diagnostics", text))
+    com.prooffoundry.cachevaultmobile.capture.ClipboardEcho.mark(text)
+}
+
+/**
+ * Standalone capture toggles. Honest about platform limits: screenshots import
+ * automatically once photo access is granted; clipboard capture saves on app
+ * open or via the capture notification — Android does not let any app read
+ * the clipboard silently in the background.
+ */
+@Composable
+private fun CaptureSection(
+    clipboardEnabled: Boolean,
+    screenshotsEnabled: Boolean,
+    screenshotsPermitted: Boolean,
+    onClipboardChanged: (Boolean) -> Unit,
+    onScreenshotsChanged: (Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    val mediaPerms = when {
+        android.os.Build.VERSION.SDK_INT >= 34 -> arrayOf(
+            android.Manifest.permission.READ_MEDIA_IMAGES,
+            android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+        )
+        android.os.Build.VERSION.SDK_INT >= 33 -> arrayOf(
+            android.Manifest.permission.READ_MEDIA_IMAGES,
+        )
+        else -> arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        val granted = grants.values.any { it }
+        if (granted) {
+            onScreenshotsChanged(true)
+        } else {
+            Toast.makeText(
+                context,
+                "Photo access was not allowed — screenshots cannot be imported.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Save copies to this phone", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Saves the clipboard when you open the app, or when you tap the capture notification. Clipboard stays on this phone.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = clipboardEnabled, onCheckedChange = onClipboardChanged)
+    }
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Import new screenshots", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                if (screenshotsPermitted) {
+                    "New screenshots are filed into this phone's vault automatically."
+                } else {
+                    "Needs photo access. Choose \"Allow all\" so new screenshots can be imported."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = screenshotsEnabled,
+            onCheckedChange = { enabled ->
+                if (enabled && !screenshotsPermitted) permLauncher.launch(mediaPerms)
+                else onScreenshotsChanged(enabled)
+            },
+        )
+    }
+    if (screenshotsEnabled && !screenshotsPermitted) {
+        Text(
+            "Photo access is off — screenshots are not being imported.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
 }

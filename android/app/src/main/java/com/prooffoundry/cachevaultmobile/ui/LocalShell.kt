@@ -56,6 +56,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.prooffoundry.cachevaultmobile.CacheVaultMobileApp
+import com.prooffoundry.cachevaultmobile.capture.CaptureWatchService
+import com.prooffoundry.cachevaultmobile.capture.ScreenshotImport
 import com.prooffoundry.cachevaultmobile.data.local.LocalFilter
 import com.prooffoundry.cachevaultmobile.data.local.LocalItem
 import com.prooffoundry.cachevaultmobile.data.local.LocalVaultDatabase
@@ -103,6 +106,10 @@ fun LocalShell(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val snackbar = remember { SnackbarHostState() }
+    val app = context.applicationContext as CacheVaultMobileApp
+    var captureClipboard by remember { mutableStateOf(app.captureStore.clipboardEnabled) }
+    var captureScreenshots by remember { mutableStateOf(app.captureStore.screenshotsEnabled) }
+    var screenshotsPermitted by remember { mutableStateOf(ScreenshotImport.hasImagePermission(context)) }
 
     // Refresh local vault truth whenever this shell resumes — writes can land
     // while the UI is paused (e.g. ShareAssistantActivity "Save on this
@@ -111,7 +118,10 @@ fun LocalShell(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, localVm) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) localVm.refresh()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                localVm.refresh()
+                screenshotsPermitted = ScreenshotImport.hasImagePermission(context)
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -336,6 +346,20 @@ fun LocalShell(
                         onKeepConnectedChanged = onKeepConnectedChanged,
                         onConnectionDoctor = { showConnectionDoctor = true },
                         onVaultLockSettings = onVaultLockSettings,
+                        captureClipboardEnabled = captureClipboard,
+                        captureScreenshotsEnabled = captureScreenshots,
+                        screenshotsPermitted = screenshotsPermitted,
+                        onCaptureClipboardChanged = { enabled ->
+                            app.captureStore.clipboardEnabled = enabled
+                            captureClipboard = enabled
+                            CaptureWatchService.sync(context)
+                        },
+                        onCaptureScreenshotsChanged = { enabled ->
+                            app.captureStore.screenshotsEnabled = enabled
+                            captureScreenshots = enabled
+                            screenshotsPermitted = ScreenshotImport.hasImagePermission(context)
+                            CaptureWatchService.sync(context)
+                        },
                         onBack = { showSettings = false },
                     )
                 }
@@ -523,4 +547,5 @@ private fun copyLocalText(context: android.content.Context, item: LocalItem) {
         }
     }
     cm.setPrimaryClip(clip)
+    com.prooffoundry.cachevaultmobile.capture.ClipboardEcho.mark(item.content.orEmpty())
 }

@@ -1,6 +1,9 @@
 package com.prooffoundry.cachevaultmobile
 
 import android.app.Application
+import com.prooffoundry.cachevaultmobile.capture.CaptureStore
+import com.prooffoundry.cachevaultmobile.capture.CaptureWatchService
+import com.prooffoundry.cachevaultmobile.capture.ResumeDrain
 import com.prooffoundry.cachevaultmobile.connect.BackgroundConnectionService
 import com.prooffoundry.cachevaultmobile.data.BridgeRepository
 import com.prooffoundry.cachevaultmobile.data.PairingStore
@@ -15,6 +18,8 @@ class CacheVaultMobileApp : Application() {
     lateinit var vaultLockStore: VaultLockStore
         private set
     lateinit var vaultLockManager: VaultLockManager
+        private set
+    lateinit var captureStore: CaptureStore
         private set
 
     /**
@@ -31,10 +36,13 @@ class CacheVaultMobileApp : Application() {
         vaultLockStore = VaultLockStore(this)
         vaultLockManager = VaultLockManager(vaultLockStore)
         bridgeRepository = BridgeRepository(pairingStore, appContext = this)
+        captureStore = CaptureStore(this)
         if (pairingStore.load()?.keepConnectedInBackground == true &&
             BackgroundConnectionService.canPostNotification(this)
         ) {
             BackgroundConnectionService.start(this)
         }
+        CaptureWatchService.sync(this)
+        ResumeDrain.attach(this)
     }
 }

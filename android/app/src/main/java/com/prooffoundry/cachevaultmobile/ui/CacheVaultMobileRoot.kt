@@ -473,6 +473,7 @@ private fun copyLocalItem(
         }
     }
     cm.setPrimaryClip(clip)
+    com.prooffoundry.cachevaultmobile.capture.ClipboardEcho.mark(item.content.orEmpty())
     localVm.markCopied(item.id)
 }
 
