@@ -16,7 +16,7 @@ MOBILE_PROTOCOL_MIN = 1
 MOBILE_PROTOCOL_MAX = 1
 
 # Oldest Android app version allowed to connect at all. Must stay at or
-# below the real shipped android/app/build.gradle.kts versionName (0.2.0
+# below the real shipped android/app/build.gradle.kts versionName (0.3.0
 # as of this writing) — this is the compatibility floor, not an aspirational
 # target, so it must never lock out an already-released build.
 MINIMUM_MOBILE_VERSION = "0.1.0"

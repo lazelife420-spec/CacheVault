@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## Cache Vault v0.3.0 (2026-09-29)
+
 ### Desktop — Vault Lock (CV-VL2-A)
 - **Windows vault lock**: the vault now locks on startup, app background loss,
   window minimize, and Windows session lock (`Win+L` via WTS session
