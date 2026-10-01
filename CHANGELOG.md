@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Cache Vault v0.3.1 (2026-10-01)
 
 ### Desktop — Test Harness
 - **CI gate false negative fixed**: a fully green suite could exit 1 when

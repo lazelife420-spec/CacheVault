@@ -1,3 +1,29 @@
+# Cache Vault v0.3.1 (Android Phone-Side Capture)
+
+> **Status:** Qualified and packaged (2026-09-30). Adds phone-side capture to the Android local-first vault: clipboard items save through the persistent "Save last copy" notification or when the app next opens, screenshots import automatically, and a desktop-parity sensitive auto-block (default ON) refuses password/token-looking clips by default. The Windows vault lock and the local-first phone vault from v0.3.0 are unchanged. The Windows executable remains unsigned; the Android APK is release-signed.
+
+## What is new in v0.3.1
+
+### Android — Phone-Side Capture
+- **Clipboard capture**: copies land in the phone-local vault without a paired PC or network. Android denies clipboard reads to any app that does not hold window focus (platform-enforced, measured), so capture happens through a persistent "Save last copy" notification (a foreground trampoline that reads on window focus) and a silent drain when the app next gains focus. Own copies are echo-suppressed, content is deduped by signature and active-item hash, and ledger entries carry truthful source labels.
+- **No silent background capture (measured, not assumed)**: an accessibility-service auto-capture path was implemented and reverted after measurement — the platform denies clipboard access to any app without window focus and accessibility services are not exempt. Capturing a copy made while another app is in front requires the notification. No permission or service available to a normal app buys silent background clipboard access.
+- **Sensitive auto-block (desktop parity, default ON)**: automatic capture refuses clips that look like passwords, keys, tokens, or cards, with a Settings toggle. The capture trampoline reports "Looks sensitive — not auto-saved" instead of silently storing a secret. Manual saves (paste, share sheet) are unaffected.
+- **Screenshot capture**: new screenshots import automatically via a MediaStore observer (serialized import; watermark-seeded so enabling capture never bulk-imports existing history).
+- **Settings**: capture toggles (clipboard, screenshots, sensitive auto-block) in both the standalone Settings and the Paired PC tab's Settings, all wired to the real capture store.
+- **Foreground service**: `CaptureWatchService` keeps the process warm for clipboard notification posting and MediaStore observation while the app is away, with a persistent notification and a Stop capture action.
+- **Threat model amended deliberately** (owner decision on record in `review/CV-MOBILE-CAPTURE-TM-20260930/`): no background clipboard reads (platform-enforced), notification-mediated or focus-gated reads, phone-local storage only.
+
+### Desktop — Test Harness
+- **CI gate false negative fixed**: the test sandbox's cleanup gains a 10-second grace retry for transient Windows shell file locks. A fully green suite no longer exits 1 when Explorer iconcache handles outlive the strict 2-second cleanup ladder; genuinely held handles still fail loudly.
+
+### Qualification (receipts on record)
+- Desktop full pytest: **2119 passed, 1 self-reported timing skip** (unrelated to this release's changes).
+- Android unit tests: all green, including the three sensitive-gate tests.
+- Real-phone smoke on **Samsung Galaxy S23, Android 16**: PASS 9/9 — sensitive block on both automatic paths, ordinary-text control save, screenshot auto-import, notification-tap trampoline from the shade, and the owner-confirmed manual copy path. Receipt: `review/CV-MOBILE-CAPTURE-TM-20260930/results_phone_smoke_s23.json`.
+- Measured on-device: clipboard-change callbacks are platform-suppressed while the app is backgrounded, so the transient "Copied" alert does not appear for copies made in other apps; the on-open drain and the persistent "Save last copy" action are the working paths on real devices.
+
+---
+
 # Cache Vault v0.3.0 (Vault Lock + Android Local-First)
 
 > **Status:** Qualified and packaged (2026-09-29). Introduces Windows vault lock (CV-VL2-A), Android phone-local vault (CV-MOBILE-1), and hardware qualification (HW1). The desktop vault now locks on startup, background loss, minimize, and Windows session lock (`Win+L`). Android gains a standalone local-first vault with Safes, activity ledger, and bridge 423 vault-locked handling.
