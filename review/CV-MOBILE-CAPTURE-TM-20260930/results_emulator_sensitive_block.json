@@ -44,6 +44,12 @@
       "pass": true
     }
   ],
+  "owner_confirmation": {
+    "date": "2026-09-30",
+    "who": "owner (manual, unsupervised)",
+    "claim": "it works on emulator",
+    "note": "Owner manually exercised phone-side capture on the emulator after the automated run and confirmed it works. Exact steps (copy -> notification -> tap -> saved; sensitive skip toast) were not itemized; the automated rows above carry the device-log evidence for those paths."
+  },
   "not_tested_on_device": [
     "Toggle-off behavior (block disabled): covered by the unit test sensitiveBlock_allowsWhenDisabled; the app-private pref cannot be flipped from adb without root.",
     "Notification tap through the shade: adb shade interaction was flaky this session (one tap landed on nothing and produced no trampoline start). The notification-tap -> trampoline -> save path was proven end-to-end on 2026-09-29 (results_emulator_accessibility.json), and the trampoline mode launches the identical activity with the same launch semantics."
