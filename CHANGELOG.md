@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Android — Phone-Side Capture
+- **Clipboard capture**: copies now land in the phone-local vault without a
+  paired PC or network. Android 10+ denies background clipboard reads, so
+  capture happens through a persistent "Save last copy" notification
+  (foreground trampoline that reads on window focus) and a silent drain when
+  any app activity next gains focus. App-originated copies are echo-suppressed,
+  content is deduped by signature and hash, and ledger entries carry truthful
+  source labels.
+- **Screenshot capture**: screenshots import automatically via a MediaStore
+  observer (serialized import — the same row fires insert+update callbacks).
+  Only genuinely new screenshots above a watermark are imported; enabling
+  capture never bulk-imports existing history.
+- **Settings**: both capture toggles are exposed in Settings (clipboard and
+  screenshots, both on by default).
+- **Foreground service**: `CaptureWatchService` keeps the process warm for
+  clipboard notification posting and MediaStore observation while the app is
+  away.
+
 ## Cache Vault v0.3.0 (2026-09-29)
 
 ### Desktop — Vault Lock (CV-VL2-A)
