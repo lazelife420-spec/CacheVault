@@ -284,6 +284,15 @@ def test_16_transient_lock_released_during_grace_window_recovers(tmp_path, monke
 
     monkeypatch.setattr(sandbox, "GRACE_RETRY_DELAY_S", 0.0)
 
+    # The strict ladder's round count is timing-dependent: under load the
+    # 2.0s monotonic budget can cut it short, which would let the grace
+    # attempt consume one of the mock's "locked" calls and break the
+    # fail-six-then-succeed model (observed as a real full-suite failure on
+    # a loaded run after passing in isolation). Freeze the clock so the
+    # ladder deterministically runs all six rounds and the grace attempt
+    # is exactly the seventh call.
+    monkeypatch.setattr(time, "monotonic", lambda: 0.0)
+
     real_rmtree = shutil.rmtree
     calls = {"n": 0}
 
