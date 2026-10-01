@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-source-set manifest. Merged into debug builds only; release builds
+  never see these components.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+          Test hook for the accessibility clipboard path. Exported so adb can
+          start it by explicit component name; it renders nothing and finishes
+          on its own. See ClipboardProbeActivity for why the write is delayed.
+        -->
+        <activity
+            android:name=".capture.ClipboardProbeActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
+
+</manifest>

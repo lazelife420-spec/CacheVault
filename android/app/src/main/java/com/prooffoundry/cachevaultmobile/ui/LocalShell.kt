@@ -110,7 +110,6 @@ fun LocalShell(
     var captureClipboard by remember { mutableStateOf(app.captureStore.clipboardEnabled) }
     var captureScreenshots by remember { mutableStateOf(app.captureStore.screenshotsEnabled) }
     var screenshotsPermitted by remember { mutableStateOf(ScreenshotImport.hasImagePermission(context)) }
-    var captureAccessibility by remember { mutableStateOf(com.prooffoundry.cachevaultmobile.capture.ClipboardAccessibilityService.isEnabled(context)) }
 
     // Refresh local vault truth whenever this shell resumes — writes can land
     // while the UI is paused (e.g. ShareAssistantActivity "Save on this
@@ -122,7 +121,6 @@ fun LocalShell(
             if (event == Lifecycle.Event.ON_RESUME) {
                 localVm.refresh()
                 screenshotsPermitted = ScreenshotImport.hasImagePermission(context)
-                captureAccessibility = com.prooffoundry.cachevaultmobile.capture.ClipboardAccessibilityService.isEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -351,7 +349,6 @@ fun LocalShell(
                         captureClipboardEnabled = captureClipboard,
                         captureScreenshotsEnabled = captureScreenshots,
                         screenshotsPermitted = screenshotsPermitted,
-                        accessibilityEnabled = captureAccessibility,
                         onCaptureClipboardChanged = { enabled ->
                             app.captureStore.clipboardEnabled = enabled
                             captureClipboard = enabled

@@ -1,74 +1,55 @@
 {
   "test_id": "CV-VL2-A-HW1-20260929-emulator-accessibility",
   "date": "2026-09-30",
-  "app_version": "v0.3.0+ (accessibility service, post-8060d0b)",
-  "package": "com.prooffoundry.cachevaultmobile.cvmobile1.debug",
-  "emulator": "cv_mobile_1",
-  "tests": [
+  "superseded": true,
+  "subject": "ClipboardAccessibilityService (implemented, tested, then reverted)",
+  "result": "The accessibility-service auto-capture path cannot work as designed. Android denies clipboard reads to any app that does not hold window focus, and accessibility services get no exemption. The service was reverted; the notification fallback was restored.",
+  "environment": {
+    "device": "cv_mobile_1 emulator (sdk_gphone64_x86_64)",
+    "package": "com.prooffoundry.cachevaultmobile.cvmobile1.debug",
+    "harness": "android/app/src/debug/java/com/prooffoundry/cachevaultmobile/capture/ClipboardProbeActivity.kt (debug-only test hook; sets the clipboard because adb cannot)"
+  },
+  "why_a_hook_was_needed": "adb could not produce a clipboard change on this image: `cmd clipboard` is unimplemented, `input keycombination` (Ctrl+A/Ctrl+C) selected nothing in a SearchView, `input motionevent` does not exist, and long-press (both `swipe` with identical coordinates and with an offset) never raised a Copy affordance in Chrome or Settings.",
+  "findings": [
     {
-      "id": "a11y_manifest_registered",
-      "name": "Accessibility service registered in AndroidManifest",
-      "status": "pass",
-      "evidence": "AndroidManifest.xml declares ClipboardAccessibilityService with BIND_ACCESSIBILITY_SERVICE permission, intent filter, and meta-data pointing to accessibility_service_config.xml"
+      "id": "capture_while_focused",
+      "observed": "pass",
+      "evidence": [
+        "19:48:32.264 ClipProbe: setPrimaryClip ok=true text=ProbeFiveDenialCheck005",
+        "19:48:32.298 ClipA11y: accessibility capture: Saved(kind=text)"
+      ],
+      "note": "The listener fires and the read succeeds while Cache Vault holds window focus. This case is already covered by the existing resume drain, so the service added no reach."
     },
     {
-      "id": "a11y_appears_in_settings",
-      "name": "Service appears in system Accessibility Settings",
-      "status": "pass",
-      "evidence": "Navigated to Settings > Accessibility > Downloaded apps. 'Cache Vault Dev' listed as an accessibility service.",
-      "screenshot": "emu_a11y_03_accessibility_settings.png"
+      "id": "capture_while_backgrounded",
+      "observed": "fail",
+      "evidence": [
+        "ClipboardService: Denying clipboard access to com.prooffoundry.cachevaultmobile.cvmobile1.debug, application is not in focus nor is it a system service for user 0",
+        "19:47:44.399 ClipA11y: accessibility capture: Skipped(reason=empty)",
+        "19:47:44.412 ClipA11y: accessibility capture: Skipped(reason=empty)"
+      ],
+      "note": "Once the app loses window focus the read is refused, so nothing is captured. The listener still fires; the read returns nothing. This is the production case (copy in another app while Cache Vault is backgrounded)."
     },
     {
-      "id": "a11y_description_correct",
-      "name": "Service description shows in system settings",
-      "status": "pass",
-      "evidence": "Service detail page shows: 'Saves clipboard content to this phone's vault automatically. No notification to tap — copies are captured silently and stored locally.'",
-      "screenshot": "emu_a11y_04_service_detail.png"
+      "id": "background_write",
+      "observed": "refused",
+      "evidence": [
+        "19:49:18.982 ClipboardService: Denying clipboard access to com.prooffoundry.cachevaultmobile.cvmobile1.debug, application is not in focus",
+        "19:49:18.983 ClipProbe: setPrimaryClip ok=true text=BgProbeSix006",
+        "no ClipA11y 'clip change observed' line followed"
+      ],
+      "note": "setPrimaryClip returns without throwing but the platform refuses the write, so the probe cannot simulate a foreign copy while the app is backgrounded. Also confirms the focus gate covers writes, not just reads."
     },
     {
-      "id": "a11y_enable_confirmation",
-      "name": "Standard Android confirmation dialog appears",
-      "status": "pass",
-      "evidence": "Tapping 'Use Cache Vault Dev' triggers system dialog: 'Allow Cache Vault Dev to have full control of your device?' with Allow/Deny buttons.",
-      "screenshot": "emu_a11y_05_confirm.png"
-    },
-    {
-      "id": "a11y_service_starts",
-      "name": "Service starts and registers clipboard listener",
-      "status": "pass",
-      "evidence": "After tapping Allow, logcat shows: 'ClipA11y: clipboard listener registered via accessibility service'. System settings confirms service enabled: enabled_accessibility_services contains our service."
-    },
-    {
-      "id": "a11y_settings_ui_updates",
-      "name": "App Settings UI shows 'Automatic capture is on'",
-      "status": "pass",
-      "evidence": "Settings > Capture on this phone section shows: 'Automatic capture is on — copies are saved silently.' instead of the 'Enable automatic capture' button.",
-      "screenshot": "emu_a11y_07_settings_enabled.png"
-    },
-    {
-      "id": "a11y_watch_skips_notification",
-      "name": "ClipboardWatch skips notification when accessibility is active",
-      "status": "pass",
-      "evidence": "Code review: ClipboardWatch.onChanged() checks ClipboardAccessibilityService.isEnabled() and returns early before posting the notification."
-    },
-    {
-      "id": "a11y_capture_function_proven",
-      "name": "ClipboardCapture.capture() function works end-to-end",
-      "status": "pass",
-      "evidence": "The same ClipboardCapture.capture() function the accessibility service calls was verified to work via share intent test (saved 'TestClipStandaloneVaultWorks123' to vault with sensitivity detection). The accessibility service calls this exact function with vaultLocked=false."
-    },
-    {
-      "id": "a11y_end_to_end_capture",
-      "name": "End-to-end automatic clipboard capture from another app",
-      "status": "blocked",
-      "reason": "ADB cannot set the clipboard on this emulator. Tried: clipper broadcast (app not installed), cmd clipboard (not available), service call clipboard (too complex), Ctrl+A/Ctrl+C with meta state (not interpreted as Ctrl), long-press on Chrome text (no context menu), double/triple-tap on EditText (adds characters instead of selecting), KEYCODE_COPY (no effect). The clipboard change listener IS registered and active (confirmed by logcat), but ADB cannot trigger the clipboard change event it listens for. This is an ADB/emulator limitation, not an app issue."
+      "id": "one_listener_two_callbacks",
+      "observed": "environment artifact",
+      "evidence": [
+        "19:47:44.337 ClipA11y: clip change observed (instance=163604148)",
+        "19:47:44.393 ClipA11y: clip change observed (instance=163604148)"
+      ],
+      "note": "A single setPrimaryClip produced two callbacks on the same listener instance, attributed to the emulator sharing the clipboard with the host and writing the clip back. Idempotent registration was applied for this and then reverted along with the service."
     }
   ],
-  "summary": {
-    "total": 9,
-    "pass": 8,
-    "blocked": 1,
-    "fail": 0
-  },
-  "conclusion": "The accessibility service is fully implemented, registered, enabled, and running. The clipboard listener is active (logcat confirms). The capture function it calls (ClipboardCapture.capture) is proven to work via the share intent path. The only unverified step is the end-to-end clipboard change triggering the service's capture — blocked by ADB's inability to set the clipboard on the emulator. A physical device test would close this gap."
+  "conclusion": "There is no path for a normal Android app to read the clipboard silently while another app is in front. Capture of a copy made elsewhere requires the 'Copied - tap to save' notification. The earlier commit that claimed silent background capture was incorrect.",
+  "follow_up": "Reverted alongside commit 8060d0b; ClipboardWatch's notification fallback restored. CHANGELOG corrected."
 }

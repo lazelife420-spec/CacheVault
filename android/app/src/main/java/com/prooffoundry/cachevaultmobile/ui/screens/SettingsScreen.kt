@@ -39,7 +39,6 @@ import com.prooffoundry.cachevaultmobile.data.BridgeStatus
 import com.prooffoundry.cachevaultmobile.ui.ConnectionState
 import com.prooffoundry.cachevaultmobile.ui.UpdateLauncher
 import com.prooffoundry.cachevaultmobile.ui.resolveConnectionState
-import com.prooffoundry.cachevaultmobile.capture.ClipboardAccessibilityService
 import com.prooffoundry.cachevaultmobile.ui.theme.StampGold
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,7 +66,6 @@ fun SettingsScreen(
     captureClipboardEnabled: Boolean = false,
     captureScreenshotsEnabled: Boolean = false,
     screenshotsPermitted: Boolean = true,
-    accessibilityEnabled: Boolean = false,
     onCaptureClipboardChanged: (Boolean) -> Unit = {},
     onCaptureScreenshotsChanged: (Boolean) -> Unit = {},
     onBack: (() -> Unit)? = null,
@@ -114,7 +112,6 @@ fun SettingsScreen(
                 clipboardEnabled = captureClipboardEnabled,
                 screenshotsEnabled = captureScreenshotsEnabled,
                 screenshotsPermitted = screenshotsPermitted,
-                accessibilityEnabled = accessibilityEnabled,
                 onClipboardChanged = onCaptureClipboardChanged,
                 onScreenshotsChanged = onCaptureScreenshotsChanged,
             )
@@ -306,7 +303,6 @@ private fun CaptureSection(
     clipboardEnabled: Boolean,
     screenshotsEnabled: Boolean,
     screenshotsPermitted: Boolean,
-    accessibilityEnabled: Boolean,
     onClipboardChanged: (Boolean) -> Unit,
     onScreenshotsChanged: (Boolean) -> Unit,
 ) {
@@ -346,33 +342,6 @@ private fun CaptureSection(
             )
         }
         Switch(checked = clipboardEnabled, onCheckedChange = onClipboardChanged)
-    }
-    if (clipboardEnabled) {
-        if (accessibilityEnabled) {
-            Text(
-                "Automatic capture is on — copies are saved silently.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        } else {
-            Text(
-                "For fully automatic capture (no notification to tap), enable the accessibility service.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedButton(
-                onClick = {
-                    context.startActivity(
-                        Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        },
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Enable automatic capture")
-            }
-        }
     }
     Row(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
