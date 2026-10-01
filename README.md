@@ -227,7 +227,7 @@ auto-paste behaviour are configurable in Settings; the hotkey re-registers
 live when you change it. Implemented with the Win32 `RegisterHotKey` API on a
 dedicated message-loop thread (requires pywin32).
 
-## Honest scope & limitations (current, v0.3.0)
+## Honest scope & limitations (current, v0.3.1)
 
 **Implemented:** text clipboard capture, smart filters, search, pin/keep/
 expire/delete, duplicate collapse, sensitive masking + auto-expiry, tray,
@@ -269,6 +269,14 @@ routable LAN is configured). Every transfer is logged as a stamped receipt.
 **CacheVault Mobile**, the Android companion, is published as a production-signed
 APK attached to [GitHub Releases](https://github.com/lazelife420-spec/CacheVault/releases) —
 it is not on the Play Store, and no iOS client exists.
+
+Since v0.3.1 the companion also captures on the phone itself: copies save from
+the persistent "Save last copy" notification or when you next open the app,
+screenshots import automatically, and a sensitive auto-block (on by default)
+refuses clips that look like passwords, keys, tokens, or cards. Android grants
+no app background clipboard access, so nothing is ever captured silently while
+you are in another app — the notification is what makes a background copy
+savable.
 
 **Tradeoffs to be honest about:**
 

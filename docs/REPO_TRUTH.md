@@ -13,6 +13,29 @@ is deliberately conservative: if something is not proven, it is labeled as such.
 
 ---
 
+## 0. Refresh — current repository facts (2026-10-01)
+
+Sections 1 onward are the dated **2026-06-24** audit and are preserved as the
+record of that pass. These values are the verified state at the `v0.3.1`
+release.
+
+| Item | Value |
+|---|---|
+| Version (`cache_vault/__init__.py` + `pyproject.toml`) | `0.3.1` |
+| Android companion version | `versionName "0.3.1"` / `versionCode 10`, release-signed with the custody keystore |
+| Branch in work | `cv-vault-lock-2`; default/origin HEAD `master` — both at the release commit |
+| Remote | `github.com/lazelife420-spec/CacheVault.git` |
+| Latest tag | `v0.3.1` (annotated, 2026-10-01); previous `v0.3.0` (2026-09-30) |
+| Latest whole gate | desktop `2120 passed, 1 skipped`; Android `testDebugUnitTest` green; real-device smoke **PASS 9/9** on SM-S911W (Android 16 / SDK 36) |
+| Published artifacts | `CacheVault-v0.3.1-windows.zip` (`d0c59c44…`), `CacheVault-Mobile-v0.3.1-android.apk` (`863f8a58…`) — attached to GitHub Releases and mirrored on `downloads.theprooffoundry.com` |
+
+Two planning documents referenced from this file are **historical records, not
+current plans**: `docs/FOUNDER_MVP_BASELINE_AUDIT.md` (2026-06-19, v0.1.3-rc5 —
+all five of its roadmap phases have since shipped) and
+`docs/RELEASE_READINESS_RC_NEXT.md` (a v0.1.3-rc6 readiness audit, superseded).
+
+---
+
 ## 1. Repository facts (verified)
 
 | Item | Value |
@@ -27,7 +50,7 @@ is deliberately conservative: if something is not proven, it is labeled as such.
 | Latest tag | `v0.1.3-founder-mvp.2` (also `.1`, `v0.1.3-founder-mvp`, `v0.1.2`, `v0.1.1`, `v0.1.0`) |
 | Latest built artifact | `dist/CacheVault.exe` (~43 MB, built 2026-06-23) |
 
-### Test state (this machine)
+### Test state (this machine, 2026-06-24 audit)
 - **503 passed, 0 failed, 0 skipped** on Windows with a display + `pywin32` +
   `cryptography` installed.
 - 58 test files. 15 `skip`/`skipif`/`xfail` markers exist; **all are

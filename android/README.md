@@ -22,8 +22,9 @@ process restart:
   settings, pairing) live there, clearly remote ("On PC").
 
 Debug/test builds install as `com.prooffoundry.cachevaultmobile.cvmobile1.debug`
-so they cannot collide with the production app. The production applicationId,
-version (0.2.1/8) and signing are unchanged.
+so they cannot collide with the production app. The production applicationId is
+`com.prooffoundry.cachevaultmobile`, and its published line is now
+**v0.3.1 / versionCode 10**, release-signed with the custody keystore.
 
 ## Companion (paired read-only client)
 
@@ -33,12 +34,13 @@ Paired read-only client for the desktop Cache Vault mobile bridge. No cloud sync
 
 | Lane | Status |
 |------|--------|
-| Phone-local vault (text / link / code / single image) | Implemented — proven on emulator (real SQLite + UI flow); **physical-device smoke still required** |
-| PC companion browsing (clips / search / images / receipts) | Implemented — real-device smoke still required |
+| Phone-local vault (text / link / code / single image) | Implemented — proven on emulator **and on a physical device** (Samsung SM-S911W, Android 16 / SDK 36, 2026-09-30, PASS 9/9; receipt: `review/CV-MOBILE-CAPTURE-TM-20260930/results_phone_smoke_s23.json`) |
+| Phone-side capture (clipboard save on focus, screenshot auto-import, sensitive auto-block) | Implemented and **published in v0.3.1** — proven on the same physical device. Android delivers no clipboard-change callbacks to backgrounded apps, so the working save paths are the persistent "Save last copy" notification and the on-open drain; the transient "Copied" alert fires only for focused writes |
+| PC companion browsing (clips / search / images / receipts) | Implemented — **real-device smoke still required**: the 2026-09-30 device pass covered the phone-local vault and capture lanes only |
 
-Do **not** claim public mobile MVP is done until **real-device smoke** proves
-the phone-local save/reuse loop **and** the paired companion flows on an actual
-Android phone.
+Do **not** claim the paired-companion lanes are device-proven until the
+pass/fail checklist below runs on an actual Android phone. The phone-local
+vault and capture lanes have cleared that bar.
 
 ## Launch behavior
 
@@ -55,9 +57,12 @@ The app opens Wi-Fi Settings for you; it cannot join Wi-Fi silently.
 
 ## Merge / release gate
 
-This working tree is **uncommitted** and unpublished. Do not merge, tag, or
-release on emulator-only or JVM evidence alone — physical-device smoke is the
-next gate for any release claim.
+This tree is committed and the app is **published**: the signed v0.3.0
+(2026-09-30) and v0.3.1 (2026-10-01) APKs are attached to GitHub Releases and
+mirrored on `downloads.theprooffoundry.com`. The phone-local vault and
+phone-side capture lanes have cleared physical-device smoke. The hard pass/fail
+checklist below (paired PC browsing, receipts, security) is still emulator/JVM
+evidence only — do not claim those lanes are device-proven.
 
 ## Build & install
 
