@@ -73,3 +73,26 @@ Three integration instrumentation tests passed on each device. They verify short
 ## Deliberate limits
 
 No Quick Settings tile, home widget, arbitrary document import, or broad file-manager behavior was added. The paired-PC notification intent now targets the Paired PC route, but a live foreground connection and its actual notification were not exercised because no PC was paired. No production package was installed, changed, or removed.
+
+---
+
+## Addendum (2026-09-30) — capture-surface supersession
+
+This report is a snapshot of the app as of its base commit (2026-09-24), before
+phone-side capture existed. The following rows describe that snapshot and are
+superseded on unreleased master by the owner-accepted capture surface (decision
+record: [../CV-MOBILE-CAPTURE-TM-20260930/THREAT_MODEL_AMENDMENT.md](../CV-MOBILE-CAPTURE-TM-20260930/THREAT_MODEL_AMENDMENT.md)):
+
+- **"Clipboard — no monitor, polling, listener…"** — the accepted capture
+  feature adds a clipboard-change listener that posts a save notification, plus
+  an on-open focus drain. It still performs **no background clipboard reads**
+  (platform-enforced) and reads no content without window focus, as measured in
+  [../CV-VL2-A-HW1-20260929/results_emulator_accessibility.json](../CV-VL2-A-HW1-20260929/results_emulator_accessibility.json).
+- **NO_BACKGROUND_CLIPBOARD_MONITOR** — superseded in the same way:
+  monitoring-to-notify now exists; background *reading* remains impossible.
+- **Declared permissions** — capture adds `RECEIVE_BOOT_COMPLETED` and
+  `READ_MEDIA_IMAGES`; see `docs/MOBILE_THREAT_MODEL.md` for the updated table.
+
+Rows that remain true: **NO_ACCESSIBILITY_SERVICE** (the 2026-09-29
+accessibility attempt was measured and reverted), **NO_NOTIFICATION_LISTENER**,
+and all share/deep-link/widget rows.

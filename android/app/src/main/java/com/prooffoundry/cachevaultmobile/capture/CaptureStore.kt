@@ -20,6 +20,14 @@ class CaptureStore(context: Context) {
         get() = prefs.getBoolean(KEY_SCREENSHOTS_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_SCREENSHOTS_ENABLED, value).apply()
 
+    /**
+     * Sensitive auto-block (desktop doctrine parity): when on, automatic
+     * capture refuses sensitive-looking clips. Manual save paths are unaffected.
+     */
+    var sensitiveBlockEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SENSITIVE_BLOCK, true)
+        set(value) = prefs.edit().putBoolean(KEY_SENSITIVE_BLOCK, value).apply()
+
     /** Signature of the last clipboard payload saved — suppresses re-save loops. */
     var lastClipSignature: String?
         get() = prefs.getString(KEY_LAST_CLIP_SIG, null)
@@ -46,6 +54,7 @@ class CaptureStore(context: Context) {
         private const val PREFS = "cache_vault_capture"
         private const val KEY_CLIPBOARD_ENABLED = "clipboard_enabled"
         private const val KEY_SCREENSHOTS_ENABLED = "screenshots_enabled"
+        private const val KEY_SENSITIVE_BLOCK = "sensitive_block_enabled"
         private const val KEY_LAST_CLIP_SIG = "last_clip_sig"
         private const val KEY_SHOT_WATERMARK = "screenshot_watermark"
         private const val KEY_SHOT_SEEDED = "screenshot_watermark_seeded"

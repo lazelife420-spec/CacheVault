@@ -109,6 +109,7 @@ fun LocalShell(
     val app = context.applicationContext as CacheVaultMobileApp
     var captureClipboard by remember { mutableStateOf(app.captureStore.clipboardEnabled) }
     var captureScreenshots by remember { mutableStateOf(app.captureStore.screenshotsEnabled) }
+    var captureSensitiveBlock by remember { mutableStateOf(app.captureStore.sensitiveBlockEnabled) }
     var screenshotsPermitted by remember { mutableStateOf(ScreenshotImport.hasImagePermission(context)) }
 
     // Refresh local vault truth whenever this shell resumes — writes can land
@@ -348,11 +349,16 @@ fun LocalShell(
                         onVaultLockSettings = onVaultLockSettings,
                         captureClipboardEnabled = captureClipboard,
                         captureScreenshotsEnabled = captureScreenshots,
+                        captureSensitiveBlockEnabled = captureSensitiveBlock,
                         screenshotsPermitted = screenshotsPermitted,
                         onCaptureClipboardChanged = { enabled ->
                             app.captureStore.clipboardEnabled = enabled
                             captureClipboard = enabled
                             CaptureWatchService.sync(context)
+                        },
+                        onCaptureSensitiveBlockChanged = { enabled ->
+                            app.captureStore.sensitiveBlockEnabled = enabled
+                            captureSensitiveBlock = enabled
                         },
                         onCaptureScreenshotsChanged = { enabled ->
                             app.captureStore.screenshotsEnabled = enabled

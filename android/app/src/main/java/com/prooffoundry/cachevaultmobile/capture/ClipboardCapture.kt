@@ -2,6 +2,7 @@ package com.prooffoundry.cachevaultmobile.capture
 
 import android.content.ClipboardManager
 import android.content.Context
+import com.prooffoundry.cachevaultmobile.data.SensitiveText
 import com.prooffoundry.cachevaultmobile.data.local.LocalIngestion
 import com.prooffoundry.cachevaultmobile.data.local.LocalVaultDatabase
 import com.prooffoundry.cachevaultmobile.data.local.LocalVaultPolicy
@@ -76,6 +77,9 @@ object ClipboardCapture {
             store.lastClipSignature = sig
             return Result.Skipped("already_in_vault")
         }
+        if (shouldBlockSensitive(text, store.sensitiveBlockEnabled)) {
+            return Result.Skipped("sensitive")
+        }
         return try {
             repository.saveText(
                 text,
@@ -90,4 +94,12 @@ object ClipboardCapture {
             Result.Failed(reason)
         }
     }
+
+    /**
+     * Desktop-doctrine parity: automatic capture refuses sensitive-looking
+     * clips (passwords, keys, tokens, cards) when the block is enabled.
+     * Pure predicate — unit-tested. Manual save paths never consult it.
+     */
+    internal fun shouldBlockSensitive(text: String, blockEnabled: Boolean): Boolean =
+        blockEnabled && SensitiveText.isSensitive(text)
 }

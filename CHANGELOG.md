@@ -20,6 +20,19 @@
   resume drain already covers. Capturing a copy made while another app is in
   front therefore requires the notification tap. No permission or service
   available to a normal app buys silent background clipboard access.
+- **Sensitive auto-block (desktop parity)**: automatic capture now refuses
+  clips that look like passwords, keys or tokens (the same detector that powers
+  the share-sheet warning), on by default with a Settings toggle. The capture
+  notification trampoline reports the skip honestly ("Looks sensitive — not
+  auto-saved") instead of silently storing a secret. Manual saves (paste,
+  share sheet) are unaffected.
+- **Paired-PC Settings honesty**: the capture toggles in the Paired PC tab's
+  Settings screen are now wired to the real capture store — they were inert
+  placeholders before this change.
+- **Threat model**: `docs/MOBILE_THREAT_MODEL.md` now documents the phone-side
+  capture surface deliberately — no background clipboard reads
+  (platform-enforced), notification-mediated or focus-gated reads, phone-local
+  storage only. Decision record: `review/CV-MOBILE-CAPTURE-TM-20260930/`.
 - **Screenshot capture**: screenshots import automatically via a MediaStore
   observer (serialized import — the same row fires insert+update callbacks).
   Only genuinely new screenshots above a watermark are imported; enabling

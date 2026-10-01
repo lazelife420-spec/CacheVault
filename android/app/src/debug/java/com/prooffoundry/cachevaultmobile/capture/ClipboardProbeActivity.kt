@@ -28,12 +28,16 @@ import kotlinx.coroutines.launch
  * Platform limits this harness measured (Android 14/15 emulator):
  *
  * - A clipboard **read** is denied unless the calling app holds window focus:
- *   `ClipboardService: Denying clipboard access to <pkg>, application is not
- *   in focus nor is it a system service for user <n>`. Accessibility services
+ *   `ClipboardService: Denying clipboard access to <pkg>, application is not in
+ *   focus nor is it a system service for user <n>`. Accessibility services
  *   are not exempt, which is why there is no silent background capture path.
  * - A clipboard **write** from an unfocused app is refused the same way, even
  *   though `setPrimaryClip` returns without throwing. So background mode below
  *   documents a limit rather than exercising capture.
+ * - This emulator also mirrors the clipboard to the host and sometimes writes
+ *   the host value back over a guest write minutes later; probe runs that span
+ *   that window can observe their write reverted. Reads within seconds of the
+ *   write are reliable.
  *
  * Modes:
  *
@@ -44,6 +48,12 @@ import kotlinx.coroutines.launch
  *   clipboard change and [ClipboardWatch] posts the "Copied - tap to save"
  *   notification. Tapping that notification then runs [ClipboardSaveActivity],
  *   which is the end-to-end path for a copy made while another app is in front.
+ *
+ * `--es text "..." --ez trampoline true` (deterministic save-path test)
+ *   Same focused write, then directly starts [ClipboardSaveActivity] — the
+ *   exact activity the notification's content intent launches. Exists because
+ *   opening the shade and tapping the notification via adb is flaky on this
+ *   image; the read path is identical to a real notification tap.
  *
  * `--es text "..." --ez background true` (backgrounded write)
  *   Hands focus to another app, finishes, then writes a few seconds later.
@@ -88,6 +98,14 @@ class ClipboardProbeActivity : ComponentActivity() {
             lifecycleScope.launch {
                 delay(FOCUSED_WRITE_DELAY_MS)
                 write(text)
+                if (intent.getBooleanExtra(EXTRA_TRAMPOLINE, false)) {
+                    // Same activity, same launch semantics as the notification
+                    // tap — just without the shade interaction adb cannot do
+                    // reliably here.
+                    startActivity(
+                        Intent(this@ClipboardProbeActivity, ClipboardSaveActivity::class.java),
+                    )
+                }
                 finish()
             }
         }
@@ -120,5 +138,6 @@ class ClipboardProbeActivity : ComponentActivity() {
 
         const val EXTRA_TEXT = "text"
         const val EXTRA_BACKGROUND = "background"
+        const val EXTRA_TRAMPOLINE = "trampoline"
     }
 }

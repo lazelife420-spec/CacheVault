@@ -65,9 +65,11 @@ fun SettingsScreen(
     onVaultLockSettings: () -> Unit = {},
     captureClipboardEnabled: Boolean = false,
     captureScreenshotsEnabled: Boolean = false,
+    captureSensitiveBlockEnabled: Boolean = true,
     screenshotsPermitted: Boolean = true,
     onCaptureClipboardChanged: (Boolean) -> Unit = {},
     onCaptureScreenshotsChanged: (Boolean) -> Unit = {},
+    onCaptureSensitiveBlockChanged: (Boolean) -> Unit = {},
     onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -111,8 +113,10 @@ fun SettingsScreen(
             CaptureSection(
                 clipboardEnabled = captureClipboardEnabled,
                 screenshotsEnabled = captureScreenshotsEnabled,
+                sensitiveBlockEnabled = captureSensitiveBlockEnabled,
                 screenshotsPermitted = screenshotsPermitted,
                 onClipboardChanged = onCaptureClipboardChanged,
+                onSensitiveBlockChanged = onCaptureSensitiveBlockChanged,
                 onScreenshotsChanged = onCaptureScreenshotsChanged,
             )
 
@@ -302,8 +306,10 @@ private fun copyDiagnostics(context: Context, text: String) {
 private fun CaptureSection(
     clipboardEnabled: Boolean,
     screenshotsEnabled: Boolean,
+    sensitiveBlockEnabled: Boolean,
     screenshotsPermitted: Boolean,
     onClipboardChanged: (Boolean) -> Unit,
+    onSensitiveBlockChanged: (Boolean) -> Unit,
     onScreenshotsChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -342,6 +348,18 @@ private fun CaptureSection(
             )
         }
         Switch(checked = clipboardEnabled, onCheckedChange = onClipboardChanged)
+    }
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Block sensitive auto-saves", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Copies that look like passwords, keys or tokens are skipped by automatic capture. " +
+                    "Turn this off to capture them too.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = sensitiveBlockEnabled, onCheckedChange = onSensitiveBlockChanged)
     }
     Row(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {

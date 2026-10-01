@@ -83,4 +83,31 @@ class CaptureLogicTest {
         assertTrue(ClipboardEcho.markedRecently(nowMs = 11_000L))
         assertFalse(ClipboardEcho.markedRecently(nowMs = 13_000L))
     }
+
+    @Test
+    fun sensitiveBlock_refusesSensitiveLookingTextWhenEnabled() {
+        assertTrue(
+            ClipboardCapture.shouldBlockSensitive("password=hunter2secure", blockEnabled = true),
+        )
+        assertTrue(
+            ClipboardCapture.shouldBlockSensitive("482913", blockEnabled = true),
+        )
+    }
+
+    @Test
+    fun sensitiveBlock_allowsWhenDisabled() {
+        assertFalse(
+            ClipboardCapture.shouldBlockSensitive("password=hunter2secure", blockEnabled = false),
+        )
+    }
+
+    @Test
+    fun sensitiveBlock_ignoresOrdinaryText() {
+        assertFalse(
+            ClipboardCapture.shouldBlockSensitive("Grocery list: eggs, milk, bread", blockEnabled = true),
+        )
+        assertFalse(
+            ClipboardCapture.shouldBlockSensitive("https://example.com/readme", blockEnabled = true),
+        )
+    }
 }

@@ -1,0 +1,57 @@
+{
+  "review": "CV-MOBILE-CAPTURE-TM-20260930",
+  "purpose": "Prove the sensitive auto-block (desktop doctrine parity) refuses password-looking clips on every automatic capture path, and that ordinary clips still save, on the same change set that amends docs/MOBILE_THREAT_MODEL.md (owner decision 2026-09-30: Option A + parity, capture toggles stay ON by default).",
+  "date": "2026-09-30",
+  "device": "AVD emulator-5554, Android 15 (API 35), debug application id com.prooffoundry.cachevaultmobile.cvmobile1.debug",
+  "build": "assembleDebug + testDebugUnitTest BUILD SUCCESSFUL; CaptureLogicTest 9/9 pass, including the 3 new sensitive-gate tests",
+  "harness": "Debug-only ClipboardProbeActivity: focused clipboard write (--es text), plus a deterministic save-path start (--ez trampoline true, the identical ClipboardSaveActivity the notification launches). adb shade taps were unreliable on this image, so the trampoline mode replaces them for the save-path check.",
+  "results": [
+    {
+      "check": "Automatic capture refuses a password-looking clip (trampoline path)",
+      "input": "password=ProbeSecret123",
+      "expected": "Skipped(reason=sensitive)",
+      "observed": "ClipboardSave: capture result: Skipped(reason=sensitive)",
+      "pass": true
+    },
+    {
+      "check": "Automatic capture refuses a password-looking clip (resume-drain path)",
+      "input": "password=ProbeSecret123 still on the clipboard at app-activity focus",
+      "expected": "Skipped(reason=sensitive)",
+      "observed": "CaptureDrain: resume drain: Skipped(reason=sensitive) (observed three times across runs)",
+      "pass": true
+    },
+    {
+      "check": "Ordinary clip still saves through the same path (no over-blocking)",
+      "input": "SensitiveSmokeControl plain shopping text 42",
+      "expected": "Saved(kind=text)",
+      "observed": "ClipboardSave: capture result: Saved(kind=text)",
+      "pass": true
+    },
+    {
+      "check": "The sensitive string never reaches the phone vault database",
+      "method": "grep on cache_vault_local.db via run-as (debuggable build)",
+      "observed": "'ProbeSecret123' occurrences: 0; 'SensitiveSmokeControl' occurrences: 1",
+      "pass": true
+    },
+    {
+      "check": "No plaintext secret in logcat",
+      "observed": "The probe's own log line was redacted by the platform to 'password=**************'",
+      "pass": true
+    },
+    {
+      "check": "Drain still saves ordinary clips with the gate in place (regression)",
+      "observed": "CaptureDrain: resume drain: Saved(kind=text) on the gate build (leftover pre-probe clipboard content, 20:10:04)",
+      "pass": true
+    }
+  ],
+  "not_tested_on_device": [
+    "Toggle-off behavior (block disabled): covered by the unit test sensitiveBlock_allowsWhenDisabled; the app-private pref cannot be flipped from adb without root.",
+    "Notification tap through the shade: adb shade interaction was flaky this session (one tap landed on nothing and produced no trampoline start). The notification-tap -> trampoline -> save path was proven end-to-end on 2026-09-29 (results_emulator_accessibility.json), and the trampoline mode launches the identical activity with the same launch semantics."
+  ],
+  "emulator_artifacts": [
+    "Host-clipboard write-back can revert a guest clipboard write minutes later; a drain run that spanned that window observed Skipped(reason=duplicate) on the reverted value. Reads within seconds of the write are reliable and are what the pass rows above use.",
+    "Clipboard change events can fire 2-3 times for a single write (guest->host->guest sync). Harmless: the identical clip signature dedups."
+  ],
+  "cleanup": "App data cleared (pm clear) after the run; POST_NOTIFICATIONS re-granted. The vault contained only probe strings from this session; prior real content was cleared on 2026-09-30 with owner approval.",
+  "verdict": "PASS 6/6"
+}

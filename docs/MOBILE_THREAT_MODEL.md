@@ -22,7 +22,7 @@ and authentication model were not modified. Known bridge-trust concerns
 exactly-once/deduplication, lost-ack retry, remote image prefetch) remain
 recorded and unresolved — this tranche neither expanded nor weakened them.
 
-Cache Vault Mobile is **not** cloud sync, account login, background clipboard scraping, or a remote file manager.
+Cache Vault Mobile is **not** cloud sync, account login, or a remote file manager. It performs **no background clipboard reads**: the clipboard is read only when the user taps a save notification / action, or when an app activity gains window focus. Clipboard-change *monitoring* exists solely to post that notification; it never reads content while unfocused. Screenshots import automatically only while the user has capture enabled. All captured content stays in the phone-local vault — no bridge, no network, no cloud. Decision record: [review/CV-MOBILE-CAPTURE-TM-20260930/THREAT_MODEL_AMENDMENT.md](../review/CV-MOBILE-CAPTURE-TM-20260930/THREAT_MODEL_AMENDMENT.md).
 
 ## Assets to protect
 
@@ -50,6 +50,11 @@ Cache Vault Mobile is **not** cloud sync, account login, background clipboard sc
 | Future endpoints mutate vault | API contract default `mutation: no`; review gate for any new route |
 | Firewall / wrong IP confusion | Plain-language errors; docs: LAN IP not localhost |
 | Bulk vault exfiltration | No bulk asset dump; future pagination limits (100 default, 500 max) |
+| Capture saves a password to the phone vault | Sensitive detection + masking on reveal; sensitive auto-block toggle (desktop parity, default ON); vault lock pauses capture when locked |
+| Capture runs without the user knowing | Toggles in Settings; persistent "Vault capture is on" notification with Stop action; capture defaults documented in the release notes |
+| Screenshot import pulls existing photos | Watermark seeded on first enable; only rows newer than the watermark import |
+| Captured content leaves the phone | Capture writes only to the phone-local vault; no network involvement; ledger records source labels, never payloads |
+| Copies made while the process is dead | On-open focus drain catches them; the alert may be late but nothing is lost silently |
 
 ## Pairing lifecycle
 
@@ -74,8 +79,13 @@ Desktop paired-device record: `device_id`, `device_name`, `created_at`, `last_se
 | Wi‑Fi multicast | LAN discovery |
 | Camera | **Only** when QR scan is implemented |
 | Storage/media | **Only** for explicit Save to Phone when required |
+| Foreground service (dataSync) | Capture watch and bridge connection service |
+| Post notifications | Capture and connection alerts (Android 13+) |
+| Receive boot completed | Re-arm capture only if the user left it enabled |
+| Read media images (+ visual user-selected, Android 14+) | Screenshot import only |
+| Use biometric | Vault Lock unlock on this phone |
 
-**Not allowed:** clipboard monitoring, accessibility scraping, notification listener scraping.
+**Not allowed:** background clipboard reads, accessibility scraping, notification listener scraping.
 
 ## Screenshot / image rules
 
@@ -90,6 +100,16 @@ Desktop paired-device record: `device_id`, `device_name`, `created_at`, `last_se
 **Do not log:** full clip content, tokens, bearer headers, image bytes, Wi‑Fi SSID.
 
 **May log:** route, status code, action, clip id, device id, result, timestamp.
+
+## Phone-side capture rules
+
+- Capture destinations: phone-local vault only, Default Safe, source labels `clipboard` / `clipboard_image` / `screenshot`.
+- Locked vault: clipboard capture is skipped with a truthful toast; screenshot import is deferred (watermark not advanced) — nothing lost, nothing imported.
+- Automatic capture refuses sensitive-looking clips while the sensitive auto-block is on (desktop parity, default ON). Manual save paths are unaffected.
+- No clip content in logs; failure reasons only; sensitive titles are redacted in the ledger.
+- Own copies are echo-suppressed (30 s) and content is deduped by signature and active-item hash.
+- Enabling screenshot capture never bulk-imports existing history.
+- Manual paths (Add-sheet paste, share sheet) work regardless of capture toggles.
 
 ## Duplicate Review (desktop-first)
 

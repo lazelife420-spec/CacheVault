@@ -54,6 +54,7 @@ class ClipboardSaveActivity : ComponentActivity() {
                 is ClipboardCapture.Result.Saved -> "Saved to this phone's vault"
                 is ClipboardCapture.Result.Skipped -> when (result.reason) {
                     "locked" -> "Vault is locked — unlock to capture"
+                    "sensitive" -> "Looks sensitive — not auto-saved"
                     "duplicate", "already_in_vault", "own_copy" -> "Already in your vault"
                     "empty" -> "Nothing on the clipboard to save"
                     else -> "Nothing to save"

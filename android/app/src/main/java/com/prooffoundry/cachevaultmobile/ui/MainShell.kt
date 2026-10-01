@@ -21,14 +21,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.prooffoundry.cachevaultmobile.CacheVaultMobileApp
+import com.prooffoundry.cachevaultmobile.capture.CaptureWatchService
+import com.prooffoundry.cachevaultmobile.capture.ScreenshotImport
 import com.prooffoundry.cachevaultmobile.data.BrowseFilter
 import com.prooffoundry.cachevaultmobile.ui.screens.BrowseScreen
 import com.prooffoundry.cachevaultmobile.ui.screens.ConnectionDoctorScreen
@@ -61,6 +66,12 @@ fun PairedPcSection(
 ) {
     val state = vm.uiState
     var settingsSubRoute by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val app = context.applicationContext as CacheVaultMobileApp
+    var captureClipboard by remember { mutableStateOf(app.captureStore.clipboardEnabled) }
+    var captureScreenshots by remember { mutableStateOf(app.captureStore.screenshotsEnabled) }
+    var captureSensitiveBlock by remember { mutableStateOf(app.captureStore.sensitiveBlockEnabled) }
+    var screenshotsPermitted by remember { mutableStateOf(ScreenshotImport.hasImagePermission(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
@@ -197,6 +208,25 @@ fun PairedPcSection(
                             onKeepConnectedChanged = onKeepConnectedChanged,
                             onConnectionDoctor = { settingsSubRoute = "doctor" },
                             onVaultLockSettings = onVaultLockSettings,
+                            captureClipboardEnabled = captureClipboard,
+                            captureScreenshotsEnabled = captureScreenshots,
+                            captureSensitiveBlockEnabled = captureSensitiveBlock,
+                            screenshotsPermitted = screenshotsPermitted,
+                            onCaptureClipboardChanged = { enabled ->
+                                app.captureStore.clipboardEnabled = enabled
+                                captureClipboard = enabled
+                                CaptureWatchService.sync(context)
+                            },
+                            onCaptureSensitiveBlockChanged = { enabled ->
+                                app.captureStore.sensitiveBlockEnabled = enabled
+                                captureSensitiveBlock = enabled
+                            },
+                            onCaptureScreenshotsChanged = { enabled ->
+                                app.captureStore.screenshotsEnabled = enabled
+                                captureScreenshots = enabled
+                                screenshotsPermitted = ScreenshotImport.hasImagePermission(context)
+                                CaptureWatchService.sync(context)
+                            },
                             onBack = null,
                         )
                     }

@@ -71,6 +71,7 @@ is deliberately conservative: if something is not proven, it is labeled as such.
 | Area | Module(s) | Notes |
 |---|---|---|
 | Clipboard capture | `core/clipboard.py`, `core/capture_rules.py`, `core/vault.py` | Auto-capture on by default; pause/resume supported. |
+| Phone-side capture (Android) | `android/app/src/main/java/com/prooffoundry/cachevaultmobile/capture/` | Clipboard: notification-mediated or on-open drain only — no background reads (platform-enforced). Screenshots auto-import above a watermark. Sensitive auto-block ON by default. Phone-local vault only. |
 | Classification | `core/classify.py`, `core/clip_metadata.py` | text / code / link / path / image / email / phone. |
 | Sensitive auto-expiry | `core/sensitive.py` | **On by default** ("doctrine"); blocks sensitive auto-capture. |
 | Quick Paste | `ui/` Quick Paste surface | **Free.** Not Founder-gated. |
