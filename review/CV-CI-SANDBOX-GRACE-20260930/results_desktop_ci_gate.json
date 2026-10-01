@@ -1,0 +1,22 @@
+{
+  "review": "CV-CI-SANDBOX-GRACE-20260930",
+  "purpose": "Record the first full ci_local_full.ps1 run after the capture-surface decision (CV-MOBILE-CAPTURE-TM-20260930) and the sandbox-cleanup fix it forced.",
+  "date": "2026-09-30",
+  "gate_run": {
+    "command": "pwsh scripts/ci_local_full.ps1",
+    "duration": "pytest full 25:55",
+    "result": "FAIL (exit 1) with zero failing tests",
+    "pytest_full": "2119 passed, 1 skipped in 1555.03s",
+    "subsets": "founder-critical 29 passed; command-center 57 passed; quick-paste 12 passed; receipts-export 59 passed",
+    "other_gates": "preflight, compileall, selftest, smokes, secrets scan, claim tripwire, packaging: all PASS (fresh dist\\CacheVault.exe 41.6 MB, sha256 0A7A6B55DA7A92FF8CF6D846AB94BAF2A78C5140758540B34AA315CD45D0EA34)",
+    "the_one_skip": "tests/test_search_during_batch_render.py:293 — self-reported timing skip: the grouped render completed before the mid-render hook could fire. Unrelated to capture work.",
+    "fail_root_cause": "tests/sandbox.py cleanup: the session sandbox could not be fully removed within its strict 2.0s budget because Windows shell components held 15 Explorer iconcache_*.db files (created under the sandboxed fake profile by a file-dialog test). sandbox.py set session.exitstatus=1 after printing the clean summary, so the gate saw exit 1 despite 2119/2119 passing.",
+    "transience_proof": "The retained sandbox (cachevault-pytest-sandbox-wulva31l) deleted cleanly by hand seconds after the run — the locks were transient shell handles, not stuck test handles."
+  },
+  "fix": {
+    "owner_decision": "2026-09-30: add a grace retry before declaring cleanup failure (recommended option); keep the strict ladder for the common case.",
+    "change": "tests/sandbox.py cleanup_if_clean(): lock-flavored ladder failures get one extra rmtree attempt after GRACE_RETRY_DELAY_S (10s module constant); unrelated errors still fail fast and earn no grace; genuinely stuck handles still report CLEANUP FAILURE (message now says 'even after the grace retry') and still flip the exit status. Zero cost on clean runs — the grace is only entered when the ladder already failed.",
+    "tests": "test_pytest_sandbox_sqlite_cleanup.py: test_11 keeps proving a genuinely held handle fails loudly (grace delay patched to 0.01s for speed); new test_16 proves the measured shape — six sharing-violation ladder rounds, then the grace attempt succeeds and the run exits clean. Both cleanup test files: 30 passed, exit 0."
+  },
+  "verdict": "Desktop gate substantively green (2119/2119); false-negative cleanup race fixed with owner approval; full gate re-run happens at v0.3.1 tag time per the release gate."
+}

@@ -33,6 +33,18 @@ from pathlib import Path
 
 SANDBOX_PREFIX = "cachevault-pytest-sandbox-"
 
+# Grace retry for sandbox cleanup (2026-09-30). Windows shell components can
+# hold files written under the sandboxed fake profile (Explorer iconcache /
+# thumbcache .db files, created when a test opens a common file dialog) for a
+# few seconds after the test process is done with them. The strict 2.0s retry
+# ladder in cleanup_if_clean() treats that as a cleanup failure and flips an
+# otherwise fully green run to exit 1 (measured: 2119/2119 passed, exit 1,
+# locks released seconds after the run). One extra rmtree attempt after this
+# grace window converts those transient locks into a clean exit; genuinely
+# stuck handles still fail loudly. Zero cost on clean runs -- the grace is
+# only entered when the ladder already failed.
+GRACE_RETRY_DELAY_S = 10.0
+
 # Populated by bootstrap(); None until then.
 SANDBOX_ROOT: Path | None = None
 LOCALAPPDATA_DIR: Path | None = None
@@ -142,6 +154,12 @@ def cleanup_if_clean(session=None, exitstatus: int = 0) -> bool:
     tests collected") leaves the sandbox on disk so a human can inspect what
     a failing/aborted run actually wrote, and prints its path so it isn't
     just silently left behind.
+
+    Lock-flavored deletion failures get one extra attempt after
+    GRACE_RETRY_DELAY_S before failure is reported: Windows shell
+    components can hold sandbox files a few seconds past the strict retry
+    ladder with nothing actually wrong. Genuinely stuck files still fail
+    loudly and flip the run's exit status.
     """
     if SANDBOX_ROOT is None:
         return True
@@ -178,6 +196,7 @@ def cleanup_if_clean(session=None, exitstatus: int = 0) -> bool:
         start_time = time.monotonic()
         max_duration = 2.0  # Strict 2.0s monotonic timing boundary
         delays = (0.0, 0.05, 0.1, 0.2, 0.4, 0.8)
+        hit_unrelated_error = False
 
         for delay in delays:
             if delay:
@@ -207,13 +226,23 @@ def cleanup_if_clean(session=None, exitstatus: int = 0) -> bool:
                     has_unrelated_error = True
                     break
             if has_unrelated_error:
+                hit_unrelated_error = True
                 break
+
+        # Grace retry -- see GRACE_RETRY_DELAY_S. Only lock-flavored ladder
+        # failures reach this point (unrelated errors broke out with the flag
+        # set and earn no grace), and it costs nothing on clean runs.
+        if SANDBOX_ROOT.exists() and not hit_unrelated_error:
+            time.sleep(GRACE_RETRY_DELAY_S)
+            gc.collect()
+            shutil.rmtree(SANDBOX_ROOT, onerror=lambda *a: None)
 
         if SANDBOX_ROOT.exists():
             remaining = [p.relative_to(SANDBOX_ROOT).as_posix() for p in SANDBOX_ROOT.rglob("*") if p.is_file()]
             sys.stderr.write(
                 f"[cachevault-test-sandbox] CLEANUP FAILURE: all tests passed, but the sandbox "
-                f"could not be fully removed (retained files: {remaining}): {SANDBOX_ROOT}\n"
+                f"could not be fully removed even after the grace retry "
+                f"(retained files: {remaining}): {SANDBOX_ROOT}\n"
             )
             sys.stderr.flush()
             if session is not None and hasattr(session, "exitstatus"):

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Desktop — Test Harness
+- **CI gate false negative fixed**: a fully green suite could exit 1 when
+  Windows shell components held sandbox `iconcache` files a beat past the
+  sandbox cleanup's strict 2.0s budget (measured: 2119/2119 passed, exit 1).
+  Lock-flavored cleanup failures now get one extra attempt after a 10s grace
+  window; genuinely held handles still fail loudly.
+  Receipt: `review/CV-CI-SANDBOX-GRACE-20260930/`.
+
 ### Android — Phone-Side Capture
 - **Clipboard capture**: copies now land in the phone-local vault without a
   paired PC or network. Android 10+ denies background clipboard reads, so

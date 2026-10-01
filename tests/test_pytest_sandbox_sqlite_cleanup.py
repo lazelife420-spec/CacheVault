@@ -5,6 +5,8 @@ Verifies:
 - VaultStorage and Vault connections are explicitly closed and registered for cleanup.
 - Monotonic bounded retries handle Windows sharing-violation handle release latency.
 - Intentionally retained open handles trigger an honest cleanup failure.
+- Transient handle locks that release within the grace window do not fail an
+  otherwise green run (Windows shell iconcache locks measured 2026-09-30).
 - Existing standalone selftest containment remains 100% intact.
 - Real profile remains byte-for-byte untouched.
 """
@@ -170,6 +172,10 @@ def test_11_intentionally_retained_open_handle_causes_visible_cleanup_failure(tm
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL;")
 
+    # The handle is held for real, so the grace retry would sleep its full
+    # window before honestly failing -- shrink it so the test stays fast.
+    monkeypatch.setattr(sandbox, "GRACE_RETRY_DELAY_S", 0.01)
+
     saved_root = sandbox.SANDBOX_ROOT
     saved_temp = sandbox._real_temp_root
     try:
@@ -261,3 +267,52 @@ def test_15_no_real_profile_files_created_or_modified(tmp_path):
     )
     assert res.returncode == 0
     assert set(os.listdir(cv_dir)) == {"sentinel.txt"}
+
+
+def test_16_transient_lock_released_during_grace_window_recovers(tmp_path, monkeypatch):
+    """16. A transient lock that releases within the grace window is not a cleanup failure.
+
+    Regression for the 2026-09-30 gate run: Windows shell iconcache handles
+    outlived the strict 2.0s retry ladder, the sandbox reported CLEANUP
+    FAILURE, and a fully green 2119/2119 run exited 1. The grace retry must
+    convert lock-flavored ladder failures whose locks have cleared into a
+    clean exit -- while test 11 proves genuinely held handles still fail.
+    """
+    sb_root = tmp_path / "cachevault-pytest-sandbox-grace"
+    sb_root.mkdir(parents=True, exist_ok=True)
+    (sb_root / "vault.db").write_bytes(b"x")
+
+    monkeypatch.setattr(sandbox, "GRACE_RETRY_DELAY_S", 0.0)
+
+    real_rmtree = shutil.rmtree
+    calls = {"n": 0}
+
+    def _transient_lock_rmtree(path, onerror=None, **kwargs):
+        calls["n"] += 1
+        # Fail every strict-ladder round (6 of them) with a sharing-violation
+        # flavored PermissionError, then let the grace attempt succeed --
+        # exactly the observed iconcache shape.
+        if calls["n"] <= 6:
+            if onerror:
+                onerror(
+                    os.unlink,
+                    str(path / "vault.db"),
+                    (PermissionError, PermissionError(13, "sharing violation"), None),
+                )
+            return
+        real_rmtree(path, **kwargs)
+
+    monkeypatch.setattr(shutil, "rmtree", _transient_lock_rmtree)
+
+    saved_root = sandbox.SANDBOX_ROOT
+    saved_temp = sandbox._real_temp_root
+    try:
+        sandbox.SANDBOX_ROOT = sb_root
+        sandbox._real_temp_root = tmp_path
+        res = sandbox.cleanup_if_clean(exitstatus=0)
+        assert res is True
+        assert not sb_root.exists()
+    finally:
+        sandbox.SANDBOX_ROOT = saved_root
+        sandbox._real_temp_root = saved_temp
+        shutil.rmtree(sb_root, ignore_errors=True)
