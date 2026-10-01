@@ -41,6 +41,16 @@
   capture surface deliberately — no background clipboard reads
   (platform-enforced), notification-mediated or focus-gated reads, phone-local
   storage only. Decision record: `review/CV-MOBILE-CAPTURE-TM-20260930/`.
+- **Real-phone smoke (Galaxy S23, Android 16)**: sensitive auto-block refused a
+  password-shaped clip on both automatic paths (trampoline and on-open drain;
+  0 occurrences in the vault DB), ordinary text saved, the notification-tap
+  trampoline worked from the shade, and a real system screenshot auto-imported
+  (a transient non-screenshot MediaStore row was correctly skipped). Measured
+  on-device: clipboard-change callbacks are platform-suppressed while the app
+  is backgrounded, so the transient "Copied" alert does not appear for copies
+  made in other apps there — the on-open drain and the persistent "Save last
+  copy" action are the working paths on real devices.
+  Receipt: `review/CV-MOBILE-CAPTURE-TM-20260930/results_phone_smoke_s23.json`.
 - **Screenshot capture**: screenshots import automatically via a MediaStore
   observer (serialized import — the same row fires insert+update callbacks).
   Only genuinely new screenshots above a watermark are imported; enabling

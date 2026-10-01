@@ -1,0 +1,91 @@
+{
+  "review": "CV-MOBILE-CAPTURE-TM-20260930",
+  "purpose": "Real-phone smoke of the phone-side capture surface (the release-gate item): sensitive auto-block, control save, notification-tap trampoline, screenshot auto-import, and service layer, on the owner's physical device.",
+  "date": "2026-09-30",
+  "device": {
+    "model": "Samsung SM-S911W (Galaxy S23)",
+    "android": "16",
+    "sdk": "36",
+    "user": "user 0 (a Secure Folder user 150 exists on the device; all checks scoped to user 0)",
+    "package": "com.prooffoundry.cachevaultmobile.cvmobile1.debug (debug build versionName 0.3.0-cvmobile1-dev, installed with `adb install -r` over the existing debug build)",
+    "production_package": "com.prooffoundry.cachevaultmobile.ownercandidate — untouched throughout",
+    "debug_app_data": "not cleared (owner promise); the debug vault retains its prior contents plus this smoke's artifacts",
+    "permissions": "POST_NOTIFICATIONS granted=true, READ_MEDIA_IMAGES granted=true (both via pm grant after install)"
+  },
+  "service_layer": {
+    "after_main_activity_launch": [
+      "CaptureWatchService foreground service: isForeground=true, foregroundId=8743, type dataSync, channel cache_vault_capture, 2 actions (dumpsys activity services)",
+      "ClipboardWatch: clipboard listener registered",
+      "CaptureWatch: mediastore observer registered",
+      "CaptureDrain: resume drain: Skipped(reason=empty) — initial drain found the clipboard empty; no prior clipboard content was captured"
+    ]
+  },
+  "results": [
+    {
+      "check": "Sensitive auto-block refuses a password-looking clip (trampoline path)",
+      "input": "password=PhoneSmokeSecret991 via debug probe, trampoline mode",
+      "observed": "ClipboardSave: capture result: Skipped(reason=sensitive)",
+      "pass": true
+    },
+    {
+      "check": "Sensitive auto-block on the on-open drain path",
+      "observed": "CaptureDrain: resume drain: Skipped(reason=sensitive) — the drain refused the same password while it was still on the clipboard at a later app focus",
+      "pass": true
+    },
+    {
+      "check": "The secret never reaches the vault database",
+      "method": "run-as grep on cache_vault_local.db",
+      "observed": "'PhoneSmokeSecret991' occurrences: 0",
+      "pass": true
+    },
+    {
+      "check": "Ordinary clip still saves (control, trampoline path)",
+      "input": "SensitiveSmokeControl plain shopping text 42",
+      "observed": "ClipboardSave: capture result: Saved(kind=text); DB grep: 1 occurrence",
+      "pass": true
+    },
+    {
+      "check": "No plaintext secret in logcat",
+      "observed": "Platform redacted the probe's own log line to text=password=*******************",
+      "pass": true
+    },
+    {
+      "check": "Screenshot auto-import via the system screenshot flow",
+      "method": "input keyevent 120 on the Home screen (neutral capture), MediaStore row 5029 = Screenshot_20260930_213337_Nova Launcher.jpg",
+      "observed": "mediastore change events fired (multi-event, deduped) then 'CaptureWatch: imported 1 screenshot(s)'; vault DB 'screenshot' source-label count = 1",
+      "pass": true
+    },
+    {
+      "check": "Non-screenshot image write does not import (negative control)",
+      "input": "MediaStore row 5030 — a transient system row (already absent when queried by metadata)",
+      "observed": "change events fired, no import line, DB screenshot count stayed 1",
+      "pass": true
+    },
+    {
+      "check": "Notification-tap trampoline from the shade (real tap)",
+      "method": "uiautomator-located tap on the transient 'Copied' card body in the notification shade",
+      "observed": "ClipboardSave: capture result: Skipped(reason=duplicate) — the tap launched the trampoline, it read the clipboard on window focus, and correctly deduped the owner's already-drained copy; the card was consumed (autoCancel)",
+      "pass": true
+    },
+    {
+      "check": "Owner manual end-to-end (unsupervised)",
+      "claim": "Owner copied text in other apps with Cache Vault backgrounded, then opened the vault; items saved. Owner quote: 'it works, it just takes a second for it to show in the vault' (expected timing: save fires on window focus, list refreshes on UI resume).",
+      "observed": "CaptureDrain: resume drain: Saved(kind=text) x3, then Skipped(reason=duplicate) on a later focus of the same clip",
+      "pass": true
+    }
+  ],
+  "platform_finding": {
+    "finding": "On this Android 16 device, clipboard-change callbacks are NOT delivered while the app is backgrounded: the owner's copies made in other apps produced NO ClipboardWatch listener callback and NO transient 'Copied' alert. The transient alert only ever appeared for a clipboard write that happened while the app itself held window focus (the focused probe write).",
+    "interpretation": "Consistent with AOSP's focus-gated clipboard: background apps are withheld primary-clip-change notifications entirely, on top of the already-measured denial of background reads. On real modern devices the working save paths are therefore the on-open drain (proven: 3 saves + owner confirmation) and the persistent notification's 'Save last copy' action (same PendingIntent mechanism as the proven notification-tap, targeting the same trampoline activity proven 3x on-device). The transient 'Copied' alert remains a focused-write-only affordance on this platform version.",
+    "change": "No code change required: CHANGELOG and Settings copy already describe the working paths (persistent 'Save last copy' notification + on-open drain). This receipt records the measured boundary so no future claim overstates the transient alert. CHANGELOG Unreleased gains one measurement bullet."
+  },
+  "not_exercised": [
+    "The persistent card's 'Save last copy' action button was not tappable via adb: Samsung One UI did not render the action row in uiautomator shade dumps (collapsed or after expand attempts). Its mechanism is identical to the proven notification-tap (PendingIntent.getActivity -> ClipboardSaveActivity, an activity proven 3x on-device). Owner can verify with one manual tap anytime."
+  ],
+  "device_artifacts_left": [
+    "Debug vault contains: the control text from this smoke, the owner's own manually-copied text, and one neutral home-screen screenshot (source 'screenshot').",
+    "Capture prefs are default ON; the persistent 'Vault capture is on' notification is active with its Stop capture action.",
+    "Clearing the debug app's data (Android Settings -> Apps -> Cache Vault Dev -> Storage -> Clear data) removes all of the above without touching the production package."
+  ],
+  "verdict": "PASS 9/9 on-device; release-gate item 'real phone smoke' cleared. Desktop pytest (2119 passed, 1 self-reported timing skip), Android build + unit tests (9/9), and real-phone smoke are all green as of 2026-09-30."
+}
