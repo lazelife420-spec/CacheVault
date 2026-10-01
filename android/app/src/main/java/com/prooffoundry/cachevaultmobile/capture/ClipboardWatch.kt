@@ -58,8 +58,11 @@ object ClipboardWatch {
     private fun onChanged(app: CacheVaultMobileApp) {
         if (!app.captureStore.clipboardEnabled) return
         if (app.vaultLockStore.isEnabled && !app.vaultLockManager.unlocked) return
-        if (!canPostNotification(app)) return
         if (ClipboardEcho.markedRecently()) return
+        // If the accessibility service is enabled it captures the clipboard
+        // directly — no notification needed.
+        if (ClipboardAccessibilityService.isEnabled(app)) return
+        if (!canPostNotification(app)) return
         android.util.Log.i(TAG, "clipboard changed — posting save notification")
         ensureChannels(app)
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

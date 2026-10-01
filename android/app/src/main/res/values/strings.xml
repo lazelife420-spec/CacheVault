@@ -125,4 +125,7 @@
     <string name="local_send_to_pc">Send to %1$s</string>
     <string name="local_send_to_pc_unavailable">Send to PC (pair a PC to enable)</string>
     <string name="local_share_footer">Local-first · saved on this phone · no cloud sync</string>
+
+    <!-- Accessibility service for automatic clipboard capture -->
+    <string name="accessibility_service_description">Saves clipboard content to this phone\'s vault automatically. No notification to tap — copies are captured silently and stored locally.</string>
 </resources>

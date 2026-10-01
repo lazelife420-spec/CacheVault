@@ -10,12 +10,21 @@
   any app activity next gains focus. App-originated copies are echo-suppressed,
   content is deduped by signature and hash, and ledger entries carry truthful
   source labels.
+- **Accessibility service auto-capture**: `ClipboardAccessibilityService`
+  registers a clipboard-change listener with accessibility-level read access.
+  When enabled by the user in Settings (or system Accessibility Settings), copies
+  are saved silently — no notification to tap, no app to open. The
+  foreground-service notification fallback covers devices where the
+  accessibility service is not enabled.
 - **Screenshot capture**: screenshots import automatically via a MediaStore
   observer (serialized import — the same row fires insert+update callbacks).
   Only genuinely new screenshots above a watermark are imported; enabling
   capture never bulk-imports existing history.
 - **Settings**: both capture toggles are exposed in Settings (clipboard and
-  screenshots, both on by default).
+  screenshots, both on by default). An "Enable automatic capture" button
+  appears under the clipboard toggle, linking to system Accessibility
+  Settings. Once enabled, the label reads "Automatic capture is on — copies
+  are saved silently."
 - **Foreground service**: `CaptureWatchService` keeps the process warm for
   clipboard notification posting and MediaStore observation while the app is
   away.
