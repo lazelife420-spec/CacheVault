@@ -102,17 +102,54 @@ def app(tk_root, vault):
     app.destroy()
 
 def test_breakpoint_resolution(app):
-    with patch.object(app, 'winfo_width', return_value=1600):
-        app._handle_resize_debounced()
-        assert getattr(app, "_current_layout_mode", None) == "wide"
+    for w in (900, 950, 1000, 1100, 1149):
+        with patch.object(app, 'winfo_width', return_value=w):
+            app._handle_resize_debounced()
+            assert getattr(app, "_current_layout_mode", None) == "compact", f"Expected compact at {w}"
 
-    with patch.object(app, 'winfo_width', return_value=1200):
-        app._handle_resize_debounced()
-        assert getattr(app, "_current_layout_mode", None) == "standard"
+    for w in (1150, 1200, 1350, 1499):
+        with patch.object(app, 'winfo_width', return_value=w):
+            app._handle_resize_debounced()
+            assert getattr(app, "_current_layout_mode", None) == "standard", f"Expected standard at {w}"
 
-    with patch.object(app, 'winfo_width', return_value=950):
-        app._handle_resize_debounced()
-        assert getattr(app, "_current_layout_mode", None) == "compact"
+    for w in (1500, 1600, 1920):
+        with patch.object(app, 'winfo_width', return_value=w):
+            app._handle_resize_debounced()
+            assert getattr(app, "_current_layout_mode", None) == "wide", f"Expected wide at {w}"
+
+
+def test_breakpoint_layout_mode_application(app):
+    """Unit test for breakpoint UI state application across all three modes."""
+    app._navigate_screen(FILTER_ALL)
+    app._do_refresh_sync()
+    cs = app._control_strip
+
+    # Compact mode (< 1150px): density folded, preview ungridded
+    app._apply_layout_mode("compact")
+    app.update_idletasks()
+    assert not cs._safe.winfo_ismapped(), "Default Safe label must be hidden in compact mode"
+    assert not cs._quick.winfo_ismapped(), "Quick Actions dropdown must be hidden in compact mode"
+    assert cs._lock_btn.winfo_ismapped(), "Lock button must remain mapped in compact mode"
+    assert not app._view_label.winfo_ismapped()
+    assert not app._selection_hint_label.winfo_ismapped()
+
+    # Standard mode (1150-1499px): Default Safe hidden, Quick Actions folded
+    app._apply_layout_mode("standard")
+    app.update_idletasks()
+    assert not cs._safe.winfo_ismapped(), "Default Safe label must be hidden in standard mode too"
+    assert not cs._quick.winfo_ismapped(), "Quick Actions dropdown must be hidden in standard mode"
+    assert cs._lock_btn.winfo_ismapped(), "Lock button must remain mapped in standard mode"
+    assert app._view_label.winfo_ismapped()
+    assert app._selection_hint_label.winfo_ismapped()
+
+    # Wide mode (>= 1500px): all controls direct
+    app._apply_layout_mode("wide")
+    app.update_idletasks()
+    assert cs._safe.winfo_ismapped(), "Default Safe label must be visible in wide mode"
+    assert cs._quick.winfo_ismapped(), "Quick Actions dropdown must be visible in wide mode"
+    assert cs._lock_btn.winfo_ismapped(), "Lock button must remain mapped in wide mode"
+    assert app._view_label.winfo_ismapped()
+    assert app._selection_hint_label.winfo_ismapped()
 
 def test_page_header_renders(app):
     header = app._page_header
@@ -499,12 +536,34 @@ def test_control_strip_lock_and_quick_actions_stay_reachable_at_every_width(app)
     app._navigate_screen(FILTER_ALL)
     cs = app._control_strip
 
-    for geometry, expected_mode in (
-        ("900x600", "compact"),
-        ("1000x650", "standard"),
-        ("1100x700", "standard"),
-        ("1600x900", "wide"),
-    ):
+    from cache_vault.ui import window_geometry
+
+    area = window_geometry.query_work_area(app)
+    max_w = area[2] if area[2] > 0 else app.winfo_screenwidth()
+    max_h = area[3] if area[3] > 0 else app.winfo_screenheight()
+    scale = window_geometry.window_scaling(app)
+
+    # Determine logical geometries that land within each layout mode's physical
+    # breakpoint range (compact: <1150px, standard: 1150-1499px, wide: >=1500px)
+    # when achievable within the active display's physical work area.
+    test_cases = []
+    # Compact mode: 900 logical px gives <1150 physical px at up to 1.27x scaling
+    test_cases.append(("900x600", "compact"))
+
+    # Standard mode (target ~1300 physical px): achievable when work area >= 1300px
+    if max_w >= 1300 and max_h >= round(650 * scale):
+        std_log_w = round(1300 / scale)
+        std_log_h = round(650 / scale)
+        test_cases.append((f"{std_log_w}x{std_log_h}", "standard"))
+
+    # Wide mode (target >= 1500 physical px, up to 1600px): achievable when work area >= 1500px
+    if max_w >= 1500 and max_h >= round(750 * scale):
+        wide_phys_w = min(1600, max_w)
+        wide_log_w = round(wide_phys_w / scale)
+        wide_log_h = round(min(900, max_h) / scale)
+        test_cases.append((f"{wide_log_w}x{wide_log_h}", "wide"))
+
+    for geometry, expected_mode in test_cases:
         app.geometry(geometry)
         app.update()
         if app._resize_job:
@@ -608,7 +667,25 @@ def test_default_safe_label_hidden_in_standard_mode_too_not_just_compact(app):
     -> "D..."). Verified via real window geometry (not a mocked
     winfo_width) that this no longer happens and nothing overlaps."""
     app._navigate_screen(FILTER_ALL)
-    for geometry, expected_mode in (("1600x900", "wide"), ("1100x700", "standard"), ("900x600", "compact")):
+    from cache_vault.ui import window_geometry
+
+    area = window_geometry.query_work_area(app)
+    max_w = area[2] if area[2] > 0 else app.winfo_screenwidth()
+    max_h = area[3] if area[3] > 0 else app.winfo_screenheight()
+    scale = window_geometry.window_scaling(app)
+
+    test_cases = [("900x600", "compact")]
+    if max_w >= 1300 and max_h >= round(650 * scale):
+        std_log_w = round(1300 / scale)
+        std_log_h = round(650 / scale)
+        test_cases.append((f"{std_log_w}x{std_log_h}", "standard"))
+    if max_w >= 1500 and max_h >= round(750 * scale):
+        wide_phys_w = min(1600, max_w)
+        wide_log_w = round(wide_phys_w / scale)
+        wide_log_h = round(min(900, max_h) / scale)
+        test_cases.append((f"{wide_log_w}x{wide_log_h}", "wide"))
+
+    for geometry, expected_mode in test_cases:
         app.geometry(geometry)
         app.update()
         if app._resize_job:
@@ -641,7 +718,22 @@ def test_view_toggle_controls_keep_minimum_right_inset_at_every_supported_width(
     app._navigate_screen(FILTER_ALL)
     MIN_INSET = 8  # logical px; deliberately looser than the ~21px measured
                    # after the fix, so this doesn't become pixel-brittle.
-    for geometry in ("900x600", "1000x650", "1100x700", "1600x900"):
+    from cache_vault.ui import window_geometry
+
+    area = window_geometry.query_work_area(app)
+    max_w = area[2] if area[2] > 0 else app.winfo_screenwidth()
+    max_h = area[3] if area[3] > 0 else app.winfo_screenheight()
+
+    geometries = ["900x600"]
+    for w, h in ((1000, 650), (1100, 700), (1600, 900)):
+        if max_w >= w and max_h >= h:
+            geometries.append(f"{w}x{h}")
+        elif max_w >= 900:
+            candidate = f"{min(w, max_w)}x{min(h, max_h)}"
+            if candidate not in geometries:
+                geometries.append(candidate)
+
+    for geometry in geometries:
         app.geometry(geometry)
         app.update()
         if app._resize_job:

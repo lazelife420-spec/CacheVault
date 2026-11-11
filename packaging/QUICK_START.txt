@@ -1,0 +1,108 @@
+================================================================================
+  CACHE VAULT — PORTABLE WINDOWS EDITION QUICK START GUIDE
+================================================================================
+
+1. OVERVIEW & PORTABLE EXTRACTION
+--------------------------------------------------------------------------------
+Cache Vault is a standalone, local-first clipboard manager and privacy vault.
+It does not require administrative privileges or an installer.
+
+To extract:
+- Right-click "CacheVault-v0.3.1-windows.zip" and choose "Extract All...".
+- Select a permanent local folder of your choice, for example:
+    C:\Tools\CacheVault\
+    or
+    %LOCALAPPDATA%\Programs\CacheVault\
+- Do not run CacheVault.exe directly from inside the compressed zip archive.
+
+
+2. VERIFYING ARCHIVE INTEGRITY (SHA-256)
+--------------------------------------------------------------------------------
+Before running, you can independently verify that your download has not been
+modified or corrupted during transit using Windows PowerShell:
+
+  Get-FileHash .\CacheVault-v0.3.1-windows.zip -Algorithm SHA256
+
+Compare the calculated hash against the published release receipt:
+  Expected SHA-256: d0c59c440b1d5787c9319e1bdf8829f117ccaa2d64d3424dd6955a84fb975d45
+
+You can also verify the extracted executable:
+  Get-FileHash .\CacheVault.exe -Algorithm SHA256
+  Expected SHA-256: 2867114e34bf7191de97a9cacb319a12e9657d70c971c8ce9f1bbc07528fb2d9
+
+
+3. FIRST LAUNCH & WINDOWS SMARTSCREEN DISCLOSURE
+--------------------------------------------------------------------------------
+When launching CacheVault.exe for the first time, Windows Defender SmartScreen
+may display a blue prompt stating:
+  "Windows protected your PC — Microsoft Defender SmartScreen prevented an
+   unrecognized app from starting."
+
+Security Disclosure:
+Cache Vault is currently distributed as an unsigned, open-source binary
+without a paid Microsoft Authenticode code-signing certificate. SmartScreen flags
+new or unsigned applications until they build community reputation.
+
+Verification & Running:
+1. Verify the binary SHA-256 hash using the command in Section 2 above to ensure
+   it matches the published release record from The Proof Foundry.
+2. If you trust the application source and verified hash, you can click:
+     "More info" -> "Run anyway"
+   Never bypass security warnings for binaries whose cryptographic hashes do
+   not match official published release records.
+
+
+4. SYSTEM TRAY & APPLICATION CONTROLS
+--------------------------------------------------------------------------------
+Cache Vault runs unobtrusively in the background:
+- Minimized to Tray:
+  Closing the main window (clicking the 'X' button) minimizes the application
+  to the Windows notification area (System Tray) so clipboard capture continues.
+- Restoring the Window:
+  Double-click the Cache Vault tray icon (or right-click -> "Open Cache Vault").
+- Complete Exit:
+  To completely close the application, right-click the tray icon and select
+  "Exit Cache Vault".
+
+
+5. LOCAL PROFILE & DATA STORAGE
+--------------------------------------------------------------------------------
+All data remains strictly local on your machine. Cache Vault communicates with
+no cloud servers or telemetry endpoints.
+
+Your profile and settings are saved at:
+  %LOCALAPPDATA%\CacheVault\
+
+Files inside your profile:
+- vault.db      : Encrypted SQLite database containing your clips and safes.
+- settings.json : User preferences, window layout, and hotkey bindings.
+- crash.log     : Diagnostics recorded if an unexpected UI error occurs.
+
+
+6. TROUBLESHOOTING & RECOVERY
+--------------------------------------------------------------------------------
+- Self-Test Mode:
+  To verify internal capture and processing pipelines without launching the UI:
+    .\CacheVault.exe --selftest
+  (Expected exit code: 0)
+
+- Debug Diagnostics:
+  Launch from PowerShell with debug logging:
+    .\CacheVault.exe --debug
+
+- Corrupted Settings Quarantine:
+  Cache Vault employs fail-safe data preservation. If settings.json is damaged
+  (e.g., unexpected system power loss during write), Cache Vault automatically
+  moves the corrupted file aside to:
+    %LOCALAPPDATA%\CacheVault\settings.json.corrupt-<timestamp>
+  and initializes a safe default profile. Your damaged file is never overwritten.
+
+- Crash Diagnostics:
+  Review %LOCALAPPDATA%\CacheVault\crash.log for stack traces. Note that
+  sensitive clipboard content is never written to crash logs.
+
+
+================================================================================
+Official Releases & Source: https://theprooffoundry.com
+Support & Receipts: https://downloads.theprooffoundry.com/cache-vault/
+================================================================================

@@ -114,6 +114,40 @@ def test_settings_recovers_and_quarantines_corrupt(tmp_path):
     assert len(list(tmp_path.glob("settings.json.corrupt-*"))) == 1
 
 
+def test_settings_quarantine_recovery_lifecycle(tmp_path):
+    """End-to-end quarantine and clean save lifecycle for corrupt settings."""
+    from cache_vault.core.settings import Settings
+
+    path = tmp_path / "settings.json"
+    corrupt_content = '{"unclosed_json": true, "corrupted_at": 123'
+    path.write_text(corrupt_content, encoding="utf-8")
+
+    # 1. Loading corrupt file quarantines it and returns default settings with path bound
+    s = Settings.load(path)
+    assert isinstance(s, Settings)
+    assert s.auto_capture_enabled is True
+    assert getattr(s, "_persist_path", None) == path
+
+    # 2. Corrupt file moved aside and preserved verbatim
+    quarantined = list(tmp_path.glob("settings.json.corrupt-*"))
+    assert len(quarantined) == 1
+    assert quarantined[0].read_text(encoding="utf-8") == corrupt_content
+
+    # 3. Saving the recovered settings produces valid JSON at the original path
+    s.auto_capture_enabled = False
+    s.save()
+    assert path.is_file()
+
+    # 4. Quarantined file remains untouched
+    assert len(list(tmp_path.glob("settings.json.corrupt-*"))) == 1
+    assert quarantined[0].read_text(encoding="utf-8") == corrupt_content
+
+    # 5. Subsequent load reads the saved settings cleanly
+    reloaded = Settings.load(path)
+    assert reloaded.auto_capture_enabled is False
+    assert len(list(tmp_path.glob("settings.json.corrupt-*"))) == 1
+
+
 def test_macro_store_quarantines_corrupt(tmp_path):
     from cache_vault.core.vault_macros import MacroStore
 

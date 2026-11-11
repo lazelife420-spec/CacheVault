@@ -231,7 +231,22 @@ class TestGeometryPersistence:
         app = _make_app(tmp_path, settings)
         try:
             app.update()
-            app.geometry("1100x700+40+30")
+            area = window_geometry.query_work_area(app)
+            ax, ay, aw, ah = area
+
+            # Target a geometry achievable within the active work area so that
+            # the window manager does not forcibly clamp or position it off-screen,
+            # while preserving strict bounds and clipping checks.
+            if aw >= 1150 and ah >= 750:
+                target_w, target_h = 1100, 700
+                req_x, req_y = 40, 30
+            else:
+                target_w = min(1100, max(900, aw - 80)) if aw > 0 else 950
+                target_h = min(700, max(600, ah - 80)) if ah > 0 else 650
+                req_x = ax + min(40, max(0, aw - target_w)) if aw > 0 else 40
+                req_y = ay + min(30, max(0, ah - target_h)) if ah > 0 else 30
+
+            app.geometry(f"{target_w}x{target_h}+{req_x}+{req_y}")
 
             def _saved_geometry():
                 path = tmp_path / "settings.json"
@@ -251,10 +266,10 @@ class TestGeometryPersistence:
             while time.time() < deadline:
                 app.update()
                 parsed = _saved_geometry()
-                if parsed is not None and parsed[:2] == (1100, 700):
+                if parsed is not None and parsed[:2] == (target_w, target_h):
                     break
                 time.sleep(0.05)
-            assert parsed is not None and parsed[:2] == (1100, 700), parsed
+            assert parsed is not None and parsed[:2] == (target_w, target_h), parsed
             data = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
             parsed = window_geometry.parse_geometry(data["window_geometry"])
             w, h, x, y = parsed

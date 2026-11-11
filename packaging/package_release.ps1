@@ -1,4 +1,4 @@
-# Package a built Cache Vault executable into release artifacts.
+﻿# Package a built Cache Vault executable into release artifacts.
 #   pwsh packaging\package_release.ps1 -Tag v0.1.2
 #
 # Output:
@@ -86,6 +86,10 @@ $sumPath = Join-Path $releaseDir "SHA256SUMS.txt"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 Copy-Item -LiteralPath $exePath -Destination (Join-Path $stageDir "CacheVault.exe") -Force
 Copy-Item -LiteralPath $notesPath -Destination (Join-Path $stageDir "RELEASE_NOTES.md") -Force
+$quickStartPath = Join-Path $root "packaging\QUICK_START.txt"
+if (Test-Path -LiteralPath $quickStartPath) {
+    Copy-Item -LiteralPath $quickStartPath -Destination (Join-Path $stageDir "QUICK_START.txt") -Force
+}
 
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
